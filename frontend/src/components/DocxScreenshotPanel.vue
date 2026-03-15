@@ -224,7 +224,7 @@ function pageUrl(page) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: #f9f9f9;
+  background: var(--color-bg-hover);
   overflow-y: auto;
 }
 
@@ -237,30 +237,30 @@ function pageUrl(page) {
   gap: 12px;
   height: 100%;
   min-height: 200px;
-  color: #606266;
+  color: var(--color-text-secondary);
 }
 
 .status-text {
   font-size: 14px;
   font-weight: 500;
-  color: #303133;
+  color: var(--color-text-primary);
 }
 
 .status-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-muted);
 }
 
 .status-failed {
-  color: #f56c6c;
+  color: var(--color-danger);
 }
 
 .fail-icon {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #fef0f0;
-  color: #f56c6c;
+  background: color-mix(in srgb, var(--color-danger) 10%, white);
+  color: var(--color-danger);
   font-size: 20px;
   display: flex;
   align-items: center;
@@ -278,8 +278,8 @@ function pageUrl(page) {
 .spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid #e4e7ed;
-  border-top-color: #409eff;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -303,16 +303,17 @@ function pageUrl(page) {
   width: 100%;
   max-width: 100%;
   height: auto;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--color-border);
   border-radius: 2px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow-sm);
   display: block;
   transition: all 0.3s ease;
 }
 
 .page-highlight {
-  border: 3px solid #409eff;
-  box-shadow: 0 0 12px rgba(64, 158, 255, 0.5);
+  /* 必须用 outline，不得用 border！border 会改变 box model，导致图片位置偏移 */
+  outline: 2px solid var(--color-primary);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.5);
   transform: scale(1.02);
 }
 </style>

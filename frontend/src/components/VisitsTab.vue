@@ -194,7 +194,7 @@ async function toggleCell(visitId, formId) {
     <div style="width:50%;min-width:0;display:flex;flex-direction:column" v-if="selectedVisit">
       <div style="margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px">
         <b>{{ selectedVisit.name }}</b>
-        <span style="color:#909399;font-size:12px">关联表单 {{ visitForms.length }} 个</span>
+        <span style="color:var(--color-text-muted);font-size:12px">关联表单 {{ visitForms.length }} 个</span>
         <el-button type="info" plain size="small" @click="showVisitPreview = true" style="margin-left:auto">预览</el-button>
       </div>
       <!-- 添加表单行 -->
@@ -205,18 +205,18 @@ async function toggleCell(visitId, formId) {
         <el-button type="primary" size="small" :disabled="!addFormId" @click="addFormToVisit">添加</el-button>
       </div>
       <!-- 表单列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f5f7fa;border:1px solid #ddd;margin-bottom:4px;font-size:12px;color:#606266;font-weight:600;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600;flex-shrink:0">
         <span style="width:80px;flex-shrink:0">序号</span>
         <span style="flex:1">表单名称</span>
         <span style="width:60px;text-align:right">操作</span>
       </div>
       <!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->
       <div style="flex:1;overflow-y:auto">
-        <div v-if="!visitForms.length" style="color:#909399;font-size:13px;padding:20px;text-align:center">
+        <div v-if="!visitForms.length" style="color:var(--color-text-muted);font-size:13px;padding:20px;text-align:center">
           暂无关联表单，请在上方选择后点击添加
         </div>
         <div v-for="f in visitForms" :key="f.id"
-          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #ddd;margin-bottom:4px;background:#fff">
+          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
           <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
           <span style="flex:1;font-size:13px">{{ f.name }}</span>
           <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
@@ -225,7 +225,7 @@ async function toggleCell(visitId, formId) {
     </div>
 
     <!-- 右侧：未选中访视时的提示 -->
-    <div v-else style="width:50%;min-width:0;display:flex;align-items:center;justify-content:center;color:#909399;font-size:14px;border:1px dashed #dcdfe6;border-radius:4px">
+    <div v-else style="width:50%;min-width:0;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:14px;border:1px dashed var(--color-border);border-radius:4px">
       ← 点击左侧访视行查看和编辑关联表单
     </div>
 
@@ -233,12 +233,12 @@ async function toggleCell(visitId, formId) {
     <el-dialog v-model="showVisitPreview" :title="(selectedVisit?.name || '') + ' - 表单预览'" width="400px">
       <div v-if="visitForms.length" style="max-height:60vh;overflow-y:auto">
         <div v-for="f in visitForms" :key="f.id"
-          style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eee">
-          <span style="width:40px;flex-shrink:0;color:#909399;font-size:12px;text-align:center">{{ f.sequence }}</span>
+          style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--color-border)">
+          <span style="width:40px;flex-shrink:0;color:var(--color-text-muted);font-size:12px;text-align:center">{{ f.sequence }}</span>
           <span style="flex:1;font-size:13px">{{ f.name }}</span>
         </div>
       </div>
-      <div v-else style="color:#909399;text-align:center;padding:40px;font-size:13px">暂无关联表单</div>
+      <div v-else style="color:var(--color-text-muted);text-align:center;padding:40px;font-size:13px">暂无关联表单</div>
     </el-dialog>
 
     <!-- 预览弹窗（访视-表单矩阵） -->
@@ -265,9 +265,9 @@ async function toggleCell(visitId, formId) {
             </tbody>
           </table>
         </div>
-        <p style="font-size:12px;color:#909399;margin-top:6px">点击单元格可切换关联，数字为表单在该访视中的序号</p>
+        <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">点击单元格可切换关联，数字为表单在该访视中的序号</p>
       </template>
-      <div v-else style="color:#909399;text-align:center;padding:40px">
+      <div v-else style="color:var(--color-text-muted);text-align:center;padding:40px">
         暂无数据，请先添加访视和表单
       </div>
     </el-dialog>

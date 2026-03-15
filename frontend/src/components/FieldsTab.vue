@@ -170,9 +170,9 @@ async function updateOrder(row, newValue) {
         <el-table-column prop="field_type" label="类型" width="100" />
         <el-table-column label="单位/选项" width="120">
           <template #default="{ row }">
-            <span v-if="row.unit" style="color:#606266">{{ row.unit.symbol }}</span>
-            <span v-else-if="row.codelist" style="color:#606266">{{ row.codelist.name }}</span>
-            <span v-else style="color:#c0c4cc">—</span>
+            <span v-if="row.unit" style="color:var(--color-text-secondary)">{{ row.unit.symbol }}</span>
+            <span v-else-if="row.codelist" style="color:var(--color-text-secondary)">{{ row.codelist.name }}</span>
+            <span v-else style="color:var(--color-text-muted)">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="110">
@@ -185,11 +185,11 @@ async function updateOrder(row, newValue) {
     </div>
 
     <!-- 右侧：属性编辑面板 -->
-    <div style="width:320px;border:1px solid #e4e7ed;border-radius:4px;display:flex;flex-direction:column;flex-shrink:0">
-      <div style="padding:8px 12px;background:#f5f7fa;border-bottom:1px solid #e4e7ed;font-size:13px;font-weight:bold">
+    <div style="width:320px;border:1px solid var(--color-border);border-radius:4px;display:flex;flex-direction:column;flex-shrink:0">
+      <div style="padding:8px 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">
         {{ isCreating ? '新增字段' : (selectedFieldId ? '编辑字段' : '属性编辑') }}
       </div>
-      <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:#909399;font-size:12px">← 点击行或新增字段</div>
+      <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
       <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
           <el-form-item v-if="!['标签'].includes(editProp.field_type)" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>

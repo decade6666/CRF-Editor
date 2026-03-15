@@ -251,7 +251,7 @@ async function updateClOrder(element, newValue) {
         <b>{{ selected.name }}</b>
       </div>
       <!-- 选项列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f5f7fa;border:1px solid #ddd;margin-bottom:4px;font-size:12px;color:#606266;font-weight:600">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600">
         <span style="width:16px;flex-shrink:0"></span>
         <span style="width:80px;flex-shrink:0">序号</span>
         <span style="width:22px;flex-shrink:0"></span>
@@ -264,12 +264,12 @@ async function updateClOrder(element, newValue) {
       </div>
       <draggable v-model="selected.options" item-key="id" handle=".drag-handle" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element }">
-          <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #ddd;margin-bottom:4px;background:#fff">
-            <span class="drag-handle" style="cursor:move;color:#999;flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+            <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
             <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
             <el-input-number :model-value="element.order_index" @change="v => updateOptOrder(element, v)" :min="1" :max="selected.options.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑选项 ' + element.decode + ' 的序号'" />
             <div style="flex:1;display:flex;gap:12px;align-items:center">
-              <span style="color:#606266;font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
+              <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
               <span style="flex:1;font-size:13px">{{ element.decode }}{{ element.trailing_underscore ? '_' : '' }}</span>
               <el-checkbox :model-value="element.trailing_underscore === 1" disabled style="width:60px;justify-content:center" />
             </div>

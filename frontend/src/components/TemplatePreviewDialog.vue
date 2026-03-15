@@ -11,11 +11,11 @@
     <!-- 加载中状态 -->
     <div v-if="loading" style="text-align:center;padding:40px 0">
       <el-icon class="is-loading" size="24px"><Loading /></el-icon>
-      <span style="margin-left:8px;color:#909399">加载预览中...</span>
+      <span style="margin-left:8px;color:var(--color-text-muted)">加载预览中...</span>
     </div>
 
     <!-- 错误状态 -->
-    <div v-else-if="errorMsg" style="text-align:center;padding:40px 0;color:#f56c6c">
+    <div v-else-if="errorMsg" style="text-align:center;padding:40px 0;color:var(--color-danger)">
       {{ errorMsg }}
     </div>
 
@@ -87,9 +87,10 @@ async function loadFields() {
 
 .preview-hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--color-text-muted);
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--color-border);
 }
+
 </style>
