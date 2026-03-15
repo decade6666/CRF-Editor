@@ -1,0 +1,95 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* 头部 */
+.header { background: #409eff; color: #fff; padding: 0 20px; height: 50px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.header-left { display: flex; align-items: center; gap: 8px; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.settings-btn { cursor: pointer; font-size: 18px; opacity: 0.85; transition: opacity 0.2s; user-select: none; outline: none; }
+.settings-btn:hover { opacity: 1; }
+.settings-btn:focus-visible { opacity: 1; outline: 2px solid #409eff; outline-offset: 2px; border-radius: 4px; }
+.header h1 { font-size: 18px; }
+
+/* 布局 */
+.main { display: flex; flex: 1; overflow: hidden; }
+.sidebar { width: 220px; min-width: 120px; max-width: 400px; border-right: 1px solid #e4e7ed; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+.sidebar-resizer { width: 5px; background: transparent; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+.sidebar-resizer:hover, .sidebar-resizer.dragging { background: #409eff; }
+.sidebar-header { padding: 10px; border-bottom: 1px solid #e4e7ed; display: flex; gap: 8px; align-items: center; }
+.sidebar-header span { font-weight: bold; font-size: 14px; flex: 1; }
+.project-list { flex: 1; overflow-y: auto; }
+.project-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
+.project-item:hover { background: #f5f7fa; }
+.project-item.active { background: #ecf5ff; color: #409eff; font-weight: bold; }
+.project-item .del-btn { opacity: 0; font-size: 12px; color: #f56c6c; }
+.project-item:hover .del-btn { opacity: 1; }
+.content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.content-inner { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; }
+.empty-tip { display: flex; align-items: center; justify-content: center; height: 100%; color: #909399; font-size: 14px; }
+
+/* 表单设计器 */
+.form-designer { display: flex; gap: 0; height: 100%; }
+.el-tabs__content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.el-tab-pane { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.fd-formlist { width: 35%; display: flex; flex-direction: column; }
+.fd-right { width: 65%; display: flex; gap: 12px; overflow: hidden; }
+.fd-library { width: 240px; border: 1px solid #e4e7ed; border-radius: 4px; display: flex; flex-direction: column; flex-shrink: 0; }
+.fd-library-header { padding: 8px 12px; background: #f5f7fa; border-bottom: 1px solid #e4e7ed; font-size: 13px; font-weight: bold; }
+.fd-library-list { flex: 1; overflow-y: auto; padding: 4px; }
+.fd-panel-resizer { width: 5px; background: transparent; cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+.fd-panel-resizer:hover, .fd-panel-resizer.dragging { background: #409eff; }
+.fd-item { padding: 6px 10px; margin: 2px 0; border: 1px solid #dcdfe6; border-radius: 3px; font-size: 12px; cursor: pointer; background: #fff; display: flex; justify-content: space-between; align-items: center; }
+.fd-item:hover { border-color: #409eff; background: #ecf5ff; }
+.fd-canvas { flex: 1; border: 1px solid #e4e7ed; border-radius: 4px; display: flex; flex-direction: column; }
+.fd-canvas-header { padding: 8px 12px; background: #f5f7fa; border-bottom: 1px solid #e4e7ed; display: flex; align-items: center; gap: 8px; }
+.fd-canvas-list { flex: 1; overflow-y: auto; padding: 4px; }
+.ff-item { padding: 6px 10px; margin: 2px 0; border: 1px solid #dcdfe6; border-radius: 3px; font-size: 12px; background: #fff; display: flex; align-items: center; gap: 6px; cursor: grab; }
+.ff-item:hover { border-color: #409eff; }
+.ff-item.inline { border-color: #e6a23c; background: #fdf6ec; }
+.ff-item.ff-selected { border-color: #409eff; background: #ecf5ff; }
+.ff-item .drag-handle { color: #c0c4cc; }
+.ff-item .ff-label { flex: 1; }
+.ff-item .ff-type { color: #909399; font-size: 11px; }
+
+/* 访视矩阵 */
+.matrix-table { border-collapse: collapse; font-size: 12px; }
+.matrix-table th, .matrix-table td { border: 1px solid #dcdfe6; padding: 6px 10px; text-align: center; white-space: nowrap; }
+.matrix-table th { background: #a5c9eb; font-weight: bold; }
+.matrix-table td:first-child { text-align: left; font-weight: bold; background: #f5f7fa; }
+.matrix-cell { cursor: pointer; min-width: 40px; }
+.matrix-cell:hover { background: #ecf5ff; }
+.matrix-cell.checked { color: #409eff; font-weight: bold; }
+
+/* Word预览 */
+.word-preview { flex: 1; overflow: auto; padding: 20px; background: #f0f0f0; }
+.word-page { background: #fff; max-width: 700px; margin: 0 auto; padding: 32px 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); min-height: 400px; font-family: 'SimSun', serif; font-size: 10.5pt; }
+.word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 8px; }
+.word-page table { border-collapse: collapse; width: 100%; }
+.word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
+.word-page .wp-label { font-weight: bold; width: 40%; }
+.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; white-space: normal; } /* v-html 输出含 <br>，white-space 改为 normal */
+.word-page .wp-inline-header { background: #d9d9d9; font-weight: bold; text-align: center; white-space: nowrap; }
+.word-page .inline-table { width: 100%; table-layout: fixed; }
+.word-page .inline-table td { word-break: break-word; }
+.word-page .inline-table .wp-inline-header { white-space: normal; word-break: break-word; }
+.word-page.landscape { max-width: 1050px; }
+.word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
+
+/* 填写线：用 border-bottom 代替下划线字符，消除字形固有间距导致的断续问题 */
+.fill-line {
+  display: inline-block;
+  border-bottom: 1px solid #333;
+  vertical-align: baseline;
+  margin-bottom: 1px;
+  min-width: 3em;
+}
+
+/* 全选按钮 */
+.form-select-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.form-select-prompt { margin: 0; color: var(--el-text-color-regular, #606266); }
+
+/* Word导入表单项布局 */
+.docx-form-item { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.docx-form-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docx-form-actions { display: flex; align-items: center; flex-shrink: 0; margin-left: 8px; }

@@ -1,0 +1,36 @@
+# ============================================================
+# CRF 编辑器配置文件
+# 所有相对路径均基于本文件（config.yaml）所在目录解析
+# 即：backend/src/ 目录
+# 注意：通过 API 保存配置时，注释会丢失（YAML 库限制）
+# ============================================================
+
+# 应用基本信息
+app:
+  title: CRF编辑器                       # 应用显示名称
+
+# 数据库配置
+database:
+  path: ../../crf_editor.db              # 数据库文件路径（相对于 backend/src/，即项目根目录）
+
+# 存储配置
+storage:
+  upload_path: ../../uploads             # 上传文件存储目录（相对于 backend/src/）
+
+# 服务器配置
+server:
+  host: 0.0.0.0                          # 监听地址（0.0.0.0 表示所有网卡）
+  port: 8000                             # 监听端口
+
+# Word 模板配置
+template:
+  template_path: ../../templates         # Word 模板文件目录（相对于 backend/src/）
+
+# AI 辅助功能配置
+ai:
+  enabled: false                         # 是否启用 AI 功能
+  api_url: https://api.example.com/v1    # API 地址（支持 OpenAI 兼容格式）
+  api_key: sk-xxx                        # API 密钥（请勿提交到版本控制）
+  model: deepseek-chat                   # 使用的模型名称
+  api_format: openai                     # API 格式：openai / anthropic
+  timeout: 30                            # 请求超时（秒）
