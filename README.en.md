@@ -1,5 +1,7 @@
 # CRF Editor
 
+**English** | [中文](./README.md)
+
 ## Introduction
 
 CRF (Case Report Form) Editor is a form design and management tool for clinical research. The system supports creating, editing, and managing various forms in clinical research projects, and can export forms to standard Word document format.
@@ -87,13 +89,20 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies
+3. Install backend dependencies
 
 ```bash
 pip install -r backend/requirements.txt
 ```
 
-4. (Optional) Customize configuration
+4. Install frontend dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+5. (Optional) Customize configuration
 
 Copy and edit `backend/src/config.yaml` to configure database path, upload directory, server port, etc.:
 
@@ -111,12 +120,35 @@ server:
 
 ### Start the Application
 
+**Option 1: Production Mode** (build frontend first, then start backend)
+
 ```bash
-cd backend
+# 1. Build frontend
+cd frontend
+npm run build
+
+# 2. Start backend (serves frontend static files)
+cd ../backend
 python main.py
 ```
 
-After starting, open `http://localhost:8000` in your browser to access the web interface. API documentation is available at `http://localhost:8000/docs`.
+After starting, open `http://localhost:8000` in your browser to access the web interface.
+
+**Option 2: Development Mode** (hot reload, run frontend and backend separately)
+
+```bash
+# Terminal 1: Start backend
+cd backend
+python main.py
+
+# Terminal 2: Start frontend dev server
+cd frontend
+npm run dev
+```
+
+Access the frontend at `http://localhost:5173`. API requests are automatically proxied to the backend on port 8000.
+
+API documentation is available at `http://localhost:8000/docs`.
 
 ### Basic Workflow
 
