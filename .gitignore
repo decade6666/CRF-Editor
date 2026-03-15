@@ -52,6 +52,8 @@ node_modules/
 .context/
 .ace-tool/
 .playwright-mcp/
+openspec/
+.obsidian/
 
 # ==========================================
 # 临时与调试文件

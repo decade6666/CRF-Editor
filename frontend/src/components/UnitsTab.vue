@@ -99,7 +99,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     </div>
 
     <!-- 单位列表表头 -->
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f5f7fa;border:1px solid #ddd;margin-bottom:4px;font-size:12px;color:#606266;font-weight:600">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600">
       <span style="width:16px;flex-shrink:0"></span>
       <span style="width:22px;flex-shrink:0"></span>
       <span style="width:80px;flex-shrink:0">序号</span>
@@ -111,13 +111,13 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     </div>
     <draggable v-model="units" item-key="id" handle=".drag-handle" @start="dragging = true" @end="handleDragEnd(units, load, err => ElMessage.error(err.message))">
       <template #item="{ element }">
-        <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #ddd;margin-bottom:4px;background:#fff">
-          <span class="drag-handle" style="cursor:move;color:#999;flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+          <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
           <el-checkbox :model-value="selUnits.some(u => u.id === element.id)" @change="v => v ? selUnits.push(element) : selUnits.splice(selUnits.findIndex(u => u.id === element.id), 1)" style="flex-shrink:0" />
           <el-input-number :model-value="element.order_index" @change="v => updateOrder(element, v)" :min="1" :max="units.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑单位 ' + element.symbol + ' 的序号'" />
           <div style="flex:1;display:flex;gap:12px;align-items:center">
-            <span style="width:100px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#606266">{{ element.code }}</span>
-            <span style="font-size:13px;color:#303133">{{ element.symbol }}</span>
+            <span style="width:100px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--color-text-secondary)">{{ element.code }}</span>
+            <span style="font-size:13px;color:var(--color-text-primary)">{{ element.symbol }}</span>
           </div>
           <el-button size="small" link @click="openEdit(element)">编辑</el-button>
           <el-button type="danger" size="small" link @click="del(element)">删除</el-button>
@@ -148,3 +148,4 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     </el-dialog>
   </div>
 </template>
+

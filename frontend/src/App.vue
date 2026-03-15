@@ -466,10 +466,10 @@ function startResize(e) {
           测试连接
         </el-button>
         <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
-          <span v-if="aiTestResult.ok" style="color:#67c23a">
+          <span v-if="aiTestResult.ok" style="color:var(--color-success)">
             连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
           </span>
-          <span v-else style="color:#f56c6c">
+          <span v-else style="color:var(--color-danger)">
             连接失败: {{ aiTestResult.error }}
           </span>
         </span>
@@ -487,14 +487,14 @@ function startResize(e) {
       <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
     </div>
     <template v-else>
-      <p style="margin-bottom:12px;color:#606266">请选择需要导入的表单：</p>
+      <p style="margin-bottom:12px;color:var(--color-text-secondary)">请选择需要导入的表单：</p>
       <el-tree
         :data="importTreeData"
         show-checkbox
         node-key="id"
         :props="{ label: 'label', children: 'children' }"
         @check="handleImportTreeCheck"
-        style="max-height:400px;overflow-y:auto;border:1px solid #dcdfe6;border-radius:4px;padding:8px"
+        style="max-height:400px;overflow-y:auto;border:1px solid var(--color-border);border-radius:4px;padding:8px"
       >
         <template #default="{ node, data }">
           <span style="flex:1">{{ node.label }}</span>
@@ -507,7 +507,7 @@ function startResize(e) {
           >预览</el-button>
         </template>
       </el-tree>
-      <div v-if="importTreeData.length === 0" style="color:#909399;text-align:center;padding:20px 0">模板库中没有项目</div>
+      <div v-if="importTreeData.length === 0" style="color:var(--color-text-muted);text-align:center;padding:20px 0">模板库中没有项目</div>
     </template>
     <template #footer>
       <el-button @click="showImport = false">取消</el-button>
@@ -572,7 +572,7 @@ function startResize(e) {
                     <div v-for="s in f.ai_suggestions" :key="s.index" style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #eee">
                       <div><b>字段#{{ s.index }}</b>：{{ getFieldLabel(f, s.index) }}</div>
                       <div>建议类型：<el-tag size="small" type="danger">{{ s.suggested_type }}</el-tag></div>
-                      <div style="color:#909399">{{ s.reason }}</div>
+                      <div style="color:var(--color-text-muted)">{{ s.reason }}</div>
                     </div>
                   </div>
                 </el-popover>
@@ -589,7 +589,7 @@ function startResize(e) {
             </div>
           </el-checkbox>
         </el-checkbox-group>
-        <div v-if="importedFormsPreview.length === 0" style="color:#909399;text-align:center;padding:20px 0">Word文档中没有发现表单</div>
+        <div v-if="importedFormsPreview.length === 0" style="color:var(--color-text-muted);text-align:center;padding:20px 0">Word文档中没有发现表单</div>
         <el-alert v-if="importWordErrorMessage" :title="importWordErrorMessage" type="error" show-icon style="margin-top:10px;" />
       </div>
     </template>
@@ -652,5 +652,21 @@ function startResize(e) {
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
   margin-left: auto !important;
+}
+
+/* 弹窗圆角与头部渐变主题 */
+:deep(.el-dialog) {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:deep(.el-dialog__header) {
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-subtle) 0%,
+    var(--color-bg-card) 100%
+  );
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
 }
 </style>

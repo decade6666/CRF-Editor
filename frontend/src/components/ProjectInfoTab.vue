@@ -62,11 +62,11 @@ async function uploadLogo(e) {
     <el-form-item label="公司Logo">
       <div style="display:flex;flex-direction:column;gap:8px">
         <div v-if="project.company_logo_path">
-          <img :src="'/api/projects/'+project.id+'/logo?t='+logoTs" style="max-height:80px;max-width:200px;border:1px solid #e4e7ed;border-radius:4px;padding:4px" />
+          <img :src="'/api/projects/'+project.id+'/logo?t='+logoTs" style="max-height:80px;max-width:200px;border:1px solid var(--color-border);border-radius:4px;padding:4px" />
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <el-button size="small" @click="logoInput.click()">{{ project.company_logo_path ? '更换Logo' : '上传Logo' }}</el-button>
-          <span v-if="project.company_logo_path" style="font-size:12px;color:#67c23a">✓ 已上传</span>
+          <span v-if="project.company_logo_path" style="font-size:12px;color:var(--color-success)">✓ 已上传</span>
         </div>
         <input ref="logoInput" type="file" accept="image/*" style="display:none" @change="uploadLogo">
       </div>

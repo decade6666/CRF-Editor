@@ -69,7 +69,7 @@
               inline-prompt
             />
           </template>
-          <span v-else style="color:#909399;font-size:12px">该表单无AI建议</span>
+          <span v-else style="color:var(--color-text-muted);font-size:12px">该表单无AI建议</span>
         </div>
         <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
       </div>
@@ -150,16 +150,17 @@ const aiModifiedFields = computed(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
   min-width: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-header {
   padding: 10px 14px;
-  background: #f5f7fa;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--color-primary-subtle);
+  border-bottom: 1px solid var(--color-border);
   font-weight: 600;
   font-size: 13px;
   flex-shrink: 0;
@@ -178,15 +179,16 @@ const aiModifiedFields = computed(() => {
 .ai-diff-summary {
   margin: 12px;
   padding: 12px;
-  background: #fdf6ec;
-  border-radius: 4px;
-  border: 1px solid #faecd8;
+  padding-left: var(--space-sm);
+  background: var(--color-primary-subtle);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-left: 3px solid var(--color-primary);
 }
 
 .ai-diff-title {
   font-weight: 600;
   font-size: 13px;
-  color: #e6a23c;
+  color: var(--color-warning);
   margin-bottom: 8px;
 }
 
@@ -197,7 +199,7 @@ const aiModifiedFields = computed(() => {
 }
 
 .ai-diff-reason {
-  color: #909399;
+  color: var(--color-text-muted);
   margin-left: 6px;
 }
 

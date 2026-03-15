@@ -620,7 +620,7 @@ function openAddForm() {
         <div class="fd-canvas-header">
           <el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
-          <span style="color:#909399;font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
+          <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
         </div>
         <div class="word-preview">
           <div :class="['word-page', { landscape: needsLandscape }]">
@@ -688,14 +688,14 @@ function openAddForm() {
         <!-- 字段库 -->
         <div class="fd-library" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库（点击添加）</div>
-          <div style="padding:4px 6px;border-bottom:1px solid #e4e7ed">
+          <div style="padding:4px 6px;border-bottom:1px solid var(--color-border)">
             <el-input v-model="fieldSearch" placeholder="搜索变量名/标签" size="small" clearable />
           </div>
           <div class="fd-library-list">
             <div v-for="fd in filteredFieldDefs" :key="fd.id" class="fd-item"
               :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)">
               <span>{{ fd.label }}</span>
-              <span style="color:#909399;font-size:11px">{{ fd.field_type }}</span>
+              <span style="color:var(--color-text-muted);font-size:11px">{{ fd.field_type }}</span>
             </div>
           </div>
         </div>
@@ -705,7 +705,7 @@ function openAddForm() {
           <div class="fd-canvas-header">
             <el-button size="small" type="primary" @click="newField">新建字段</el-button>
             <el-button size="small" @click="addLogRow">添加log行</el-button>
-            <span style="color:#909399;font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
+            <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
             <el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{ selectedIds.length }})</el-button>
           </div>
           <div class="fd-canvas-list" role="listbox" aria-label="表单字段列表">
@@ -715,7 +715,7 @@ function openAddForm() {
               draggable="true" @click="selectField(ff)"
               @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)"
               @dragleave="onDragLeave" @drop="onDrop($event, idx)"
-              :style="dragOverIdx === idx ? 'border-top:2px solid #409eff' : ''"
+              :style="dragOverIdx === idx ? 'border-top:2px solid var(--color-primary)' : ''"
               role="option" :aria-selected="selectedFieldId === ff.id" tabindex="0"
               @keydown="handleFieldKeydown($event, ff, idx)">
               <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop>{{ idx + 1 }}.</el-checkbox>
@@ -734,9 +734,9 @@ function openAddForm() {
         </div>
         <div class="fd-panel-resizer" :class="{ dragging: isPropResizing }" @mousedown="startPropResize"></div>
         <!-- 属性编辑面板 -->
-        <div :style="{ width: propWidth + 'px', border: '1px solid #e4e7ed', borderRadius: '4px', display: 'flex', flexDirection: 'column', flexShrink: 0 }">
-          <div style="padding:8px 12px;background:#f5f7fa;border-bottom:1px solid #e4e7ed;font-size:13px;font-weight:bold">属性编辑</div>
-          <div v-if="!selectedFieldId" style="flex:1;display:flex;align-items:center;justify-content:center;color:#909399;font-size:12px">← 选择字段</div>
+        <div :style="{ width: propWidth + 'px', border: '1px solid var(--color-border)', borderRadius: '4px', display: 'flex', flexDirection: 'column', flexShrink: 0 }">
+          <div style="padding:8px 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">属性编辑</div>
+          <div v-if="!selectedFieldId" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 选择字段</div>
           <!-- 日志行属性 -->
           <div v-else-if="editProp.field_type === '日志行'" style="flex:1;overflow-y:auto;padding:8px">
             <el-form :model="editProp" label-width="70px" size="small">
@@ -796,7 +796,7 @@ function openAddForm() {
         <el-form-item label="字典名称"><el-input v-model="quickCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
       <div style="margin-top:8px">
-        <div style="font-size:12px;font-weight:bold;color:#606266;margin-bottom:6px">选项列表</div>
+        <div style="font-size:12px;font-weight:bold;color:var(--color-text-secondary);margin-bottom:6px">选项列表</div>
         <el-table :data="quickCodelistOpts" size="small" border style="margin-bottom:8px">
           <el-table-column prop="code" label="编码值" width="120" />
           <el-table-column prop="decode" label="标签" />
@@ -824,7 +824,7 @@ function openAddForm() {
         <el-form-item label="字典名称"><el-input v-model="quickEditCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
       <div style="margin-top:8px">
-        <div style="font-size:12px;font-weight:bold;color:#606266;margin-bottom:6px">选项列表</div>
+        <div style="font-size:12px;font-weight:bold;color:var(--color-text-secondary);margin-bottom:6px">选项列表</div>
         <el-table :data="quickEditCodelistOpts" size="small" border style="margin-bottom:8px">
           <el-table-column prop="code" label="编码值" width="140">
             <template #default="{ row }">
