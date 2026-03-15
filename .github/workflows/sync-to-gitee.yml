@@ -1,0 +1,32 @@
+name: Sync to Gitee
+
+# 触发条件：推送到 main 分支，或手动触发
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror GitHub to Gitee
+        uses: Yikun/hub-mirror-action@master
+        with:
+          # 源：GitHub 账户（替换为你的 GitHub 用户名）
+          src: github/${{ github.repository_owner }}
+          # 目标：Gitee 账户（替换为你的 Gitee 用户名）
+          dst: gitee/${{ secrets.GITEE_USERNAME }}
+          # Gitee SSH 私钥（从 GitHub Secrets 读取）
+          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
+          # Gitee 个人访问令牌（用于自动创建仓库）
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          # 账户类型：个人用户
+          account_type: user
+          # 仅同步当前仓库，避免同步所有仓库
+          static_list: ${{ github.event.repository.name }}
+          # 启用强制推送，确保 Gitee 与 GitHub 保持一致
+          force_update: true
+          # 超时时间
+          timeout: 30m
