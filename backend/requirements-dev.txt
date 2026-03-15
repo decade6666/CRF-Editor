@@ -1,0 +1,9 @@
+# 开发/测试依赖（不用于生产环境）
+-r requirements.txt
+
+# Testing
+pytest~=7.4.0
+hypothesis~=6.92.0
+
+# 依赖锁定工具（用于生成 requirements.lock）
+pip-tools~=7.3.0

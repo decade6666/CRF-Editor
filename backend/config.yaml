@@ -1,0 +1,11 @@
+app:
+  title: CRF编辑器
+database:
+  path: ../crf_editor.db
+storage:
+  upload_path: uploads
+server:
+  host: 0.0.0.0
+  port: 8000
+template:
+  template_path: templates
