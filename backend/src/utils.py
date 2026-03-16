@@ -2,15 +2,20 @@
 from datetime import datetime
 import ipaddress
 import random
+import string
 from pathlib import Path
 from urllib.parse import urlparse
 
 
 def generate_code(prefix: str) -> str:
-    """生成默认唯一标识 code: PREFIX_YYYYMMDDHHmmss_XXX"""
+    """生成默认唯一标识 code: PREFIX_YYYYMMDDHHmmss_XXXXXX
+
+    随机后缀使用 6 位大写字母+数字组合（36^6 ≈ 21 亿种），
+    大幅降低同秒批量生成时的碰撞概率。
+    """
     now = datetime.now()
     ts = now.strftime("%Y%m%d%H%M%S")
-    rand = f"{random.randint(0, 999):03d}"
+    rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"{prefix}_{ts}_{rand}"
 
 
