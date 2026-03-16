@@ -349,6 +349,22 @@ function updateAiFlag(formIndex, val) {
   aiSuggestionFlags.value[formIndex] = val
 }
 
+// 暗色模式（持久化）
+const isDark = ref(localStorage.getItem('crf_theme') === 'dark')
+
+function applyTheme() {
+  document.documentElement.classList.toggle('dark', isDark.value)
+  document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
+}
+
+function toggleTheme() {
+  isDark.value = !isDark.value
+  localStorage.setItem('crf_theme', isDark.value ? 'dark' : 'light')
+  applyTheme()
+}
+
+onMounted(() => { applyTheme() })
+
 // 侧边栏宽度拖拽（持久化）
 const sidebarWidth = ref(parseInt(localStorage.getItem('crf_sidebarWidth')) || 220)
 const isResizing = ref(false)
@@ -371,6 +387,9 @@ function startResize(e) {
       <h1>CRF编辑器</h1>
       <el-button class="refresh-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据">🔄</el-button>
       <el-button class="settings-btn" text circle aria-label="打开设置" @click="openSettings" title="设置">⚙️</el-button>
+      <el-button class="theme-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+        <el-icon><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
+      </el-button>
     </div>
     <div class="header-right">
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportWordDialog">导入Word</el-button>
@@ -441,9 +460,12 @@ function startResize(e) {
   <!-- 设置弹窗 -->
   <el-dialog v-model="showSettings" title="设置" width="480px">
     <el-form label-width="100px">
-      <el-form-item label="模板路径">
+      <!-- 暂时隐藏，保留代码 -->
+      <el-form-item v-if="false" label="模板路径">
         <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
       </el-form-item>
+      <!-- 暂时隐藏，保留代码 -->
+      <template v-if="false">
       <el-divider>AI 复核配置</el-divider>
       <el-form-item label="启用AI复核">
         <el-switch v-model="settingsForm.ai_enabled" />
@@ -474,6 +496,7 @@ function startResize(e) {
           </span>
         </span>
       </el-form-item>
+      </template>
     </el-form>
     <template #footer>
       <el-button @click="showSettings = false">取消</el-button>
