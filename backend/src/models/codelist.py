@@ -1,7 +1,7 @@
 """CodeList 模型"""
 from typing import TYPE_CHECKING, Optional, List
 
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint, nullslast
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -33,7 +33,7 @@ class CodeList(Base):
     options: Mapped[List["CodeListOption"]] = relationship(
         back_populates="codelist",
         cascade="all, delete-orphan",
-        order_by="CodeListOption.order_index"
+        order_by=lambda: nullslast(CodeListOption.order_index.asc())
     )
 
 

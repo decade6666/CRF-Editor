@@ -1,20 +1,19 @@
 from typing import Optional, List
-from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CodeListOptionCreate(BaseModel):
     code: Optional[str] = None
     decode: str
     trailing_underscore: int = 0
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
 
 
 class CodeListOptionUpdate(BaseModel):
     code: Optional[str] = None
     decode: Optional[str] = None
     trailing_underscore: Optional[int] = None
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
 
 
 class CodeListOptionResponse(BaseModel):
@@ -23,7 +22,7 @@ class CodeListOptionResponse(BaseModel):
     code: Optional[str] = None
     decode: str
     trailing_underscore: int = 0
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
 
     model_config = {"from_attributes": True}
 
@@ -32,14 +31,14 @@ class CodeListCreate(BaseModel):
     name: str
     code: Optional[str] = None
     description: Optional[str] = None
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
 
 
 class CodeListUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
     description: Optional[str] = None
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
 
 
 class CodeListResponse(BaseModel):
@@ -48,7 +47,7 @@ class CodeListResponse(BaseModel):
     name: str
     code: Optional[str] = None
     description: Optional[str] = None
-    order_index: Optional[int] = None
+    order_index: Optional[int] = Field(None, ge=1)
     options: List[CodeListOptionResponse] = []
 
     model_config = {"from_attributes": True}
