@@ -171,12 +171,24 @@ def _migrate_add_order_index(engine):
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_codelist_option_order ON codelist_option(codelist_id, order_index)"))
 
 
+def _migrate_add_design_notes(engine):
+    """给 form 表补上 design_notes 列"""
+    insp = inspect(engine)
+    if not insp.has_table("form"):
+        return
+    with engine.begin() as conn:
+        cols = [c["name"] for c in insp.get_columns("form")]
+        if "design_notes" not in cols:
+            conn.execute(text('ALTER TABLE "form" ADD COLUMN design_notes TEXT'))
+
+
 def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
     _migrate_add_code_columns(engine)
     _migrate_add_trailing_underscore(engine)
     _migrate_add_order_index(engine)
+    _migrate_add_design_notes(engine)
 
 
 def get_session():

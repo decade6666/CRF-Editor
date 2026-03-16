@@ -1,7 +1,7 @@
 """Form 模型"""
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -29,6 +29,7 @@ class Form(Base):
     code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    design_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="forms")
     fields: Mapped[list["Field"]] = relationship(

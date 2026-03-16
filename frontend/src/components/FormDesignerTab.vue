@@ -376,6 +376,42 @@ function startPropResize(e) {
   document.addEventListener('mouseup', onUp)
 }
 
+// ───────────────── 表单设计备注 ─────────────────
+const notesHeight = ref(parseInt(localStorage.getItem('crf_notesHeight')) || 120)
+watch(notesHeight, v => localStorage.setItem('crf_notesHeight', v))
+
+const formDesignNotes = ref('')
+let notesTimer = null
+
+// 切换表单时加载备注，并清除未发出的 debounce
+watch(selectedForm, (form) => {
+  clearTimeout(notesTimer)
+  formDesignNotes.value = form?.design_notes || ''
+})
+
+async function saveDesignNotes() {
+  if (!selectedForm.value) return
+  try {
+    await api.put(`/api/forms/${selectedForm.value.id}`, { design_notes: formDesignNotes.value })
+    api.invalidateCache(`/api/projects/${props.projectId}/forms`)
+  } catch (e) {
+    console.error('备注保存失败', e)
+  }
+}
+
+function onNotesInput() {
+  clearTimeout(notesTimer)
+  notesTimer = setTimeout(saveDesignNotes, 500)
+}
+
+function onNotesResize(evt) {
+  const textarea = evt.target?.closest('.design-notes-wrap')?.querySelector('textarea')
+  if (textarea) {
+    notesHeight.value = textarea.offsetHeight
+  }
+}
+// ──────────────────────────────────────────────
+
 // 字段属性编辑
 const selectedFieldId = ref(null)
 const editProp = reactive({
@@ -785,6 +821,18 @@ function openAddForm() {
               </el-form-item>
             </el-form>
             <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
+          </div>
+          <!-- 表单设计备注 -->
+          <div class="design-notes-wrap" style="padding: 8px; border-top: 1px solid var(--color-border); flex-shrink: 0;" @mouseup="onNotesResize">
+            <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px;">表单设计备注</div>
+            <el-input
+              v-model="formDesignNotes"
+              type="textarea"
+              :autosize="false"
+              :style="{ height: notesHeight + 'px', resize: 'vertical' }"
+              placeholder="在此记录表单设计说明、注意事项…"
+              @input="onNotesInput"
+            />
           </div>
         </div>
       </div>
