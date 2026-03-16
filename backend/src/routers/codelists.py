@@ -35,7 +35,7 @@ def list_codelists(project_id: int, session: Session = Depends(get_session)):
         select(CodeList)
         .where(CodeList.project_id == project_id)
         .options(selectinload(CodeList.options))
-        .order_by(CodeList.order_index, CodeList.id)
+        .order_by(CodeList.order_index.asc().nullslast(), CodeList.id)
     )
     codelists = list(session.scalars(stmt).all())
     # 确保 options 按 order_index 排序
