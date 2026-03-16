@@ -14,6 +14,62 @@ class OrderService:
     SAFE_OFFSET = 100000  # 两阶段位移的临时安全区偏移量
 
     @staticmethod
+    def _ensure_initialized(session: Session, model_class, scope_filter) -> int:
+        """
+        确保当前作用域内的 order_index 已初始化（含 partial-NULL 场景）
+
+        - 全部为 NULL：两阶段回填为 1..n
+        - 部分为 NULL：仅补齐 NULL 记录，从 max_order+1 开始
+        - 全部已有值：直接返回 max_order
+        """
+        record_count = session.query(func.count(model_class.id)).filter(scope_filter).scalar() or 0
+        if record_count == 0:
+            return 0
+
+        max_order = session.query(func.max(model_class.order_index)).filter(scope_filter).scalar()
+
+        if max_order is None:
+            # 全部为 NULL：两阶段回填为 1..n
+            records = session.scalars(
+                select(model_class)
+                .where(scope_filter)
+                .order_by(model_class.id)
+            ).all()
+
+            # 阶段 1：先搬到负数安全区，确保中间态不会触发唯一约束
+            for idx, current_record in enumerate(records, start=1):
+                current_record.order_index = -(OrderService.SAFE_OFFSET + idx)
+            session.flush()
+
+            # 阶段 2：按 id 顺序回填为 1..n
+            for idx, current_record in enumerate(records, start=1):
+                current_record.order_index = idx
+            session.flush()
+            return len(records)
+
+        # 检查是否存在 partial-NULL（部分记录有值，部分为 NULL）
+        null_records = session.scalars(
+            select(model_class)
+            .where(scope_filter)
+            .where(model_class.order_index.is_(None))
+            .order_by(model_class.id)
+        ).all()
+
+        if not null_records:
+            return max_order
+
+        # partial-NULL：仅补齐 NULL 记录，两阶段避免唯一约束冲突
+        for idx, current_record in enumerate(null_records, start=1):
+            current_record.order_index = -(OrderService.SAFE_OFFSET + idx)
+        session.flush()
+
+        for idx, current_record in enumerate(null_records, start=1):
+            current_record.order_index = max_order + idx
+        session.flush()
+
+        return max_order + len(null_records)
+
+    @staticmethod
     def get_next_order(session: Session, model_class, scope_filter) -> int:
         """
         获取下一个可用序号（max + 1）
@@ -26,8 +82,8 @@ class OrderService:
         Returns:
             下一个可用序号
         """
-        max_order = session.query(func.max(model_class.order_index)).filter(scope_filter).scalar()
-        return (max_order or 0) + 1
+        max_order = OrderService._ensure_initialized(session, model_class, scope_filter)
+        return max_order + 1
 
     @staticmethod
     def insert_at(session: Session, model_class, scope_filter, record, position: int):
@@ -44,8 +100,8 @@ class OrderService:
         Raises:
             ValueError: 位置越界
         """
-        # 1. 校验目标位置合法性
-        max_order = session.query(func.max(model_class.order_index)).filter(scope_filter).scalar() or 0
+        # 1. 历史数据可能尚未初始化，先补齐序号
+        max_order = OrderService._ensure_initialized(session, model_class, scope_filter)
         if not (1 <= position <= max_order + 1):
             raise ValueError(f"Invalid position {position}, valid range: [1, {max_order + 1}]")
 
@@ -87,13 +143,14 @@ class OrderService:
         Raises:
             ValueError: 位置越界
         """
+        # 历史数据可能整组都是 NULL，先自愈再做位置校验
+        max_order = OrderService._ensure_initialized(session, model_class, scope_filter)
         old_position = record.order_index
 
         if old_position == new_position:
             return  # no-op
 
         # 校验目标位置合法性
-        max_order = session.query(func.max(model_class.order_index)).filter(scope_filter).scalar() or 0
         if not (1 <= new_position <= max_order):
             raise ValueError(f"Invalid position {new_position}, valid range: [1, {max_order}]")
 
@@ -150,6 +207,7 @@ class OrderService:
             scope_filter: 作用域过滤条件
             record: 待删除记录
         """
+        OrderService._ensure_initialized(session, model_class, scope_filter)
         old_position = record.order_index
 
         # 1. 删除记录

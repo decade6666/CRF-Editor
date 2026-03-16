@@ -25,6 +25,7 @@ def _setup_app_logging():
         ))
         app_logger.addHandler(h)
 
+
 app = FastAPI(title="CRF编辑器")
 
 app.include_router(projects.router, prefix="/api")
@@ -94,6 +95,12 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
     else:
         detail = "数据已存在，请检查是否重复"
     return JSONResponse(status_code=409, content={"detail": detail})
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """将业务参数错误转换为 400 响应。"""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.on_event("startup")
