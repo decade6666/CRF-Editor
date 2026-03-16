@@ -121,22 +121,26 @@ export const api = {
   },
 }
 
-// 生成字段变量名：FIELD_YYYYMMDDHHmmss_XXX（XXX为3位随机数，避免同秒冲突）
+// 生成6位大写字母+数字随机后缀（36^6 ≈ 21亿种，大幅降低同秒批量碰撞概率）
+function _genRandSuffix() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from({ length: 6 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('')
+}
+
+// 生成字段变量名：FIELD_YYYYMMDDHHmmss_XXXXXX
 export function genFieldVarName() {
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   const ts = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
-  return `FIELD_${ts}_${rand}`
+  return `FIELD_${ts}_${_genRandSuffix()}`
 }
 
-// 生成实体默认 code：PREFIX_YYYYMMDDHHmmss_XXX
+// 生成实体默认 code：PREFIX_YYYYMMDDHHmmss_XXXXXX
 export function genCode(prefix) {
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
   const ts = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
-  return `${prefix}_${ts}_${rand}`
+  return `${prefix}_${ts}_${_genRandSuffix()}`
 }
 
 // 截断引用列表显示
