@@ -14,6 +14,7 @@ class FormUpdate(BaseModel):
     code: Optional[str] = None
     domain: Optional[str] = None
     order_index: Optional[int] = None
+    design_notes: Optional[str] = None
 
 
 class FormResponse(BaseModel):
@@ -23,5 +24,6 @@ class FormResponse(BaseModel):
     code: Optional[str] = None
     domain: Optional[str] = None
     order_index: Optional[int] = None
+    design_notes: Optional[str] = None
 
     model_config = {"from_attributes": True}

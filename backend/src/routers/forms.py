@@ -134,7 +134,7 @@ def copy_form(form_id: int, session: Session = Depends(get_session)):
         candidate = f"{base}{idx}"
         idx += 1
     from src.utils import generate_code
-    new_form = Form(project_id=src.project_id, name=candidate, code=generate_code("FORM"), domain=src.domain)
+    new_form = Form(project_id=src.project_id, name=candidate, code=generate_code("FORM"), domain=src.domain, design_notes=src.design_notes)
     # 追加到末尾
     new_form.order_index = OrderService.get_next_order(session, Form, Form.project_id == src.project_id)
     session.add(new_form)
@@ -155,6 +155,6 @@ def copy_form(form_id: int, session: Session = Depends(get_session)):
             default_value=ff.default_value,
             inline_mark=ff.inline_mark,
         ))
-    session.commit()
+    session.flush()
     session.refresh(new_form)
     return new_form
