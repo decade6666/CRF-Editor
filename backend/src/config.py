@@ -11,11 +11,11 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
-# 配置文件固定在 src/ 目录下，避免相对路径导致读写不一致
-CONFIG_FILE = Path(__file__).resolve().parent / "config.yaml"
+# 配置文件迁移至项目根目录，统一配置入口
+CONFIG_FILE = Path(__file__).resolve().parents[2] / "config.yaml"
 # update_config 的读-改-写锁，防止并发请求导致配置互相覆盖
 _config_lock = threading.Lock()
-# 所有相对路径均以 config.yaml 所在目录（backend/src/）为基准解析
+# 所有相对路径均以 config.yaml 所在目录（项目根目录）为基准解析
 _CONFIG_DIR = CONFIG_FILE.resolve().parent
 _CONFIG_PATH_LOGGED = False
 
@@ -40,11 +40,11 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 class DatabaseConfig(BaseModel):
-    path: str = "../../crf_editor.db"
+    path: str = "./crf_editor.db"
 
 
 class StorageConfig(BaseModel):
-    upload_path: str = "../../uploads"
+    upload_path: str = "./uploads"
 
 
 class ServerConfig(BaseModel):
