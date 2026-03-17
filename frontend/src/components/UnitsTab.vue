@@ -125,7 +125,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       </template>
     </draggable>
 
-    <el-dialog v-model="showAdd" title="新增单位" width="360px">
+    <el-dialog v-model="showAdd" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="unitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="symbol" placeholder="如 kg" /></el-form-item>
@@ -136,7 +136,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showEdit" title="编辑单位" width="360px">
+    <el-dialog v-model="showEdit" title="编辑单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="editUnitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="editSymbol" placeholder="如 kg" /></el-form-item>

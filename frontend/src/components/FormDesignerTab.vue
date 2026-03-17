@@ -699,7 +699,7 @@ function openAddForm() {
     </div>
 
     <!-- 新建表单弹窗 -->
-    <el-dialog v-model="showAddForm" title="新建表单" width="360px">
+    <el-dialog v-model="showAddForm" title="新建表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="newFormName" /></el-form-item>
@@ -711,7 +711,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 编辑表单弹窗 -->
-    <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
+    <el-dialog v-model="showEditForm" title="编辑表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="editFormName" /></el-form-item>
@@ -723,7 +723,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 设计表单弹窗 -->
-    <el-dialog v-model="showDesigner" :title="'设计表单：' + (selectedForm?.name || '')" width="80vw" top="5vh">
+    <el-dialog v-model="showDesigner" :title="'设计表单：' + (selectedForm?.name || '')" width="80vw" top="5vh" :close-on-click-modal="false">
       <div style="display:flex;height:80vh">
         <!-- 字段库 -->
         <div class="fd-library" :style="{ width: libraryWidth + 'px' }">
@@ -843,7 +843,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速新增选项字典 -->
-    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="500px" @close="closeQuickAddCodelist">
+    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="500px" :close-on-click-modal="false" @close="closeQuickAddCodelist">
       <el-form label-width="80px" size="small">
         <el-form-item label="字典名称"><el-input v-model="quickCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
@@ -871,7 +871,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速编辑选项字典 -->
-    <el-dialog v-model="showQuickEditCodelist" title="编辑选项" width="500px" @close="closeQuickEditCodelist">
+    <el-dialog v-model="showQuickEditCodelist" title="编辑选项" width="500px" :close-on-click-modal="false" @close="closeQuickEditCodelist">
       <el-form label-width="80px" size="small">
         <el-form-item label="字典名称"><el-input v-model="quickEditCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
@@ -912,7 +912,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速新增单位 -->
-    <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px">
+    <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px" size="small">
         <el-form-item label="符号"><el-input v-model="quickUnitSymbol" placeholder="单位符号，如 kg" /></el-form-item>
       </el-form>

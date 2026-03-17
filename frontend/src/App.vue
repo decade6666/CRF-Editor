@@ -446,7 +446,7 @@ function startResize(e) {
   </div>
 
   <!-- 新建项目弹窗 -->
-  <el-dialog v-model="showCreateProject" title="新建项目" width="400px">
+  <el-dialog v-model="showCreateProject" title="新建项目" width="400px" :close-on-click-modal="false">
     <el-form :model="newProject" label-width="80px">
       <el-form-item label="项目名称"><el-input v-model="newProject.name" /></el-form-item>
       <el-form-item label="版本号"><el-input v-model="newProject.version" /></el-form-item>
@@ -458,7 +458,7 @@ function startResize(e) {
   </el-dialog>
 
   <!-- 设置弹窗 -->
-  <el-dialog v-model="showSettings" title="设置" width="480px">
+  <el-dialog v-model="showSettings" title="设置" width="480px" :close-on-click-modal="false">
     <el-form label-width="100px">
       <!-- 暂时隐藏，保留代码 -->
       <el-form-item v-if="false" label="模板路径">
