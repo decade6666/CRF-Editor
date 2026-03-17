@@ -230,7 +230,7 @@ async function toggleCell(visitId, formId) {
     </div>
 
     <!-- 访视关联表单只读预览弹窗 -->
-    <el-dialog v-model="showVisitPreview" :title="(selectedVisit?.name || '') + ' - 表单预览'" width="400px">
+    <el-dialog v-model="showVisitPreview" :title="(selectedVisit?.name || '') + ' - 表单预览'" width="400px" :close-on-click-modal="false">
       <div v-if="visitForms.length" style="max-height:60vh;overflow-y:auto">
         <div v-for="f in visitForms" :key="f.id"
           style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--color-border)">
@@ -242,7 +242,7 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
 
     <!-- 预览弹窗（访视-表单矩阵） -->
-    <el-dialog v-model="showPreview" title="访视表单矩阵预览" width="80%" top="5vh">
+    <el-dialog v-model="showPreview" title="访视表单矩阵预览" width="80%" top="5vh" :close-on-click-modal="false">
       <template v-if="matrixData && matrixData.forms.length && matrixData.visits.length">
         <div style="overflow-x:auto">
           <table class="matrix-table">
@@ -273,7 +273,7 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
 
     <!-- 新增访视弹窗 -->
-    <el-dialog v-model="showAdd" title="新增访视" width="360px">
+    <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
         <el-form-item label="Code"><el-input v-model="form.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
@@ -286,7 +286,7 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
 
     <!-- 编辑访视弹窗 -->
-    <el-dialog v-model="showEdit" title="编辑访视" width="360px">
+    <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="Code"><el-input v-model="editForm.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>

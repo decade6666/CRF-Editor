@@ -22,8 +22,14 @@ export function toHtml(text) {
     const minWidth = (match.length * 0.55).toFixed(1)
     return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
   })
+  // 将紧跟在 fill-line span 之后的文字（单位符号）包裹为 vertical-align:bottom 的 span
+  // 使单位与填写线底边对齐，避免 inline-block 撑高行框导致单位偏上
+  const aligned = html.replace(
+    /(<\/span>)( [^\n]+)/g,
+    (_, closeTag, text) => `${closeTag}<span style="vertical-align:bottom">${text}</span>`
+  )
   // 将换行转为 <br>
-  return html.replace(/\n/g, '<br>')
+  return aligned.replace(/\n/g, '<br>')
 }
 
 /**
