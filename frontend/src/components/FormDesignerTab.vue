@@ -160,8 +160,12 @@ async function removeField(ff) {
 }
 
 async function toggleInline(ff) {
-  try { await confirmFormChange(); await api.patch(`/api/form-fields/${ff.id}/inline-mark`, { inline_mark: ff.inline_mark ? 0 : 1 }); loadFormFields() }
-  catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+  try {
+    await confirmFormChange()
+    await api.patch(`/api/form-fields/${ff.id}/inline-mark`, { inline_mark: ff.inline_mark ? 0 : 1 })
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+    await loadFormFields()
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
 async function batchDelete() {
@@ -280,7 +284,7 @@ function renderCell(ff) {
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrl(ff.field_definition)
   }
-  if (ff.default_value) return ff.default_value
+  if (ff.inline_mark && ff.default_value) return ff.default_value
   return renderCtrl(ff.field_definition)
 }
 
@@ -290,7 +294,7 @@ function renderCellHtml(ff) {
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrlHtml({ ...ff.field_definition, options: ff.field_definition?.codelist?.options || [] })
   }
-  if (ff.default_value) {
+  if (ff.inline_mark && ff.default_value) {
     // default_value 是纯文本，直接转义后返回（无需替换下划线）
     return ff.default_value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
   }
