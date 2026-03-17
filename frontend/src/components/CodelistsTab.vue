@@ -274,7 +274,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
             <el-input-number :model-value="element.order_index ?? (index + 1)" @change="v => updateOptOrder(element, v, index + 1)" :min="1" :max="selected.options.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑选项 ' + element.decode + ' 的序号'" />
             <div style="flex:1;display:flex;gap:12px;align-items:center">
               <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
-              <span style="flex:1;font-size:13px">{{ element.decode }}{{ element.trailing_underscore ? '_' : '' }}</span>
+              <span style="flex:1;font-size:13px">{{ element.decode }}</span>
               <el-checkbox :model-value="element.trailing_underscore === 1" disabled style="width:60px;justify-content:center" />
             </div>
             <el-button size="small" link @click="openEditOpt(element)">编辑</el-button>
@@ -285,7 +285,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     </div>
 
     <!-- 新增字典弹窗 -->
-    <el-dialog v-model="showAddCl" title="新增字典" width="360px">
+    <el-dialog v-model="showAddCl" title="新增字典" width="360px" :close-on-click-modal="false">
       <el-form :model="clForm" label-width="80px">
         <el-form-item label="Code"><el-input v-model="clForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="clForm.name" /></el-form-item>
@@ -298,7 +298,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     </el-dialog>
 
     <!-- 新增选项弹窗 -->
-    <el-dialog v-model="showAddOpt" title="新增选项" width="480px">
+    <el-dialog v-model="showAddOpt" title="新增选项" width="480px" :close-on-click-modal="false">
       <el-form :model="optForm" label-width="100px">
         <el-form-item label="编码值"><el-input v-model="optForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="optForm.decode" /></el-form-item>
@@ -311,7 +311,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     </el-dialog>
 
     <!-- 编辑字典弹窗 -->
-    <el-dialog v-model="showEditCl" title="编辑字典" width="360px">
+    <el-dialog v-model="showEditCl" title="编辑字典" width="360px" :close-on-click-modal="false">
       <el-form :model="editClForm" label-width="80px">
         <el-form-item label="Code"><el-input v-model="editClForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editClForm.name" /></el-form-item>
@@ -324,7 +324,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     </el-dialog>
 
     <!-- 编辑选项弹窗 -->
-    <el-dialog v-model="showEditOpt" title="编辑选项" width="480px">
+    <el-dialog v-model="showEditOpt" title="编辑选项" width="480px" :close-on-click-modal="false">
       <el-form :model="editOptForm" label-width="100px">
         <el-form-item label="编码值"><el-input v-model="editOptForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="editOptForm.decode" /></el-form-item>
