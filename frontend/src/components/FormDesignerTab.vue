@@ -589,6 +589,10 @@ async function quickSaveCodelist() {
     }
     api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
     await loadCodelists()
+    if (selectedForm.value) {
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      await loadFormFields()
+    }
     closeQuickEditCodelist()
     ElMessage.success('保存成功')
   } catch (e) { ElMessage.error(e.message) }

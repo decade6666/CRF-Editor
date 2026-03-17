@@ -162,7 +162,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .fill-line {
   display: inline-block;
   border-bottom: 1px solid #333;
-  vertical-align: baseline;
+  vertical-align: bottom;
   margin-bottom: 1px;
   min-width: 3em;
 }
