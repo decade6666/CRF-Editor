@@ -9,6 +9,18 @@ const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
 
 const codelists = ref([])
+// 左侧：字典搜索
+const searchCl = ref('')
+const filteredCodelists = computed(() => {
+  const kw = searchCl.value.trim().toLowerCase()
+  if (!kw) return codelists.value
+  return codelists.value.filter(item =>
+    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
+  )
+})
+
+// 右侧：选项搜索（使用 v-show 保留拖拽）
+const searchOpt = ref('')
 const selected = ref(null)
 const showAddCl = ref(false)
 const showAddOpt = ref(false)
@@ -217,8 +229,15 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
         <el-button type="primary" size="small" @click="openAddCl">新增字典</el-button>
         <el-button type="danger" size="small" :disabled="!selCls.length" @click="batchDelCl">批量删除({{ selCls.length }})</el-button>
+        <el-input
+          v-model="searchCl"
+          placeholder="搜索选项..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
       </div>
-      <el-table :data="codelists" size="small" border highlight-current-row
+      <el-table :data="filteredCodelists" size="small" border highlight-current-row
         @current-change="r => selected = r" @header-dragend="onClTableHeaderDragend"
         @selection-change="r => selCls = r" style="width:100%" height="100%">
         <el-table-column type="selection" width="40" />
@@ -252,6 +271,13 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
       <div style="margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px">
         <el-button type="primary" size="small" @click="openAddOpt">新增选项</el-button>
         <el-button type="danger" size="small" :disabled="!selOpts.length" @click="batchDelOpt">批量删除({{ selOpts.length }})</el-button>
+        <el-input
+          v-model="searchOpt"
+          placeholder="搜索选项..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
         <b>{{ selected.name }}</b>
       </div>
       <!-- 选项列表表头 -->
@@ -268,7 +294,10 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
       </div>
       <draggable v-model="selected.options" item-key="id" handle=".drag-handle" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
-          <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+          <div
+            v-show="!searchOpt.trim() || (String(element.code ?? '') + String(element.decode ?? '')).toLowerCase().includes(searchOpt.trim().toLowerCase())"
+            style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)"
+          >
             <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
             <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
             <el-input-number :model-value="element.order_index ?? (index + 1)" @change="v => updateOptOrder(element, v, index + 1)" :min="1" :max="selected.options.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑选项 ' + element.decode + ' 的序号'" />

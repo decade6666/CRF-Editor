@@ -9,6 +9,14 @@ const refreshKey = inject('refreshKey', ref(0))
 
 // 核心数据
 const forms = ref([])
+const searchForm = ref('')
+const filteredForms = computed(() => {
+  const kw = searchForm.value.trim().toLowerCase()
+  if (!kw) return forms.value
+  return forms.value.filter(item =>
+    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
+  )
+})
 const selectedForm = ref(null)
 const fieldDefs = ref([])
 const formFields = ref([])
@@ -635,8 +643,15 @@ function openAddForm() {
       <div style="margin-bottom:12px;align-self:flex-start;display:flex;gap:8px">
         <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
+        <el-input
+          v-model="searchForm"
+          placeholder="搜索表单..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
       </div>
-      <el-table :data="forms" size="small" border highlight-current-row
+      <el-table :data="filteredForms" size="small" border highlight-current-row
         @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
