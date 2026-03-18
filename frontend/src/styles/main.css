@@ -136,11 +136,16 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 /* 访视矩阵 */
 .matrix-table { border-collapse: collapse; font-size: 12px; }
 .matrix-table th, .matrix-table td { border: 1px solid var(--color-border); padding: 6px 10px; text-align: center; white-space: nowrap; }
-.matrix-table th { background: #a5c9eb; font-weight: bold; }
-.matrix-table td:first-child { text-align: left; font-weight: bold; background: var(--color-bg-hover); }
+.matrix-table thead th { background: #a5c9eb; font-weight: bold; position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--color-border); }
+.matrix-table td:first-child { background: var(--color-bg-hover); }
+.matrix-table td:nth-child(2) { text-align: left; font-weight: bold; background: var(--color-bg-hover); }
 .matrix-cell { cursor: pointer; min-width: 40px; }
 .matrix-cell:hover { background: var(--color-primary-subtle); }
 .matrix-cell.checked { color: var(--color-primary); font-weight: bold; }
+/* 矩阵弹窗全高适配：让 el-dialog__body 撑满 90vh */
+.matrix-preview-dialog { height: 90vh; display: flex; flex-direction: column; }
+.matrix-preview-dialog .el-dialog__header { flex-shrink: 0; }
+.matrix-preview-dialog .el-dialog__body { flex: 1; overflow: hidden; min-height: 0; padding: 12px 20px; }
 
 /* Word预览 */
 .word-preview { flex: 1; overflow: auto; padding: 20px; background: var(--color-bg-body); }
