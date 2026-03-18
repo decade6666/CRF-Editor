@@ -257,7 +257,7 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
 
     <!-- 批量编辑弹窗（访视-表单矩阵） -->
-    <el-dialog v-model="showPreview" width="80%" top="5vh" :close-on-click-modal="false">
+    <el-dialog v-model="showPreview" width="92%" top="3vh" class="matrix-preview-dialog" :close-on-click-modal="false">
       <template #header>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-right:32px">
           <span style="font-size:18px;font-weight:600;color:var(--el-text-color-primary)">访视表单矩阵</span>
@@ -267,16 +267,18 @@ async function toggleCell(visitId, formId) {
         </div>
       </template>
       <template v-if="matrixData && matrixData.forms.length && matrixData.visits.length">
-        <div style="overflow-x:auto">
+        <div style="overflow:auto;height:100%">
           <table class="matrix-table">
             <thead>
               <tr>
+                <th style="min-width:40px">#</th>
                 <th>表单 \ 访视</th>
                 <th v-for="v in matrixData.visits" :key="v.id">{{ v.name }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="f in matrixData.forms" :key="f.id">
+              <tr v-for="(f, fIndex) in matrixData.forms" :key="f.id">
+                <td style="text-align:center;color:var(--color-text-muted);font-size:11px">{{ fIndex + 1 }}</td>
                 <td>{{ f.name }}</td>
                 <td v-for="v in matrixData.visits" :key="v.id"
                   class="matrix-cell"
