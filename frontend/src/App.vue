@@ -385,10 +385,10 @@ function startResize(e) {
   <div class="header">
     <div class="header-left">
       <h1>CRF编辑器</h1>
-      <el-button class="refresh-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据">🔄</el-button>
-      <el-button class="settings-btn" text circle aria-label="打开设置" @click="openSettings" title="设置">⚙️</el-button>
-      <el-button class="theme-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'">
-        <el-icon><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
+      <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button>
+      <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
+      <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+        <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
       </el-button>
     </div>
     <div class="header-right">
