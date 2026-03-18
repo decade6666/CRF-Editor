@@ -86,9 +86,6 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .header { background: var(--color-header-bg); color: var(--color-header-text); padding: 0 20px; height: 50px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
 .header-left { display: flex; align-items: center; gap: 8px; }
 .header-right { display: flex; align-items: center; gap: 8px; }
-.settings-btn { cursor: pointer; font-size: 18px; opacity: 0.85; transition: opacity 0.2s; user-select: none; outline: none; }
-.settings-btn:hover { opacity: 1; }
-.settings-btn:focus-visible { opacity: 1; outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
 .header h1 { font-size: 18px; }
 
 /* 布局 */
@@ -228,91 +225,24 @@ html[data-theme="dark"] {
   --shadow-page: 0 0 40px rgba(0, 0, 0, 0.5);
 }
 
-/* 主题切换按钮：用半透明底托替代纯光晕，让图标在 header 上更清晰且更完整 */
-.theme-btn {
-  cursor: pointer;
-  width: 32px !important;
-  height: 32px !important;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.18) !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.45) !important;
-  color: #ffffff !important;
-  opacity: 1 !important;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 0 !important;
+/* 顶部图标按钮 — 统一风格（白底 header 上保证对比度）*/
+.header .el-button.header-icon-btn {
+  color: var(--color-header-text);
+  opacity: 0.85;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
 }
-
-.theme-btn:hover {
-  background: rgba(255, 255, 255, 0.30) !important;
-  border-color: rgba(255, 255, 255, 0.75) !important;
-  transform: scale(1.08);
+.header .el-button.header-icon-btn:hover,
+.header .el-button.header-icon-btn:focus-visible {
+  opacity: 1;
+  color: var(--color-header-text);
+  background-color: rgba(255, 255, 255, 0.15);
+  outline: none;
 }
-
-.theme-btn .el-icon {
+.header .el-button.header-icon-btn:active {
+  transform: scale(0.92);
+  background-color: rgba(255, 255, 255, 0.25);
+}
+.header .header-icon-btn .el-icon {
   font-size: 16px;
-  color: #ffffff;
-  line-height: 1;
-}
-
-.theme-btn .el-icon svg {
-  width: 16px;
-  height: 16px;
-  filter: none;
-}
-
-/* 暗色模式：降低底托亮度，保留适度紫色外发光增强层次 */
-html[data-theme="dark"] .theme-btn {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-color: rgba(255, 255, 255, 0.35) !important;
-}
-
-html[data-theme="dark"] .theme-btn:hover {
-  background: rgba(255, 255, 255, 0.22) !important;
-  border-color: rgba(255, 255, 255, 0.60) !important;
-}
-
-html[data-theme="dark"] .theme-btn .el-icon svg {
-  filter: drop-shadow(0 0 3px rgba(129, 140, 248, 0.7));
-}
-
-/* 刷新/设置按钮：与主题切换按钮共享 glassmorphism 圆形底托样式 */
-.refresh-btn,
-.settings-btn {
-  cursor: pointer;
-  width: 32px !important;
-  height: 32px !important;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.18) !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.45) !important;
-  opacity: 1 !important;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 0 !important;
-  font-size: 15px !important;
-  line-height: 1 !important;
-}
-
-.refresh-btn:hover,
-.settings-btn:hover {
-  background: rgba(255, 255, 255, 0.30) !important;
-  border-color: rgba(255, 255, 255, 0.75) !important;
-  transform: scale(1.08);
-}
-
-/* 暗色模式 */
-html[data-theme="dark"] .refresh-btn,
-html[data-theme="dark"] .settings-btn {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-color: rgba(255, 255, 255, 0.35) !important;
-}
-
-html[data-theme="dark"] .refresh-btn:hover,
-html[data-theme="dark"] .settings-btn:hover {
-  background: rgba(255, 255, 255, 0.22) !important;
-  border-color: rgba(255, 255, 255, 0.60) !important;
 }

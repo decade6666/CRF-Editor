@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode } from '../composables/useApi'
+import { renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -24,6 +25,13 @@ const showAdd = ref(false)
 const showPreview = ref(false)
 // 右侧访视详情预览弹窗
 const showVisitPreview = ref(false)
+// 表单内容预览弹窗
+const showFormPreview = ref(false)
+const formPreviewTitle = ref('')
+const formPreviewFields = ref([])
+const formPreviewLoading = ref(false)
+const formPreviewError = ref('')
+let formPreviewRequestSeq = 0
 // 当前选中的访视（右侧面板）
 const selectedVisit = ref(null)
 
@@ -144,6 +152,107 @@ async function removeFormFromVisit(formId) {
   } catch (e) { ElMessage.error(e.message) }
 }
 
+function toRendererField(fd) {
+  if (!fd) return null
+  return {
+    field_type: fd.field_type,
+    options: fd.codelist?.options || [],
+    unit_symbol: fd.unit?.symbol,
+    integer_digits: fd.integer_digits,
+    decimal_digits: fd.decimal_digits,
+    date_format: fd.date_format,
+  }
+}
+
+// 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
+function renderCellHtml(ff) {
+  if (!ff.field_definition) return '<span class="fill-line"></span>'
+  const fd = ff.field_definition
+  const ft = fd.field_type
+  const field = toRendererField(fd)
+  if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
+    return renderCtrlHtml(field)
+  }
+  if (ff.inline_mark && ff.default_value) {
+    return ff.default_value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+  }
+  return renderCtrlHtml(field)
+}
+
+function getInlineRows(fields) {
+  const cols = fields.map(ff => {
+    if (ff.default_value) {
+      const lines = ff.default_value.split('\n')
+      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+      return {
+        lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
+        repeat: false,
+      }
+    }
+    const ctrl = renderCtrl(toRendererField(ff.field_definition)).replace(/_{8,}/, '______')
+    return { lines: [toHtml(ctrl)], repeat: true }
+  })
+  const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
+  return Array.from({ length: maxRows }, (_, i) =>
+    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? ''))
+  )
+}
+
+const previewRenderGroups = computed(() => {
+  const fields = formPreviewFields.value
+  if (!fields.length) return []
+  const groups = []; let i = 0
+  while (i < fields.length) {
+    const ff = fields[i]
+    if (ff.inline_mark) {
+      const g = []
+      while (i < fields.length && fields[i].inline_mark) { g.push(fields[i]); i++ }
+      groups.push({ type: 'inline', fields: g })
+    } else {
+      const g = []
+      while (i < fields.length && !fields[i].inline_mark) { g.push(fields[i]); i++ }
+      groups.push({ type: 'normal', fields: g })
+    }
+  }
+  return groups
+})
+
+const previewNeedsLandscape = computed(() =>
+  previewRenderGroups.value.some(g => g.type === 'inline' && g.fields.length > 4)
+)
+
+async function openFormPreview(form) {
+  const seq = ++formPreviewRequestSeq
+  formPreviewTitle.value = form.name || '表单预览'
+  formPreviewError.value = ''
+  formPreviewFields.value = []
+  formPreviewLoading.value = true
+  showFormPreview.value = true
+  try {
+    const data = await api.cachedGet('/api/forms/' + form.id + '/fields')
+    if (seq !== formPreviewRequestSeq) return
+    formPreviewFields.value = data
+  } catch (e) {
+    if (seq !== formPreviewRequestSeq) return
+    formPreviewFields.value = []
+    formPreviewError.value = '加载表单字段失败：' + (e.message || '未知错误')
+    ElMessage.error(formPreviewError.value)
+  } finally {
+    if (seq === formPreviewRequestSeq) formPreviewLoading.value = false
+  }
+}
+
+function resetFormPreviewState() {
+  formPreviewRequestSeq++
+  formPreviewLoading.value = false
+  formPreviewError.value = ''
+  formPreviewFields.value = []
+}
+
 // 更新访视中表单的 sequence
 async function updateFormSequence(formId, newValue) {
   if (!selectedVisit.value || newValue == null) return
@@ -223,7 +332,7 @@ async function toggleCell(visitId, formId) {
       <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600;flex-shrink:0">
         <span style="width:80px;flex-shrink:0">序号</span>
         <span style="flex:1">表单名称</span>
-        <span style="width:60px;text-align:right">操作</span>
+        <span style="width:110px;text-align:right">操作</span>
       </div>
       <!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->
       <div style="flex:1;overflow-y:auto">
@@ -234,6 +343,7 @@ async function toggleCell(visitId, formId) {
           style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
           <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
           <span style="flex:1;font-size:13px">{{ f.name }}</span>
+          <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
           <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
         </div>
       </div>
@@ -322,4 +432,45 @@ async function toggleCell(visitId, formId) {
       </template>
     </el-dialog>
   </div>
+  <!-- 表单内容预览弹窗 -->
+  <el-dialog v-model="showFormPreview" :title="formPreviewTitle" width="90%" style="max-width:800px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">
+    <div v-if="formPreviewLoading" style="text-align:center;padding:40px">
+      <el-icon class="is-loading"><Loading /></el-icon> 加载中...
+    </div>
+    <el-alert v-else-if="formPreviewError" :title="formPreviewError" type="error" :closable="false" style="margin:12px 0" />
+    <div v-else-if="!formPreviewFields.length" style="text-align:center;color:#999;padding:40px">
+      暂无字段
+    </div>
+    <div v-else class="word-preview">
+      <div class="word-page" :class="{ landscape: previewNeedsLandscape }">
+        <div class="wp-form-title">{{ formPreviewTitle }}</div>
+        <template v-for="(group, gi) in previewRenderGroups" :key="gi">
+          <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
+            <template v-for="ff in group.fields" :key="ff.id">
+              <tr v-if="ff.field_definition?.field_type === '标签'">
+                <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+              </tr>
+              <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
+                <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+              </tr>
+              <tr v-else>
+                <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
+                <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
+              </tr>
+            </template>
+          </table>
+          <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
+            <tr>
+              <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
+                {{ ff.label_override || ff.field_definition?.label }}
+              </td>
+            </tr>
+            <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
+              <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
+            </tr>
+          </table>
+        </template>
+      </div>
+    </div>
+  </el-dialog>
 </template>
