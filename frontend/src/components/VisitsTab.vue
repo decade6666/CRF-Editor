@@ -7,6 +7,14 @@ const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
 
 const visits = ref([])
+const searchVisit = ref('')
+const filteredVisits = computed(() => {
+  const kw = searchVisit.value.trim().toLowerCase()
+  if (!kw) return visits.value
+  return visits.value.filter(item =>
+    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
+  )
+})
 const matrixData = ref(null)
 // 所有表单列表（用于右侧面板添加表单）
 const allForms = ref([])
@@ -165,9 +173,16 @@ async function toggleCell(visitId, formId) {
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
         <el-button type="primary" size="small" @click="openAdd">新增访视</el-button>
         <el-button type="danger" size="small" :disabled="!selVisits.length" @click="batchDelVisits">批量删除({{ selVisits.length }})</el-button>
-        <el-button type="info" plain size="small" @click="showPreview = true">预览</el-button>
+        <el-button type="info" plain size="small" @click="showPreview = true">批量编辑</el-button>
+        <el-input
+          v-model="searchVisit"
+          placeholder="搜索访视..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
       </div>
-      <el-table :data="visits" size="small" border highlight-current-row row-key="id"
+      <el-table :data="filteredVisits" size="small" border highlight-current-row row-key="id"
         @current-change="row => { if (row) selectedVisit = row }"
         @selection-change="r => selVisits = r" style="width:100%" height="100%">
         <el-table-column type="selection" width="40" />
@@ -241,8 +256,16 @@ async function toggleCell(visitId, formId) {
       <div v-else style="color:var(--color-text-muted);text-align:center;padding:40px;font-size:13px">暂无关联表单</div>
     </el-dialog>
 
-    <!-- 预览弹窗（访视-表单矩阵） -->
-    <el-dialog v-model="showPreview" title="访视表单矩阵预览" width="80%" top="5vh" :close-on-click-modal="false">
+    <!-- 批量编辑弹窗（访视-表单矩阵） -->
+    <el-dialog v-model="showPreview" width="80%" top="5vh" :close-on-click-modal="false">
+      <template #header>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-right:32px">
+          <span style="font-size:18px;font-weight:600;color:var(--el-text-color-primary)">访视表单矩阵</span>
+          <span style="margin-left:auto;font-size:12px;color:var(--color-text-muted);line-height:1.5;text-align:right">
+            点击单元格可切换关联，数字为表单在该访视中的序号
+          </span>
+        </div>
+      </template>
       <template v-if="matrixData && matrixData.forms.length && matrixData.visits.length">
         <div style="overflow-x:auto">
           <table class="matrix-table">
@@ -265,7 +288,6 @@ async function toggleCell(visitId, formId) {
             </tbody>
           </table>
         </div>
-        <p style="font-size:12px;color:var(--color-text-muted);margin-top:6px">点击单元格可切换关联，数字为表单在该访视中的序号</p>
       </template>
       <div v-else style="color:var(--color-text-muted);text-align:center;padding:40px">
         暂无数据，请先添加访视和表单
