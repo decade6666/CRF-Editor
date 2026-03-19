@@ -9,6 +9,14 @@ const refreshKey = inject('refreshKey', ref(0))
 
 // 核心数据
 const forms = ref([])
+const searchForm = ref('')
+const filteredForms = computed(() => {
+  const kw = searchForm.value.trim().toLowerCase()
+  if (!kw) return forms.value
+  return forms.value.filter(item =>
+    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
+  )
+})
 const selectedForm = ref(null)
 const fieldDefs = ref([])
 const formFields = ref([])
@@ -160,8 +168,12 @@ async function removeField(ff) {
 }
 
 async function toggleInline(ff) {
-  try { await confirmFormChange(); await api.patch(`/api/form-fields/${ff.id}/inline-mark`, { inline_mark: ff.inline_mark ? 0 : 1 }); loadFormFields() }
-  catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+  try {
+    await confirmFormChange()
+    await api.patch(`/api/form-fields/${ff.id}/inline-mark`, { inline_mark: ff.inline_mark ? 0 : 1 })
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+    await loadFormFields()
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
 async function batchDelete() {
@@ -280,7 +292,7 @@ function renderCell(ff) {
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrl(ff.field_definition)
   }
-  if (ff.default_value) return ff.default_value
+  if (ff.inline_mark && ff.default_value) return ff.default_value
   return renderCtrl(ff.field_definition)
 }
 
@@ -290,7 +302,7 @@ function renderCellHtml(ff) {
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrlHtml({ ...ff.field_definition, options: ff.field_definition?.codelist?.options || [] })
   }
-  if (ff.default_value) {
+  if (ff.inline_mark && ff.default_value) {
     // default_value 是纯文本，直接转义后返回（无需替换下划线）
     return ff.default_value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
   }
@@ -631,8 +643,15 @@ function openAddForm() {
       <div style="margin-bottom:12px;align-self:flex-start;display:flex;gap:8px">
         <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
+        <el-input
+          v-model="searchForm"
+          placeholder="搜索表单..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
       </div>
-      <el-table :data="forms" size="small" border highlight-current-row
+      <el-table :data="filteredForms" size="small" border highlight-current-row
         @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
@@ -699,7 +718,7 @@ function openAddForm() {
     </div>
 
     <!-- 新建表单弹窗 -->
-    <el-dialog v-model="showAddForm" title="新建表单" width="360px">
+    <el-dialog v-model="showAddForm" title="新建表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="newFormName" /></el-form-item>
@@ -711,7 +730,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 编辑表单弹窗 -->
-    <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
+    <el-dialog v-model="showEditForm" title="编辑表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="editFormName" /></el-form-item>
@@ -723,7 +742,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 设计表单弹窗 -->
-    <el-dialog v-model="showDesigner" :title="'设计表单：' + (selectedForm?.name || '')" width="80vw" top="5vh">
+    <el-dialog v-model="showDesigner" :title="'设计表单：' + (selectedForm?.name || '')" width="80vw" top="5vh" :close-on-click-modal="false">
       <div style="display:flex;height:80vh">
         <!-- 字段库 -->
         <div class="fd-library" :style="{ width: libraryWidth + 'px' }">
@@ -843,7 +862,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速新增选项字典 -->
-    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="500px" @close="closeQuickAddCodelist">
+    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="500px" :close-on-click-modal="false" @close="closeQuickAddCodelist">
       <el-form label-width="80px" size="small">
         <el-form-item label="字典名称"><el-input v-model="quickCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
@@ -871,7 +890,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速编辑选项字典 -->
-    <el-dialog v-model="showQuickEditCodelist" title="编辑选项" width="500px" @close="closeQuickEditCodelist">
+    <el-dialog v-model="showQuickEditCodelist" title="编辑选项" width="500px" :close-on-click-modal="false" @close="closeQuickEditCodelist">
       <el-form label-width="80px" size="small">
         <el-form-item label="字典名称"><el-input v-model="quickEditCodelistName" placeholder="请输入字典名称" /></el-form-item>
       </el-form>
@@ -912,7 +931,7 @@ function openAddForm() {
     </el-dialog>
 
     <!-- 快速新增单位 -->
-    <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px">
+    <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px" size="small">
         <el-form-item label="符号"><el-input v-model="quickUnitSymbol" placeholder="单位符号，如 kg" /></el-form-item>
       </el-form>

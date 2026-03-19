@@ -69,6 +69,8 @@ class FormFieldRepository(BaseRepository[FormField]):
         form_field = self.get_by_id(form_field_id)
         if form_field:
             form_field.inline_mark = inline_mark
+            if inline_mark == 0:
+                form_field.default_value = None
             self.update(form_field)
             return True
         return False

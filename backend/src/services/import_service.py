@@ -101,6 +101,7 @@ class ImportService:
             ]
             field_def_map: Dict[int, FieldDefinition] = {}
             codelist_options_map: Dict[int, List[str]] = {}
+            unit_map: Dict[int, str] = {}
 
             if fd_ids:
                 for fd in tmpl.scalars(
@@ -120,6 +121,17 @@ class ImportService:
                         .order_by(CodeListOption.codelist_id, CodeListOption.order_index, CodeListOption.id)
                     ).all():
                         codelist_options_map.setdefault(opt.codelist_id, []).append(opt.decode)
+
+                # 收集所有 unit_id 并一次性查询单位符号
+                unit_ids = {
+                    fd.unit_id for fd in field_def_map.values()
+                    if fd.unit_id is not None
+                }
+                if unit_ids:
+                    for u in tmpl.scalars(
+                        select(Unit).where(Unit.id.in_(unit_ids))
+                    ).all():
+                        unit_map[u.id] = u.symbol
 
             result = []
             for idx, ff in enumerate(form_fields):
@@ -145,7 +157,7 @@ class ImportService:
                     "date_format": fd.date_format,
                     "default_value": ff.default_value,
                     "inline_mark": bool(ff.inline_mark),
-                    "unit_symbol": None,  # 预览场景不展示单位符号
+                    "unit_symbol": unit_map.get(fd.unit_id) if fd.unit_id else None,
                 })
             return result
         finally:
