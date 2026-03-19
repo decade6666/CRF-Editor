@@ -51,9 +51,11 @@ async function uploadLogo(e) {
 
 <template>
   <el-form :model="form" label-width="120px" style="max-width:600px">
+    <el-divider content-position="left">项目信息</el-divider>
     <el-form-item label="项目名称"><el-input v-model="form.name" /></el-form-item>
     <el-form-item label="版本号"><el-input v-model="form.version" /></el-form-item>
     <el-form-item label="试验名称"><el-input v-model="form.trial_name" /></el-form-item>
+    <el-divider content-position="left">封面页信息</el-divider>
     <el-form-item label="CRF版本"><el-input v-model="form.crf_version" /></el-form-item>
     <el-form-item label="CRF版本日期"><el-input v-model="form.crf_version_date" placeholder="YYYY-MM-DD" /></el-form-item>
     <el-form-item label="方案编号"><el-input v-model="form.protocol_number" /></el-form-item>

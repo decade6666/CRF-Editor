@@ -9,6 +9,7 @@ const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
 
 const units = ref([])
+const searchUnit = ref('')
 const symbol = ref('')
 const unitCode = ref('')
 const showAdd = ref(false)
@@ -96,6 +97,13 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     <div style="margin-bottom:12px;display:flex;gap:8px">
       <el-button type="primary" size="small" @click="openAdd">新增单位</el-button>
       <el-button type="danger" size="small" :disabled="!selUnits.length" @click="batchDelUnits">批量删除({{ selUnits.length }})</el-button>
+      <el-input
+        v-model="searchUnit"
+        placeholder="搜索单位..."
+        clearable
+        size="small"
+        style="width:180px"
+      />
     </div>
 
     <!-- 单位列表表头 -->
@@ -111,7 +119,10 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     </div>
     <draggable v-model="units" item-key="id" handle=".drag-handle" @start="dragging = true" @end="handleDragEnd(units, load, err => ElMessage.error(err.message))">
       <template #item="{ element }">
-        <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+        <div
+          v-show="!searchUnit.trim() || (String(element.code ?? '') + String(element.symbol ?? '')).toLowerCase().includes(searchUnit.trim().toLowerCase())"
+          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)"
+        >
           <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
           <el-checkbox :model-value="selUnits.some(u => u.id === element.id)" @change="v => v ? selUnits.push(element) : selUnits.splice(selUnits.findIndex(u => u.id === element.id), 1)" style="flex-shrink:0" />
           <el-input-number :model-value="element.order_index" @change="v => updateOrder(element, v)" :min="1" :max="units.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑单位 ' + element.symbol + ' 的序号'" />
@@ -125,7 +136,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       </template>
     </draggable>
 
-    <el-dialog v-model="showAdd" title="新增单位" width="360px">
+    <el-dialog v-model="showAdd" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="unitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="symbol" placeholder="如 kg" /></el-form-item>
@@ -136,7 +147,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showEdit" title="编辑单位" width="360px">
+    <el-dialog v-model="showEdit" title="编辑单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="Code"><el-input v-model="editUnitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="editSymbol" placeholder="如 kg" /></el-form-item>

@@ -50,7 +50,15 @@ watch(() => props.projectId, () => { selectedFieldId.value = null; isCreating.va
 watch(refreshKey, load)
 
 // 字段库不展示日志行
-const visibleFields = computed(() => fields.value.filter(f => f.field_type !== '日志行'))
+const searchField = ref('')
+const visibleFields = computed(() => {
+  const kw = searchField.value.trim().toLowerCase()
+  return fields.value.filter(f => {
+    if (f.field_type === '日志行') return false
+    if (!kw) return true
+    return Object.values(f).some(v => String(v ?? '').toLowerCase().includes(kw))
+  })
+})
 
 function resetProp(data) {
   Object.assign(editProp, {
@@ -152,6 +160,13 @@ async function updateOrder(row, newValue) {
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
         <el-button type="primary" size="small" @click="openAdd">新增字段</el-button>
         <el-button type="danger" size="small" :disabled="!selFields.length" @click="batchDelFields">批量删除({{ selFields.length }})</el-button>
+        <el-input
+          v-model="searchField"
+          placeholder="搜索字段..."
+          clearable
+          size="small"
+          style="width:180px"
+        />
       </div>
       <el-table :data="visibleFields" size="small" border height="100%"
         :row-class-name="({ row }) => row.id === selectedFieldId ? 'current-row' : ''"
