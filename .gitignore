@@ -66,3 +66,4 @@ docx-compare-*.png
 # 静态资源（大文件）
 # ==========================================
 assets/logos/*.jpg
+config.yaml
