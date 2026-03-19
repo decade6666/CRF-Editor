@@ -9,12 +9,15 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 ### Key Features
 
 - **Project Management**: Create and manage clinical research projects, including trial name, protocol number, version information, etc.
-- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations
-- **Form Designer**: Visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.)
+- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations; matrix-style batch editing of visit-form associations
+- **Form Designer**: Visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), with support for design notes/remarks
 - **Field Library**: Centralized field definition management, supporting field reuse and standardization
 - **Code Lists**: Manage option lists and coding dictionaries
 - **Unit Management**: Centralized management of measurement units and symbols
 - **Word Export**: Export forms to compliant Word documents, including cover page, table of contents, visit distribution diagram, and form content
+- **Form Preview**: Preview form field layout directly from the visits management panel
+- **Global Fuzzy Search**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists) for quick content navigation
+- **Dark Mode**: One-click toggle between light and dark themes
 
 ## Technical Architecture
 
@@ -31,6 +34,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ```
 CRF-Editor/
+├── config.yaml              # Application config (optional, at project root)
 ├── backend/
 │   ├── src/
 │   │   ├── models/          # Data model layer (SQLAlchemy ORM)
@@ -48,8 +52,6 @@ CRF-Editor/
 │   │   ├── schemas/         # Request/response schemas (Pydantic)
 │   │   ├── config.py        # Configuration loader
 │   │   └── database.py      # Database session management
-│   ├── uploads/             # Uploaded files directory (auto-created)
-│   ├── config.yaml          # Application config (optional)
 │   ├── requirements.txt     # Python dependencies
 │   └── main.py              # FastAPI application entry point
 └── frontend/
@@ -104,7 +106,7 @@ npm install
 
 5. (Optional) Customize configuration
 
-Copy and edit `backend/src/config.yaml` to configure database path, upload directory, server port, etc.:
+Edit `config.yaml` in the project root to configure database path, upload directory, server port, etc.:
 
 ```yaml
 database:
