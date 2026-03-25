@@ -693,23 +693,35 @@ class ExportService:
 
     def _render_single_choice(self, field_def) -> str:
         """渲染单选控件"""
-        options = self._get_option_labels(field_def) or ["是", "否"]
+        options = self._get_option_labels(field_def)
+        if not options:
+            return "________________"
         return "  ".join([f"○ {opt}" for opt in options])
 
     def _render_single_choice_vertical(self, field_def) -> str:
         """渲染纵向单选控件"""
-        options = self._get_option_labels(field_def) or ["是", "否"]
+        options = self._get_option_labels(field_def)
+        if not options:
+            return "________________"
         return "\n".join([f"○ {opt}" for opt in options])
 
     def _render_multi_choice(self, field_def) -> str:
         """渲染多选控件"""
-        options = self._get_option_labels(field_def) or ["选项1", "选项2"]
+        options = self._get_option_labels(field_def)
+        if not options:
+            return "________________"
         return "  ".join([f"□ {opt}" for opt in options])
 
     def _render_choice_field(self, paragraph, field_def):
         """渲染单选或多选字段，确保○□符号使用宋体"""
         field_type = field_def.field_type
-        options = self._get_option_labels(field_def) or (["是", "否"] if "单选" in field_type else ["选项1", "选项2"])
+        options = self._get_option_labels(field_def)
+        # 没有选项时显示下划线占位符
+        if not options:
+            run = paragraph.add_run("________________")
+            self._set_run_font(run, size=Pt(10.5))
+            return
+
         symbol = "○" if "单选" in field_type else "□"
         separator = "\n" if field_type == "单选（纵向）" else "  "
 
