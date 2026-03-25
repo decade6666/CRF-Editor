@@ -148,14 +148,14 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-preview { flex: 1; overflow: auto; padding: 20px; background: var(--color-bg-body); }
 .word-page { background: #fff; max-width: 700px; margin: 0 auto; padding: 32px 40px; box-shadow: var(--shadow-page); min-height: 400px; font-family: 'SimSun', serif; font-size: 10.5pt; border-radius: var(--radius-md); }
 .word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 8px; }
-.word-page table { border-collapse: collapse; width: 100%; }
+.word-page table { border-collapse: collapse; width: 100%; table-layout: auto; }
 .word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
-.word-page .wp-label { font-weight: bold; width: 40%; }
+.word-page .wp-label { font-weight: bold; white-space: nowrap; width: 1%; } /* width:1% + nowrap 使列宽收缩到内容宽度 */
 .word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; white-space: normal; } /* v-html 输出含 <br>，white-space 改为 normal */
 .word-page .wp-inline-header { background: #d9d9d9; font-weight: bold; text-align: center; white-space: nowrap; }
-.word-page .inline-table { width: 100%; table-layout: fixed; }
+.word-page .inline-table { width: 100%; table-layout: auto; }
 .word-page .inline-table td { word-break: break-word; }
-.word-page .inline-table .wp-inline-header { white-space: normal; word-break: break-word; }
+.word-page .inline-table .wp-inline-header { white-space: nowrap; }
 .word-page.landscape { max-width: 1050px; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
 
