@@ -88,10 +88,21 @@ export function renderCtrl(field) {
         else {
           if (boxCount > 0) { result += boxes(boxCount); boxCount = 0 }
           if (isDate && (c === '-' || c === '/')) { result += ['年', '月'][sepCount] || c; sepCount++ }
+          // 时间分隔符转换为中文：: 或 - 转为 时/分/秒
+          else if (!isDate && (c === ':' || c === '-' || c === '：')) {
+            const timeLabels = ['时', '分', '秒']
+            result += timeLabels[sepCount] || c
+            sepCount++
+          }
           else result += c
         }
       }
       if (boxCount > 0) result += boxes(boxCount)
+      // 时间部分末尾追加最后一个标签（HH:mm→分，HH:mm:ss→秒）
+      if (!isDate && sepCount > 0) {
+        const timeLabels = ['时', '分', '秒']
+        result += timeLabels[sepCount] || ''
+      }
       return result
     }
 
