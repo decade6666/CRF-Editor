@@ -81,6 +81,8 @@ class FormFieldCreate(BaseModel):
     help_text: Optional[str] = None
     default_value: Optional[str] = None
     inline_mark: int = 0
+    bg_color: Optional[str] = None
+    text_color: Optional[str] = None
 
 
 class FormFieldUpdate(BaseModel):
@@ -89,6 +91,8 @@ class FormFieldUpdate(BaseModel):
     help_text: Optional[str] = None
     default_value: Optional[str] = None
     inline_mark: Optional[int] = None
+    bg_color: Optional[str] = None
+    text_color: Optional[str] = None
 
 
 class FormFieldResponse(BaseModel):
@@ -102,6 +106,8 @@ class FormFieldResponse(BaseModel):
     help_text: Optional[str] = None
     default_value: Optional[str] = None
     inline_mark: int
+    bg_color: Optional[str] = None
+    text_color: Optional[str] = None
     field_definition: Optional[FieldDefinitionResponse] = None
 
     model_config = {"from_attributes": True}

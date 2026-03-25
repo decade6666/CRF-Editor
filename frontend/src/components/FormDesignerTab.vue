@@ -430,8 +430,18 @@ const editProp = reactive({
   label: '', variable_name: '', field_type: '文本',
   integer_digits: null, decimal_digits: null, date_format: null,
   codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
+  bg_color: null, text_color: null,
 })
 const designerFieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '标签']
+
+// 颜色选项（底纹和文字共用）
+const COLOR_OPTIONS = [
+  { value: null, label: '无颜色' },
+  { value: 'A6A6A6', label: '灰色' },
+  { value: '0070C0', label: '蓝色' },
+]
+const customBgColorInput = ref('')  // 自定义底纹颜色输入
+const customTextColorInput = ref('')  // 自定义文字颜色输入
 
 const DATE_FORMAT_OPTIONS = {
   '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
@@ -456,7 +466,11 @@ function selectField(ff) {
       label: ff.label_override || '以下为log行', variable_name: '', field_type: '日志行',
       integer_digits: null, decimal_digits: null, date_format: null,
       codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
+      bg_color: ff.bg_color || null, text_color: ff.text_color || null,
     })
+    // 同步自定义颜色输入框
+    customBgColorInput.value = ff.bg_color && !['A6A6A6', '0070C0'].includes(ff.bg_color) ? ff.bg_color : ''
+    customTextColorInput.value = ff.text_color && !['A6A6A6', '0070C0'].includes(ff.text_color) ? ff.text_color : ''
     return
   }
   const fd = ff.field_definition
@@ -465,7 +479,11 @@ function selectField(ff) {
     label: fd.label || '', variable_name: fd.variable_name || '', field_type: fd.field_type || '文本',
     integer_digits: fd.integer_digits, decimal_digits: fd.decimal_digits, date_format: fd.date_format,
     codelist_id: fd.codelist_id, unit_id: fd.unit_id, default_value: ff.default_value || '', inline_mark: ff.inline_mark || 0,
+    bg_color: ff.bg_color || null, text_color: ff.text_color || null,
   })
+  // 同步自定义颜色输入框
+  customBgColorInput.value = ff.bg_color && !['A6A6A6', '0070C0'].includes(ff.bg_color) ? ff.bg_color : ''
+  customTextColorInput.value = ff.text_color && !['A6A6A6', '0070C0'].includes(ff.text_color) ? ff.text_color : ''
 }
 
 async function saveFieldProp() {
@@ -486,6 +504,8 @@ async function saveFieldProp() {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
       if (editProp.inline_mark) await api.put(`/api/form-fields/${ff.id}`, { default_value: editProp.default_value })
     }
+    // 保存底纹颜色和文字颜色（日志行和普通字段都需要）
+    await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: editProp.bg_color, text_color: editProp.text_color })
     await loadFormFields()
     const updated = formFields.value.find(f => f.id === selectedFieldId.value)
     if (updated) selectField(updated)
@@ -694,11 +714,11 @@ function openAddForm() {
                       <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
                     </tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                      <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                      <td colspan="2" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
                     </tr>
                     <tr v-else>
-                      <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
-                      <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
+                      <td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td>
+                      <td class="wp-ctrl" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')" v-html="renderCellHtml(ff)"></td>
                     </tr>
                   </template>
                 </table>
@@ -707,7 +727,7 @@ function openAddForm() {
                     <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
                   </tr>
                   <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
-                    <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
+                    <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(g.fields[ci]?.bg_color ? 'background:#' + g.fields[ci].bg_color + '40;' : '') + (g.fields[ci]?.text_color ? 'color:#' + g.fields[ci].text_color : '')" v-html="cell"></td>
                   </tr>
                 </table>
               </template>
@@ -774,12 +794,12 @@ function openAddForm() {
               draggable="true" @click="selectField(ff)"
               @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)"
               @dragleave="onDragLeave" @drop="onDrop($event, idx)"
-              :style="dragOverIdx === idx ? 'border-top:2px solid var(--color-primary)' : ''"
+              :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')"
               role="option" :aria-selected="selectedFieldId === ff.id" tabindex="0"
               @keydown="handleFieldKeydown($event, ff, idx)">
               <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop>{{ idx + 1 }}.</el-checkbox>
               <span class="drag-handle" aria-hidden="true">⠿</span>
-              <span class="ff-label">
+              <span class="ff-label" :style="ff.text_color ? 'color:#' + ff.text_color : ''">
                 {{ ff.label_override || ff.field_definition?.label }}
                 <span v-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" style="color:#9b59b6;margin-left:4px">以下为log行</span>
               </span>
@@ -800,6 +820,52 @@ function openAddForm() {
           <div v-else-if="editProp.field_type === '日志行'" style="flex:1;overflow-y:auto;padding:8px">
             <el-form :model="editProp" label-width="70px" size="small">
               <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
+              <el-form-item label="底纹颜色">
+                <div class="color-picker">
+                  <div
+                    v-for="opt in COLOR_OPTIONS"
+                    :key="opt.value"
+                    :class="['color-option', { 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }]"
+                    :style="opt.value ? { background: '#' + opt.value } : { background: 'transparent', border: '2px dashed var(--color-border)' }"
+                    :title="opt.label"
+                    @click="editProp.bg_color = opt.value; customBgColorInput = ''"
+                  ></div>
+                  <el-input
+                    v-model="customBgColorInput"
+                    placeholder="自定义HEX"
+                    size="small"
+                    style="width: 90px; margin-left: 4px;"
+                    @input="editProp.bg_color = customBgColorInput || null"
+                  >
+                    <template #prefix>
+                      <span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span>
+                    </template>
+                  </el-input>
+                </div>
+              </el-form-item>
+              <el-form-item label="文字颜色">
+                <div class="color-picker">
+                  <div
+                    v-for="opt in COLOR_OPTIONS"
+                    :key="opt.value"
+                    :class="['color-option', { 'color-selected': editProp.text_color === opt.value && !customTextColorInput }]"
+                    :style="opt.value ? { background: '#' + opt.value } : { background: 'transparent', border: '2px dashed var(--color-border)' }"
+                    :title="opt.label"
+                    @click="editProp.text_color = opt.value; customTextColorInput = ''"
+                  ></div>
+                  <el-input
+                    v-model="customTextColorInput"
+                    placeholder="自定义HEX"
+                    size="small"
+                    style="width: 90px; margin-left: 4px;"
+                    @input="editProp.text_color = customTextColorInput || null"
+                  >
+                    <template #prefix>
+                      <span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span>
+                    </template>
+                  </el-input>
+                </div>
+              </el-form-item>
             </el-form>
             <el-button type="primary" size="small" style="width:100%" @click="saveFieldProp">保存</el-button>
           </div>
@@ -841,6 +907,52 @@ function openAddForm() {
               </el-form-item>
               <el-form-item v-if="editProp.inline_mark" label="默认值">
                 <el-input v-model="editProp.default_value" type="textarea" :rows="2" />
+              </el-form-item>
+              <el-form-item label="底纹颜色">
+                <div class="color-picker">
+                  <div
+                    v-for="opt in COLOR_OPTIONS"
+                    :key="opt.value"
+                    :class="['color-option', { 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }]"
+                    :style="opt.value ? { background: '#' + opt.value } : { background: 'transparent', border: '2px dashed var(--color-border)' }"
+                    :title="opt.label"
+                    @click="editProp.bg_color = opt.value; customBgColorInput = ''"
+                  ></div>
+                  <el-input
+                    v-model="customBgColorInput"
+                    placeholder="自定义HEX"
+                    size="small"
+                    style="width: 90px; margin-left: 4px;"
+                    @input="editProp.bg_color = customBgColorInput || null"
+                  >
+                    <template #prefix>
+                      <span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span>
+                    </template>
+                  </el-input>
+                </div>
+              </el-form-item>
+              <el-form-item label="文字颜色">
+                <div class="color-picker">
+                  <div
+                    v-for="opt in COLOR_OPTIONS"
+                    :key="opt.value"
+                    :class="['color-option', { 'color-selected': editProp.text_color === opt.value && !customTextColorInput }]"
+                    :style="opt.value ? { background: '#' + opt.value } : { background: 'transparent', border: '2px dashed var(--color-border)' }"
+                    :title="opt.label"
+                    @click="editProp.text_color = opt.value; customTextColorInput = ''"
+                  ></div>
+                  <el-input
+                    v-model="customTextColorInput"
+                    placeholder="自定义HEX"
+                    size="small"
+                    style="width: 90px; margin-left: 4px;"
+                    @input="editProp.text_color = customTextColorInput || null"
+                  >
+                    <template #prefix>
+                      <span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span>
+                    </template>
+                  </el-input>
+                </div>
               </el-form-item>
             </el-form>
             <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
@@ -942,3 +1054,29 @@ function openAddForm() {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.color-picker {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.color-option {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.color-option:hover {
+  transform: scale(1.1);
+}
+
+.color-option.color-selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb, 64, 158, 255), 0.3);
+}
+</style>

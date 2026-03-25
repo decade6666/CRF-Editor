@@ -167,12 +167,32 @@ class InlineMarkUpdate(BaseModel):
     inline_mark: int
 
 
+class ColorUpdate(BaseModel):
+    bg_color: Optional[str] = None
+    text_color: Optional[str] = None
+
+
 @router.patch("/form-fields/{ff_id}/inline-mark", response_model=FormFieldResponse)
 def update_inline_mark(ff_id: int, data: InlineMarkUpdate, session: Session = Depends(get_session)):
     repo = FormFieldRepository(session)
     if not repo.update_inline_mark(ff_id, data.inline_mark):
         raise HTTPException(404, "表单字段不存在")
     return repo.get_by_id(ff_id)
+
+
+@router.patch("/form-fields/{ff_id}/colors", response_model=FormFieldResponse)
+def update_colors(ff_id: int, data: ColorUpdate, session: Session = Depends(get_session)):
+    """更新字段底纹颜色和文字颜色"""
+    repo = FormFieldRepository(session)
+    ff = repo.get_by_id(ff_id)
+    if not ff:
+        raise HTTPException(404, "表单字段不存在")
+    if data.bg_color is not None:
+        ff.bg_color = data.bg_color
+    if data.text_color is not None:
+        ff.text_color = data.text_color
+    repo.update(ff)
+    return ff
 
 
 class ReorderRequest(BaseModel):

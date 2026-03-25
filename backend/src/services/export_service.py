@@ -432,9 +432,12 @@ class ExportService:
                     para = cell.paragraphs[0]
                     run = para.add_run(label)
                     self._set_run_font(run, size=Pt(10.5))
-                    shading_elm = OxmlElement('w:shd')
-                    shading_elm.set(qn('w:fill'), 'D9D9D9')
-                    cell._tc.get_or_add_tcPr().append(shading_elm)
+                    # 底纹颜色优先级：bg_color > 默认灰色 D9D9D9
+                    bg_color = form_field.bg_color or 'D9D9D9'
+                    self._apply_cell_shading(cell, bg_color)
+                    # 文字颜色
+                    if form_field.text_color:
+                        self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
                     self._apply_cell_borders(cell)
                     i += 1
                     continue
@@ -550,6 +553,19 @@ class ExportService:
                     right_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
+                    # 应用底纹颜色
+                    if form_field.bg_color:
+                        self._apply_cell_shading(left_cell, form_field.bg_color)
+                        self._apply_cell_shading(right_cell, form_field.bg_color)
+                    # 应用文字颜色
+                    if form_field.text_color:
+                        text_color = RGBColor.from_string(form_field.text_color)
+                        self._set_run_font(left_run, color=text_color)
+                        # 右侧单元格的文字也需要设置颜色
+                        for para in right_cell.paragraphs:
+                            for run in para.runs:
+                                self._set_run_font(run, color=text_color)
+
                 i += 1
 
             # 每个表单后添加分页符
@@ -624,6 +640,17 @@ class ExportService:
                 para.paragraph_format.line_spacing = 1.0
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+                # 应用底纹颜色和文字颜色
+                marked_field = marked_fields[col_idx]
+                if marked_field:
+                    if marked_field.bg_color:
+                        self._apply_cell_shading(cell, marked_field.bg_color)
+                    if marked_field.text_color:
+                        text_color = RGBColor.from_string(marked_field.text_color)
+                        for para in cell.paragraphs:
+                            for run in para.runs:
+                                self._set_run_font(run, color=text_color)
 
     def _render_field_control(self, field_def) -> str:
         """渲染字段控件文本"""
@@ -818,6 +845,12 @@ class ExportService:
             if existing_border is not None:
                 tcBorders.remove(existing_border)
             tcBorders.append(border_elm)
+
+    def _apply_cell_shading(self, cell, color_hex: str):
+        """为单元格应用颜色底纹"""
+        shading_elm = OxmlElement('w:shd')
+        shading_elm.set(qn('w:fill'), color_hex)
+        cell._tc.get_or_add_tcPr().append(shading_elm)
 
     def _apply_cover_page_table_style(self, table):
         """封面信息表格专用样式：无边框、左对齐、表格宽度5cm
