@@ -47,6 +47,12 @@ class FormField(Base):
     # 表单内标记（用于横向表格渲染）
     inline_mark: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # 底纹颜色（HEX颜色值，如 FFFF00，无 # 前缀）
+    bg_color: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
+    # 文字颜色（HEX颜色值，如 FF0000，无 # 前缀）
+    text_color: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
