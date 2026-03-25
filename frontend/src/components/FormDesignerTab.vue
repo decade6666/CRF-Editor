@@ -538,23 +538,25 @@ const quickCodelistName = ref('')
 const quickCodelistOpts = ref([])
 const quickOptCode = ref('')
 const quickOptDecode = ref('')
+const quickOptTrailing = ref(false)
 
 function quickAddOptRow() {
   if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickCodelistOpts.value.length
-  quickCodelistOpts.value.push({ code: quickOptCode.value.trim() || `C.${n + 1}`, decode: quickOptDecode.value.trim() })
+  quickCodelistOpts.value.push({ code: quickOptCode.value.trim() || `C.${n + 1}`, decode: quickOptDecode.value.trim(), trailing_underscore: quickOptTrailing.value ? 1 : 0 })
   quickOptCode.value = `C.${n + 2}`
   quickOptDecode.value = ''
+  quickOptTrailing.value = false
 }
 function quickDelOptRow(idx) { quickCodelistOpts.value.splice(idx, 1) }
 function closeQuickAddCodelist() {
   showQuickAddCodelist.value = false
   quickCodelistName.value = ''; quickCodelistOpts.value = []
-  quickOptCode.value = ''; quickOptDecode.value = ''
+  quickOptCode.value = ''; quickOptDecode.value = ''; quickOptTrailing.value = false
 }
 function openQuickAddCodelist() {
   quickCodelistName.value = ''; quickCodelistOpts.value = []
-  quickOptCode.value = 'C.1'; quickOptDecode.value = ''
+  quickOptCode.value = 'C.1'; quickOptDecode.value = ''; quickOptTrailing.value = false
   showQuickAddCodelist.value = true
 }
 async function quickAddCodelist() {
@@ -562,7 +564,7 @@ async function quickAddCodelist() {
   try {
     const created = await api.post(`/api/projects/${props.projectId}/codelists`, { name: quickCodelistName.value.trim(), description: '' })
     for (const opt of quickCodelistOpts.value) {
-      await api.post(`/api/projects/${props.projectId}/codelists/${created.id}/options`, { code: opt.code, decode: opt.decode })
+      await api.post(`/api/projects/${props.projectId}/codelists/${created.id}/options`, { code: opt.code, decode: opt.decode, trailing_underscore: opt.trailing_underscore || 0 })
     }
     await loadCodelists()
     editProp.codelist_id = created.id
@@ -983,6 +985,11 @@ function openAddForm() {
         <el-table :data="quickCodelistOpts" size="small" border style="margin-bottom:8px">
           <el-table-column prop="code" label="编码值" width="120" />
           <el-table-column prop="decode" label="标签" />
+          <el-table-column label="后加下划线" width="90">
+            <template #default="{ row }">
+              <el-checkbox :model-value="!!row.trailing_underscore" @change="row.trailing_underscore = row.trailing_underscore ? 0 : 1" />
+            </template>
+          </el-table-column>
           <el-table-column label="" width="60">
             <template #default="{ $index }">
               <el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button>
@@ -992,6 +999,7 @@ function openAddForm() {
         <div style="display:flex;gap:6px;align-items:center">
           <el-input v-model="quickOptCode" placeholder="编码值（必填）" size="small" style="width:130px" />
           <el-input v-model="quickOptDecode" placeholder="标签（必填）" size="small" style="flex:1" @keyup.enter="quickAddOptRow" />
+          <el-checkbox v-model="quickOptTrailing" title="后加下划线">下划线</el-checkbox>
           <el-button size="small" type="primary" plain @click="quickAddOptRow">添加</el-button>
         </div>
       </div>
