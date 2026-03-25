@@ -182,6 +182,26 @@ def _migrate_add_design_notes(engine):
             conn.execute(text('ALTER TABLE "form" ADD COLUMN design_notes TEXT'))
 
 
+def _migrate_add_color_mark(engine):
+    """给 form_field 表补上 bg_color 和 text_color 列"""
+    insp = inspect(engine)
+    if not insp.has_table("form_field"):
+        return
+    with engine.begin() as conn:
+        cols = [c["name"] for c in insp.get_columns("form_field")]
+        # 旧的 color_mark 列（如果存在）迁移到 bg_color
+        if "color_mark" in cols and "bg_color" not in cols:
+            conn.execute(text('ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL'))
+            conn.execute(text('UPDATE form_field SET bg_color = color_mark WHERE color_mark IS NOT NULL'))
+        elif "bg_color" not in cols:
+            conn.execute(text('ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL'))
+        if "text_color" not in cols:
+            conn.execute(text('ALTER TABLE form_field ADD COLUMN text_color VARCHAR(10) DEFAULT NULL'))
+        # 清理旧列
+        if "color_mark" in cols:
+            conn.execute(text('ALTER TABLE form_field DROP COLUMN color_mark'))
+
+
 def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
@@ -189,6 +209,7 @@ def init_db():
     _migrate_add_trailing_underscore(engine)
     _migrate_add_order_index(engine)
     _migrate_add_design_notes(engine)
+    _migrate_add_color_mark(engine)
 
 
 def get_session():
