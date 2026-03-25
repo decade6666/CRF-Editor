@@ -34,9 +34,13 @@ function handleRefresh() {
 
 function selectProject(p) { selectedProject.value = p; activeTab.value = 'info' }
 
-// 切换Tab时不再强制重建组件，缓存层+refreshKey机制替代
-watch(activeTab, () => {
-  // 子组件通过 cachedGet 自动使用缓存，无需 key++ 强制重建
+// 切换Tab时刷新相关数据
+watch(activeTab, (newTab) => {
+  // 切换到字段库时刷新，确保显示最新数据（表单设计器可能修改了字段）
+  if (newTab === 'fields') {
+    api.invalidateCache(`/api/projects/${selectedProject.value?.id}/field-definitions`)
+    refreshKey.value++
+  }
 })
 
 function onProjectUpdated(p) {
