@@ -716,7 +716,7 @@ function openAddForm() {
                       <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
                     </tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                      <td colspan="2" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                      <td colspan="2" :style="'font-weight:bold;' + (ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
                     </tr>
                     <tr v-else>
                       <td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td>
