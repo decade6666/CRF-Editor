@@ -885,30 +885,34 @@ class DocxImportService:
         # 处理选项列表
         codelist_id = None
         options = field_info.get("options")
-        if field_type in ("单选", "多选", "单选（纵向）") and options:
-            cl_name = f"{label}_选项"
-            # 限制CodeList名称长度不超过255字符
-            if len(cl_name) > 255:
-                cl_name = cl_name[:252] + "..."
-            if cl_name in existing_codelists:
-                codelist_id = existing_codelists[cl_name]
-            else:
-                new_cl = CodeList(
-                    project_id=project_id,
-                    name=cl_name,
-                    code=generate_code("CL"),
-                )
-                s.add(new_cl)
-                s.flush()
-                codelist_id = new_cl.id
-                existing_codelists[cl_name] = codelist_id
-                for i, opt_text in enumerate(options, start=1):
-                    s.add(CodeListOption(
-                        codelist_id=codelist_id,
-                        code=f"C.{i}",
-                        decode=opt_text,
-                        order_index=i,
-                    ))
+        if field_type in ("单选", "多选", "单选（纵向）", "多选（纵向）") and options:
+            normalized_options = [str(opt_text or "").strip() for opt_text in options]
+            normalized_options = [opt_text for opt_text in normalized_options if opt_text]
+            if normalized_options:
+                cl_name = f"{label}_选项"
+                # 限制CodeList名称长度不超过255字符
+                if len(cl_name) > 255:
+                    cl_name = cl_name[:252] + "..."
+                if cl_name in existing_codelists:
+                    codelist_id = existing_codelists[cl_name]
+                else:
+                    new_cl = CodeList(
+                        project_id=project_id,
+                        name=cl_name,
+                        code=generate_code("CL"),
+                    )
+                    s.add(new_cl)
+                    s.flush()
+                    codelist_id = new_cl.id
+                    existing_codelists[cl_name] = codelist_id
+                    for i, opt_text in enumerate(normalized_options, start=1):
+                        s.add(CodeListOption(
+                            codelist_id=codelist_id,
+                            code=f"C.{i}",
+                            decode=opt_text,
+                            trailing_underscore=0,
+                            order_index=i,
+                        ))
 
         # 创建字段定义
         fd = FieldDefinition(

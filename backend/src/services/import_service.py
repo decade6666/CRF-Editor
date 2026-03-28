@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -17,6 +17,14 @@ from src.models.codelist import CodeList, CodeListOption
 from src.models.unit import Unit
 from src.utils import generate_code
 from src.services.order_service import OrderService
+
+
+class OptionMetadata(TypedDict):
+    """选项结构化语义元数据。"""
+
+    code: Optional[str]
+    decode: str
+    trailing_underscore: int
 
 
 class ImportService:
@@ -100,7 +108,7 @@ class ImportService:
                 if ff.field_definition_id is not None
             ]
             field_def_map: Dict[int, FieldDefinition] = {}
-            codelist_options_map: Dict[int, List[str]] = {}
+            codelist_options_map: Dict[int, List[OptionMetadata]] = {}
             unit_map: Dict[int, str] = {}
 
             if fd_ids:
@@ -120,7 +128,10 @@ class ImportService:
                         .where(CodeListOption.codelist_id.in_(codelist_ids))
                         .order_by(CodeListOption.codelist_id, CodeListOption.order_index, CodeListOption.id)
                     ).all():
-                        codelist_options_map.setdefault(opt.codelist_id, []).append(opt.decode)
+                        codelist_options_map.setdefault(opt.codelist_id, []).append({
+                            "id": opt.id,
+                            **self._serialize_option_metadata(opt),
+                        })
 
                 # 收集所有 unit_id 并一次性查询单位符号
                 unit_ids = {
@@ -177,6 +188,51 @@ class ImportService:
         while f"{base}{suffix}{idx}" in existing:
             idx += 1
         return f"{base}{suffix}{idx}"
+
+    @staticmethod
+    def _make_unique_import_codelist_name(existing: set[str], base: str) -> str:
+        """生成字典冲突名：名称（导入）→ 名称（导入2）→ ..."""
+        candidate = f"{base}（导入）"
+        if candidate not in existing:
+            return candidate
+        idx = 2
+        while f"{base}（导入{idx}）" in existing:
+            idx += 1
+        return f"{base}（导入{idx}）"
+
+    @staticmethod
+    def _serialize_option_metadata(option: CodeListOption) -> OptionMetadata:
+        """序列化选项语义元数据。"""
+        return {
+            "code": option.code,
+            "decode": option.decode,
+            "trailing_underscore": option.trailing_underscore,
+        }
+
+    @classmethod
+    def _build_codelist_option_signature(cls, options: List[CodeListOption]) -> tuple[tuple[int, Optional[str], str, int], ...]:
+        """构建字典选项语义签名：顺序 + code + decode + trailing_underscore。"""
+        return tuple(
+            (
+                index,
+                metadata["code"],
+                metadata["decode"],
+                metadata["trailing_underscore"],
+            )
+            for index, metadata in enumerate(
+                (cls._serialize_option_metadata(option) for option in options),
+                start=1,
+            )
+        )
+
+    @staticmethod
+    def _load_codelist_options(session: Session, codelist_id: int) -> List[CodeListOption]:
+        """按稳定顺序读取字典选项。"""
+        return list(session.scalars(
+            select(CodeListOption)
+            .where(CodeListOption.codelist_id == codelist_id)
+            .order_by(CodeListOption.order_index, CodeListOption.id)
+        ).all())
 
     @staticmethod
     def _make_unique_var(existing: set, base: str) -> str:
@@ -417,40 +473,48 @@ class ImportService:
         existing: Dict[str, int],
         id_map: Dict[int, int],
     ) -> int:
-        """合并 Codelist：同名复用，不同则新建（含 Options）"""
+        """合并 Codelist：同名且语义签名一致时复用，否则按导入后缀新建。"""
         merged = 0
         if not needed_ids:
             return merged
         for src_cl in tmpl.scalars(
             select(CodeList).where(CodeList.id.in_(needed_ids))
         ).all():
-            if src_cl.name in existing:
-                id_map[src_cl.id] = existing[src_cl.name]
-                merged += 1
+            src_opts = ImportService._load_codelist_options(tmpl, src_cl.id)
+            src_signature = ImportService._build_codelist_option_signature(src_opts)
+
+            target_cl_id = existing.get(src_cl.name)
+            if target_cl_id is not None:
+                target_opts = ImportService._load_codelist_options(s, target_cl_id)
+                target_signature = ImportService._build_codelist_option_signature(target_opts)
+                if src_signature == target_signature:
+                    id_map[src_cl.id] = target_cl_id
+                    merged += 1
+                    continue
+
+                new_name = ImportService._make_unique_import_codelist_name(set(existing.keys()), src_cl.name)
             else:
-                new_cl = CodeList(
-                    project_id=target_project_id,
-                    name=src_cl.name,
-                    code=generate_code("CL"),
-                    description=src_cl.description,
-                )
-                s.add(new_cl)
-                s.flush()
-                id_map[src_cl.id] = new_cl.id
-                existing[src_cl.name] = new_cl.id
-                # 复制 Options
-                src_opts = list(tmpl.scalars(
-                    select(CodeListOption)
-                    .where(CodeListOption.codelist_id == src_cl.id)
-                    .order_by(CodeListOption.order_index, CodeListOption.id)
-                ).all())
-                for idx, opt in enumerate(src_opts, start=1):
-                    s.add(CodeListOption(
-                        codelist_id=new_cl.id,
-                        code=opt.code,
-                        decode=opt.decode,
-                        order_index=idx,
-                    ))
+                new_name = src_cl.name
+
+            new_cl = CodeList(
+                project_id=target_project_id,
+                name=new_name,
+                code=generate_code("CL"),
+                description=src_cl.description,
+            )
+            s.add(new_cl)
+            s.flush()
+            id_map[src_cl.id] = new_cl.id
+            existing[new_name] = new_cl.id
+            for idx, opt in enumerate(src_opts, start=1):
+                metadata = ImportService._serialize_option_metadata(opt)
+                s.add(CodeListOption(
+                    codelist_id=new_cl.id,
+                    code=metadata["code"],
+                    decode=metadata["decode"],
+                    trailing_underscore=metadata["trailing_underscore"],
+                    order_index=idx,
+                ))
         return merged
 
     @staticmethod

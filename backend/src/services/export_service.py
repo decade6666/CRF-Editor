@@ -541,7 +541,7 @@ class ExportService:
                     else:
                         # 无默认值，渲染控件占位符
                         # 特殊处理单选和多选
-                        if field_def.field_type in ["单选", "多选", "单选（纵向）"]:
+                        if field_def.field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
                             self._render_choice_field(right_para, field_def)
                         else:
                             right_run = right_para.add_run(self._render_field_control(field_def))
@@ -628,7 +628,7 @@ class ExportService:
                     self._set_run_font(run, size=Pt(10.5))
                 else:
                     # 无默认值，显示控件占位符
-                    if field_def.field_type in ["单选", "多选", "单选（纵向）"]:
+                    if field_def.field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
                         self._render_choice_field(para, field_def)
                     else:
                         run = para.add_run(self._render_field_control(field_def))
@@ -667,6 +667,8 @@ class ExportService:
             return self._render_multi_choice(field_def)
         elif field_type in ["单选（纵向）", "下拉框"]:
             return self._render_single_choice_vertical(field_def)
+        elif field_type == "多选（纵向）":
+            return self._render_multi_choice_vertical(field_def)
         elif field_type == "日期":
             return "|__|__|__|__|年|__|__|月|__|__|日"
         elif field_type == "日期时间":
@@ -712,6 +714,13 @@ class ExportService:
             return "________________"
         return "  ".join([f"□ {opt}" for opt in options])
 
+    def _render_multi_choice_vertical(self, field_def) -> str:
+        """渲染纵向多选控件"""
+        options = self._get_option_labels(field_def)
+        if not options:
+            return "________________"
+        return "\n".join([f"□ {opt}" for opt in options])
+
     def _render_choice_field(self, paragraph, field_def):
         """渲染单选或多选字段，确保○□符号使用宋体"""
         field_type = field_def.field_type
@@ -723,7 +732,7 @@ class ExportService:
             return
 
         symbol = "○" if "单选" in field_type else "□"
-        separator = "\n" if field_type == "单选（纵向）" else "  "
+        separator = "\n" if field_type in ("单选（纵向）", "多选（纵向）") else "  "
 
         for idx, opt in enumerate(options):
             if idx > 0 and separator == "  ":
