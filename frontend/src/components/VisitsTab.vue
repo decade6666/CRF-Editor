@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode } from '../composables/useApi'
-import { renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -164,29 +164,43 @@ function toRendererField(fd) {
   }
 }
 
+function escapePreviewText(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+}
+
+function getScopedDefaultValue(ff, singleLine = false) {
+  const fieldType = ff?.field_definition?.field_type
+  const inlineMark = Boolean(ff?.inline_mark)
+  if (!fieldType || !ff?.default_value) return ''
+  if (!isDefaultValueSupported(fieldType, inlineMark)) return ''
+  return normalizeDefaultValue(ff.default_value, singleLine)
+}
+
 // 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
 function renderCellHtml(ff) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const fd = ff.field_definition
   const ft = fd.field_type
   const field = toRendererField(fd)
+  const defaultValue = getScopedDefaultValue(ff, true)
+  if (defaultValue) {
+    return escapePreviewText(defaultValue)
+  }
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrlHtml(field)
-  }
-  if (ff.inline_mark && ff.default_value) {
-    return ff.default_value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')
   }
   return renderCtrlHtml(field)
 }
 
 function getInlineRows(fields) {
   const cols = fields.map(ff => {
-    if (ff.default_value) {
-      const lines = ff.default_value.split('\n')
+    const defaultValue = getScopedDefaultValue(ff)
+    if (defaultValue) {
+      const lines = normalizeDefaultValue(defaultValue).split('\n')
       while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),

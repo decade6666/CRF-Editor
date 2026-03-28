@@ -146,8 +146,20 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 
 /* Word预览 */
 .word-preview { flex: 1; overflow: auto; padding: 20px; background: var(--color-bg-body); }
-.word-page { background: #fff; max-width: 700px; margin: 0 auto; padding: 32px 40px; box-shadow: var(--shadow-page); min-height: 400px; font-family: 'SimSun', serif; font-size: 10.5pt; border-radius: var(--radius-md); }
-.word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 8px; }
+.word-page {
+  background: #fff;
+  max-width: 900px; /* 从 700px 放大 */
+  margin: 0 auto;
+  padding: 32px 40px;
+  box-shadow: var(--shadow-page);
+  min-height: 400px;
+  font-family: 'SimSun', serif;
+  font-size: 10.5pt;
+  border-radius: var(--radius-md);
+  transition: max-width 0.3s ease;
+}
+.word-page.landscape { max-width: 1300px; } /* 从 1050px 放大 */
+.word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 24px; text-align: center; }
 .word-page table { border-collapse: collapse; width: 100%; table-layout: auto; }
 .word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
 .word-page .wp-label { font-weight: bold; white-space: nowrap; width: 1%; } /* width:1% + nowrap 使列宽收缩到内容宽度 */
@@ -156,8 +168,34 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .inline-table { width: 100%; table-layout: auto; }
 .word-page .inline-table td { word-break: break-word; }
 .word-page .inline-table .wp-inline-header { white-space: nowrap; }
-.word-page.landscape { max-width: 1050px; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
+
+/* 预览正文与备注布局 */
+.wp-body { display: flex; gap: 32px; align-items: flex-start; }
+.wp-main { flex: 1 1 auto; min-width: 0; }
+.wp-body--with-notes .wp-main { flex: 0 1 calc(100% - 272px); max-width: calc(100% - 272px); }
+.wp-notes {
+  width: 240px;
+  flex: 0 0 240px;
+  border-left: 1px solid #eee;
+  padding-left: 20px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  color: #666;
+}
+.wp-notes-title {
+  font-size: 12px;
+  font-weight: bold;
+  color: #999;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.wp-notes-content {
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: normal;
+}
 
 /* 填写线：用 border-bottom 代替下划线字符，消除字形固有间距导致的断续问题 */
 /* C-01 红线：.fill-line 类名及其样式逻辑绝对不改（JS 字符串硬编码，v-html 渲染）*/

@@ -1,8 +1,9 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
-import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -286,28 +287,17 @@ function renderCtrl(fd) {
   return renderCtrlBase(field)
 }
 
-function renderCell(ff) {
-  // 对于选项类字段，即使有default_value也要渲染完整选项列表
-  const ft = ff.field_definition?.field_type
-  if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
-    return renderCtrl(ff.field_definition)
-  }
-  if (ff.inline_mark && ff.default_value) return ff.default_value
-  return renderCtrl(ff.field_definition)
+function escapePreviewText(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
 }
 
-// HTML 渲染版本：用 border-bottom span 替代 _ 字符，消除字形间距导致的断续
-function renderCellHtml(ff) {
-  const ft = ff.field_definition?.field_type
-  if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
-    return renderCtrlHtml({ ...ff.field_definition, options: ff.field_definition?.codelist?.options || [] })
-  }
-  if (ff.inline_mark && ff.default_value) {
-    // default_value 是纯文本，直接转义后返回（无需替换下划线）
-    return ff.default_value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
-  }
-  if (!ff.field_definition) return '<span class="fill-line"></span>'
-  const field = {
+function getPreviewField(ff) {
+  if (!ff?.field_definition) return null
+  return {
     field_type: ff.field_definition.field_type,
     options: ff.field_definition.codelist?.options || [],
     unit_symbol: ff.field_definition.unit?.symbol,
@@ -315,13 +305,48 @@ function renderCellHtml(ff) {
     decimal_digits: ff.field_definition.decimal_digits,
     date_format: ff.field_definition.date_format,
   }
-  return renderCtrlHtml(field)
+}
+
+function getScopedDefaultValue(ff, singleLine = false) {
+  const fieldType = ff?.field_definition?.field_type
+  const inlineMark = Boolean(ff?.inline_mark)
+  if (!fieldType || !ff?.default_value) return ''
+  if (!isDefaultValueSupported(fieldType, inlineMark)) return ''
+  return normalizeDefaultValue(ff.default_value, singleLine)
+}
+
+function renderCell(ff) {
+  const previewField = getPreviewField(ff)
+  if (!previewField) return '________________'
+
+  const defaultValue = getScopedDefaultValue(ff, true)
+  if (defaultValue) return defaultValue
+
+  return renderCtrl(previewField)
+}
+
+// HTML 渲染版本：用 border-bottom span 替代 _ 字符，消除字形间距导致的断续
+function renderCellHtml(ff) {
+  const previewField = getPreviewField(ff)
+  if (!previewField) return '<span class="fill-line"></span>'
+
+  const defaultValue = getScopedDefaultValue(ff, true)
+  if (defaultValue) {
+    return escapePreviewText(defaultValue)
+  }
+
+  if (isChoiceField(previewField.field_type)) {
+    return renderCtrlHtml(previewField)
+  }
+
+  return renderCtrlHtml(previewField)
 }
 
 function getInlineRows(fields) {
   const cols = fields.map(ff => {
-    if (ff.default_value) {
-      const lines = ff.default_value.split('\n')
+    const defaultValue = getScopedDefaultValue(ff)
+    if (defaultValue) {
+      const lines = normalizeDefaultValue(defaultValue).split('\n')
       while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
       // default_value 转义为安全 HTML，但不替换下划线（保留用户输入原样）
       return { lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')), repeat: false }
@@ -394,17 +419,31 @@ watch(notesHeight, v => localStorage.setItem('crf_notesHeight', v))
 
 const formDesignNotes = ref('')
 let notesTimer = null
+const previewDesignNotesText = computed(() => selectedForm.value?.design_notes || '')
+const hasPreviewNotes = computed(() => Boolean(previewDesignNotesText.value.trim()))
+const previewDesignNotesHtml = computed(() => (
+  hasPreviewNotes.value ? escapePreviewText(previewDesignNotesText.value) : ''
+))
 
 // 切换表单时加载备注，并清除未发出的 debounce
-watch(selectedForm, (form) => {
+watch(() => selectedForm.value?.id, (formId) => {
   clearTimeout(notesTimer)
-  formDesignNotes.value = form?.design_notes || ''
+  const currentForm = forms.value.find(form => form.id === formId) || selectedForm.value
+  formDesignNotes.value = currentForm?.design_notes || ''
 })
 
 async function saveDesignNotes() {
   if (!selectedForm.value) return
+  const formId = selectedForm.value.id
+  const submittedNotes = formDesignNotes.value
   try {
-    await api.put(`/api/forms/${selectedForm.value.id}`, { design_notes: formDesignNotes.value })
+    await api.put(`/api/forms/${formId}`, { design_notes: submittedNotes })
+    if (selectedForm.value?.id !== formId || formDesignNotes.value !== submittedNotes) return
+
+    forms.value = forms.value.map(form => (
+      form.id === formId ? { ...form, design_notes: submittedNotes } : form
+    ))
+    selectedForm.value = forms.value.find(form => form.id === formId) || selectedForm.value
     api.invalidateCache(`/api/projects/${props.projectId}/forms`)
   } catch (e) {
     console.error('备注保存失败', e)
@@ -459,6 +498,16 @@ watch(() => editProp.field_type, (newType) => {
   }
 })
 
+function syncSelectedField(updatedField, { syncEditor = true } = {}) {
+  if (!updatedField) return
+  formFields.value = formFields.value.map(field => (
+    field.id === updatedField.id ? updatedField : field
+  ))
+  if (syncEditor && selectedFieldId.value === updatedField.id) {
+    selectField(updatedField)
+  }
+}
+
 function selectField(ff) {
   selectedFieldId.value = ff.id
   if (ff.is_log_row) {
@@ -489,23 +538,52 @@ function selectField(ff) {
 async function saveFieldProp() {
   const ff = formFields.value.find(f => f.id === selectedFieldId.value)
   if (!ff) return
-  if (!ff.is_log_row && ['单选', '多选', '单选（纵向）'].includes(editProp.field_type) && !editProp.codelist_id)
+  if (!ff.is_log_row && isChoiceField(editProp.field_type) && !editProp.codelist_id)
     return ElMessage.warning('单选/多选字段必须选择选项字典')
   try {
     if (ff.is_log_row) {
-      await api.put(`/api/form-fields/${ff.id}`, { label_override: editProp.label })
+      const updatedField = await api.put(`/api/form-fields/${ff.id}`, { label_override: editProp.label })
+      syncSelectedField(updatedField, { syncEditor: false })
     } else {
-      await api.put(`/api/projects/${props.projectId}/field-definitions/${ff.field_definition_id}`, {
+      const normalizedUnitId = editProp.unit_id == null ? null : editProp.unit_id
+      const supportsDefaultValue = isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))
+      const normalizedDefaultValue = supportsDefaultValue
+        ? normalizeDefaultValue(editProp.default_value, !editProp.inline_mark)
+        : ''
+      const updatedDefinition = await api.put(`/api/projects/${props.projectId}/field-definitions/${ff.field_definition_id}`, {
         label: editProp.label, variable_name: editProp.variable_name, field_type: editProp.field_type,
         integer_digits: editProp.integer_digits, decimal_digits: editProp.decimal_digits,
-        date_format: editProp.date_format, codelist_id: editProp.codelist_id, unit_id: editProp.unit_id,
+        date_format: editProp.date_format, codelist_id: editProp.codelist_id, unit_id: normalizedUnitId,
       })
+      let currentField = {
+        ...ff,
+        field_definition: {
+          ...ff.field_definition,
+          ...updatedDefinition,
+        },
+      }
+      syncSelectedField(currentField, { syncEditor: false })
       // 显式失效表单字段列表缓存，防止 loadFormFields 返回旧数据导致界面回滚
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
-      if (editProp.inline_mark) await api.put(`/api/form-fields/${ff.id}`, { default_value: editProp.default_value })
+      const updatedField = await api.put(`/api/form-fields/${ff.id}`, {
+        default_value: normalizedDefaultValue
+      })
+      currentField = {
+        ...currentField,
+        ...updatedField,
+        field_definition: currentField.field_definition,
+      }
+      syncSelectedField(currentField, { syncEditor: false })
+      editProp.default_value = normalizedDefaultValue
     }
     // 保存底纹颜色和文字颜色（日志行和普通字段都需要）
-    await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: editProp.bg_color, text_color: editProp.text_color })
+    const baseField = formFields.value.find(f => f.id === ff.id) || ff
+    const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: editProp.bg_color, text_color: editProp.text_color })
+    syncSelectedField({
+      ...baseField,
+      ...updatedColors,
+      field_definition: baseField.field_definition,
+    }, { syncEditor: false })
     await loadFormFields()
     const updated = formFields.value.find(f => f.id === selectedFieldId.value)
     if (updated) selectField(updated)
@@ -610,7 +688,8 @@ function closeQuickEditCodelist() {
 async function quickSaveCodelist() {
   if (!quickEditCodelistName.value.trim()) return ElMessage.warning('请输入字典名称')
   try {
-    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}`, { name: quickEditCodelistName.value.trim(), description: '' })
+    const savedName = quickEditCodelistName.value.trim()
+    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}`, { name: savedName, description: '' })
     const cl = codelists.value.find(c => c.id === quickEditCodelistId.value)
     const originalIds = new Set((cl?.options || []).map(o => o.id))
     const currentIds = new Set(quickEditCodelistOpts.value.filter(o => o.id).map(o => o.id))
@@ -623,9 +702,57 @@ async function quickSaveCodelist() {
     }
     api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
     await loadCodelists()
+
+    const shouldRefreshSelectedField = selectedFieldId.value && editProp.codelist_id === quickEditCodelistId.value
+    const draftEditProp = shouldRefreshSelectedField
+      ? {
+          label: editProp.label,
+          variable_name: editProp.variable_name,
+          field_type: editProp.field_type,
+          integer_digits: editProp.integer_digits,
+          decimal_digits: editProp.decimal_digits,
+          date_format: editProp.date_format,
+          codelist_id: editProp.codelist_id,
+          unit_id: editProp.unit_id,
+          default_value: editProp.default_value,
+          inline_mark: editProp.inline_mark,
+          bg_color: editProp.bg_color,
+          text_color: editProp.text_color,
+          customBgColorInput: customBgColorInput.value,
+          customTextColorInput: customTextColorInput.value,
+        }
+      : null
+
+    if (shouldRefreshSelectedField) {
+      const selectedField = formFields.value.find(field => field.id === selectedFieldId.value)
+      if (selectedField?.field_definition) {
+        syncSelectedField({
+          ...selectedField,
+          field_definition: {
+            ...selectedField.field_definition,
+            codelist: {
+              ...(selectedField.field_definition.codelist || { id: quickEditCodelistId.value, options: [] }),
+              id: quickEditCodelistId.value,
+              name: savedName,
+              options: quickEditCodelistOpts.value.map(option => ({ ...option })),
+            },
+          },
+        }, { syncEditor: false })
+      }
+    }
+
     if (selectedForm.value) {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
       await loadFormFields()
+      const updated = formFields.value.find(field => field.id === selectedFieldId.value)
+      if (updated) {
+        selectField(updated)
+        if (draftEditProp) {
+          Object.assign(editProp, draftEditProp)
+          customBgColorInput.value = draftEditProp.customBgColorInput
+          customTextColorInput.value = draftEditProp.customTextColorInput
+        }
+      }
     }
     closeQuickEditCodelist()
     ElMessage.success('保存成功')
@@ -704,35 +831,43 @@ function openAddForm() {
           <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
         </div>
         <div class="word-preview">
-          <div :class="['word-page', { landscape: needsLandscape }]">
+          <div :class="['word-page', { landscape: needsLandscape, 'word-page--with-notes': hasPreviewNotes }]">
             <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
             <template v-else>
               <div class="wp-form-title">{{ selectedForm.name }}</div>
               <div v-if="!formFields.length" class="wp-empty">暂无字段</div>
-              <template v-for="(g, gi) in renderGroups" :key="gi">
-                <table v-if="g.type === 'normal'">
-                  <template v-for="ff in g.fields" :key="ff.id">
-                    <tr v-if="ff.field_definition?.field_type === '标签'">
-                      <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
-                    </tr>
-                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                      <td colspan="2" :style="'font-weight:bold;' + (ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
-                    </tr>
-                    <tr v-else>
-                      <td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td>
-                      <td class="wp-ctrl" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')" v-html="renderCellHtml(ff)"></td>
-                    </tr>
+              <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
+                <div class="wp-main">
+                  <template v-for="(g, gi) in renderGroups" :key="gi">
+                    <table v-if="g.type === 'normal'">
+                      <template v-for="ff in g.fields" :key="ff.id">
+                        <tr v-if="ff.field_definition?.field_type === '标签'">
+                          <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+                        </tr>
+                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
+                          <td colspan="2" :style="'font-weight:bold;' + (ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                        </tr>
+                        <tr v-else>
+                          <td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td>
+                          <td class="wp-ctrl" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')" v-html="renderCellHtml(ff)"></td>
+                        </tr>
+                      </template>
+                    </table>
+                    <table v-else class="inline-table">
+                      <tr>
+                        <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
+                      </tr>
+                      <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                        <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(g.fields[ci]?.bg_color ? 'background:#' + g.fields[ci].bg_color + '40;' : '') + (g.fields[ci]?.text_color ? 'color:#' + g.fields[ci].text_color : '')" v-html="cell"></td>
+                      </tr>
+                    </table>
                   </template>
-                </table>
-                <table v-else class="inline-table">
-                  <tr>
-                    <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
-                  </tr>
-                  <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
-                    <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(g.fields[ci]?.bg_color ? 'background:#' + g.fields[ci].bg_color + '40;' : '') + (g.fields[ci]?.text_color ? 'color:#' + g.fields[ci].text_color : '')" v-html="cell"></td>
-                  </tr>
-                </table>
-              </template>
+                </div>
+                <aside v-if="hasPreviewNotes" class="wp-notes" aria-label="设计备注">
+                  <div class="wp-notes-title">设计备注</div>
+                  <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+                </aside>
+              </div>
             </template>
           </div>
         </div>
@@ -782,12 +917,56 @@ function openAddForm() {
         </div>
         <div class="fd-panel-resizer" :class="{ dragging: isLibResizing }" @mousedown="startLibResize"></div>
         <!-- 画布区域 -->
-        <div class="fd-canvas" style="flex:1">
+        <div class="fd-canvas" style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
           <div class="fd-canvas-header">
             <el-button size="small" type="primary" @click="newField">新建字段</el-button>
             <el-button size="small" @click="addLogRow">添加log行</el-button>
             <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
             <el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{ selectedIds.length }})</el-button>
+          </div>
+          <div class="fd-dialog-preview">
+            <div class="fd-dialog-preview__title">实时 Word 预览</div>
+            <div class="word-preview fd-dialog-preview__body">
+              <div :class="['word-page', { landscape: needsLandscape, 'word-page--with-notes': hasPreviewNotes }]">
+                <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
+                <template v-else>
+                  <div class="wp-form-title">{{ selectedForm.name }}</div>
+                  <div v-if="!formFields.length" class="wp-empty">暂无字段</div>
+                  <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
+                    <div class="wp-main">
+                      <template v-for="(g, gi) in renderGroups" :key="`dialog-${gi}`">
+                        <table v-if="g.type === 'normal'">
+                          <template v-for="ff in g.fields" :key="ff.id">
+                            <tr v-if="ff.field_definition?.field_type === '标签'">
+                              <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+                            </tr>
+                            <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
+                              <td colspan="2" :style="'font-weight:bold;' + (ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                            </tr>
+                            <tr v-else>
+                              <td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td>
+                              <td class="wp-ctrl" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')" v-html="renderCellHtml(ff)"></td>
+                            </tr>
+                          </template>
+                        </table>
+                        <table v-else class="inline-table">
+                          <tr>
+                            <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
+                          </tr>
+                          <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                            <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(g.fields[ci]?.bg_color ? 'background:#' + g.fields[ci].bg_color + '40;' : '') + (g.fields[ci]?.text_color ? 'color:#' + g.fields[ci].text_color : '')" v-html="cell"></td>
+                          </tr>
+                        </table>
+                      </template>
+                    </div>
+                    <aside v-if="hasPreviewNotes" class="wp-notes" aria-label="设计备注">
+                      <div class="wp-notes-title">设计备注</div>
+                      <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+                    </aside>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
           <div class="fd-canvas-list" role="listbox" aria-label="表单字段列表">
             <div v-for="(ff, idx) in formFields" :key="ff.id"
@@ -907,8 +1086,18 @@ function openAddForm() {
                   <el-button size="small" type="primary" plain @click="showQuickAddUnit = true">+</el-button>
                 </div>
               </el-form-item>
-              <el-form-item v-if="editProp.inline_mark" label="默认值">
-                <el-input v-model="editProp.default_value" type="textarea" :rows="2" />
+              <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
+                <template #label>
+                  <el-tooltip :content="editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'">
+                    <span>默认值 <el-icon><InfoFilled /></el-icon></span>
+                  </el-tooltip>
+                </template>
+                <el-input
+                  v-model="editProp.default_value"
+                  :type="editProp.inline_mark ? 'textarea' : 'text'"
+                  :rows="editProp.inline_mark ? 2 : undefined"
+                  :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'"
+                />
               </el-form-item>
               <el-form-item label="底纹颜色">
                 <div class="color-picker">
@@ -1064,6 +1253,29 @@ function openAddForm() {
 </template>
 
 <style scoped>
+.fd-dialog-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-bg-card);
+}
+
+.fd-dialog-preview__title {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--color-text-secondary);
+}
+
+.fd-dialog-preview__body {
+  min-height: 0;
+  max-height: 320px;
+}
+
 .color-picker {
   display: flex;
   gap: 6px;
