@@ -49,11 +49,18 @@ class ImportExecuteResponse(BaseModel):
     created_form_fields: int
 
 
+class TemplateFieldOptionPreview(BaseModel):
+    id: Optional[int] = None
+    code: Optional[str] = None
+    decode: str
+    trailing_underscore: int = 0
+
+
 class TemplateFieldPreview(BaseModel):
     index: int
     label: str
     field_type: str
-    options: Optional[List[str]] = None
+    options: Optional[List[TemplateFieldOptionPreview]] = None
     integer_digits: Optional[int] = None
     decimal_digits: Optional[int] = None
     date_format: Optional[str] = None

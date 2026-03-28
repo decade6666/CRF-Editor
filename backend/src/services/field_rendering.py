@@ -6,6 +6,19 @@ from typing import List, Optional, Tuple
 import html
 
 
+NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
+
+
+def is_default_value_supported(form_field) -> bool:
+    """判断字段是否允许按当前上下文使用 default_value。"""
+    field_def = getattr(form_field, "field_definition", None)
+    if not field_def:
+        return False
+    if bool(getattr(form_field, "inline_mark", 0)):
+        return True
+    return getattr(field_def, "field_type", None) in NON_INLINE_DEFAULT_VALUE_FIELD_TYPES
+
+
 def extract_default_lines(form_field) -> List[str]:
     """提取默认值的多行文本（保留空行和空格）
 
@@ -15,6 +28,8 @@ def extract_default_lines(form_field) -> List[str]:
     Returns:
         默认值的行列表（保留空行和前后空格）
     """
+    if not is_default_value_supported(form_field):
+        return []
     default_value = getattr(form_field, "default_value", None) or ""
     if not default_value:
         return []
