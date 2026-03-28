@@ -8,20 +8,85 @@
  * @param {string} text - renderCtrl 返回的原始字符串
  * @returns {string} 安全的 HTML 字符串
  */
-export function toHtml(text) {
-  if (!text) return ''
-  // 转义 HTML 特殊字符（防止 XSS），保留换行
-  const escaped = text
+function escapeHtml(text) {
+  return String(text ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function buildFillLineHtml(length = 20) {
+  const safeLength = Math.max(4, Number(length) || 20)
+  const minWidth = (safeLength * 0.55).toFixed(1)
+  return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
+}
+
+function getChoiceSymbol(fieldType) {
+  return fieldType.includes('单选') ? '○' : '□'
+}
+
+function isVerticalChoice(fieldType) {
+  return ['单选（纵向）', '多选（纵向）'].includes(fieldType)
+}
+
+function normalizeChoiceOptions(rawOptions) {
+  return (rawOptions || [])
+    .map(option => {
+      if (typeof option === 'string') {
+        return { text: option, trailingUnderscore: false }
+      }
+      return {
+        text: option?.decode || '',
+        trailingUnderscore: Boolean(option?.trailing_underscore),
+      }
+    })
+    .filter(option => option.text)
+}
+
+export function isChoiceField(fieldType) {
+  return ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(fieldType)
+}
+
+export function isDefaultValueSupported(fieldType, inlineMark = false) {
+  if (inlineMark) return true
+  return ['文本', '数值'].includes(fieldType)
+}
+
+export function normalizeDefaultValue(defaultValue, singleLine = false) {
+  const normalized = String(defaultValue ?? '')
+  if (!singleLine) return normalized
+  return normalized.split(/\r?\n/, 1)[0]
+}
+
+function renderChoiceHtml(fieldType, rawOptions) {
+  const options = normalizeChoiceOptions(rawOptions)
+  if (!options.length) {
+    return toHtml(renderCtrl({ field_type: fieldType, options: [] }))
+  }
+
+  const symbol = getChoiceSymbol(fieldType)
+  const vertical = isVerticalChoice(fieldType)
+  const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
+  const separator = vertical ? '<br>' : '&nbsp;&nbsp;'
+
+  return options.map(option => {
+    const labelHtml = escapeHtml(option.text)
+    const optionTextHtml = `<span style="display:inline-block;min-width:${maxLabelLength}ch">${labelHtml}</span>`
+    const suffixHtml = option.trailingUnderscore
+      ? `<span style="display:inline-flex;align-items:flex-end;gap:0.2em">${buildFillLineHtml(20)}</span>`
+      : ''
+    return `<span style="display:inline-flex;align-items:flex-end;gap:0.2em"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+  }).join(separator)
+}
+
+export function toHtml(text) {
+  if (!text) return ''
+  // 转义 HTML 特殊字符（防止 XSS），保留换行
+  const escaped = escapeHtml(text)
   // 将连续 4 个或以上的下划线替换为 border-bottom span
   // 每个 _ 约 0.6em 宽度
-  const html = escaped.replace(/_{4,}/g, (match) => {
-    const minWidth = (match.length * 0.55).toFixed(1)
-    return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
-  })
+  const html = escaped.replace(/_{4,}/g, (match) => buildFillLineHtml(match.length))
   // 将紧跟在 fill-line span 之后的文字（单位符号）包裹为 vertical-align:bottom 的 span
   // 使单位与填写线底边对齐，避免 inline-block 撑高行框导致单位偏上
   const aligned = html.replace(
@@ -39,6 +104,10 @@ export function toHtml(text) {
  * @returns {string} HTML 字符串
  */
 export function renderCtrlHtml(field) {
+  if (!field) return ''
+  if (isChoiceField(field.field_type)) {
+    return renderChoiceHtml(field.field_type, field.options)
+  }
   return toHtml(renderCtrl(field))
 }
 
@@ -55,14 +124,9 @@ export function renderCtrlHtml(field) {
  */
 export function renderCtrl(field) {
   if (!field) return '________________'
-  const rawOpts = field.options || []
-  // 处理选项：支持字符串数组或对象数组，动态拼接下划线
-  const opts = rawOpts.map(o => {
-    if (typeof o === 'string') return o
-    const text = o.decode || ''
-    // trailing_underscore=1 时追加 8 个下划线，提供适当的填写空间
-    return o.trailing_underscore ? text + '________' : text
-  })
+  const opts = normalizeChoiceOptions(field.options).map(option => (
+    option.trailingUnderscore ? `${option.text}____________________` : option.text
+  ))
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 
   function boxes(n) { return n > 0 ? '|' + '__|'.repeat(n) : '' }

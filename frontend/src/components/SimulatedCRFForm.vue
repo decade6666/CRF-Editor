@@ -47,7 +47,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { renderCtrlHtml } from '../composables/useCRFRenderer'
+import { isDefaultValueSupported, normalizeDefaultValue, renderCtrlHtml } from '../composables/useCRFRenderer'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
@@ -67,21 +67,32 @@ const aiSugMap = computed(() => {
 })
 
 // 当前展示的字段列表（根据 viewMode 决定是否应用 AI 建议）
+function applyPreviewDefaultValue(field) {
+  const inlineMark = Boolean(field.inline_mark)
+  if (!field.default_value) return field
+  if (!isDefaultValueSupported(field.field_type, inlineMark)) return field
+  return {
+    ...field,
+    default_value: normalizeDefaultValue(field.default_value, !inlineMark),
+    _previewDefaultValue: true,
+  }
+}
+
 const displayFields = computed(() => {
   if (!props.fields?.length) return []
 
   if (props.viewMode === 'ai') {
     return props.fields.map(f => {
       const sug = aiSugMap.value[f.index]
-      if (sug) {
-        return { ...f, field_type: sug.suggested_type, _aiModified: true }
-      }
-      return { ...f, _aiModified: false }
+      const nextField = sug
+        ? { ...f, field_type: sug.suggested_type, _aiModified: true }
+        : { ...f, _aiModified: false }
+      return applyPreviewDefaultValue(nextField)
     })
   }
 
   // direct 模式：原始字段
-  return props.fields.map(f => ({ ...f, _aiModified: false }))
+  return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
 })
 </script>
 
