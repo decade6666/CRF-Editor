@@ -6,8 +6,10 @@ from sqlalchemy import select
 from pydantic import BaseModel
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.field_definition import FieldDefinition
 from src.models.form_field import FormField
+from src.models.user import User
 from src.repositories.field_definition_repository import FieldDefinitionRepository
 from src.repositories.form_field_repository import FormFieldRepository
 from src.repositories.base_repository import BaseRepository
@@ -24,12 +26,14 @@ router = APIRouter(tags=["fields"])
 # ── 字段库 ──────────────────────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/field-definitions", response_model=List[FieldDefinitionResponse])
-def list_field_definitions(project_id: int, session: Session = Depends(get_session)):
+def list_field_definitions(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     return FieldDefinitionRepository(session).get_by_project_id(project_id)
 
 
 @router.post("/projects/{project_id}/field-definitions", response_model=FieldDefinitionResponse, status_code=201)
-def create_field_definition(project_id: int, data: FieldDefinitionCreate, session: Session = Depends(get_session)):
+def create_field_definition(project_id: int, data: FieldDefinitionCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     repo = FieldDefinitionRepository(session)
     dump = data.model_dump(exclude={'order_index'})
     fd = FieldDefinition(project_id=project_id, **dump)
@@ -45,7 +49,8 @@ def create_field_definition(project_id: int, data: FieldDefinitionCreate, sessio
 
 
 @router.put("/projects/{project_id}/field-definitions/{fd_id}", response_model=FieldDefinitionResponse)
-def update_field_definition(project_id: int, fd_id: int, data: FieldDefinitionUpdate, session: Session = Depends(get_session)):
+def update_field_definition(project_id: int, fd_id: int, data: FieldDefinitionUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     repo = FieldDefinitionRepository(session)
     fd = repo.get_by_id(fd_id)
     if not fd:
@@ -91,7 +96,8 @@ def delete_field_definition(fd_id: int, session: Session = Depends(get_session))
 
 
 @router.post("/projects/{project_id}/field-definitions/batch-delete")
-def batch_delete_field_definitions(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_field_definitions(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     ref_ids = set(session.scalars(select(FormField.field_definition_id).where(FormField.field_definition_id.in_(data.ids))).all())
     if ref_ids:
         raise HTTPException(409, "部分字段被表单引用，无法删除")
@@ -101,8 +107,9 @@ def batch_delete_field_definitions(project_id: int, data: BatchDeleteRequest, se
 
 
 @router.post("/projects/{project_id}/field-definitions/batch-references")
-def batch_field_definition_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_field_definition_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量查询字段定义引用"""
+    verify_project_owner(project_id, current_user, session)
     from src.models.form import Form
     stmt = (
         select(FormField.field_definition_id, Form.name, Form.code)
@@ -116,8 +123,9 @@ def batch_field_definition_references(project_id: int, data: BatchDeleteRequest,
 
 
 @router.post("/projects/{project_id}/field-definitions/reorder")
-def reorder_field_definitions(project_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_field_definitions(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     OrderService.reorder_batch(session, FieldDefinition, FieldDefinition.project_id == project_id, id_list)
     return {"message": "Reordered"}
 

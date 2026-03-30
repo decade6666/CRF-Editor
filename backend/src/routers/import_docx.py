@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.project import Project
+from src.models.user import User
 from src.services.docx_import_service import DocxImportService
 from src.services.ai_review_service import review_forms, VALID_FIELD_TYPES
 from src.services.docx_screenshot_service import DocxScreenshotService
@@ -95,10 +97,10 @@ async def preview_docx_import(
     project_id: int,
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """上传Word文档并预览解析出的表单列表"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
 
     # 校验文件类型
     if not file.filename or not file.filename.lower().endswith(".docx"):
@@ -204,10 +206,10 @@ def execute_docx_import(
     project_id: int,
     payload: DocxExecuteRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """执行导入：将选中的表单写入数据库"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
 
     file_path = DocxImportService.get_temp_path(payload.temp_id)
     if not file_path:
@@ -278,10 +280,10 @@ async def start_docx_screenshot(
     temp_id: str,
     body: ScreenshotStartRequest = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """触发异步截图任务：将 docx 转为逐页 PNG"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
 
     file_path = DocxImportService.get_temp_path(temp_id)
     if not file_path:
@@ -332,10 +334,10 @@ async def get_screenshot_status(
     project_id: int,
     temp_id: str,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """查询截图任务状态"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
 
     task = DocxScreenshotService.get_task(temp_id)
     if not task:
@@ -365,10 +367,10 @@ async def get_screenshot_page(
     temp_id: str,
     page: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """获取指定页截图（page 从 1 开始）"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
 
     if page < 1:
         raise HTTPException(400, "页码从 1 开始")

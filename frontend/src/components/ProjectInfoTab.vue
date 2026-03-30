@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api } from '../composables/useApi'
+import { api, getAuthHeaders } from '../composables/useApi'
 
 const props = defineProps({ project: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
@@ -36,7 +36,7 @@ async function uploadLogo(e) {
   if (!file) return
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch(`/api/projects/${props.project.id}/logo`, { method: 'POST', body: fd })
+  const r = await fetch(`/api/projects/${props.project.id}/logo`, { method: 'POST', body: fd, headers: getAuthHeaders() })
   if (r.ok) {
     const d = await r.json()
     logoTs.value = Date.now()

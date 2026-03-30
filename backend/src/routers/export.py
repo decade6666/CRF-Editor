@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.database import get_session, get_read_session
+from src.dependencies import get_current_user, verify_project_owner
+from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.services.export_service import ExportService
 
@@ -34,8 +36,9 @@ def _cleanup_expired():
 
 
 @router.post("/projects/{project_id}/export/word/prepare")
-def prepare_export(project_id: int, session: Session = Depends(get_read_session)):
+def prepare_export(project_id: int, session: Session = Depends(get_read_session), current_user: User = Depends(get_current_user)):
     """生成导出文件并返回下载令牌（使用只读 Session，不持有写事务）"""
+    verify_project_owner(project_id, current_user, session)
     _cleanup_expired()
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
