@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.unit import Unit
+from src.models.user import User
 from src.repositories.base_repository import BaseRepository
 from src.schemas.unit import UnitCreate, UnitUpdate, UnitResponse
 from src.schemas import BatchDeleteRequest
@@ -15,13 +17,15 @@ router = APIRouter(tags=["units"])
 
 
 @router.get("/projects/{project_id}/units", response_model=List[UnitResponse])
-def list_units(project_id: int, session: Session = Depends(get_session)):
+def list_units(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     stmt = select(Unit).where(Unit.project_id == project_id).order_by(Unit.order_index, Unit.id)
     return list(session.scalars(stmt).all())
 
 
 @router.post("/projects/{project_id}/units", response_model=UnitResponse, status_code=201)
-def create_unit(project_id: int, data: UnitCreate, session: Session = Depends(get_session)):
+def create_unit(project_id: int, data: UnitCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.utils import generate_code
     dump = data.model_dump(exclude={'order_index'})
     if not dump.get("code"):
@@ -88,7 +92,8 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/units/batch-delete")
-def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.models.field_definition import FieldDefinition
     ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(data.ids))).all())
     if ref_ids:
@@ -99,8 +104,9 @@ def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Sessi
 
 
 @router.post("/projects/{project_id}/units/batch-references")
-def batch_unit_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_unit_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量查询单位引用"""
+    verify_project_owner(project_id, current_user, session)
     from src.models.field_definition import FieldDefinition
     from src.models.form_field import FormField
     from src.models.form import Form
@@ -117,8 +123,9 @@ def batch_unit_references(project_id: int, data: BatchDeleteRequest, session: Se
 
 
 @router.post("/projects/{project_id}/units/reorder")
-def reorder_units(project_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_units(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     OrderService.reorder_batch(session, Unit, Unit.project_id == project_id, id_list)
     return {"message": "Reordered"}
 

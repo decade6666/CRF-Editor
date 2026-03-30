@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
+from src.models.user import User
 from src.models.visit import Visit
 from src.repositories.base_repository import BaseRepository
 from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
@@ -19,14 +21,16 @@ class VisitFormSequenceUpdate(BaseModel):
 
 
 @router.get("/projects/{project_id}/visits", response_model=List[VisitResponse])
-def list_visits(project_id: int, session: Session = Depends(get_session)):
+def list_visits(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from sqlalchemy import select
     stmt = select(Visit).where(Visit.project_id == project_id).order_by(Visit.sequence)
     return list(session.scalars(stmt).all())
 
 
 @router.post("/projects/{project_id}/visits", response_model=VisitResponse, status_code=201)
-def create_visit(project_id: int, data: VisitCreate, session: Session = Depends(get_session)):
+def create_visit(project_id: int, data: VisitCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.utils import generate_code
     dump = data.model_dump(exclude={'sequence'})
     if not dump.get("code"):
@@ -45,7 +49,8 @@ def create_visit(project_id: int, data: VisitCreate, session: Session = Depends(
 
 
 @router.put("/projects/{project_id}/visits/{visit_id}", response_model=VisitResponse)
-def update_visit(project_id: int, visit_id: int, data: VisitUpdate, session: Session = Depends(get_session)):
+def update_visit(project_id: int, visit_id: int, data: VisitUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     repo = BaseRepository(session, Visit)
     visit = repo.get_by_id(visit_id)
     if not visit:
@@ -75,15 +80,17 @@ def delete_visit(visit_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/visits/batch-delete")
-def batch_delete_visits(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_visits(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     count = BaseRepository(session, Visit).batch_delete(data.ids, project_id=project_id)
     OrderService.compact_after_batch_delete_sequence(session, Visit, Visit.project_id == project_id)
     return {"deleted": count}
 
 
 @router.post("/projects/{project_id}/visits/reorder")
-def reorder_visits(project_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_visits(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     OrderService.reorder_batch_sequence(session, Visit, Visit.project_id == project_id, id_list)
     return {"message": "Reordered"}
 
@@ -110,8 +117,9 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/projects/{project_id}/visit-form-matrix")
-def visit_form_matrix(project_id: int, session: Session = Depends(get_session)):
+def visit_form_matrix(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """返回访视-表单分布矩阵数据"""
+    verify_project_owner(project_id, current_user, session)
     from sqlalchemy import select
     from src.models.form import Form
     stmt = select(Visit).where(Visit.project_id == project_id).order_by(Visit.sequence).options(selectinload(Visit.visit_forms))

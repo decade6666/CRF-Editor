@@ -14,6 +14,7 @@ from .form import Form
 from .form_field import FormField
 from .project import Project
 from .unit import Unit
+from .user import User
 from .visit import Visit
 from .visit_form import VisitForm
 
@@ -27,6 +28,7 @@ __all__ = [
     "FormField",
     "Project",
     "Unit",
+    "User",
     "Visit",
     "VisitForm",
 ]

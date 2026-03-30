@@ -7,6 +7,7 @@ import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, is
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
+const editMode = inject('editMode', ref(false))
 
 // 核心数据
 const forms = ref([])
@@ -790,7 +791,7 @@ function openAddForm() {
     <!-- 左侧：表单列表 -->
     <div class="fd-formlist">
       <div style="margin-bottom:12px;align-self:flex-start;display:flex;gap:8px">
-        <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
+        <el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
         <el-input
           v-model="searchForm"
@@ -826,7 +827,7 @@ function openAddForm() {
     <div class="fd-right">
       <div class="fd-canvas" style="flex:1">
         <div class="fd-canvas-header">
-          <el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
+          <el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
           <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
         </div>

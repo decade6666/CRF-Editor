@@ -7,7 +7,9 @@ import shutil
 
 from src.database import get_session
 from src.config import get_config
+from src.dependencies import get_current_user
 from src.models.project import Project
+from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 
@@ -15,31 +17,51 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 @router.get("", response_model=List[ProjectResponse])
-def list_projects(session: Session = Depends(get_session)):
-    return ProjectRepository(session).get_all()
+def list_projects(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    return ProjectRepository(session).get_all_by_owner(current_user.id)
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
-def create_project(data: ProjectCreate, session: Session = Depends(get_session)):
+def create_project(
+    data: ProjectCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     repo = ProjectRepository(session)
-    project = repo.create(Project(**data.model_dump()))
+    project = repo.create_with_owner(Project(**data.model_dump()), current_user.id)
     return project
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-def get_project(project_id: int, session: Session = Depends(get_session)):
+def get_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
     return project
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
-def update_project(project_id: int, data: ProjectUpdate, session: Session = Depends(get_session)):
+def update_project(
+    project_id: int,
+    data: ProjectUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     repo = ProjectRepository(session)
     project = repo.get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(project, k, v)
     repo.update(project)
@@ -47,7 +69,11 @@ def update_project(project_id: int, data: ProjectUpdate, session: Session = Depe
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: int, session: Session = Depends(get_session)):
+def delete_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -66,15 +92,25 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
     project = session.scalars(stmt).first()
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
     session.delete(project)
     session.flush()
 
 
 @router.get("/{project_id}/logo")
-def get_logo(project_id: int, session: Session = Depends(get_session)):
+def get_logo(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     from fastapi.responses import FileResponse as FR
     project = ProjectRepository(session).get_by_id(project_id)
-    if not project or not project.company_logo_path:
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
+    if not project.company_logo_path:
         raise HTTPException(404, "无Logo")
     logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
     if not logo_path.exists():
@@ -83,7 +119,12 @@ def get_logo(project_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/{project_id}/logo", response_model=ProjectResponse)
-def upload_logo(project_id: int, file: UploadFile = File(...), session: Session = Depends(get_session)):
+def upload_logo(
+    project_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     import uuid
     from src.utils import is_safe_file_upload
 
@@ -91,6 +132,8 @@ def upload_logo(project_id: int, file: UploadFile = File(...), session: Session 
     project = repo.get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
 
     # 读取文件内容（前8KB足够魔数检测，避免内存溢出）
     file_content = file.file.read(8192)

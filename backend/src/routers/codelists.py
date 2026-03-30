@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.codelist import CodeList, CodeListOption
+from src.models.user import User
 from src.repositories.base_repository import BaseRepository
 from src.schemas.codelist import (
     CodeListCreate, CodeListUpdate, CodeListResponse,
@@ -29,7 +31,8 @@ def _get_codelist_with_project_check(session: Session, cl_id: int, project_id: i
 
 
 @router.get("/projects/{project_id}/codelists", response_model=List[CodeListResponse])
-def list_codelists(project_id: int, session: Session = Depends(get_session)):
+def list_codelists(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from sqlalchemy.orm import selectinload
     stmt = (
         select(CodeList)
@@ -45,7 +48,8 @@ def list_codelists(project_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/codelists", response_model=CodeListResponse, status_code=201)
-def create_codelist(project_id: int, data: CodeListCreate, session: Session = Depends(get_session)):
+def create_codelist(project_id: int, data: CodeListCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.utils import generate_code
     dump = data.model_dump()
     if not dump.get("code"):
@@ -63,7 +67,8 @@ def create_codelist(project_id: int, data: CodeListCreate, session: Session = De
 
 
 @router.put("/projects/{project_id}/codelists/{cl_id}", response_model=CodeListResponse)
-def update_codelist(project_id: int, cl_id: int, data: CodeListUpdate, session: Session = Depends(get_session)):
+def update_codelist(project_id: int, cl_id: int, data: CodeListUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     repo = BaseRepository(session, CodeList)
     cl = repo.get_by_id(cl_id)
     if not cl:
@@ -84,7 +89,7 @@ def update_codelist(project_id: int, cl_id: int, data: CodeListUpdate, session: 
 
 
 @router.get("/projects/{project_id}/codelists/{cl_id}/references")
-def get_codelist_references(project_id: int, cl_id: int, session: Session = Depends(get_session)):
+def get_codelist_references(project_id: int, cl_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """查询字典被哪些表单的哪些字段引用"""
     _get_codelist_with_project_check(session, cl_id, project_id)
 
@@ -101,7 +106,8 @@ def get_codelist_references(project_id: int, cl_id: int, session: Session = Depe
 
 
 @router.delete("/projects/{project_id}/codelists/{cl_id}", status_code=204)
-def delete_codelist(project_id: int, cl_id: int, session: Session = Depends(get_session)):
+def delete_codelist(project_id: int, cl_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     repo = BaseRepository(session, CodeList)
     cl = repo.get_by_id(cl_id)
     if not cl:
@@ -116,7 +122,8 @@ def delete_codelist(project_id: int, cl_id: int, session: Session = Depends(get_
 
 
 @router.post("/projects/{project_id}/codelists/batch-delete")
-def batch_delete_codelists(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_codelists(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.models.field_definition import FieldDefinition
     ref_ids = set(session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(data.ids))).all())
     if ref_ids:
@@ -127,8 +134,9 @@ def batch_delete_codelists(project_id: int, data: BatchDeleteRequest, session: S
 
 
 @router.post("/projects/{project_id}/codelists/batch-references")
-def batch_codelist_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_codelist_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量查询字典引用"""
+    verify_project_owner(project_id, current_user, session)
     # 先按 project_id 过滤 codelists
     valid_cl_ids = set(session.scalars(
         select(CodeList.id)
@@ -153,7 +161,7 @@ def batch_codelist_references(project_id: int, data: BatchDeleteRequest, session
 
 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options", response_model=CodeListOptionResponse, status_code=201)
-def add_option(project_id: int, cl_id: int, data: CodeListOptionCreate, session: Session = Depends(get_session)):
+def add_option(project_id: int, cl_id: int, data: CodeListOptionCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     _get_codelist_with_project_check(session, cl_id, project_id)
 
     dump = data.model_dump(exclude={'order_index'})
@@ -170,7 +178,7 @@ def add_option(project_id: int, cl_id: int, data: CodeListOptionCreate, session:
 
 
 @router.put("/projects/{project_id}/codelists/{cl_id}/options/{opt_id}", response_model=CodeListOptionResponse)
-def update_option(project_id: int, cl_id: int, opt_id: int, data: CodeListOptionUpdate, session: Session = Depends(get_session)):
+def update_option(project_id: int, cl_id: int, opt_id: int, data: CodeListOptionUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
@@ -193,7 +201,7 @@ def update_option(project_id: int, cl_id: int, opt_id: int, data: CodeListOption
 
 
 @router.delete("/projects/{project_id}/codelists/{cl_id}/options/{opt_id}", status_code=204)
-def delete_option(project_id: int, cl_id: int, opt_id: int, session: Session = Depends(get_session)):
+def delete_option(project_id: int, cl_id: int, opt_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
@@ -206,7 +214,7 @@ def delete_option(project_id: int, cl_id: int, opt_id: int, session: Session = D
 
 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options/batch-delete")
-def batch_delete_options(project_id: int, cl_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_options(project_id: int, cl_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     _get_codelist_with_project_check(session, cl_id, project_id)
 
     # 只删除属于该字典的选项
@@ -225,7 +233,7 @@ def batch_delete_options(project_id: int, cl_id: int, data: BatchDeleteRequest, 
 
 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options/reorder")
-def reorder_options(project_id: int, cl_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_options(project_id: int, cl_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
     _get_codelist_with_project_check(session, cl_id, project_id)
     OrderService.reorder_batch(session, CodeListOption, CodeListOption.codelist_id == cl_id, id_list)
@@ -233,7 +241,8 @@ def reorder_options(project_id: int, cl_id: int, id_list: List[int], session: Se
 
 
 @router.post("/projects/{project_id}/codelists/reorder")
-def reorder_codelists(project_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_codelists(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     OrderService.reorder_batch(session, CodeList, CodeList.project_id == project_id, id_list)
     return {"message": "Reordered"}

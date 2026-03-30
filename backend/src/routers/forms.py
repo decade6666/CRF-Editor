@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.form import Form
 from src.models.form_field import FormField
+from src.models.user import User
 from src.repositories.base_repository import BaseRepository
 from src.schemas.form import FormCreate, FormUpdate, FormResponse
 from src.schemas import BatchDeleteRequest
@@ -16,13 +18,15 @@ router = APIRouter(tags=["forms"])
 
 
 @router.get("/projects/{project_id}/forms", response_model=List[FormResponse])
-def list_forms(project_id: int, session: Session = Depends(get_session)):
+def list_forms(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     stmt = select(Form).where(Form.project_id == project_id).order_by(Form.order_index, Form.id)
     return list(session.scalars(stmt).all())
 
 
 @router.post("/projects/{project_id}/forms", response_model=FormResponse, status_code=201)
-def create_form(project_id: int, data: FormCreate, session: Session = Depends(get_session)):
+def create_form(project_id: int, data: FormCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.utils import generate_code
     dump = data.model_dump(exclude={'order_index'})
     if not dump.get("code"):
@@ -86,7 +90,8 @@ def delete_form(form_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/forms/batch-delete")
-def batch_delete_forms(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_delete_forms(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     from src.models.visit_form import VisitForm
     ref_ids = set(session.scalars(select(VisitForm.form_id).where(VisitForm.form_id.in_(data.ids))).all())
     if ref_ids:
@@ -97,8 +102,9 @@ def batch_delete_forms(project_id: int, data: BatchDeleteRequest, session: Sessi
 
 
 @router.post("/projects/{project_id}/forms/batch-references")
-def batch_form_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session)):
+def batch_form_references(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量查询表单引用"""
+    verify_project_owner(project_id, current_user, session)
     from src.models.visit_form import VisitForm
     from src.models.visit import Visit
     stmt = (
@@ -113,8 +119,9 @@ def batch_form_references(project_id: int, data: BatchDeleteRequest, session: Se
 
 
 @router.post("/projects/{project_id}/forms/reorder")
-def reorder_forms(project_id: int, id_list: List[int], session: Session = Depends(get_session)):
+def reorder_forms(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     OrderService.reorder_batch(session, Form, Form.project_id == project_id, id_list)
     return {"message": "Reordered"}
 

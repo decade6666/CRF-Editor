@@ -65,12 +65,19 @@ class AIConfig(BaseModel):
     api_format: str = ""  # openai / anthropic，测试连接时自动探测
 
 
+class AuthConfig(BaseModel):
+    secret_key: str = ""
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+
+
 class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     storage: StorageConfig = StorageConfig()
     server: ServerConfig = ServerConfig()
     template: TemplateConfig = TemplateConfig()
     ai: AIConfig = AIConfig()
+    auth: AuthConfig = AuthConfig()
 
     @property
     def db_path(self) -> str:

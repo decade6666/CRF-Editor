@@ -15,6 +15,19 @@ class ProjectRepository(BaseRepository[Project]):
     def __init__(self, session: Session):
         super().__init__(session, Project)
 
+    def get_all_by_owner(self, owner_id: int) -> List[Project]:
+        """获取指定用户的所有项目"""
+        stmt = select(Project).where(Project.owner_id == owner_id)
+        return list(self.session.scalars(stmt))
+
+    def create_with_owner(self, project: Project, owner_id: int) -> Project:
+        """创建项目并关联 owner"""
+        project.owner_id = owner_id
+        self.session.add(project)
+        self.session.flush()
+        self.session.refresh(project)
+        return project
+
     def get_by_name(self, name: str) -> Optional[Project]:
         """根据名称获取项目"""
         stmt = select(Project).where(Project.name == name)

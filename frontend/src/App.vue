@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, watch, onMounted, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, toggleSelectAll } from './composables/useApi'
+import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
 import ProjectInfoTab from './components/ProjectInfoTab.vue'
 import VisitsTab from './components/VisitsTab.vue'
 import FormDesignerTab from './components/FormDesignerTab.vue'
@@ -10,6 +10,15 @@ import CodelistsTab from './components/CodelistsTab.vue'
 import UnitsTab from './components/UnitsTab.vue'
 import DocxCompareDialog from './components/DocxCompareDialog.vue'
 import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
+import LoginView from './components/LoginView.vue'
+
+// 登录状态
+const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
+
+function onLoginSuccess() {
+  isLoggedIn.value = true
+  loadProjects()
+}
 
 // 项目数据
 const projects = ref([])
@@ -19,11 +28,19 @@ const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
 
 async function loadProjects() { projects.value = await api.get('/api/projects') }
-onMounted(loadProjects)
+onMounted(() => {
+  if (isLoggedIn.value) loadProjects()
+  window.addEventListener('crf:auth-expired', () => { isLoggedIn.value = false })
+})
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
 const refreshKey = ref(0)
 provide('refreshKey', refreshKey)
+
+// 编辑模式（持久化，默认关闭）
+const editMode = ref(localStorage.getItem('crf_edit_mode') === 'true')
+watch(editMode, v => localStorage.setItem('crf_edit_mode', String(v)))
+provide('editMode', editMode)
 
 function handleRefresh() {
   api.clearAllCache()
@@ -40,6 +57,13 @@ watch(activeTab, (newTab) => {
   if (newTab === 'fields') {
     api.invalidateCache(`/api/projects/${selectedProject.value?.id}/field-definitions`)
     refreshKey.value++
+  }
+})
+
+// 编辑模式关闭时，若当前在隐藏标签页则跳回 info
+watch(editMode, (on) => {
+  if (!on && ['codelists', 'units', 'fields'].includes(activeTab.value)) {
+    activeTab.value = 'info'
   }
 })
 
@@ -68,7 +92,7 @@ async function deleteProject(p) {
 // 导出Word
 async function exportWord() {
   try {
-    const resp = await fetch(`/api/projects/${selectedProject.value.id}/export/word/prepare`, { method: 'POST' })
+    const resp = await fetch(`/api/projects/${selectedProject.value.id}/export/word/prepare`, { method: 'POST', headers: getAuthHeaders() })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
       return ElMessage.error('导出失败: ' + (err.detail || '未知错误'))
@@ -385,6 +409,8 @@ function startResize(e) {
 </script>
 
 <template>
+  <LoginView v-if="!isLoggedIn" @login-success="onLoginSuccess" />
+  <template v-else>
   <!-- 头部 -->
   <div class="header">
     <div class="header-left">
@@ -429,13 +455,13 @@ function startResize(e) {
           <el-tab-pane label="项目信息" name="info">
             <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
           </el-tab-pane>
-          <el-tab-pane label="选项" name="codelists">
+          <el-tab-pane v-if="editMode" label="选项" name="codelists">
             <div class="content-inner"><CodelistsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
-          <el-tab-pane label="单位" name="units">
+          <el-tab-pane v-if="editMode" label="单位" name="units">
             <div class="content-inner"><UnitsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
-          <el-tab-pane label="字段" name="fields">
+          <el-tab-pane v-if="editMode" label="字段" name="fields">
             <div class="content-inner"><FieldsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
           <el-tab-pane label="表单" name="designer">
@@ -464,6 +490,10 @@ function startResize(e) {
   <!-- 设置弹窗 -->
   <el-dialog v-model="showSettings" title="设置" width="480px" :close-on-click-modal="false">
     <el-form label-width="100px">
+      <el-form-item label="编辑模式">
+        <el-switch v-model="editMode" />
+        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">开启后显示选项/单位/字段标签及表单编辑按钮</span>
+      </el-form-item>
       <!-- 暂时隐藏，保留代码 -->
       <el-form-item v-if="false" label="模板路径">
         <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
@@ -560,6 +590,7 @@ function startResize(e) {
         <el-upload
           drag
           :action="'/api/projects/' + selectedProject.id + '/import-docx/preview'"
+          :headers="getAuthHeaders()"
           :show-file-list="false"
           accept=".docx"
           :on-success="handleDocxUploadSuccess"
@@ -640,6 +671,7 @@ function startResize(e) {
     :all-forms-data="importedFormsPreview"
     @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
   />
+  </template>
 </template>
 
 <style scoped>
