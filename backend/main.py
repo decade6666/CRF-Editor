@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from src.config import get_config
 from src.database import init_db
 from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx
+from src.routers.auth import router as auth_router
 from src.services.docx_screenshot_service import DocxScreenshotService
 from src.utils import is_safe_path
 
@@ -28,6 +29,7 @@ def _setup_app_logging():
 
 app = FastAPI(title="CRF编辑器")
 
+app.include_router(auth_router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(visits.router, prefix="/api")
 app.include_router(forms.router, prefix="/api")
@@ -107,6 +109,8 @@ async def value_error_handler(request: Request, exc: ValueError):
 def startup():
     _setup_app_logging()
     config = get_config()
+    if not config.auth.secret_key:
+        raise RuntimeError("config.yaml 缺少 auth.secret_key")
     Path(config.upload_path).mkdir(parents=True, exist_ok=True)
     init_db()
 

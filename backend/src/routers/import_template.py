@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from src.config import get_config
 from src.database import get_session
+from src.dependencies import get_current_user, verify_project_owner
 from src.models.project import Project
+from src.models.user import User
 from src.services.import_service import ImportService
 
 logger = logging.getLogger(__name__)
@@ -80,11 +82,9 @@ class TemplateFormFieldsResponse(BaseModel):
     "/projects/{project_id}/import-template",
     response_model=ImportPreviewResponse,
 )
-def preview_import(project_id: int, session: Session = Depends(get_session)):
+def preview_import(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """预览模板库：返回项目列表及其表单"""
-    # 校验目标项目是否存在
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
     cfg = get_config()
     if not cfg.template_path:
         raise HTTPException(400, "未配置模板路径，请先在设置中配置")
@@ -106,10 +106,10 @@ def preview_form_fields(
     project_id: int,
     form_id: int,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """预览模板表单字段详情：供前端模拟渲染导入效果"""
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
     cfg = get_config()
     if not cfg.template_path:
         raise HTTPException(400, "未配置模板路径，请先在设置中配置")
@@ -131,11 +131,10 @@ def execute_import(
     project_id: int,
     payload: ImportExecuteRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """执行导入：将选中的表单导入到目标项目"""
-    # 校验目标项目是否存在
-    if not session.get(Project, project_id):
-        raise HTTPException(404, "目标项目不存在")
+    verify_project_owner(project_id, current_user, session)
     cfg = get_config()
     if not cfg.template_path:
         raise HTTPException(400, "未配置模板路径，请先在设置中配置")

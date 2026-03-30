@@ -14,10 +14,13 @@ def get_engine():
         config = get_config()
         _engine = create_engine(f"sqlite:///{config.db_path}", connect_args={"check_same_thread": False})
 
-        # SQLite 默认不启用外键约束，必须每次连接时手动开启
+        # SQLite 默认不启用外键约束，必须每次连接时手动开启；同时启用 WAL 模式提升并发性能
         @event.listens_for(_engine, "connect")
-        def _enable_fk(dbapi_conn, connection_record):
+        def _configure_sqlite(dbapi_conn, connection_record):
             dbapi_conn.execute("PRAGMA foreign_keys = ON")
+            dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute("PRAGMA busy_timeout=5000")
+            dbapi_conn.execute("PRAGMA synchronous=NORMAL")
 
     return _engine
 
@@ -202,6 +205,57 @@ def _migrate_add_color_mark(engine):
             conn.execute(text('ALTER TABLE form_field DROP COLUMN color_mark'))
 
 
+def _migrate_add_project_owner_id(engine):
+    """给 project 表添加 owner_id 列（若不存在）"""
+    insp = inspect(engine)
+    if not insp.has_table("project"):
+        return
+    cols = [c["name"] for c in insp.get_columns("project")]
+    if "owner_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE project ADD COLUMN owner_id INTEGER REFERENCES "user"(id)'))
+
+
+def _migrate_user_hashed_password_nullable(engine):
+    """将 user.hashed_password 列改为 nullable。SQLite 不支持 ALTER COLUMN，需重建表。"""
+    import logging
+
+    logger = logging.getLogger("src.database")
+    insp = inspect(engine)
+    if not insp.has_table("user"):
+        return
+
+    cols = {c["name"]: c for c in insp.get_columns("user")}
+    hashed_pw_col = cols.get("hashed_password")
+    if hashed_pw_col and hashed_pw_col.get("nullable", False):
+        logger.debug("user.hashed_password 已是 nullable，跳过迁移")
+        return
+
+    logger.info("迁移 user.hashed_password 为 nullable...")
+    with engine.begin() as conn:
+        conn.execute(text('CREATE TABLE "user_new" (id INTEGER PRIMARY KEY, username VARCHAR(100) NOT NULL, hashed_password VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'))
+        conn.execute(text('INSERT INTO "user_new" (id, username, hashed_password, created_at) SELECT id, username, hashed_password, created_at FROM "user"'))
+        conn.execute(text('DROP TABLE "user"'))
+        conn.execute(text('ALTER TABLE "user_new" RENAME TO "user"'))
+        conn.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_username ON "user"(username)'))
+    logger.info("user.hashed_password 迁移完成")
+
+
+def _warn_orphan_projects(engine):
+    """检查并警告孤立项目（owner_id 为 NULL）。"""
+    import logging
+
+    logger = logging.getLogger("src.database")
+    insp = inspect(engine)
+    if not insp.has_table("project"):
+        return
+
+    with engine.begin() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM project WHERE owner_id IS NULL")).scalar()
+        if count > 0:
+            logger.warning("发现 %d 个孤立项目（owner_id 为 NULL），这些项目将无法被任何用户访问", count)
+
+
 def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
@@ -210,6 +264,9 @@ def init_db():
     _migrate_add_order_index(engine)
     _migrate_add_design_notes(engine)
     _migrate_add_color_mark(engine)
+    _migrate_add_project_owner_id(engine)
+    _migrate_user_hashed_password_nullable(engine)
+    _warn_orphan_projects(engine)
 
 
 def get_session():
