@@ -28,10 +28,17 @@ const showVisitPreview = ref(false)
 // 表单内容预览弹窗
 const showFormPreview = ref(false)
 const formPreviewTitle = ref('')
+const formPreviewDesignNotes = ref('')
 const formPreviewFields = ref([])
 const formPreviewLoading = ref(false)
 const formPreviewError = ref('')
 let formPreviewRequestSeq = 0
+
+// 计算属性：设计备注预览内容
+const hasPreviewNotes = computed(() => Boolean(formPreviewDesignNotes.value.trim()))
+const previewDesignNotesHtml = computed(() => (
+  hasPreviewNotes.value ? escapePreviewText(formPreviewDesignNotes.value) : ''
+))
 // 当前选中的访视（右侧面板）
 const selectedVisit = ref(null)
 
@@ -238,10 +245,14 @@ const previewRenderGroups = computed(() => {
 const previewNeedsLandscape = computed(() =>
   previewRenderGroups.value.some(g => g.type === 'inline' && g.fields.length > 4)
 )
+const previewForceLandscape = ref(localStorage.getItem('crf_previewForceLandscape') === 'true')
+watch(previewForceLandscape, v => localStorage.setItem('crf_previewForceLandscape', String(v)))
+const previewLandscapeMode = computed(() => previewForceLandscape.value || previewNeedsLandscape.value)
 
 async function openFormPreview(form) {
   const seq = ++formPreviewRequestSeq
   formPreviewTitle.value = form.name || '表单预览'
+  formPreviewDesignNotes.value = form.design_notes || ''
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewLoading.value = true
@@ -447,7 +458,22 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
   </div>
   <!-- 表单内容预览弹窗 -->
-  <el-dialog v-model="showFormPreview" :title="formPreviewTitle" width="90%" style="max-width:800px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">
+  <el-dialog v-model="showFormPreview" width="90%" style="max-width:1200px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">
+    <template #header>
+      <div style="display:flex;align-items:center;gap:12px;padding-right:32px">
+        <span style="font-size:16px;font-weight:bold">{{ formPreviewTitle }}</span>
+        <el-button
+          v-if="!formPreviewLoading && !formPreviewError && formPreviewFields.length"
+          size="small"
+          :type="previewForceLandscape ? 'primary' : ''"
+          :plain="!previewForceLandscape"
+          @click="previewForceLandscape = !previewForceLandscape"
+          title="强制横向显示预览"
+        >
+          横向
+        </el-button>
+      </div>
+    </template>
     <div v-if="formPreviewLoading" style="text-align:center;padding:40px">
       <el-icon class="is-loading"><Loading /></el-icon> 加载中...
     </div>
@@ -456,34 +482,42 @@ async function toggleCell(visitId, formId) {
       暂无字段
     </div>
     <div v-else class="word-preview">
-      <div class="word-page" :class="{ landscape: previewNeedsLandscape }">
+      <div :class="['word-page', { landscape: previewLandscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
         <div class="wp-form-title">{{ formPreviewTitle }}</div>
-        <template v-for="(group, gi) in previewRenderGroups" :key="gi">
-          <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
-            <template v-for="ff in group.fields" :key="ff.id">
-              <tr v-if="ff.field_definition?.field_type === '标签'">
-                <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
-              </tr>
-              <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
-              </tr>
-              <tr v-else>
-                <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
-                <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
-              </tr>
+        <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
+          <div class="wp-main">
+            <template v-for="(group, gi) in previewRenderGroups" :key="gi">
+              <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
+                <template v-for="ff in group.fields" :key="ff.id">
+                  <tr v-if="ff.field_definition?.field_type === '标签'">
+                    <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+                  </tr>
+                  <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
+                    <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                  </tr>
+                  <tr v-else>
+                    <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
+                    <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
+                  </tr>
+                </template>
+              </table>
+              <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
+                <tr>
+                  <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
+                    {{ ff.label_override || ff.field_definition?.label }}
+                  </td>
+                </tr>
+                <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
+                  <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
+                </tr>
+              </table>
             </template>
-          </table>
-          <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
-            <tr>
-              <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
-                {{ ff.label_override || ff.field_definition?.label }}
-              </td>
-            </tr>
-            <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
-              <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
-            </tr>
-          </table>
-        </template>
+          </div>
+          <aside v-if="hasPreviewNotes" class="wp-notes" aria-label="设计备注">
+            <div class="wp-notes-title">设计备注</div>
+            <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+          </aside>
+        </div>
       </div>
     </div>
   </el-dialog>

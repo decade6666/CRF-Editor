@@ -5,6 +5,7 @@ import os
 import uuid
 import time
 from typing import Dict, Tuple
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -18,9 +19,9 @@ from src.services.export_service import ExportService
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
 
-# 临时存储导出文件 {token: (tmp_path, filename, expire_time)}
-_export_cache: Dict[str, Tuple[str, str, float]] = {}
-_TOKEN_TTL = 300  # 令牌有效期5分钟
+# 临时存储导出文件 {token: (tmp_path, filename, expire_time, owner_id)}
+_export_cache: Dict[str, Tuple[str, str, float, int]] = {}
+_TOKEN_TTL = 1800  # 令牌有效期30分钟
 
 
 def _cleanup_expired():
@@ -36,8 +37,12 @@ def _cleanup_expired():
 
 
 @router.post("/projects/{project_id}/export/word/prepare")
-def prepare_export(project_id: int, session: Session = Depends(get_read_session), current_user: User = Depends(get_current_user)):
-    """生成导出文件并返回下载令牌（使用只读 Session，不持有写事务）"""
+def prepare_export(
+    project_id: int,
+    session: Session = Depends(get_read_session),
+    current_user: User = Depends(get_current_user),
+):
+    """生成导出文件并返回 30 分钟有效下载链接（使用只读 Session，不持有写事务）"""
     verify_project_owner(project_id, current_user, session)
     _cleanup_expired()
     project = ProjectRepository(session).get_by_id(project_id)
@@ -49,16 +54,25 @@ def prepare_export(project_id: int, session: Session = Depends(get_read_session)
     tmp.close()
 
     try:
-        ok = ExportService(session).export_project_to_word(project_id, tmp_path)
+        service = ExportService(session)
+        ok = service.export_project_to_word(project_id, tmp_path)
         if not ok:
             try:
                 os.unlink(tmp_path)
             except Exception:
                 pass
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
+
+        valid, reason = ExportService._validate_output(tmp_path)
+        if not valid:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise HTTPException(500, f"导出失败: {reason}")
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("导出Word文档失败")
         try:
             os.unlink(tmp_path)
@@ -68,18 +82,29 @@ def prepare_export(project_id: int, session: Session = Depends(get_read_session)
 
     token = str(uuid.uuid4())
     filename = f"{project.name}_CRF.docx"
-    _export_cache[token] = (tmp_path, filename, time.time() + _TOKEN_TTL)
-    return {"token": token}
+    _export_cache[token] = (tmp_path, filename, time.time() + _TOKEN_TTL, current_user.id)
+    download_url = f"/api/export/download/{token}"
+    return {
+        "token": token,
+        "download_url": download_url,
+        "expires_in": _TOKEN_TTL,
+    }
 
 
 @router.get("/export/download/{token}")
-def download_by_token(token: str):
-    """通过令牌下载文件，令牌5分钟内有效，支持IDM重复请求"""
+def download_by_token(
+    token: str,
+    session: Session = Depends(get_read_session),
+    current_user: User = Depends(get_current_user),
+):
+    """通过令牌下载文件，令牌 30 分钟内有效，支持重复请求"""
     entry = _export_cache.get(token)
     if not entry:
         raise HTTPException(404, "下载链接已过期，请重新导出")
 
-    tmp_path, filename, expire_time = entry
+    tmp_path, filename, expire_time, owner_id = entry
+    if owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此导出文件")
     if time.time() > expire_time or not os.path.exists(tmp_path):
         _export_cache.pop(token, None)
         raise HTTPException(404, "下载链接已过期，请重新导出")
