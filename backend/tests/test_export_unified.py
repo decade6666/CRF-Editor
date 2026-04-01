@@ -635,3 +635,446 @@ def test_export_unified_table_has_table_level_borders(session: Session, tmp_path
         assert border is not None, f"表级边框应包含 {border_name}"
         assert border.get(qn('w:val')) == 'single', f"{border_name} 应为 single 类型"
         assert border.get(qn('w:sz')) == '4', f"{border_name} 边框宽度应为 4"
+
+
+# ========== Task 4.3: trailing_underscore 原子 token 测试 ==========
+
+
+def create_choice_field_def(
+    session: Session,
+    project_id: int,
+    label: str,
+    codelist_id: int | None,
+    field_type: str = "单选",
+) -> FieldDefinition:
+    """创建选择字段定义。"""
+    fd = FieldDefinition(
+        project_id=project_id,
+        label=label,
+        variable_name=f"VAR_{label.replace(' ', '_')}",
+        field_type=field_type,
+        codelist_id=codelist_id,
+    )
+    session.add(fd)
+    session.flush()
+    return fd
+
+
+def test_export_choice_trailing_underscore_atom_token(session: Session, tmp_path: Path) -> None:
+    """验证 trailing_underscore 选项渲染为原子 token（文本 + 尾线不拆分）。"""
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="选择测试", code="F_CHOICE", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    # 创建选项字典
+    codelist = CodeList(project_id=project.id, name="诊断结果", code="CL_DIAG")
+    session.add(codelist)
+    session.flush()
+
+    # 选项1：有尾部填写线
+    opt1 = CodeListOption(
+        codelist_id=codelist.id, code="1", decode="确诊", trailing_underscore=1, order_index=1
+    )
+    # 选项2：无尾部填写线
+    opt2 = CodeListOption(
+        codelist_id=codelist.id, code="2", decode="疑似", trailing_underscore=0, order_index=2
+    )
+    # 选项3：有尾部填写线
+    opt3 = CodeListOption(
+        codelist_id=codelist.id, code="3", decode="排除", trailing_underscore=1, order_index=3
+    )
+    session.add_all([opt1, opt2, opt3])
+    session.flush()
+
+    # 创建单选字段
+    fd = create_choice_field_def(session, project.id, "诊断", codelist.id, "单选")
+    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "choice_trailing.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+
+    # 找到包含选择字段的表格
+    form_tables = doc.tables[2:]
+    assert len(form_tables) >= 1
+
+    # 获取选择字段单元格的文本
+    choice_cell = form_tables[0].cell(0, 1)  # 第一行第二列
+    cell_text = choice_cell.text
+
+    # 验证选项顺序：按 order_index 排序
+    assert "确诊" in cell_text
+    assert "疑似" in cell_text
+    assert "排除" in cell_text
+
+    # 验证 order_index 顺序：确诊在疑似前，疑似在排除前
+    idx1 = cell_text.find("确诊")
+    idx2 = cell_text.find("疑似")
+    idx3 = cell_text.find("排除")
+    assert idx1 < idx2, "确诊应在疑似前（order_index=1 vs 2）"
+    assert idx2 < idx3, "疑似应在排除前（order_index=2 vs 3）"
+
+
+def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> None:
+    """验证选项按 order_index 排序，id 扰动不影响顺序（P5 不变式）。"""
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="排序测试", code="F_ORDER", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    codelist = CodeList(project_id=project.id, name="优先级", code="CL_PRI")
+    session.add(codelist)
+    session.flush()
+
+    # 故意打乱 id 顺序，但设置明确的 order_index
+    opt3 = CodeListOption(
+        codelist_id=codelist.id, code="C", decode="第三", order_index=3
+    )
+    session.add(opt3)
+    session.flush()
+
+    opt1 = CodeListOption(
+        codelist_id=codelist.id, code="A", decode="第一", order_index=1
+    )
+    session.add(opt1)
+    session.flush()
+
+    opt2 = CodeListOption(
+        codelist_id=codelist.id, code="B", decode="第二", order_index=2
+    )
+    session.add(opt2)
+    session.flush()
+
+    fd = create_choice_field_def(session, project.id, "优先级", codelist.id, "单选（纵向）")
+    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "order_index.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+
+    # 找到选择字段单元格
+    form_tables = doc.tables[2:]
+    choice_cell = form_tables[0].cell(0, 1)
+    cell_text = choice_cell.text
+
+    # 验证顺序按 order_index：第一 -> 第二 -> 第三
+    idx1 = cell_text.find("第一")
+    idx2 = cell_text.find("第二")
+    idx3 = cell_text.find("第三")
+
+    assert idx1 < idx2 < idx3, f"选项应按 order_index 排序，但顺序为: idx1={idx1}, idx2={idx2}, idx3={idx3}"
+
+
+# ========== Task 4.2: unified 多 inline block 共享单表级宽度语义回归测试 ==========
+
+
+def test_export_unified_multi_blocks_share_table_level_width(session: Session, tmp_path: Path) -> None:
+    """验证多个 inline block 共享单表级宽度规划，而非各自独立分配。
+
+    两个 inline block（5 列）共用一张 unified 表格，宽度分配应基于
+    per-slot-max 聚合语义，而非 block 间拼接需求向量。
+    """
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="多块共享宽度", code="F_MULTI_BLK", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    # 第一个 inline block：5 列，标签短
+    for i in range(1, 6):
+        fd = create_text_field_def(session, project.id, f"A{i}")
+        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+
+    # 普通字段分隔两个 block
+    fd_sep = create_text_field_def(session, project.id, "分隔字段")
+    add_field_to_form(session, form.id, fd_sep.id, sort_order=20, inline_mark=0)
+
+    # 第二个 inline block：5 列，最后一列标签长
+    for i in range(1, 5):
+        fd = create_text_field_def(session, project.id, f"B{i}")
+        add_field_to_form(session, form.id, fd.id, sort_order=30 + i, inline_mark=1)
+    fd_long = create_text_field_def(session, project.id, "这是一个非常长的中文标签文本")
+    add_field_to_form(session, form.id, fd_long.id, sort_order=35, inline_mark=1)
+
+    session.commit()
+
+    output_path = tmp_path / "multi_block.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+
+    # 找到 unified 表格（5 列）
+    unified_table = None
+    for table in doc.tables[2:]:
+        if len(table.columns) == 5:
+            unified_table = table
+            break
+
+    assert unified_table is not None, "应存在 5 列 unified 表格"
+
+    # 验证结构完整性：表格只有一个，不是两个独立表格
+    five_col_tables = [t for t in doc.tables[2:] if len(t.columns) == 5]
+    assert len(five_col_tables) == 1, "多 inline block 应共享同一张 unified 表格"
+
+    # 验证第 5 列（index=4）比第 1 列（index=0）更宽
+    # （因为第二个 block 的长标签在 slot 4 注入了更大需求）
+    tbl_xml = unified_table._tbl
+    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
+    if grid_cols and len(grid_cols) == 5:
+        w0 = int(grid_cols[0].get(qn('w:w'), '0'))
+        w4 = int(grid_cols[4].get(qn('w:w'), '0'))
+        assert w4 > w0, f"长标签列（slot 4）应比短标签列（slot 0）更宽: w0={w0}, w4={w4}"
+
+
+# ========== Task 4.3: trailing_underscore 横向与纵向原子 token 测试 ==========
+
+
+def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
+    """验证横向单选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="横向选择原子", code="F_HCHOICE", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    codelist = CodeList(project_id=project.id, name="横向选项", code="CL_HZ")
+    session.add(codelist)
+    session.flush()
+
+    opt1 = CodeListOption(
+        codelist_id=codelist.id, code="1", decode="有尾线", trailing_underscore=1, order_index=1
+    )
+    opt2 = CodeListOption(
+        codelist_id=codelist.id, code="2", decode="无尾线", trailing_underscore=0, order_index=2
+    )
+    session.add_all([opt1, opt2])
+    session.flush()
+
+    fd = create_choice_field_def(session, project.id, "横向测试", codelist.id, "单选")
+    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "h_choice_nbsp.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    form_tables = doc.tables[2:]
+    assert len(form_tables) >= 1
+
+    # 检查选择字段单元格内的 run 文本
+    choice_cell = form_tables[0].cell(0, 1)
+    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    joined = "".join(all_runs_text)
+
+    # 有尾线的选项应包含 NBSP + 下划线
+    assert "有尾线\u00A0______" in joined, f"横向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
+    # 无尾线的选项不应有下划线
+    assert "无尾线\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+
+
+def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
+    """验证纵向多选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="纵向选择原子", code="F_VCHOICE", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    codelist = CodeList(project_id=project.id, name="纵向选项", code="CL_VT")
+    session.add(codelist)
+    session.flush()
+
+    opt1 = CodeListOption(
+        codelist_id=codelist.id, code="1", decode="确诊", trailing_underscore=1, order_index=1
+    )
+    opt2 = CodeListOption(
+        codelist_id=codelist.id, code="2", decode="排除", trailing_underscore=0, order_index=2
+    )
+    session.add_all([opt1, opt2])
+    session.flush()
+
+    fd = create_choice_field_def(session, project.id, "纵向测试", codelist.id, "多选（纵向）")
+    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "v_choice_nbsp.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    form_tables = doc.tables[2:]
+    assert len(form_tables) >= 1
+
+    choice_cell = form_tables[0].cell(0, 1)
+    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    joined = "".join(all_runs_text)
+
+    # 纵向选项也应使用 NBSP 连接
+    assert "确诊\u00A0______" in joined, f"纵向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
+    assert "排除\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+
+
+# ========== Task 4.4: 多行 default_value 回归测试 ==========
+
+
+def test_export_multiline_default_value_preserves_lines(session: Session, tmp_path: Path) -> None:
+    """验证多行 default_value 在导出中保留多行语义。"""
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="多行默认值测试", code="F_MULTI_DV", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    fd = create_text_field_def(session, project.id, "多行字段")
+    ff = add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    ff.default_value = "第一行内容\n第二行内容\n第三行内容"
+
+    session.commit()
+
+    output_path = tmp_path / "multiline_dv.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    form_tables = doc.tables[2:]
+    assert len(form_tables) >= 1
+
+    # 获取值单元格
+    value_cell = form_tables[0].cell(0, 1)
+    cell_text = value_cell.text
+
+    # 验证多行内容都存在
+    assert "第一行内容" in cell_text, "应包含第一行"
+    assert "第二行内容" in cell_text, "应包含第二行"
+    assert "第三行内容" in cell_text, "应包含第三行"
+
+    # 验证多行通过段内换行（break）实现，所有行在同一段落
+    paragraphs = value_cell.paragraphs
+    # 使用 add_break() 实现多行，检查 run 数量覆盖所有行
+    all_runs = [run.text for para in paragraphs for run in para.runs]
+    joined = "".join(all_runs)
+    assert "第一行内容" in joined
+    assert "第二行内容" in joined
+    assert "第三行内容" in joined
+
+
+def test_export_multiline_default_value_in_inline_table(session: Session, tmp_path: Path) -> None:
+    """验证 inline 表格中多行 default_value 保留多行语义。"""
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="Inline多行", code="F_INL_MV", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    # 3 列 inline，第二列有多行默认值
+    fd1 = create_text_field_def(session, project.id, "列1")
+    fd2 = create_text_field_def(session, project.id, "列2")
+    fd3 = create_text_field_def(session, project.id, "列3")
+
+    add_field_to_form(session, form.id, fd1.id, sort_order=1, inline_mark=1)
+    ff2 = add_field_to_form(session, form.id, fd2.id, sort_order=2, inline_mark=1)
+    ff2.default_value = "行A\n行B"
+    add_field_to_form(session, form.id, fd3.id, sort_order=3, inline_mark=1)
+
+    session.commit()
+
+    output_path = tmp_path / "inline_multiline.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    form_tables = doc.tables[2:]
+    assert len(form_tables) >= 1
+
+    # 找到 inline 表格（3 列）
+    inline_table = None
+    for t in form_tables:
+        if len(t.columns) == 3:
+            inline_table = t
+            break
+
+    assert inline_table is not None, "应存在 3 列 inline 表格"
+
+    # inline 表格中多行默认值展开为多行（表头 + N 行数据）
+    # "行A\n行B" 展开为 2 行数据，所以至少 3 行（1 表头 + 2 数据行）
+    assert len(inline_table.rows) >= 3, f"多行默认值应展开为多行数据，实际行数: {len(inline_table.rows)}"
+
+    # 第 1 行数据（row index 1）包含 "行A"
+    cell_r1 = inline_table.rows[1].cells[1]
+    assert "行A" in cell_r1.text, "第 1 数据行第 2 列应包含 '行A'"
+
+    # 第 2 行数据（row index 2）包含 "行B"
+    cell_r2 = inline_table.rows[2].cells[1]
+    assert "行B" in cell_r2.text, "第 2 数据行第 2 列应包含 '行B'"

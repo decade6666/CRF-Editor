@@ -5,6 +5,12 @@
 from typing import List, Optional, Tuple
 import html
 
+from src.services.width_planning import (
+    compute_text_weight,
+    compute_choice_atom_weight,
+    FILL_LINE_WEIGHT,
+)
+
 
 NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
 
@@ -100,3 +106,78 @@ def build_inline_table_model(
         rows.append(row)
 
     return headers, rows, field_defs
+
+
+def build_inline_column_demands(
+    marked_fields,
+) -> List[Tuple[str, float]]:
+    """构建 inline 表格各列的内容需求权重。
+
+    用于前端预览和后端导出共享同一宽度语义。
+
+    Args:
+        marked_fields: 标记为横向表格的 FormField 列表
+
+    Returns:
+        List[Tuple[label, weight]]: 每列的标签和内在权重
+    """
+    if not marked_fields:
+        return []
+
+    demands = []
+    for form_field in marked_fields:
+        field_def = getattr(form_field, "field_definition", None)
+        if not field_def:
+            demands.append(("", FILL_LINE_WEIGHT))
+            continue
+
+        # 标签权重
+        label = form_field.label_override or field_def.label or ""
+        weight = compute_text_weight(label)
+
+        # 默认值权重
+        default_lines = extract_default_lines(form_field)
+        if default_lines:
+            for line in default_lines:
+                weight = max(weight, compute_text_weight(line))
+        else:
+            # 控件占位符权重
+            field_type = getattr(field_def, "field_type", None)
+            if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
+                # choice 字段：计算所有选项的权重
+                option_data = _get_option_data_for_width(field_def)
+                if option_data:
+                    # 取最大选项权重
+                    max_opt_weight = max(
+                        compute_choice_atom_weight(opt_label, has_trailing)
+                        for opt_label, has_trailing in option_data
+                    )
+                    weight = max(weight, max_opt_weight)
+                else:
+                    weight = max(weight, FILL_LINE_WEIGHT)
+            else:
+                # 其他控件：使用默认填写线权重
+                weight = max(weight, FILL_LINE_WEIGHT)
+
+        demands.append((label, weight))
+
+    return demands
+
+
+def _get_option_data_for_width(field_def) -> List[Tuple[str, bool]]:
+    """获取选项数据用于宽度计算（按 order_index 排序）。"""
+    if not hasattr(field_def, "codelist") or not field_def.codelist:
+        return []
+    if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
+        return []
+    # 按 order_index 排序，回退到 id
+    options = sorted(
+        field_def.codelist.options,
+        key=lambda o: (o.order_index if o.order_index is not None else float('inf'), o.id or 0)
+    )
+    result = []
+    for opt in options:
+        if not opt.decode:
+            continue
+        result.append((opt.decode, bool(getattr(opt, "trailing_underscore", 0))))
+    return result

@@ -20,7 +20,13 @@ from sqlalchemy.orm import Session
 
 from src.models import Project
 from src.repositories.project_repository import ProjectRepository
-from src.services.field_rendering import build_inline_table_model, extract_default_lines
+from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, extract_default_lines
+from src.services.width_planning import (
+    compute_text_weight,
+    compute_choice_atom_weight,
+    plan_inline_table_width,
+    plan_unified_table_width,
+)
 
 
 @dataclass(frozen=True)
@@ -548,10 +554,31 @@ class ExportService:
         table = doc.add_table(rows=1, cols=N)
         table.autofit = False
 
-        avail = Cm(23.36)
-        col_w = int(avail / N)
-        for col in table.columns:
-            col.width = col_w
+        # 收集 inline block 的内容用于宽度规划（使用语义需求）
+        segment_data = []
+        all_block_demands = []
+        for segment in segments:
+            if segment.type == "inline_block" and segment.fields:
+                headers, row_values, _ = build_inline_table_model(segment.fields)
+                segment_data.append(("inline_block", headers, row_values))
+                # 使用包含 choice/fill-line/unit 语义的需求
+                all_block_demands.append(build_inline_column_demands(segment.fields))
+
+        # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
+        col_widths = plan_unified_table_width(
+            segment_data, 23.36, column_count=N, block_demands=all_block_demands
+        ) if segment_data else None
+
+        if col_widths and len(col_widths) == N:
+            # 应用规划的列宽
+            for col_idx, col in enumerate(table.columns):
+                col.width = Cm(col_widths[col_idx])
+        else:
+            # 回退到等宽分配
+            avail = Cm(23.36)
+            col_w = int(avail / N)
+            for col in table.columns:
+                col.width = col_w
 
         table._tbl.remove(table.rows[0]._tr)
 
@@ -889,7 +916,7 @@ class ExportService:
                     self._set_run_font(run, color=text_color)
 
     def _add_inline_table(self, doc: Document, marked_fields, is_wide=False):
-        """添加横向表格（1表头行+N内容行），自动分配列宽"""
+        """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划"""
         if not marked_fields:
             return
 
@@ -900,11 +927,19 @@ class ExportService:
         table = doc.add_table(rows=1 + len(row_values), cols=len(marked_fields))
         self._apply_grid_table_style(table)
 
-        # 自动分配列宽
-        avail = Cm(23.36) if is_wide else Cm(14.66)
-        col_w = int(avail / len(marked_fields))
-        for col in table.columns:
-            col.width = col_w
+        # 使用内容驱动的宽度规划替代等宽分配
+        avail_cm = 23.36 if is_wide else 14.66
+        # 构建包含 choice/fill-line/unit 等语义的列需求
+        semantic_demands = build_inline_column_demands(marked_fields)
+        col_widths = plan_inline_table_width(headers, row_values, avail_cm, semantic_demands=semantic_demands)
+
+        # 应用列宽
+        for col_idx, col in enumerate(table.columns):
+            if col_idx < len(col_widths):
+                col.width = Cm(col_widths[col_idx])
+            else:
+                # 回退到等宽分配
+                col.width = int(Cm(avail_cm) / len(marked_fields))
 
         # 第一行：表头（字段名称）
         for col_idx, label in enumerate(headers):
@@ -1047,7 +1082,10 @@ class ExportService:
         return "\n".join([f"□ {opt}" for opt in options])
 
     def _render_vertical_choices(self, cell, field_def):
-        """纵向排列选项：每个选项独占单元格内一个独立段落。"""
+        """纵向排列选项：每个选项独占单元格内一个独立段落。
+
+        choice atom：选项文本 + 尾部填写线作为原子 token，不可拆行。
+        """
         field_type = field_def.field_type
         option_data = self._get_option_data(field_def)
         if not option_data:
@@ -1079,16 +1117,22 @@ class ExportService:
             rFonts.set(qn("w:hAnsi"), self.FONT_EAST_ASIA)
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            # 选项文本
-            opt_run = para.add_run(label)
-            self._set_run_font(opt_run, size=Pt(10.5))
-
-            # 后加下划线：用下划线格式空格渲染连续填写线
+            # choice atom：选项文本 + 尾部填写线作为原子 token
             if has_trailing:
-                self._add_fill_line_run(para)
+                # 使用不换行空格连接文本和填写线，保证不可拆行
+                atom_text = label + "\u00A0" + "_" * 6
+                atom_run = para.add_run(atom_text)
+                self._set_run_font(atom_run, size=Pt(10.5))
+            else:
+                # 普通选项文本
+                opt_run = para.add_run(label)
+                self._set_run_font(opt_run, size=Pt(10.5))
 
     def _render_choice_field(self, paragraph, field_def):
-        """渲染单选或多选字段，确保○□符号使用宋体"""
+        """渲染单选或多选字段，确保○□符号使用宋体
+
+        choice atom：选项文本 + 尾部填写线作为原子 token，不可拆行。
+        """
         field_type = field_def.field_type
         option_data = self._get_option_data(field_def)
         # 没有选项时显示下划线占位符
@@ -1116,13 +1160,16 @@ class ExportService:
             rFonts.set(qn("w:hAnsi"), self.FONT_EAST_ASIA)
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            # 选项文本
-            opt_run = paragraph.add_run(label)
-            self._set_run_font(opt_run, size=Pt(10.5))
-
-            # 后加下划线：用下划线格式空格渲染连续填写线
+            # choice atom：选项文本 + 尾部填写线作为原子 token
             if has_trailing:
-                self._add_fill_line_run(paragraph)
+                # 使用不换行空格连接文本和填写线，保证不可拆行
+                atom_text = label + "\u00A0" + "_" * 6
+                atom_run = paragraph.add_run(atom_text)
+                self._set_run_font(atom_run, size=Pt(10.5))
+            else:
+                # 普通选项文本
+                opt_run = paragraph.add_run(label)
+                self._set_run_font(opt_run, size=Pt(10.5))
 
     def _get_option_labels(self, field_def) -> list:
         """获取选项标签列表，trailing_underscore=1 时在标签末尾拼接下划线
@@ -1135,12 +1182,19 @@ class ExportService:
         ]
 
     def _get_option_data(self, field_def) -> List[Tuple[str, bool]]:
-        """获取选项数据列表：(原始标签文本, 是否有后加下划线)"""
+        """获取选项数据列表：(原始标签文本, 是否有后加下划线)
+
+        排序规则：order_index 为主，id 为稳定回退键。
+        """
         if not hasattr(field_def, "codelist") or not field_def.codelist:
             return []
         if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
             return []
-        options = sorted(field_def.codelist.options, key=lambda o: o.id or 0)
+        # 按 order_index 排序，缺失时回退到 id
+        options = sorted(
+            field_def.codelist.options,
+            key=lambda o: (o.order_index if o.order_index is not None else float('inf'), o.id or 0)
+        )
         result: List[Tuple[str, bool]] = []
         for opt in options:
             if not opt.decode:
