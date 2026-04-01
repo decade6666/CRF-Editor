@@ -337,7 +337,7 @@ def test_imported_trailing_underscore_matches_export_semantics(tmp_path: Path, s
     ).one()
     exported_labels = ExportService(session)._get_option_labels(imported_field_definition)
 
-    assert exported_labels == ["男_", "女"]
+    assert exported_labels == ["男____________________", "女"]
 
 
 
@@ -387,7 +387,7 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
     assert imported_field_definition.codelist_id == existing_codelist.id
     assert [option.decode for option in reused_options] == ["男", "女"]
     assert [option.trailing_underscore for option in reused_options] == [1, 0]
-    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男_", "女"]
+    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男____________________", "女"]
 
 
 @pytest.mark.parametrize(
