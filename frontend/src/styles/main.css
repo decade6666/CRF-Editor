@@ -167,20 +167,23 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 }
 .word-page.landscape { max-width: 1300px; } /* 从 1050px 放大 */
 .word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 24px; text-align: center; }
-.word-page table { border-collapse: collapse; width: 100%; table-layout: auto; }
-.word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
-.word-page .wp-label { font-weight: bold; white-space: nowrap; width: 1%; } /* width:1% + nowrap 使列宽收缩到内容宽度 */
-.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; white-space: normal; } /* v-html 输出含 <br>，white-space 改为 normal */
-.word-page .wp-inline-header { background: #d9d9d9; font-weight: bold; text-align: center; white-space: nowrap; }
+.word-page table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; word-break: break-word; }
+.word-page .wp-label { font-weight: bold; background: #fafafa; }
+.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; }
+.word-page .wp-inline-header { background: #d9d9d9; font-weight: bold; text-align: center; }
+/* inline-table 和 unified-table 允许内容驱动的列宽 */
 .word-page .inline-table { width: 100%; table-layout: auto; }
 .word-page .inline-table td { word-break: break-word; }
-.word-page .inline-table .wp-inline-header { white-space: nowrap; }
+.word-page .inline-table colgroup col { } /* 显式 colgroup 宽度 */
 /* unified 模式：单一横向表格样式 */
-.word-page .unified-table { width: 100%; table-layout: fixed; }
-.word-page .unified-table td { word-break: break-word; }
-.word-page .unified-label { font-weight: bold; white-space: nowrap; background: #f5f5f5; }
-.word-page .unified-value { font-family: 'SimSun', serif; color: #333; white-space: normal; }
+.word-page .unified-table { width: 100%; table-layout: auto; }
+.word-page .unified-label { font-weight: bold; background: #f5f5f5; }
+.word-page .unified-value { font-family: 'SimSun', serif; color: #333; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
+/* choice atom 不换行包装 */
+.word-page .choice-atom { display: inline-flex; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
+.word-page .choice-atom .fill-line { vertical-align: bottom; }
 
 /* 预览正文与备注布局 */
 .wp-body { display: flex; gap: 32px; align-items: flex-start; }
