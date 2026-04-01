@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, in
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
-import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue } from '../composables/useCRFRenderer'
+import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions, buildInlineColumnDemands } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -313,6 +313,7 @@ function getScopedDefaultValue(ff, singleLine = false) {
   const inlineMark = Boolean(ff?.inline_mark)
   if (!fieldType || !ff?.default_value) return ''
   if (!isDefaultValueSupported(fieldType, inlineMark)) return ''
+  // 对于 inline 字段或普通文本/数值字段，支持多行
   return normalizeDefaultValue(ff.default_value, singleLine)
 }
 
@@ -320,7 +321,7 @@ function renderCell(ff) {
   const previewField = getPreviewField(ff)
   if (!previewField) return '________________'
 
-  const defaultValue = getScopedDefaultValue(ff, true)
+  const defaultValue = getScopedDefaultValue(ff, false) // 预览时允许展示多行
   if (defaultValue) return defaultValue
 
   return renderCtrl(previewField)
@@ -331,13 +332,10 @@ function renderCellHtml(ff) {
   const previewField = getPreviewField(ff)
   if (!previewField) return '<span class="fill-line"></span>'
 
-  const defaultValue = getScopedDefaultValue(ff, true)
+  const defaultValue = getScopedDefaultValue(ff, false) // 允许展示多行
   if (defaultValue) {
-    return escapePreviewText(defaultValue)
-  }
-
-  if (isChoiceField(previewField.field_type)) {
-    return renderCtrlHtml(previewField)
+    // 使用 toHtml 处理多行文本转为 <br>
+    return toHtml(defaultValue)
   }
 
   return renderCtrlHtml(previewField)
@@ -396,6 +394,29 @@ function computeMergeSpans(N, M) {
 function computeLabelValueSpans(N) {
   const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)))
   return { labelSpan, valueSpan: N - labelSpan }
+}
+
+/**
+ * 计算列宽样式（基于内容驱动的宽度规划）
+ * @param {Array} fields - 字段列表
+ * @returns {string} CSS width 样式字符串
+ */
+function computeColumnWidths(fields) {
+  const fractions = planInlineColumnFractions(fields)
+  if (!fractions || fractions.length === 0) return ''
+  // 返回百分比宽度
+  return fractions.map(f => `${(f * 100).toFixed(2)}%`).join(' ')
+}
+
+/**
+ * 计算列宽样式数组（用于 colgroup）
+ * @param {Array} fields - 字段列表
+ * @returns {Array<number>} 百分比宽度数组
+ */
+function computeColumnWidthPercents(fields) {
+  const fractions = planInlineColumnFractions(fields)
+  if (!fractions || fractions.length === 0) return []
+  return fractions.map(f => f * 100)
 }
 
 const fieldIndexMap = computed(() => {
