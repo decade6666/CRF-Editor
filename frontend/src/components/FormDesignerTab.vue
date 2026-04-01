@@ -361,6 +361,43 @@ function getInlineRows(fields) {
   )
 }
 
+// unified 模式辅助函数
+function buildUnifiedSegments(fields) {
+  const sorted = [...fields].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
+  const segments = []
+  const inlineBuffer = []
+  for (const f of sorted) {
+    const fd = f.field_definition
+    if (f.inline_mark === 1) {
+      inlineBuffer.push(f)
+    } else {
+      if (inlineBuffer.length) {
+        segments.push({ type: 'inline_block', fields: [...inlineBuffer] })
+        inlineBuffer.length = 0
+      }
+      if (fd?.field_type === '标签' || fd?.field_type === '日志行' || f.is_log_row) {
+        segments.push({ type: 'full_row', fields: [f] })
+      } else {
+        segments.push({ type: 'regular_field', fields: [f] })
+      }
+    }
+  }
+  if (inlineBuffer.length) segments.push({ type: 'inline_block', fields: [...inlineBuffer] })
+  return segments
+}
+
+function computeMergeSpans(N, M) {
+  if (M <= 0 || M > N) return Array(N).fill(1)
+  const base = Math.floor(N / M)
+  const extra = N % M
+  return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0))
+}
+
+function computeLabelValueSpans(N) {
+  const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)))
+  return { labelSpan, valueSpan: N - labelSpan }
+}
+
 const fieldIndexMap = computed(() => {
   const map = new Map()
   formFields.value.forEach((ff, index) => {
@@ -370,23 +407,49 @@ const fieldIndexMap = computed(() => {
 })
 
 const renderGroups = computed(() => {
+  const fields = formFields.value
+  if (!fields.length) return []
+
+  // 检测 unified 触发条件（后端 _classify_form_layout 对应逻辑）
+  const hasRegular = fields.some(f => f.inline_mark === 0)
+  let maxBlockWidth = 0, currentWidth = 0
+  for (const f of fields) {
+    if (f.inline_mark === 1) {
+      currentWidth++
+    } else {
+      maxBlockWidth = Math.max(maxBlockWidth, currentWidth)
+      currentWidth = 0
+    }
+  }
+  maxBlockWidth = Math.max(maxBlockWidth, currentWidth)
+  const hasInline = maxBlockWidth > 0
+
+  // unified 模式：混合字段 + 最大 inline block 宽度 > 4
+  if (hasRegular && hasInline && maxBlockWidth > 4) {
+    return [{ type: 'unified', fields, colCount: maxBlockWidth }]
+  }
+
+  // legacy 分组逻辑
   const groups = []; let i = 0
-  while (i < formFields.value.length) {
-    const ff = formFields.value[i]
+  while (i < fields.length) {
+    const ff = fields[i]
     if (ff.inline_mark) {
       const g = []
-      while (i < formFields.value.length && formFields.value[i].inline_mark) { g.push(formFields.value[i]); i++ }
+      while (i < fields.length && fields[i].inline_mark) { g.push(fields[i]); i++ }
       groups.push({ type: 'inline', fields: g })
     } else {
       const g = []
-      while (i < formFields.value.length && !formFields.value[i].inline_mark) { g.push(formFields.value[i]); i++ }
+      while (i < fields.length && !fields[i].inline_mark) { g.push(fields[i]); i++ }
       groups.push({ type: 'normal', fields: g })
     }
   }
   return groups
 })
 
-const needsLandscape = computed(() => renderGroups.value.some(g => g.type === 'inline' && g.fields.length > 4))
+const needsLandscape = computed(() => renderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
+const forceLandscape = ref(localStorage.getItem('crf_forceLandscape') === 'true')
+watch(forceLandscape, v => localStorage.setItem('crf_forceLandscape', String(v)))
+const landscapeMode = computed(() => forceLandscape.value || needsLandscape.value)
 
 // 设计弹窗内字段库宽度拖拽（持久化）
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240)
@@ -830,9 +893,19 @@ function openAddForm() {
           <el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
           <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
+          <el-button
+            v-if="selectedForm"
+            size="small"
+            :type="forceLandscape ? 'primary' : ''"
+            :plain="!forceLandscape"
+            @click="forceLandscape = !forceLandscape"
+            title="强制横向显示预览"
+          >
+            横向
+          </el-button>
         </div>
         <div class="word-preview">
-          <div :class="['word-page', { landscape: needsLandscape, 'word-page--with-notes': hasPreviewNotes }]">
+          <div :class="['word-page', { landscape: landscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
             <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
             <template v-else>
               <div class="wp-form-title">{{ selectedForm.name }}</div>
@@ -840,7 +913,56 @@ function openAddForm() {
               <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
                 <div class="wp-main">
                   <template v-for="(g, gi) in renderGroups" :key="gi">
-                    <table v-if="g.type === 'normal'">
+                    <!-- unified 模式：单一横向表格 -->
+                    <table v-if="g.type === 'unified'" class="unified-table">
+                      <template v-for="seg in buildUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                        <!-- 普通字段行 -->
+                        <tr v-if="seg.type === 'regular_field'">
+                          <td
+                            class="unified-label"
+                            :colspan="computeLabelValueSpans(g.colCount).labelSpan"
+                            :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                          >{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label }}</td>
+                          <td
+                            class="unified-value"
+                            :colspan="computeLabelValueSpans(g.colCount).valueSpan"
+                            :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                            v-html="renderCellHtml(seg.fields[0])"
+                          ></td>
+                        </tr>
+                        <!-- 全宽行（标签/日志） -->
+                        <tr v-else-if="seg.type === 'full_row'">
+                          <td
+                            :colspan="g.colCount"
+                            style="font-weight:bold"
+                            :style="'font-weight:bold;' + (seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : 'background:#d9d9d9;') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                          >{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label || '以下为log行' }}</td>
+                        </tr>
+                        <!-- inline block -->
+                        <template v-else-if="seg.type === 'inline_block'">
+                          <tr>
+                            <td
+                              v-for="(ff, idx) in seg.fields"
+                              :key="ff.id"
+                              class="wp-inline-header"
+                              :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]"
+                            >{{ ff.label_override || ff.field_definition?.label }}</td>
+                          </tr>
+                          <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                            <td
+                              v-for="(cell, ci) in row"
+                              :key="ci"
+                              class="wp-ctrl"
+                              :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]"
+                              :style="(seg.fields[ci]?.bg_color ? 'background:#' + seg.fields[ci].bg_color + '40;' : '') + (seg.fields[ci]?.text_color ? 'color:#' + seg.fields[ci].text_color : '')"
+                              v-html="cell"
+                            ></td>
+                          </tr>
+                        </template>
+                      </template>
+                    </table>
+                    <!-- normal 表格 -->
+                    <table v-else-if="g.type === 'normal'">
                       <template v-for="ff in g.fields" :key="ff.id">
                         <tr v-if="ff.field_definition?.field_type === '标签'">
                           <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
@@ -854,6 +976,7 @@ function openAddForm() {
                         </tr>
                       </template>
                     </table>
+                    <!-- inline 表格 -->
                     <table v-else class="inline-table">
                       <tr>
                         <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
@@ -923,12 +1046,21 @@ function openAddForm() {
             <el-button size="small" type="primary" @click="newField">新建字段</el-button>
             <el-button size="small" @click="addLogRow">添加log行</el-button>
             <span style="color:var(--color-text-muted);font-size:12px;flex:1">共 {{ formFields.length }} 个字段</span>
+            <el-button
+              size="small"
+              :type="forceLandscape ? 'primary' : ''"
+              :plain="!forceLandscape"
+              @click="forceLandscape = !forceLandscape"
+              title="强制横向显示预览"
+            >
+              横向
+            </el-button>
             <el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{ selectedIds.length }})</el-button>
           </div>
           <div class="fd-dialog-preview">
             <div class="fd-dialog-preview__title">实时 Word 预览</div>
             <div class="word-preview fd-dialog-preview__body">
-              <div :class="['word-page', { landscape: needsLandscape, 'word-page--with-notes': hasPreviewNotes }]">
+              <div :class="['word-page', { landscape: landscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
                 <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
                 <template v-else>
                   <div class="wp-form-title">{{ selectedForm.name }}</div>
@@ -936,7 +1068,56 @@ function openAddForm() {
                   <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
                     <div class="wp-main">
                       <template v-for="(g, gi) in renderGroups" :key="`dialog-${gi}`">
-                        <table v-if="g.type === 'normal'">
+                        <!-- unified 模式：单一横向表格 -->
+                        <table v-if="g.type === 'unified'" class="unified-table">
+                          <template v-for="seg in buildUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                            <!-- 普通字段行 -->
+                            <tr v-if="seg.type === 'regular_field'">
+                              <td
+                                class="unified-label"
+                                :colspan="computeLabelValueSpans(g.colCount).labelSpan"
+                                :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                              >{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label }}</td>
+                              <td
+                                class="unified-value"
+                                :colspan="computeLabelValueSpans(g.colCount).valueSpan"
+                                :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                                v-html="renderCellHtml(seg.fields[0])"
+                              ></td>
+                            </tr>
+                            <!-- 全宽行（标签/日志） -->
+                            <tr v-else-if="seg.type === 'full_row'">
+                              <td
+                                :colspan="g.colCount"
+                                style="font-weight:bold"
+                                :style="'font-weight:bold;' + (seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : 'background:#d9d9d9;') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')"
+                              >{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label || '以下为log行' }}</td>
+                            </tr>
+                            <!-- inline block -->
+                            <template v-else-if="seg.type === 'inline_block'">
+                              <tr>
+                                <td
+                                  v-for="(ff, idx) in seg.fields"
+                                  :key="ff.id"
+                                  class="wp-inline-header"
+                                  :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]"
+                                >{{ ff.label_override || ff.field_definition?.label }}</td>
+                              </tr>
+                              <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                                <td
+                                  v-for="(cell, ci) in row"
+                                  :key="ci"
+                                  class="wp-ctrl"
+                                  :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]"
+                                  :style="(seg.fields[ci]?.bg_color ? 'background:#' + seg.fields[ci].bg_color + '40;' : '') + (seg.fields[ci]?.text_color ? 'color:#' + seg.fields[ci].text_color : '')"
+                                  v-html="cell"
+                                ></td>
+                              </tr>
+                            </template>
+                          </template>
+                        </table>
+                        <!-- normal 表格 -->
+                        <table v-else-if="g.type === 'normal'">
                           <template v-for="ff in g.fields" :key="ff.id">
                             <tr v-if="ff.field_definition?.field_type === '标签'">
                               <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
@@ -950,6 +1131,7 @@ function openAddForm() {
                             </tr>
                           </template>
                         </table>
+                        <!-- inline 表格 -->
                         <table v-else class="inline-table">
                           <tr>
                             <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header">{{ ff.label_override || ff.field_definition?.label }}</td>
