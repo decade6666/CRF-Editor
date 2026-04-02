@@ -47,6 +47,8 @@ def client(engine):
     with patch("main.get_config", return_value=_TEST_CONFIG), \
          patch("src.database.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
+         patch("src.dependencies.get_config", return_value=_TEST_CONFIG), \
+         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
          patch("main.init_db"):
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c

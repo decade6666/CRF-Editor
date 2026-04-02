@@ -12,6 +12,7 @@ from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
+from src.services.project_clone_service import ProjectCloneService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -96,6 +97,24 @@ def delete_project(
         raise HTTPException(403, "无权访问此项目")
     session.delete(project)
     session.flush()
+
+
+@router.post("/{project_id}/copy", response_model=ProjectResponse, status_code=201)
+def copy_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectRepository(session).get_by_id(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
+
+    cloned_project = ProjectCloneService.clone(project_id, current_user.id, session)
+    session.flush()
+    session.refresh(cloned_project)
+    return cloned_project
 
 
 @router.get("/{project_id}/logo")
