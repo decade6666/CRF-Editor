@@ -112,7 +112,6 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       <span style="width:22px;flex-shrink:0"></span>
       <span style="width:80px;flex-shrink:0">序号</span>
       <div style="flex:1;display:flex;gap:12px">
-        <span style="width:100px;flex-shrink:0">Code</span>
         <span>单位符号</span>
       </div>
       <span style="width:80px;text-align:right">操作</span>
@@ -127,7 +126,6 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
           <el-checkbox :model-value="selUnits.some(u => u.id === element.id)" @change="v => v ? selUnits.push(element) : selUnits.splice(selUnits.findIndex(u => u.id === element.id), 1)" style="flex-shrink:0" />
           <el-input-number :model-value="element.order_index" @change="v => updateOrder(element, v)" :min="1" :max="units.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑单位 ' + element.symbol + ' 的序号'" />
           <div style="flex:1;display:flex;gap:12px;align-items:center">
-            <span style="width:100px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--color-text-secondary)">{{ element.code }}</span>
             <span style="font-size:13px;color:var(--color-text-primary)">{{ element.symbol }}</span>
           </div>
           <el-button size="small" link @click="openEdit(element)">编辑</el-button>
@@ -138,7 +136,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
 
     <el-dialog v-model="showAdd" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="unitCode" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="unitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="symbol" placeholder="如 kg" /></el-form-item>
       </el-form>
       <template #footer>
@@ -149,7 +147,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
 
     <el-dialog v-model="showEdit" title="编辑单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editUnitCode" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="editUnitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="editSymbol" placeholder="如 kg" /></el-form-item>
       </el-form>
       <template #footer>
