@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, in
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
+import { useSortableTable } from '../composables/useSortableTable'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions, buildInlineColumnDemands } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -857,8 +858,20 @@ async function quickAddUnit() {
   } catch (e) { ElMessage.error(e.message) }
 }
 
+// 拖拽排序（表单列表）
+const formsTableRef = ref(null)
+const isFormsFiltered = computed(() => searchForm.value.trim().length > 0)
+const formsReorderUrl = computed(() => `/api/projects/${props.projectId}/forms/reorder`)
+const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, {
+  reloadFn: reloadForms,
+  isFiltered: isFormsFiltered,
+})
+
 // 生命周期
-onMounted(() => { loadForms(); loadFieldDefs(); loadCodelists(); loadUnits() })
+onMounted(async () => {
+  await Promise.all([loadForms(), loadFieldDefs(), loadCodelists(), loadUnits()])
+  nextTick(() => initFormsSortable())
+})
 watch(() => props.projectId, () => {
   selectedForm.value = null; formFields.value = []; selectedFieldId.value = null
   loadForms(); loadFieldDefs(); loadCodelists(); loadUnits()
@@ -885,8 +898,11 @@ function openAddForm() {
           style="width:180px"
         />
       </div>
-      <el-table :data="filteredForms" size="small" border highlight-current-row
+      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row
         @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
+        <el-table-column width="32" v-if="!isFormsFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
@@ -896,7 +912,6 @@ function openAddForm() {
           </template>
         </el-table-column>
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
-        <el-table-column prop="code" label="Code" width="200" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button size="small" link @click.stop="copyForm(row)">复制</el-button>
@@ -1022,7 +1037,7 @@ function openAddForm() {
     <!-- 新建表单弹窗 -->
     <el-dialog v-model="showAddForm" title="新建表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item>
+        <el-form-item label="Code（域名）"><el-input v-model="newFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="newFormName" /></el-form-item>
       </el-form>
       <template #footer>
@@ -1034,7 +1049,7 @@ function openAddForm() {
     <!-- 编辑表单弹窗 -->
     <el-dialog v-model="showEditForm" title="编辑表单" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item>
+        <el-form-item label="Code（域名）"><el-input v-model="editFormCode" /></el-form-item>
         <el-form-item label="表单名称"><el-input v-model="editFormName" /></el-form-item>
       </el-form>
       <template #footer>
@@ -1258,7 +1273,7 @@ function openAddForm() {
           <div v-else style="flex:1;overflow-y:auto;padding:8px">
             <el-form :model="editProp" label-width="70px" size="small">
               <el-form-item label="变量标签"><el-input v-model="editProp.label" /></el-form-item>
-              <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
+              <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
               <el-form-item label="字段类型">
                 <el-select v-model="editProp.field_type" style="width:100%">
                   <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />

@@ -1,7 +1,8 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
+import { useSortableTable } from '../composables/useSortableTable'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -45,7 +46,7 @@ async function reloadFields() {
   api.invalidateCache(`/api/projects/${props.projectId}/field-definitions`)
   await load()
 }
-onMounted(load)
+onMounted(async () => { await load(); nextTick(() => initSortable()) })
 watch(() => props.projectId, () => { selectedFieldId.value = null; isCreating.value = false; load() })
 watch(refreshKey, load)
 
@@ -151,6 +152,15 @@ async function updateOrder(row, newValue) {
     reloadFields()
   } catch (e) { ElMessage.error(e.message) }
 }
+
+// 拖拽排序
+const fieldsTableRef = ref(null)
+const isFiltered = computed(() => searchField.value.trim().length > 0)
+const reorderUrl = computed(() => `/api/projects/${props.projectId}/field-definitions/reorder`)
+const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
+  reloadFn: reloadFields,
+  isFiltered,
+})
 </script>
 
 <template>
@@ -168,10 +178,13 @@ async function updateOrder(row, newValue) {
           style="width:180px"
         />
       </div>
-      <el-table :data="visibleFields" size="small" border height="100%"
+      <el-table ref="fieldsTableRef" :data="visibleFields" size="small" border height="100%"
         :row-class-name="({ row }) => row.id === selectedFieldId ? 'current-row' : ''"
         :row-style="{ cursor: 'pointer' }"
         @row-click="openEdit" @selection-change="r => selFields = r">
+        <el-table-column width="32" v-if="!isFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
@@ -180,7 +193,6 @@ async function updateOrder(row, newValue) {
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="variable_name" label="Code（变量名）" width="200" show-overflow-tooltip />
         <el-table-column prop="label" label="标签" min-width="80" />
         <el-table-column prop="field_type" label="类型" width="100" />
         <el-table-column label="单位/选项" width="120">
@@ -207,7 +219,7 @@ async function updateOrder(row, newValue) {
       <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
       <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
-          <el-form-item v-if="!['标签'].includes(editProp.field_type)" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
+          <el-form-item v-if="!['标签'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
           <el-form-item label="字段类型">
             <el-select v-model="editProp.field_type" style="width:100%">
