@@ -1,7 +1,8 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode } from '../composables/useApi'
+import { useSortableTable } from '../composables/useSortableTable'
 import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -51,9 +52,22 @@ async function load() {
     selectedVisit.value = visits.value.find(v => v.id === selectedVisit.value.id) || null
   }
 }
-onMounted(load)
+onMounted(async () => { await load(); nextTick(() => initSortable()) })
 watch(() => props.projectId, () => { selectedVisit.value = null; load() })
 watch(refreshKey, load)
+
+// 拖拽排序
+const visitsTableRef = ref(null)
+const isFiltered = computed(() => searchVisit.value.trim().length > 0)
+const reorderUrl = computed(() => `/api/projects/${props.projectId}/visits/reorder`)
+async function reloadVisits() {
+  api.invalidateCache(`/api/projects/${props.projectId}/visits`)
+  await load()
+}
+const { initSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
+  reloadFn: reloadVisits,
+  isFiltered,
+})
 
 // 当前访视已关联的表单列表（带 sequence）
 const visitForms = computed(() => {
@@ -316,9 +330,12 @@ async function toggleCell(visitId, formId) {
           style="width:180px"
         />
       </div>
-      <el-table :data="filteredVisits" size="small" border highlight-current-row row-key="id"
+      <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
         @current-change="row => { if (row) selectedVisit = row }"
         @selection-change="r => selVisits = r" style="width:100%" height="100%">
+        <el-table-column width="32" v-if="!isFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
@@ -327,7 +344,6 @@ async function toggleCell(visitId, formId) {
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="code" label="Code" width="100" show-overflow-tooltip />
         <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
@@ -434,7 +450,7 @@ async function toggleCell(visitId, formId) {
     <!-- 新增访视弹窗 -->
     <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="form.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="form.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="form.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -447,7 +463,7 @@ async function toggleCell(visitId, formId) {
     <!-- 编辑访视弹窗 -->
     <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
       <el-form :model="editForm" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editForm.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="editForm.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="editForm.sequence" :min="1" /></el-form-item>
       </el-form>
