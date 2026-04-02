@@ -6,7 +6,12 @@
 - 空用户名返回 422
 - 无 token 访问受保护接口返回 401
 """
+import jwt
 from fastapi.testclient import TestClient
+
+from src.config import AppConfig, AuthConfig
+
+_TEST_CONFIG = AppConfig(auth=AuthConfig(secret_key="test-secret-key-for-testing"))
 
 
 def test_enter_creates_user_and_returns_token(client: TestClient):
@@ -15,6 +20,14 @@ def test_enter_creates_user_and_returns_token(client: TestClient):
     data = r.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+
+    payload = jwt.decode(
+        data["access_token"],
+        _TEST_CONFIG.auth.secret_key,
+        algorithms=[_TEST_CONFIG.auth.algorithm],
+    )
+    assert payload["sub"] == "1"
+    assert payload["username"] == "alice"
 
 
 def test_enter_is_idempotent(client: TestClient):

@@ -36,4 +36,6 @@ def enter(data: EnterRequest, session: Session = Depends(get_session)):
         user = User(username=data.username, hashed_password=None)
         session.add(user)
         session.flush()
-    return TokenResponse(access_token=create_access_token(user.username))
+    return TokenResponse(
+        access_token=create_access_token(user.id, user.username)
+    )
