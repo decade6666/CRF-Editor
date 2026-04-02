@@ -11,6 +11,7 @@ from src.config import get_config
 from src.database import init_db
 from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx
 from src.routers.auth import router as auth_router
+from src.routers.admin import router as admin_router
 from src.services.docx_screenshot_service import DocxScreenshotService
 from src.utils import is_safe_path
 
@@ -40,6 +41,7 @@ app.include_router(export.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(import_template.router, prefix="/api")
 app.include_router(import_docx.router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 # 打包后由 app_launcher.py 注入 CRF_STATIC_DIR，开发时用前端构建产物目录
 _static_dir = os.environ.get("CRF_STATIC_DIR", str(Path(__file__).resolve().parent.parent / "frontend" / "dist"))

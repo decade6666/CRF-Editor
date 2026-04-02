@@ -71,6 +71,10 @@ class AuthConfig(BaseModel):
     access_token_expire_minutes: int = 30
 
 
+class AdminConfig(BaseModel):
+    username: str = "admin"
+
+
 class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     storage: StorageConfig = StorageConfig()
@@ -78,6 +82,7 @@ class AppConfig(BaseModel):
     template: TemplateConfig = TemplateConfig()
     ai: AIConfig = AIConfig()
     auth: AuthConfig = AuthConfig()
+    admin: AdminConfig = AdminConfig()
 
     @property
     def db_path(self) -> str:
