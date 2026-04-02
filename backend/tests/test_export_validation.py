@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 from docx import Document
@@ -12,8 +13,7 @@ from src.database import get_read_session, get_session
 from src.models import Base
 from src.models.project import Project
 from src.models.user import User
-from src.routers import export as export_router
-from src.services.export_service import ExportService
+from src.services.export_service import ExportService, export_full_database, export_project_database
 from tests.helpers import auth_headers, login_as
 
 
@@ -60,13 +60,14 @@ def client(engine) -> TestClient:
     app.dependency_overrides.clear()
 
 
-
 def create_project(session: Session, name: str = "项目") -> Project:
     project = Project(name=name, version="v1.0")
     session.add(project)
     session.flush()
     return project
 
+
+# ── 验证相关 ──
 
 
 def test_validate_output_accepts_valid_docx(tmp_path: Path) -> None:
@@ -83,7 +84,6 @@ def test_validate_output_accepts_valid_docx(tmp_path: Path) -> None:
     assert reason == ""
 
 
-
 def test_validate_output_rejects_insufficient_tables(tmp_path: Path) -> None:
     output_path = tmp_path / "insufficient.docx"
     doc = Document()
@@ -97,7 +97,6 @@ def test_validate_output_rejects_insufficient_tables(tmp_path: Path) -> None:
     assert "結構不完整" in reason
 
 
-
 def test_validate_output_rejects_zero_byte_file(tmp_path: Path) -> None:
     output_path = tmp_path / "empty.docx"
     output_path.write_bytes(b"")
@@ -108,55 +107,14 @@ def test_validate_output_rejects_zero_byte_file(tmp_path: Path) -> None:
     assert "0 字节" in reason
 
 
+# ── POST /export/word 直接下载 ──
 
-def test_prepare_export_returns_download_url_with_30min_ttl(
+
+def test_export_word_returns_docx_file(
     client: TestClient,
     engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    export_router._export_cache.clear()
-
-    with Session(engine) as session:
-        user = User(username="bob")
-        session.add(user)
-        session.flush()
-        project = Project(name="导出项目", version="v1.0", owner_id=user.id)
-        session.add(project)
-        session.commit()
-        project_id = project.id
-
-    token = login_as(client, "bob")
-
-    monkeypatch.setattr(
-        ExportService,
-        "export_project_to_word",
-        lambda self, project_id, output_path: Document().save(output_path) or True,
-    )
-    monkeypatch.setattr(
-        ExportService,
-        "_validate_output",
-        staticmethod(lambda path: (True, "")),
-    )
-
-    response = client.post(
-        f"/api/projects/{project_id}/export/word/prepare",
-        headers=auth_headers(token),
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["download_url"] == f"/api/export/download/{data['token']}"
-    assert data["expires_in"] == 1800
-    assert data["token"]
-
-
-def test_prepare_export_rejects_invalid_docx(
-    client: TestClient,
-    engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    export_router._export_cache.clear()
-
     with Session(engine) as session:
         user = User(username="alice")
         session.add(user)
@@ -167,11 +125,47 @@ def test_prepare_export_rejects_invalid_docx(
         project_id = project.id
 
     token = login_as(client, "alice")
-
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, project_id, output_path: Path(output_path).write_bytes(b"PK") or True,
+        lambda self, pid, output_path: Document().save(output_path) or True,
+    )
+    monkeypatch.setattr(
+        ExportService,
+        "_validate_output",
+        staticmethod(lambda path: (True, "")),
+    )
+
+    response = client.post(
+        f"/api/projects/{project_id}/export/word",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+def test_export_word_rejects_invalid_docx(
+    client: TestClient,
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with Session(engine) as session:
+        user = User(username="alice")
+        session.add(user)
+        session.flush()
+        project = Project(name="导出项目", version="v1.0", owner_id=user.id)
+        session.add(project)
+        session.commit()
+        project_id = project.id
+
+    token = login_as(client, "alice")
+    monkeypatch.setattr(
+        ExportService,
+        "export_project_to_word",
+        lambda self, pid, output_path: Path(output_path).write_bytes(b"PK") or True,
     )
     monkeypatch.setattr(
         ExportService,
@@ -180,134 +174,61 @@ def test_prepare_export_rejects_invalid_docx(
     )
 
     response = client.post(
-        f"/api/projects/{project_id}/export/word/prepare",
+        f"/api/projects/{project_id}/export/word",
         headers=auth_headers(token),
     )
 
     assert response.status_code == 500
     assert "无效 docx" in response.text
-    assert export_router._export_cache == {}
 
 
-def test_download_by_token_requires_authenticated_user(
-    client: TestClient,
-    engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    export_router._export_cache.clear()
-
-    with Session(engine) as session:
-        user = User(username="alice")
-        session.add(user)
-        session.flush()
-        project = Project(name="导出项目", version="v1.0", owner_id=user.id)
-        session.add(project)
-        session.commit()
-        project_id = project.id
-
-    token = login_as(client, "alice")
-    monkeypatch.setattr(
-        ExportService,
-        "export_project_to_word",
-        lambda self, project_id, output_path: Document().save(output_path) or True,
-    )
-    monkeypatch.setattr(
-        ExportService,
-        "_validate_output",
-        staticmethod(lambda path: (True, "")),
-    )
-
-    prepare_response = client.post(
-        f"/api/projects/{project_id}/export/word/prepare",
-        headers=auth_headers(token),
-    )
-    download_url = prepare_response.json()["download_url"].replace("http://testserver", "")
-
-    download_response = client.get(download_url)
-
-    assert download_response.status_code == 401
+# ── 数据库导出 ──
 
 
+def test_export_full_database_returns_valid_sqlite(tmp_path: Path) -> None:
+    """整库导出返回可用的 .db 文件"""
+    src_path = str(tmp_path / "source.db")
+    conn = sqlite3.connect(src_path)
+    conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.execute("INSERT INTO test VALUES (1, 'hello')")
+    conn.commit()
+    conn.close()
 
-def test_download_by_token_forbids_other_user(
-    client: TestClient,
-    engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    export_router._export_cache.clear()
-
-    with Session(engine) as session:
-        alice = User(username="alice")
-        bob = User(username="bob")
-        session.add_all([alice, bob])
-        session.flush()
-        project = Project(name="导出项目", version="v1.0", owner_id=alice.id)
-        session.add(project)
-        session.commit()
-        project_id = project.id
-
-    alice_token = login_as(client, "alice")
-    bob_token = login_as(client, "bob")
-    monkeypatch.setattr(
-        ExportService,
-        "export_project_to_word",
-        lambda self, project_id, output_path: Document().save(output_path) or True,
-    )
-    monkeypatch.setattr(
-        ExportService,
-        "_validate_output",
-        staticmethod(lambda path: (True, "")),
-    )
-
-    prepare_response = client.post(
-        f"/api/projects/{project_id}/export/word/prepare",
-        headers=auth_headers(alice_token),
-    )
-    download_url = prepare_response.json()["download_url"].replace("http://testserver", "")
-
-    download_response = client.get(download_url, headers=auth_headers(bob_token))
-
-    assert download_response.status_code == 403
+    result_path = export_full_database(src_path)
+    try:
+        result_conn = sqlite3.connect(result_path)
+        rows = result_conn.execute("SELECT * FROM test").fetchall()
+        result_conn.close()
+        assert rows == [(1, "hello")]
+    finally:
+        Path(result_path).unlink(missing_ok=True)
 
 
+def test_export_project_database_prunes_correctly(tmp_path: Path) -> None:
+    """单项目导出裁剪完整性：仅含目标项目、user 表为空、owner_id 为 NULL"""
+    src_path = str(tmp_path / "source.db")
+    conn = sqlite3.connect(src_path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    # 模拟最小 schema
+    conn.execute("CREATE TABLE user (id INTEGER PRIMARY KEY, username TEXT)")
+    conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT, owner_id INTEGER REFERENCES user(id))")
+    conn.execute("INSERT INTO user VALUES (1, 'alice')")
+    conn.execute("INSERT INTO project VALUES (1, 'KeepMe', 1)")
+    conn.execute("INSERT INTO project VALUES (2, 'RemoveMe', 1)")
+    conn.commit()
+    conn.close()
 
-def test_download_by_token_allows_owner_with_auth_header(
-    client: TestClient,
-    engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    export_router._export_cache.clear()
+    result_path = export_project_database(src_path, 1, "KeepMe")
+    try:
+        result_conn = sqlite3.connect(result_path)
+        projects = result_conn.execute("SELECT id, name, owner_id FROM project").fetchall()
+        users = result_conn.execute("SELECT * FROM user").fetchall()
+        result_conn.close()
 
-    with Session(engine) as session:
-        user = User(username="alice")
-        session.add(user)
-        session.flush()
-        project = Project(name="导出项目", version="v1.0", owner_id=user.id)
-        session.add(project)
-        session.commit()
-        project_id = project.id
-
-    token = login_as(client, "alice")
-    monkeypatch.setattr(
-        ExportService,
-        "export_project_to_word",
-        lambda self, project_id, output_path: Document().save(output_path) or True,
-    )
-    monkeypatch.setattr(
-        ExportService,
-        "_validate_output",
-        staticmethod(lambda path: (True, "")),
-    )
-
-    prepare_response = client.post(
-        f"/api/projects/{project_id}/export/word/prepare",
-        headers=auth_headers(token),
-    )
-    download_url = prepare_response.json()["download_url"].replace("http://testserver", "")
-
-    download_response = client.get(download_url, headers=auth_headers(token))
-
-    assert download_response.status_code == 200
-    assert download_response.headers["content-type"].startswith(
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+        assert len(projects) == 1
+        assert projects[0][0] == 1
+        assert projects[0][1] == "KeepMe"
+        assert projects[0][2] is None  # owner_id 已置 NULL
+        assert users == []  # user 表为空
+    finally:
+        Path(result_path).unlink(missing_ok=True)

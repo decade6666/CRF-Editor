@@ -2,7 +2,7 @@
 import { ref, reactive, watch, onMounted, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
-import { getDownloadFilename, shouldResetExportDownload, canUseClipboardWriteText, resolveDownloadLink } from './composables/exportDownloadState'
+import { getDownloadFilename } from './composables/exportDownloadState'
 import ProjectInfoTab from './components/ProjectInfoTab.vue'
 import VisitsTab from './components/VisitsTab.vue'
 import FormDesignerTab from './components/FormDesignerTab.vue'
@@ -51,9 +51,6 @@ function handleRefresh() {
 }
 
 function selectProject(p) {
-  if (shouldResetExportDownload(selectedProject.value?.id, p?.id)) {
-    clearExportDownloadState()
-  }
   selectedProject.value = p
   activeTab.value = 'info'
 }
@@ -67,16 +64,8 @@ watch(activeTab, (newTab) => {
   }
 })
 
-// 编辑模式关闭时，若当前在隐藏标签页则跳回 info
-watch(selectedProject, (nextProject, previousProject) => {
-  if (shouldResetExportDownload(previousProject?.id, nextProject?.id)) {
-    clearExportDownloadState()
-  }
-})
-
 function onProjectUpdated(p) {
   selectedProject.value = p
-  clearExportDownloadState()
   const idx = projects.value.findIndex(x => x.id === p.id)
   if (idx >= 0) projects.value[idx] = p
 }
@@ -95,54 +84,26 @@ async function deleteProject(p) {
   await api.del(`/api/projects/${p.id}`)
   if (selectedProject.value?.id === p.id) {
     selectedProject.value = null
-    clearExportDownloadState()
   }
   loadProjects()
 }
 
-const exportDownloadUrl = ref('')
-const exportDownloadExpiresIn = ref(0)
 
-function clearExportDownloadState() {
-  exportDownloadUrl.value = ''
-  exportDownloadExpiresIn.value = 0
-}
+const exportWordLoading = ref(false)
 
-async function copyExportDownloadLink() {
-  if (!exportDownloadUrl.value) return
-
-  const downloadLink = resolveDownloadLink(exportDownloadUrl.value, window.location.origin)
-
-  if (!canUseClipboardWriteText(navigator.clipboard, window.isSecureContext)) {
-    return ElMessage.error('当前环境不支持自动复制，请在 localhost/127.0.0.1 或 HTTPS 环境下手动复制下载链接')
-  }
-
+async function exportWord() {
+  if (!selectedProject.value) return
+  exportWordLoading.value = true
   try {
-    await navigator.clipboard.writeText(downloadLink)
-    ElMessage.success('下载链接已复制')
-  } catch (e) {
-    ElMessage.error('复制链接失败: ' + e.message)
-  }
-}
-
-async function triggerExportDownload() {
-  if (!exportDownloadUrl.value || !selectedProject.value) return
-
-  try {
-    const response = await fetch(exportDownloadUrl.value, {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
+      method: 'POST',
       headers: getAuthHeaders(),
     })
     if (!response.ok) {
-      let detail = '未知错误'
-      try {
-        const error = await response.json()
-        detail = error.detail || detail
-      } catch {
-        detail = response.statusText || detail
-      }
-      return ElMessage.error('下载失败: ' + detail)
+      const err = await response.json().catch(() => ({}))
+      return ElMessage.error('导出失败: ' + (err.detail || '未知错误'))
     }
-
     const blob = await response.blob()
     const contentDisposition = response.headers.get('content-disposition')
     const fallbackFilename = `${selectedProject.value.name}_CRF.docx`
@@ -155,26 +116,57 @@ async function triggerExportDownload() {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(objectUrl)
+    ElMessage.success('导出成功')
   } catch (e) {
-    ElMessage.error('下载失败: ' + e.message)
+    ElMessage.error('导出失败: ' + e.message)
+  } finally {
+    exportWordLoading.value = false
   }
 }
 
-async function exportWord() {
-  if (!selectedProject.value) return
-  clearExportDownloadState()
+async function _blobDownload(url, fallbackFilename) {
+  const response = await fetch(url, { headers: getAuthHeaders() })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || '未知错误')
+  }
+  const blob = await response.blob()
+  const contentDisposition = response.headers.get('content-disposition')
+  const filename = getDownloadFilename(contentDisposition, fallbackFilename)
+  const objectUrl = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(objectUrl)
+}
+
+async function exportFullDatabase() {
   try {
-    const resp = await fetch(`/api/projects/${selectedProject.value.id}/export/word/prepare`, { method: 'POST', headers: getAuthHeaders() })
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}))
-      return ElMessage.error('导出失败: ' + (err.detail || '未知错误'))
-    }
-    const { download_url: downloadUrl, expires_in: expiresIn } = await resp.json()
-    if (!downloadUrl) return ElMessage.error('导出失败: 缺少下载链接')
-    exportDownloadUrl.value = downloadUrl
-    exportDownloadExpiresIn.value = expiresIn || 0
-    ElMessage.success('已生成下载链接，请点击“下载文件”')
-  } catch (e) { ElMessage.error('导出失败: ' + e.message) }
+    await ElMessageBox.confirm('将导出整个数据库文件，是否继续？', '导出整个数据库', { type: 'info' })
+  } catch { return }
+  try {
+    await _blobDownload('/api/export/database', 'crf_editor_full.db')
+    ElMessage.success('数据库导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message)
+  }
+}
+
+async function exportProjectDatabase() {
+  if (!selectedProject.value) return
+  const name = selectedProject.value.name
+  try {
+    await ElMessageBox.confirm(`将导出项目「${name}」的数据库模板，是否继续？`, '导出项目数据库', { type: 'info' })
+  } catch { return }
+  try {
+    await _blobDownload(`/api/projects/${selectedProject.value.id}/export/database`, `${name}_template.db`)
+    ElMessage.success('项目数据库导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message)
+  }
 }
 
 // 设置弹窗
@@ -492,10 +484,7 @@ function startResize(e) {
     <div class="header-right">
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportWordDialog">导入Word</el-button>
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportDialog">导入模板</el-button>
-      <el-button v-if="selectedProject" type="warning" size="small" @click="exportWord">导出Word</el-button>
-      <el-button v-if="exportDownloadUrl && selectedProject" type="success" size="small" @click="triggerExportDownload">下载文件</el-button>
-      <el-button v-if="exportDownloadUrl && selectedProject" size="small" @click="copyExportDownloadLink">复制下载链接</el-button>
-      <span v-if="exportDownloadUrl && exportDownloadExpiresIn" class="download-tip">下载链接 {{ Math.round(exportDownloadExpiresIn / 60) }} 分钟内有效</span>
+      <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord">导出Word</el-button>
     </div>
   </div>
 
@@ -615,6 +604,12 @@ function startResize(e) {
         </span>
       </el-form-item>
       </template>
+
+      <el-divider>数据管理</el-divider>
+      <el-form-item>
+        <el-button @click="exportFullDatabase">导出整个数据库</el-button>
+        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="showSettings = false">取消</el-button>

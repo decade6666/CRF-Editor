@@ -2,49 +2,32 @@
 import logging
 import tempfile
 import os
-import uuid
-import time
-from typing import Dict, Tuple
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
-from src.database import get_session, get_read_session
+from src.config import get_config
+from src.database import get_read_session
 from src.dependencies import get_current_user, verify_project_owner
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
-from src.services.export_service import ExportService
+from src.services.export_service import ExportService, export_full_database, export_project_database
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
 
-# 临时存储导出文件 {token: (tmp_path, filename, expire_time, owner_id)}
-_export_cache: Dict[str, Tuple[str, str, float, int]] = {}
-_TOKEN_TTL = 1800  # 令牌有效期30分钟
 
-
-def _cleanup_expired():
-    """清理过期的导出缓存及临时文件"""
-    now = time.time()
-    expired = [k for k, v in _export_cache.items() if v[2] < now]
-    for k in expired:
-        tmp_path = _export_cache.pop(k)[0]
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-
-
-@router.post("/projects/{project_id}/export/word/prepare")
-def prepare_export(
+@router.post("/projects/{project_id}/export/word")
+def export_word(
     project_id: int,
     session: Session = Depends(get_read_session),
     current_user: User = Depends(get_current_user),
 ):
-    """生成导出文件并返回 30 分钟有效下载链接（使用只读 Session，不持有写事务）"""
+    """生成 Word 文档并直接返回文件流"""
     verify_project_owner(project_id, current_user, session)
-    _cleanup_expired()
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
@@ -57,18 +40,12 @@ def prepare_export(
         service = ExportService(session)
         ok = service.export_project_to_word(project_id, tmp_path)
         if not ok:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            os.unlink(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
 
         valid, reason = ExportService._validate_output(tmp_path)
         if not valid:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            os.unlink(tmp_path)
             raise HTTPException(500, f"导出失败: {reason}")
     except HTTPException:
         raise
@@ -76,41 +53,49 @@ def prepare_export(
         logger.exception("导出Word文档失败")
         try:
             os.unlink(tmp_path)
-        except Exception:
+        except OSError:
             pass
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
-    token = str(uuid.uuid4())
     filename = f"{project.name}_CRF.docx"
-    _export_cache[token] = (tmp_path, filename, time.time() + _TOKEN_TTL, current_user.id)
-    download_url = f"/api/export/download/{token}"
-    return {
-        "token": token,
-        "download_url": download_url,
-        "expires_in": _TOKEN_TTL,
-    }
-
-
-@router.get("/export/download/{token}")
-def download_by_token(
-    token: str,
-    session: Session = Depends(get_read_session),
-    current_user: User = Depends(get_current_user),
-):
-    """通过令牌下载文件，令牌 30 分钟内有效，支持重复请求"""
-    entry = _export_cache.get(token)
-    if not entry:
-        raise HTTPException(404, "下载链接已过期，请重新导出")
-
-    tmp_path, filename, expire_time, owner_id = entry
-    if owner_id != current_user.id:
-        raise HTTPException(403, "无权访问此导出文件")
-    if time.time() > expire_time or not os.path.exists(tmp_path):
-        _export_cache.pop(token, None)
-        raise HTTPException(404, "下载链接已过期，请重新导出")
-
     return FileResponse(
         tmp_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=filename,
+        background=BackgroundTask(os.unlink, tmp_path),
+    )
+
+
+@router.get("/export/database")
+def export_database(
+    current_user: User = Depends(get_current_user),
+):
+    """导出整个数据库"""
+    config = get_config()
+    tmp_path = export_full_database(config.db_path)
+    filename = f"crf_editor_full_{date.today().strftime('%Y%m%d')}.db"
+    return FileResponse(
+        tmp_path,
+        media_type="application/octet-stream",
+        filename=filename,
+        background=BackgroundTask(os.unlink, tmp_path),
+    )
+
+
+@router.get("/projects/{project_id}/export/database")
+def export_project_db(
+    project_id: int,
+    session: Session = Depends(get_read_session),
+    current_user: User = Depends(get_current_user),
+):
+    """导出单项目数据库"""
+    project = verify_project_owner(project_id, current_user, session)
+    config = get_config()
+    tmp_path = export_project_database(config.db_path, project_id, project.name)
+    filename = f"{project.name}_template_{date.today().strftime('%Y%m%d')}.db"
+    return FileResponse(
+        tmp_path,
+        media_type="application/octet-stream",
+        filename=filename,
+        background=BackgroundTask(os.unlink, tmp_path),
     )
