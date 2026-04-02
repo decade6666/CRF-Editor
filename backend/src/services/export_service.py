@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 import logging
 import os
+import sqlite3
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 import html
@@ -1451,4 +1453,48 @@ class ExportService:
         rFonts.set(qn("w:ascii"), self.FONT_ASCII)
         rFonts.set(qn("w:hAnsi"), self.FONT_ASCII)
         rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
+
+
+def export_full_database(db_path: str) -> str:
+    """使用 sqlite3.backup() 安全复制运行中数据库到临时文件，返回临时文件路径。"""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+
+    src_conn = sqlite3.connect(db_path)
+    dst_conn = sqlite3.connect(tmp_path)
+    try:
+        src_conn.backup(dst_conn)
+    finally:
+        dst_conn.close()
+        src_conn.close()
+
+    return tmp_path
+
+
+def export_project_database(db_path: str, project_id: int, project_name: str) -> str:
+    """导出单项目数据库：先 backup 完整快照，再裁剪非目标数据。"""
+    tmp_path = export_full_database(db_path)
+
+    conn = sqlite3.connect(tmp_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        # 解除所有项目与 user 的外键关联
+        conn.execute("UPDATE project SET owner_id = NULL")
+        # 清除用户敏感数据
+        conn.execute("DELETE FROM user")
+        # 删除其他项目（级联删除关联数据）
+        conn.execute("DELETE FROM project WHERE id != ?", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    # VACUUM 必须在事务外执行
+    conn = sqlite3.connect(tmp_path, isolation_level=None)
+    try:
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
+
+    return tmp_path
 
