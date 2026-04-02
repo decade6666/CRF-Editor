@@ -1,20 +1,22 @@
 /* ——— 原子色板（Primitive Tokens）——— */
 :root {
-  --indigo-50:  #eef2ff;
-  --indigo-100: #e0e7ff;
-  --indigo-200: #c7d2fe;
-  --indigo-300: #a5b4fc;
-  --indigo-400: #818cf8;
-  --indigo-500: #6366f1;   /* 主色 */
-  --indigo-600: #4f46e5;   /* hover 态 */
-  --indigo-700: #4338ca;
-  --indigo-900: #1e1b4b;   /* 深靛蓝（侧边栏）*/
+  --indigo-50:  #f7fbff;
+  --indigo-100: #eef6ff;
+  --indigo-200: #dbeafe;
+  --indigo-300: #bfdbfe;
+  --indigo-400: #93c5fd;
+  --indigo-500: #60a5fa;
+  --indigo-600: #3b82f6;
+  --indigo-700: #2563eb;   /* 主色 */
+  --indigo-800: #1d4ed8;   /* hover 态 */
+  --indigo-900: #1e3a5f;   /* 深蓝（侧边栏）*/
 
   /* ——— 语义 Token（Semantic Tokens）——— */
-  --color-primary:        var(--indigo-500);
-  --color-primary-dark:   var(--indigo-600);
+  --color-primary:        var(--indigo-700);
+  --color-primary-dark:   var(--indigo-800);
   --color-primary-light:  var(--indigo-100);
-  --color-primary-subtle: #f5f3ff;
+  --color-primary-subtle: #f7fbff;
+  --color-primary-rgb:    37, 99, 235;
 
   --color-sidebar-bg:     var(--indigo-900);
   --color-sidebar-item:   rgba(255,255,255,0.75);
@@ -22,13 +24,13 @@
   --color-sidebar-active: rgba(255,255,255,0.18);
   --color-sidebar-border: rgba(255,255,255,0.08);
 
-  --color-header-bg:      var(--indigo-500);
+  --color-header-bg:      var(--indigo-700);
   --color-header-text:    #ffffff;
 
-  --color-bg-body:        #f1f5f9;
+  --color-bg-body:        #f7fbff;
   --color-bg-card:        #ffffff;
-  --color-bg-hover:       #f8fafc;
-  --color-border:         #e2e8f0;
+  --color-bg-hover:       #f3f8ff;
+  --color-border:         #dbe7f3;
   --color-text-primary:   #1e293b;
   --color-text-secondary: #64748b;
   --color-text-muted:     #94a3b8;
@@ -70,7 +72,7 @@
   --el-color-primary-light-3:   var(--indigo-300);
   --el-color-primary-light-5:   var(--indigo-200);
   --el-color-primary-light-7:   var(--indigo-100);
-  --el-color-primary-light-8:   #ede9fe;
+  --el-color-primary-light-8:   var(--indigo-100);
   --el-color-primary-light-9:   var(--color-primary-subtle);
   --el-border-radius-base:      var(--radius-sm);
   --el-border-radius-small:     var(--radius-sm);
@@ -262,8 +264,9 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 
 /* 暗色模式 CSS 变量覆盖 */
 html[data-theme="dark"] {
-  --indigo-900: #312e81;
-  --indigo-500: #818cf8;
+  --indigo-900: #172554;
+  --indigo-700: #3b82f6;
+  --indigo-500: #60a5fa;
   --color-bg-body: #0f172a;
   --color-bg-card: #1e293b;
   --color-bg-hover: #334155;
@@ -271,7 +274,8 @@ html[data-theme="dark"] {
   --color-text-primary: #f1f5f9;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
-  --color-primary-subtle: #1e1b4b;
+  --color-primary-subtle: #1e3a5f;
+  --color-primary-rgb: 37, 99, 235;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.6);
