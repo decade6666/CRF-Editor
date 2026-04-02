@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, watch, onMounted, provide } from 'vue'
+import { ref, reactive, computed, watch, onMounted, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
 import { getDownloadFilename } from './composables/exportDownloadState'
@@ -12,13 +12,26 @@ import UnitsTab from './components/UnitsTab.vue'
 import DocxCompareDialog from './components/DocxCompareDialog.vue'
 import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
 import LoginView from './components/LoginView.vue'
+import AdminView from './components/AdminView.vue'
 
 // 登录状态
 const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
+const showAdmin = ref(false)
 
 function onLoginSuccess() {
   isLoggedIn.value = true
   loadProjects()
+  loadMe()
+}
+
+// 当前用户信息
+const currentUser = ref({ username: '', is_admin: false })
+const isAdmin = computed(() => currentUser.value.is_admin)
+
+async function loadMe() {
+  try {
+    currentUser.value = await api.get('/api/auth/me')
+  } catch { /* 静默失败 */ }
 }
 
 // 项目数据
@@ -27,10 +40,11 @@ const selectedProject = ref(null)
 const activeTab = ref('info')
 const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
+const copyingProjectId = ref(null)
 
 async function loadProjects() { projects.value = await api.get('/api/projects') }
 onMounted(() => {
-  if (isLoggedIn.value) loadProjects()
+  if (isLoggedIn.value) { loadProjects(); loadMe() }
   window.addEventListener('crf:auth-expired', () => { isLoggedIn.value = false })
 })
 
@@ -86,6 +100,20 @@ async function deleteProject(p) {
     selectedProject.value = null
   }
   loadProjects()
+}
+
+async function copyProject(p) {
+  copyingProjectId.value = p.id
+  try {
+    const copied = await api.post(`/api/projects/${p.id}/copy`, {})
+    await loadProjects()
+    selectProject(copied)
+    ElMessage.success('项目复制成功')
+  } catch (e) {
+    ElMessage.error('项目复制失败: ' + e.message)
+  } finally {
+    copyingProjectId.value = null
+  }
 }
 
 
@@ -166,6 +194,69 @@ async function exportProjectDatabase() {
     ElMessage.success('项目数据库导出成功')
   } catch (e) {
     ElMessage.error('导出失败: ' + e.message)
+  }
+}
+
+// 导入项目/数据库
+const importProjectDbInput = ref(null)
+const importDatabaseMergeInput = ref(null)
+const importProjectDbLoading = ref(false)
+const importDatabaseMergeLoading = ref(false)
+
+function triggerImportProjectDb() { importProjectDbInput.value?.click() }
+function triggerImportDatabaseMerge() { importDatabaseMergeInput.value?.click() }
+
+async function handleImportProjectDb(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  e.target.value = ''
+  importProjectDbLoading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await fetch('/api/admin/import/project-db', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: form,
+    })
+    const data = await resp.json()
+    if (!resp.ok) throw new Error(data.detail || '导入失败')
+    ElMessage.success(`导入成功：${data.project_name}`)
+    api.clearAllCache()
+    loadProjects()
+  } catch (err) {
+    ElMessage.error('导入失败: ' + err.message)
+  } finally {
+    importProjectDbLoading.value = false
+  }
+}
+
+async function handleImportDatabaseMerge(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  e.target.value = ''
+  importDatabaseMergeLoading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await fetch('/api/admin/import/database-merge', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: form,
+    })
+    const data = await resp.json()
+    if (!resp.ok) throw new Error(data.detail || '导入失败')
+    const names = data.imported.map(p => p.name).join('、')
+    const renamedInfo = data.renamed.length
+      ? `\n重命名：${data.renamed.map(r => `${r.original} → ${r.new}`).join('、')}`
+      : ''
+    ElMessageBox.alert(`导入 ${data.imported.length} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' })
+    api.clearAllCache()
+    loadProjects()
+  } catch (err) {
+    ElMessage.error('导入失败: ' + err.message)
+  } finally {
+    importDatabaseMergeLoading.value = false
   }
 }
 
@@ -453,12 +544,16 @@ function toggleTheme() {
 
 onMounted(() => { applyTheme() })
 
+// 侧边栏折叠
+const isCollapsed = ref(false)
+
 // 侧边栏宽度拖拽（持久化）
 const sidebarWidth = ref(parseInt(localStorage.getItem('crf_sidebarWidth')) || 220)
 const isResizing = ref(false)
 watch(sidebarWidth, v => localStorage.setItem('crf_sidebarWidth', v))
 
 function startResize(e) {
+  if (isCollapsed.value) return
   isResizing.value = true
   const startX = e.clientX, startW = sidebarWidth.value
   function onMove(e) { sidebarWidth.value = Math.max(120, Math.min(400, startW + e.clientX - startX)) }
@@ -480,6 +575,9 @@ function startResize(e) {
       <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
         <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
       </el-button>
+      <el-button v-if="isAdmin" class="header-icon-btn" text circle @click="showAdmin = true" title="管理" aria-label="管理">
+        <el-icon aria-hidden="true"><UserFilled /></el-icon>
+      </el-button>
     </div>
     <div class="header-right">
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportWordDialog">导入Word</el-button>
@@ -491,27 +589,34 @@ function startResize(e) {
   <!-- 主体布局 -->
   <div class="main">
     <!-- 侧边栏 -->
-    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+    <div class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '48px' : sidebarWidth + 'px' }">
       <div class="sidebar-header">
-        <el-icon><Fold /></el-icon>
-        <span>项目列表</span>
-        <el-button type="primary" size="small" circle @click="showCreateProject = true"><el-icon><Plus /></el-icon></el-button>
+        <el-icon style="cursor:pointer" @click="isCollapsed = !isCollapsed"><Fold v-if="!isCollapsed" /><Expand v-else /></el-icon>
+        <template v-if="!isCollapsed">
+          <span>项目列表</span>
+        </template>
+        <el-button type="primary" size="small" circle @click="showCreateProject = true" :title="isCollapsed ? '新建项目' : ''"><el-icon><Plus /></el-icon></el-button>
       </div>
       <div class="project-list">
         <div v-for="p in projects" :key="p.id"
           class="project-item" :class="{ active: selectedProject?.id === p.id }"
-          @click="selectProject(p)">
-          <div style="display:flex;align-items:center;gap:8px;overflow:hidden">
+          @click="selectProject(p)" :title="isCollapsed ? p.name : ''">
+          <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
             <el-icon><Files /></el-icon>
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+            <span v-if="!isCollapsed" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
           </div>
-          <el-button class="del-btn" link type="danger" @click.stop="deleteProject(p)">
-            <el-icon><Delete /></el-icon>
-          </el-button>
+          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+            <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" :title="isCollapsed ? '复制项目' : ''">
+              <el-icon><DocumentCopy /></el-icon>
+            </el-button>
+            <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" :title="isCollapsed ? '删除项目' : ''">
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </div>
         </div>
       </div>
     </div>
-    <div class="sidebar-resizer" :class="{ dragging: isResizing }" @mousedown="startResize"></div>
+    <div v-if="!isCollapsed" class="sidebar-resizer" :class="{ dragging: isResizing }" @mousedown="startResize"></div>
 
     <!-- 内容区 -->
     <div class="content">
@@ -606,10 +711,25 @@ function startResize(e) {
       </template>
 
       <el-divider>数据管理</el-divider>
-      <el-form-item>
-        <el-button @click="exportFullDatabase">导出整个数据库</el-button>
-        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-      </el-form-item>
+      <div style="display:flex;gap:24px">
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导入</div>
+          <el-button :disabled="!isAdmin" @click="triggerImportProjectDb" :loading="importProjectDbLoading">
+            导入项目
+          </el-button>
+          <el-button :disabled="!isAdmin" @click="triggerImportDatabaseMerge" :loading="importDatabaseMergeLoading">
+            导入数据库
+          </el-button>
+          <div v-if="!isAdmin" style="font-size:11px;color:var(--color-text-muted)">仅管理员可导入</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导出</div>
+          <el-button @click="exportFullDatabase">导出整个数据库</el-button>
+          <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+        </div>
+      </div>
+      <input ref="importProjectDbInput" type="file" accept=".db" style="display:none" @change="handleImportProjectDb" />
+      <input ref="importDatabaseMergeInput" type="file" accept=".db" style="display:none" @change="handleImportDatabaseMerge" />
     </el-form>
     <template #footer>
       <el-button @click="showSettings = false">取消</el-button>
@@ -750,6 +870,11 @@ function startResize(e) {
     :all-forms-data="importedFormsPreview"
     @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
   />
+
+  <!-- 管理员弹窗 -->
+  <el-dialog v-model="showAdmin" title="管理" width="800px" :close-on-click-modal="false" top="5vh">
+    <AdminView @logout="isLoggedIn = false; showAdmin = false" />
+  </el-dialog>
   </template>
 </template>
 
@@ -790,6 +915,31 @@ function startResize(e) {
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
   margin-left: auto !important;
+}
+
+.project-action-btn {
+  margin: 0;
+}
+
+.sidebar.collapsed .project-item {
+  justify-content: space-between;
+  gap: 4px;
+  padding-inline: 4px;
+}
+
+.sidebar.collapsed .project-item > :first-child {
+  flex: 0 0 auto;
+}
+
+.sidebar.collapsed .project-item > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar.collapsed .project-action-btn {
+  padding: 2px;
+  min-height: 20px;
 }
 
 /* 弹窗圆角与头部渐变主题 */
