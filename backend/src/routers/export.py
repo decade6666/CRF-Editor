@@ -11,7 +11,7 @@ from starlette.background import BackgroundTask
 
 from src.config import get_config
 from src.database import get_read_session
-from src.dependencies import get_current_user, verify_project_owner
+from src.dependencies import get_current_user, require_admin, verify_project_owner
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.services.export_service import ExportService, export_full_database, export_project_database
@@ -68,7 +68,7 @@ def export_word(
 
 @router.get("/export/database")
 def export_database(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """导出整个数据库"""
     config = get_config()

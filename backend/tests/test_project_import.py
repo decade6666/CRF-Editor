@@ -107,7 +107,7 @@ def _create_export_db(
                         FormField(
                             form_id=form.id,
                             field_definition_id=fd.id,
-                            sort_order=1,
+                            order_index=1,
                         )
                     )
 
@@ -144,20 +144,38 @@ def _upload_db(client, endpoint: str, db_path: Path, token: str):
 # ── Admin Gate 403 ─────────────────────────────────────────────
 
 
-def test_import_project_db_requires_admin(client, engine, tmp_path):
-    """非管理员用户导入单项目应返回 403。"""
+def test_import_project_db_accepts_authenticated_user(client, engine, tmp_path):
+    """普通登录用户也可导入单项目，owner 需重绑到当前用户。"""
     token = login_as(client, "bob")
     db_path = _create_export_db(tmp_path / "export.db", project_count=1)
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
-    assert resp.status_code == 403
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
+    assert resp.status_code == 200, resp.text
+
+    data = resp.json()
+    with Session(engine) as session:
+        bob = session.scalar(select(User).where(User.username == "bob"))
+        imported = session.get(Project, data["project_id"])
+        assert bob is not None
+        assert imported is not None
+        assert imported.owner_id == bob.id
 
 
-def test_merge_database_requires_admin(client, engine, tmp_path):
-    """非管理员用户合并导入应返回 403。"""
+def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):
+    """普通登录用户也可整库合并导入，owner 需重绑到当前用户。"""
     token = login_as(client, "bob")
     db_path = _create_export_db(tmp_path / "export.db", project_count=2)
-    resp = _upload_db(client, "/api/admin/import/database-merge", db_path, token)
-    assert resp.status_code == 403
+    resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
+    assert resp.status_code == 200, resp.text
+
+    imported_ids = [item["id"] for item in resp.json()["imported"]]
+    with Session(engine) as session:
+        bob = session.scalar(select(User).where(User.username == "bob"))
+        imported_projects = session.scalars(
+            select(Project).where(Project.id.in_(imported_ids)).order_by(Project.id)
+        ).all()
+        assert bob is not None
+        assert len(imported_projects) == 2
+        assert all(project.owner_id == bob.id for project in imported_projects)
 
 
 # ── 文件校验 ───────────────────────────────────────────────────
@@ -168,7 +186,7 @@ def test_import_rejects_non_sqlite_file(client, engine, tmp_path):
     token = login_as(client, "admin")
     fake = tmp_path / "fake.db"
     fake.write_bytes(b"This is not a SQLite file at all")
-    resp = _upload_db(client, "/api/admin/import/project-db", fake, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", fake, token)
     assert resp.status_code == 400
     assert "SQLite" in resp.json()["detail"]
 
@@ -216,7 +234,7 @@ def test_import_rejects_incompatible_schema_via_endpoint(
     with Session(engine) as session:
         before_count = len(session.scalars(select(Project)).all())
 
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 400
     assert "schema" in resp.json()["detail"] or "核心表" in resp.json()["detail"]
 
@@ -238,7 +256,7 @@ def test_import_single_project_owner_rebind(client, engine, tmp_path):
         project_names=["导入测试"],
     )
 
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 200, resp.text
 
     data = resp.json()
@@ -265,7 +283,7 @@ def test_import_non_single_project_zero(client, engine, tmp_path):
     """包含 0 个项目的 .db 应返回 400。"""
     token = login_as(client, "admin")
     db_path = _create_export_db(tmp_path / "zero.db", project_count=0)
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 400
     assert "0" in resp.json()["detail"]
 
@@ -274,7 +292,7 @@ def test_import_non_single_project_two(client, engine, tmp_path):
     """包含 2 个项目的 .db 应返回 400。"""
     token = login_as(client, "admin")
     db_path = _create_export_db(tmp_path / "two.db", project_count=2)
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 400
     assert "2" in resp.json()["detail"]
 
@@ -297,7 +315,7 @@ def test_import_single_project_name_conflict(client, engine, tmp_path):
         project_names=["冲突项目"],
     )
 
-    resp = _upload_db(client, "/api/admin/import/project-db", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 200
     assert resp.json()["project_name"] == "冲突项目 (导入1)"
 
@@ -315,7 +333,7 @@ def test_merge_imports_all_projects(client, engine, tmp_path):
         project_names=["项目A", "项目B", "项目C"],
     )
 
-    resp = _upload_db(client, "/api/admin/import/database-merge", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
     assert resp.status_code == 200, resp.text
 
     data = resp.json()
@@ -350,7 +368,7 @@ def test_merge_rename_on_conflict(client, engine, tmp_path):
         project_names=["项目X", "项目Y"],
     )
 
-    resp = _upload_db(client, "/api/admin/import/database-merge", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
     assert resp.status_code == 200
 
     data = resp.json()
@@ -364,7 +382,7 @@ def test_merge_empty_db_returns_400(client, engine, tmp_path):
     """合并导入空项目的 .db 应返回 400。"""
     token = login_as(client, "admin")
     db_path = _create_export_db(tmp_path / "empty.db", project_count=0)
-    resp = _upload_db(client, "/api/admin/import/database-merge", db_path, token)
+    resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
     assert resp.status_code == 400
     assert "没有项目" in resp.json()["detail"]
 
@@ -398,7 +416,7 @@ def test_merge_atomicity_on_failure(client, engine, tmp_path):
         side_effect=_fail_on_second,
     ):
         resp = _upload_db(
-            client, "/api/admin/import/database-merge", db_path, token
+            client, "/api/projects/import/database-merge", db_path, token
         )
 
     assert resp.status_code == 500

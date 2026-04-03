@@ -2,9 +2,11 @@
 import logging
 from typing import List, Optional
 
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 
 from src.config import get_config
 from src.database import get_session
@@ -13,12 +15,15 @@ from src.models.project import Project
 from src.models.user import User
 from src.services.import_service import ImportService
 
+
 logger = logging.getLogger(__name__)
+
 
 router = APIRouter(tags=["import-template"])
 
 
 # ---- Schema ----
+
 
 class TemplateFormItem(BaseModel):
     id: int
@@ -40,6 +45,7 @@ class ImportPreviewResponse(BaseModel):
 class ImportExecuteRequest(BaseModel):
     source_project_id: int
     form_ids: List[int]
+    field_ids: Optional[List[int]] = None
 
 
 class ImportExecuteResponse(BaseModel):
@@ -59,6 +65,9 @@ class TemplateFieldOptionPreview(BaseModel):
 
 
 class TemplateFieldPreview(BaseModel):
+    id: int
+    project_id: int
+    order_index: int
     index: int
     label: str
     field_type: str
@@ -77,6 +86,7 @@ class TemplateFormFieldsResponse(BaseModel):
 
 
 # ---- Endpoints ----
+
 
 @router.post(
     "/projects/{project_id}/import-template",
@@ -147,6 +157,7 @@ def execute_import(
             template_path=cfg.template_path,
             source_project_id=payload.source_project_id,
             form_ids=payload.form_ids,
+            field_ids=payload.field_ids,
         )
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))

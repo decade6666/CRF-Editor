@@ -30,7 +30,7 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
     "field_definition": frozenset({
         "id", "project_id", "variable_name", "label", "field_type", "order_index"
     }),
-    "form_field": frozenset({"id", "form_id", "field_definition_id", "sort_order"}),
+    "form_field": frozenset({"id", "form_id", "field_definition_id", "order_index"}),
     "codelist": frozenset({"id", "project_id", "name", "code", "order_index"}),
     "codelist_option": frozenset({
         "id", "codelist_id", "code", "decode", "order_index", "trailing_underscore"

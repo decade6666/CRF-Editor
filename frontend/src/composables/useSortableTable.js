@@ -32,7 +32,7 @@ export function useSortableTable(tableRef, sourceList, reorderUrl, { reloadFn, i
         } catch {
           // 静默失败，reload 会恢复顺序
         }
-        if (reloadFn) await reloadFn()
+        if (reloadFn) await reloadFn(oldIndex, newIndex)
       },
     })
   }
