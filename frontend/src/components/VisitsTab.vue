@@ -143,8 +143,16 @@ async function update() {
 async function updateSequence(row, newValue) {
   if (newValue === row.sequence) return
   try {
-    await api.put(`/api/projects/${props.projectId}/visits/${row.id}`, { name: row.name, code: row.code, sequence: newValue })
-    load()
+    const oldIdx = visits.value.findIndex(v => v.id === row.id)
+    const newIdx = newValue - 1
+    if (oldIdx === -1 || newIdx < 0 || newIdx >= visits.value.length) return
+    
+    const list = [...visits.value]
+    const [item] = list.splice(oldIdx, 1)
+    list.splice(newIdx, 0, item)
+    
+    await api.post(`/api/projects/${props.projectId}/visits/reorder`, list.map(i => i.id))
+    await reloadVisits()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -478,16 +486,6 @@ async function toggleCell(visitId, formId) {
     <template #header>
       <div style="display:flex;align-items:center;gap:12px;padding-right:32px">
         <span style="font-size:16px;font-weight:bold">{{ formPreviewTitle }}</span>
-        <el-button
-          v-if="!formPreviewLoading && !formPreviewError && formPreviewFields.length"
-          size="small"
-          :type="previewForceLandscape ? 'primary' : ''"
-          :plain="!previewForceLandscape"
-          @click="previewForceLandscape = !previewForceLandscape"
-          title="强制横向显示预览"
-        >
-          横向
-        </el-button>
       </div>
     </template>
     <div v-if="formPreviewLoading" style="text-align:center;padding:40px">

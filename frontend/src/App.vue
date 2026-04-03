@@ -13,6 +13,7 @@ import DocxCompareDialog from './components/DocxCompareDialog.vue'
 import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
 import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
+import { useSortableTable } from './composables/useSortableTable'
 
 // 登录状态
 const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
@@ -42,7 +43,17 @@ const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
 const copyingProjectId = ref(null)
 
-async function loadProjects() { projects.value = await api.get('/api/projects') }
+const projectTableRef = ref(null)
+const { initSortable: initProjectSortable } = useSortableTable(
+  projectTableRef,
+  projects,
+  '/api/projects/reorder'
+)
+
+async function loadProjects() {
+  projects.value = await api.get('/api/projects')
+  nextTick(() => initProjectSortable())
+}
 onMounted(() => {
   if (isLoggedIn.value) { loadProjects(); loadMe() }
   window.addEventListener('crf:auth-expired', () => { isLoggedIn.value = false })
@@ -214,7 +225,7 @@ async function handleImportProjectDb(e) {
   try {
     const form = new FormData()
     form.append('file', file)
-    const resp = await fetch('/api/admin/import/project-db', {
+    const resp = await fetch('/api/projects/import/project-db', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,
@@ -239,7 +250,7 @@ async function handleImportDatabaseMerge(e) {
   try {
     const form = new FormData()
     form.append('file', file)
-    const resp = await fetch('/api/admin/import/database-merge', {
+    const resp = await fetch('/api/projects/import/database-merge', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,
@@ -378,6 +389,12 @@ function openTemplatePreview(node) {
   templatePreviewFormId.value = node.formId
   templatePreviewFormName.value = node.label
   showTemplatePreview.value = true
+}
+
+function onTemplateImported() {
+  showImport.value = false
+  api.clearAllCache()
+  refreshKey.value++
 }
 
 // 从选中的表单中推断 source_project_id（取第一个选中表单所属项目）
@@ -569,7 +586,10 @@ function startResize(e) {
   <!-- 头部 -->
   <div class="header">
     <div class="header-left">
-      <h1>CRF编辑器</h1>
+      <h1 v-if="!isCollapsed">CRF编辑器</h1>
+      <el-button v-else class="header-icon-btn" text circle @click="isCollapsed = false" title="展开侧边栏">
+        <el-icon><Expand /></el-icon>
+      </el-button>
       <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
@@ -589,29 +609,31 @@ function startResize(e) {
   <!-- 主体布局 -->
   <div class="main">
     <!-- 侧边栏 -->
-    <div class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '48px' : sidebarWidth + 'px' }">
-      <div class="sidebar-header">
-        <el-icon style="cursor:pointer" @click="isCollapsed = !isCollapsed"><Fold v-if="!isCollapsed" /><Expand v-else /></el-icon>
-        <template v-if="!isCollapsed">
+    <div class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '0px' : sidebarWidth + 'px' }">
+      <div class="sidebar-content" v-show="!isCollapsed">
+        <div class="sidebar-header">
           <span>项目列表</span>
-        </template>
-        <el-button type="primary" size="small" circle @click="showCreateProject = true" :title="isCollapsed ? '新建项目' : ''"><el-icon><Plus /></el-icon></el-button>
-      </div>
-      <div class="project-list">
-        <div v-for="p in projects" :key="p.id"
-          class="project-item" :class="{ active: selectedProject?.id === p.id }"
-          @click="selectProject(p)" :title="isCollapsed ? p.name : ''">
-          <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
-            <el-icon><Files /></el-icon>
-            <span v-if="!isCollapsed" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-            <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" :title="isCollapsed ? '复制项目' : ''">
-              <el-icon><DocumentCopy /></el-icon>
-            </el-button>
-            <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" :title="isCollapsed ? '删除项目' : ''">
-              <el-icon><Delete /></el-icon>
-            </el-button>
+          <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"><el-icon><Plus /></el-icon></el-button>
+        </div>
+        <div class="project-list" ref="projectTableRef">
+          <div v-for="p in projects" :key="p.id"
+            class="project-item" :class="{ active: selectedProject?.id === p.id }"
+            @click="selectProject(p)">
+            <div class="drag-handle" style="cursor:grab;padding:4px;color:var(--color-text-muted)">
+              <el-icon><Rank /></el-icon>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
+              <el-icon><Files /></el-icon>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+            </div>
+            <div class="project-actions">
+              <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" title="复制项目">
+                <el-icon><DocumentCopy /></el-icon>
+              </el-button>
+              <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" title="删除项目">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -714,13 +736,12 @@ function startResize(e) {
       <div style="display:flex;gap:24px">
         <div style="flex:1;display:flex;flex-direction:column;gap:8px">
           <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导入</div>
-          <el-button :disabled="!isAdmin" @click="triggerImportProjectDb" :loading="importProjectDbLoading">
+          <el-button @click="triggerImportProjectDb" :loading="importProjectDbLoading">
             导入项目
           </el-button>
-          <el-button :disabled="!isAdmin" @click="triggerImportDatabaseMerge" :loading="importDatabaseMergeLoading">
+          <el-button @click="triggerImportDatabaseMerge" :loading="importDatabaseMergeLoading">
             导入数据库
           </el-button>
-          <div v-if="!isAdmin" style="font-size:11px;color:var(--color-text-muted)">仅管理员可导入</div>
         </div>
         <div style="flex:1;display:flex;flex-direction:column;gap:8px">
           <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导出</div>
@@ -919,27 +940,22 @@ function startResize(e) {
 
 .project-action-btn {
   margin: 0;
+  padding: 4px;
 }
 
-.sidebar.collapsed .project-item {
-  justify-content: space-between;
-  gap: 4px;
-  padding-inline: 4px;
-}
-
-.sidebar.collapsed .project-item > :first-child {
-  flex: 0 0 auto;
-}
-
-.sidebar.collapsed .project-item > div:last-child {
+.project-actions {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
 }
 
-.sidebar.collapsed .project-action-btn {
-  padding: 2px;
-  min-height: 20px;
+.sidebar.collapsed {
+  border-right: none;
+}
+
+.sidebar.collapsed .sidebar-content {
+  display: none;
 }
 
 /* 弹窗圆角与头部渐变主题 */

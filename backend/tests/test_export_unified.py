@@ -95,7 +95,7 @@ def add_field_to_form(
     session: Session,
     form_id: int,
     field_def_id: int,
-    sort_order: int = 0,
+    order_index: int = 0,
     inline_mark: int = 0,
     is_log: int = 0,
 ) -> FormField:
@@ -103,7 +103,7 @@ def add_field_to_form(
     ff = FormField(
         form_id=form_id,
         field_definition_id=field_def_id if is_log == 0 else None,
-        sort_order=sort_order,
+        order_index=order_index,
         inline_mark=inline_mark,
         is_log_row=is_log,
     )
@@ -136,9 +136,9 @@ def test_export_normal_form_remains_2col_portrait(session: Session, tmp_path: Pa
     fd2 = create_text_field_def(session, project.id, "字段2")
     fd3 = create_text_field_def(session, project.id, "字段3")
 
-    add_field_to_form(session, form.id, fd1.id, sort_order=1, inline_mark=0)
-    add_field_to_form(session, form.id, fd2.id, sort_order=2, inline_mark=0)
-    add_field_to_form(session, form.id, fd3.id, sort_order=3, inline_mark=0)
+    add_field_to_form(session, form.id, fd1.id, order_index=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd2.id, order_index=2, inline_mark=0)
+    add_field_to_form(session, form.id, fd3.id, order_index=3, inline_mark=0)
 
     session.commit()
 
@@ -179,7 +179,7 @@ def test_export_inline_form_max4_remains_portrait(session: Session, tmp_path: Pa
     # 添加 4 个 inline 字段（inline_mark=1）
     for i in range(1, 5):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=i, inline_mark=1)
 
     session.commit()
 
@@ -213,12 +213,12 @@ def test_export_mixed_block_le4_remains_split_table(session: Session, tmp_path: 
 
     # 添加普通字段
     fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
 
     # 添加 4 个 inline 字段（block 宽度 = 4，不触发 unified）
     for i in range(1, 5):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -256,12 +256,12 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
 
     # 添加普通字段
     fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
 
     # 添加 5 个 inline 字段（block 宽度 = 5，触发 unified）
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -283,8 +283,8 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
 
 # ========== Task 3.5: unified 字段顺序测试 ==========
 
-def test_export_unified_field_order_matches_sort_order(session: Session, tmp_path: Path) -> None:
-    """验证表格行顺序与 sort_order 一致。"""
+def test_export_unified_field_order_matches_order_index(session: Session, tmp_path: Path) -> None:
+    """验证表格行顺序与 order_index 一致。"""
     project, _ = create_minimal_project(session)
 
     visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
@@ -299,7 +299,7 @@ def test_export_unified_field_order_matches_sort_order(session: Session, tmp_pat
     session.add(vf)
     session.flush()
 
-    # 添加字段，故意设置乱序 sort_order
+    # 添加字段，故意设置乱序 order_index
     fd1 = create_text_field_def(session, project.id, "字段A")
     fd2 = create_text_field_def(session, project.id, "字段B")
     fd3 = create_text_field_def(session, project.id, "列1")
@@ -308,13 +308,13 @@ def test_export_unified_field_order_matches_sort_order(session: Session, tmp_pat
     fd6 = create_text_field_def(session, project.id, "列4")
     fd7 = create_text_field_def(session, project.id, "列5")
 
-    add_field_to_form(session, form.id, fd1.id, sort_order=10, inline_mark=0)  # 普通字段在前
-    add_field_to_form(session, form.id, fd3.id, sort_order=20, inline_mark=1)
-    add_field_to_form(session, form.id, fd4.id, sort_order=21, inline_mark=1)
-    add_field_to_form(session, form.id, fd5.id, sort_order=22, inline_mark=1)
-    add_field_to_form(session, form.id, fd6.id, sort_order=23, inline_mark=1)
-    add_field_to_form(session, form.id, fd7.id, sort_order=24, inline_mark=1)
-    add_field_to_form(session, form.id, fd2.id, sort_order=30, inline_mark=0)  # 普通字段在后
+    add_field_to_form(session, form.id, fd1.id, order_index=10, inline_mark=0)  # 普通字段在前
+    add_field_to_form(session, form.id, fd3.id, order_index=20, inline_mark=1)
+    add_field_to_form(session, form.id, fd4.id, order_index=21, inline_mark=1)
+    add_field_to_form(session, form.id, fd5.id, order_index=22, inline_mark=1)
+    add_field_to_form(session, form.id, fd6.id, order_index=23, inline_mark=1)
+    add_field_to_form(session, form.id, fd7.id, order_index=24, inline_mark=1)
+    add_field_to_form(session, form.id, fd2.id, order_index=30, inline_mark=0)  # 普通字段在后
 
     session.commit()
 
@@ -358,12 +358,12 @@ def test_export_unified_full_row_span_equals_N(session: Session, tmp_path: Path)
 
     # 添加标签字段（全宽行）
     fd_label = create_label_field_def(session, project.id, "标题行")
-    add_field_to_form(session, form.id, fd_label.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_label.id, order_index=1, inline_mark=0)
 
     # 添加 5 个 inline 字段触发 unified
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -410,12 +410,12 @@ def test_export_unified_narrow_block_merge_spans(session: Session, tmp_path: Pat
 
     # 添加普通字段
     fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
 
     # 添加 8 个 inline 字段触发 unified（N=8）
     for i in range(1, 9):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -454,10 +454,10 @@ def test_export_landscape_form_followed_by_portrait(session: Session, tmp_path: 
     session.flush()
 
     fd_normal1 = create_text_field_def(session, project.id, "普通1")
-    add_field_to_form(session, form1.id, fd_normal1.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form1.id, fd_normal1.id, order_index=1, inline_mark=0)
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}_1")
-        add_field_to_form(session, form1.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form1.id, fd.id, order_index=10 + i, inline_mark=1)
 
     # 第二个表单：普通（应恢复 portrait）
     form2 = Form(project_id=project.id, name="纵向表单", code="F_PORT", order_index=2)
@@ -469,9 +469,9 @@ def test_export_landscape_form_followed_by_portrait(session: Session, tmp_path: 
     session.flush()
 
     fd_normal2 = create_text_field_def(session, project.id, "普通2")
-    add_field_to_form(session, form2.id, fd_normal2.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form2.id, fd_normal2.id, order_index=1, inline_mark=0)
     fd_normal3 = create_text_field_def(session, project.id, "普通3")
-    add_field_to_form(session, form2.id, fd_normal3.id, sort_order=2, inline_mark=0)
+    add_field_to_form(session, form2.id, fd_normal3.id, order_index=2, inline_mark=0)
 
     session.commit()
 
@@ -508,13 +508,13 @@ def test_export_unified_preserves_cell_shading(session: Session, tmp_path: Path)
 
     # 添加带颜色的普通字段
     fd_color = create_text_field_def(session, project.id, "彩色字段")
-    ff_color = add_field_to_form(session, form.id, fd_color.id, sort_order=1, inline_mark=0)
+    ff_color = add_field_to_form(session, form.id, fd_color.id, order_index=1, inline_mark=0)
     ff_color.bg_color = "0070C0"
 
     # 添加 inline 字段触发 unified
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -551,11 +551,11 @@ def test_export_unified_applies_borders_to_rows_added_after_table_creation(sessi
     session.flush()
 
     fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
 
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -600,11 +600,11 @@ def test_export_unified_table_has_table_level_borders(session: Session, tmp_path
 
     # 创建触发 unified landscape 的字段组合
     fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
 
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     session.commit()
 
@@ -700,7 +700,7 @@ def test_export_choice_trailing_underscore_atom_token(session: Session, tmp_path
 
     # 创建单选字段
     fd = create_choice_field_def(session, project.id, "诊断", codelist.id, "单选")
-    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
@@ -772,7 +772,7 @@ def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> 
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "优先级", codelist.id, "单选（纵向）")
-    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
@@ -820,18 +820,18 @@ def test_export_unified_multi_blocks_share_table_level_width(session: Session, t
     # 第一个 inline block：5 列，标签短
     for i in range(1, 6):
         fd = create_text_field_def(session, project.id, f"A{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=10 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
 
     # 普通字段分隔两个 block
     fd_sep = create_text_field_def(session, project.id, "分隔字段")
-    add_field_to_form(session, form.id, fd_sep.id, sort_order=20, inline_mark=0)
+    add_field_to_form(session, form.id, fd_sep.id, order_index=20, inline_mark=0)
 
     # 第二个 inline block：5 列，最后一列标签长
     for i in range(1, 5):
         fd = create_text_field_def(session, project.id, f"B{i}")
-        add_field_to_form(session, form.id, fd.id, sort_order=30 + i, inline_mark=1)
+        add_field_to_form(session, form.id, fd.id, order_index=30 + i, inline_mark=1)
     fd_long = create_text_field_def(session, project.id, "这是一个非常长的中文标签文本")
-    add_field_to_form(session, form.id, fd_long.id, sort_order=35, inline_mark=1)
+    add_field_to_form(session, form.id, fd_long.id, order_index=35, inline_mark=1)
 
     session.commit()
 
@@ -898,7 +898,7 @@ def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path:
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "横向测试", codelist.id, "单选")
-    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
@@ -952,7 +952,7 @@ def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: P
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "纵向测试", codelist.id, "多选（纵向）")
-    add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
@@ -992,7 +992,7 @@ def test_export_multiline_default_value_preserves_lines(session: Session, tmp_pa
     session.flush()
 
     fd = create_text_field_def(session, project.id, "多行字段")
-    ff = add_field_to_form(session, form.id, fd.id, sort_order=1, inline_mark=0)
+    ff = add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
     ff.default_value = "第一行内容\n第二行内容\n第三行内容"
 
     session.commit()
@@ -1044,10 +1044,10 @@ def test_export_multiline_default_value_in_inline_table(session: Session, tmp_pa
     fd2 = create_text_field_def(session, project.id, "列2")
     fd3 = create_text_field_def(session, project.id, "列3")
 
-    add_field_to_form(session, form.id, fd1.id, sort_order=1, inline_mark=1)
-    ff2 = add_field_to_form(session, form.id, fd2.id, sort_order=2, inline_mark=1)
+    add_field_to_form(session, form.id, fd1.id, order_index=1, inline_mark=1)
+    ff2 = add_field_to_form(session, form.id, fd2.id, order_index=2, inline_mark=1)
     ff2.default_value = "行A\n行B"
-    add_field_to_form(session, form.id, fd3.id, sort_order=3, inline_mark=1)
+    add_field_to_form(session, form.id, fd3.id, order_index=3, inline_mark=1)
 
     session.commit()
 

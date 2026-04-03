@@ -67,8 +67,8 @@ def _create_full_project_graph(session: Session, owner_id: int) -> Project:
     session.add(form)
     session.flush()
 
-    ff1 = FormField(form_id=form.id, field_definition_id=fd1.id, sort_order=1, default_value="70")
-    ff2 = FormField(form_id=form.id, field_definition_id=fd2.id, sort_order=2, inline_mark=1)
+    ff1 = FormField(form_id=form.id, field_definition_id=fd1.id, order_index=1, default_value="70")
+    ff2 = FormField(form_id=form.id, field_definition_id=fd2.id, order_index=2, inline_mark=1)
     session.add_all([ff1, ff2])
     session.flush()
 
@@ -149,7 +149,7 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         assert cloned_forms[0].id != source_forms[0].id
         assert cloned_forms[0].domain == "DM"
 
-        cloned_form_fields = session.scalars(select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.sort_order)).all()
+        cloned_form_fields = session.scalars(select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.order_index)).all()
         assert len(cloned_form_fields) == 2
         assert cloned_form_fields[0].field_definition_id == cloned_defs[0].id
         assert cloned_form_fields[1].field_definition_id == cloned_defs[1].id

@@ -118,13 +118,13 @@ def create_form_field(
     form_id: int,
     field_definition_id: int,
     *,
-    sort_order: int,
+    order_index: int,
     default_value: str | None = None,
 ) -> FormField:
     form_field = FormField(
         form_id=form_id,
         field_definition_id=field_definition_id,
-        sort_order=sort_order,
+        order_index=order_index,
         default_value=default_value,
     )
     session.add(form_field)
@@ -172,8 +172,8 @@ def test_export_project_renders_one_table_per_form_for_standard_fields(
         variable_name="DIABP",
         label="舒张压",
     )
-    create_form_field(session, form.id, systolic.id, sort_order=1, default_value="120")
-    create_form_field(session, form.id, diastolic.id, sort_order=2, default_value="80")
+    create_form_field(session, form.id, systolic.id, order_index=1, default_value="120")
+    create_form_field(session, form.id, diastolic.id, order_index=2, default_value="80")
 
     doc = export_document(session, project.id, tmp_path)
 
@@ -254,8 +254,8 @@ def test_export_project_groups_adjacent_inline_fields_into_one_table(
         variable_name="LAB_B",
         label="字段B",
     )
-    create_form_field(session, form.id, field_a.id, sort_order=1, default_value="第一行\n第二行")
-    create_form_field(session, form.id, field_b.id, sort_order=2, default_value="仅一行")
+    create_form_field(session, form.id, field_a.id, order_index=1, default_value="第一行\n第二行")
+    create_form_field(session, form.id, field_b.id, order_index=2, default_value="仅一行")
 
     form.form_fields[0].inline_mark = 1
     form.form_fields[0].label_override = "覆盖标签A"
@@ -340,8 +340,8 @@ def test_export_project_table_count_matches_cover_visit_and_forms(
 
     fd_a = create_field_definition(session, project.id, variable_name="LAB", label="实验室")
     fd_b = create_field_definition(session, project.id, variable_name="VITAL", label="体征")
-    create_form_field(session, form_a.id, fd_a.id, sort_order=1, default_value="A")
-    create_form_field(session, form_b.id, fd_b.id, sort_order=1, default_value="B")
+    create_form_field(session, form_a.id, fd_a.id, order_index=1, default_value="A")
+    create_form_field(session, form_b.id, fd_b.id, order_index=1, default_value="B")
 
     doc = export_document(session, project.id, tmp_path)
 
@@ -374,7 +374,7 @@ def test_export_project_preserves_skip_first_two_tables_import_assumption(
     visit = create_visit(session, project.id, name="筛选期", sequence=1)
     create_visit_form(session, visit.id, form.id, sequence=1)
     field_definition = create_field_definition(session, project.id, variable_name="LAB", label="实验室")
-    create_form_field(session, form.id, field_definition.id, sort_order=1, default_value="值")
+    create_form_field(session, form.id, field_definition.id, order_index=1, default_value="值")
 
     doc = export_document(session, project.id, tmp_path)
 

@@ -1,6 +1,7 @@
 """Projects Router"""
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
@@ -14,7 +15,96 @@ from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from src.services.project_clone_service import ProjectCloneService
 
+from src.services.project_import_service import (
+    DatabaseMergeService,
+    ProjectDbImportService,
+)
+
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+_MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
+
+
+async def _save_upload_to_temp(file: UploadFile) -> Path:
+    """将上传文件保存到临时文件，返回路径。调用方负责删除。"""
+    import os
+    import tempfile
+    fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    total_size = 0
+    first_chunk = True
+    try:
+        with os.fdopen(fd, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                if first_chunk:
+                    first_chunk = False
+                    if not chunk[:16].startswith(b"SQLite format 3"):
+                        raise HTTPException(400, "文件不是有效的 SQLite 数据库")
+                total_size += len(chunk)
+                if total_size > _MAX_IMPORT_SIZE:
+                    raise HTTPException(
+                        400,
+                        f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
+                    )
+                f.write(chunk)
+        if first_chunk:
+            raise HTTPException(400, "文件不是有效的 SQLite 数据库")
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+    return Path(tmp_path)
+
+
+@router.post("/import/project-db")
+async def import_project_db(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """导入单项目 .db 文件。"""
+    import sqlite3
+    tmp_path = await _save_upload_to_temp(file)
+    try:
+        result = ProjectDbImportService.import_single_project(
+            str(tmp_path), current_user.id, session
+        )
+        return {"project_id": result.project_id, "project_name": result.project_name}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except sqlite3.DatabaseError as e:
+        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/import/database-merge")
+async def import_database_merge(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """整库合并导入。"""
+    import sqlite3
+    tmp_path = await _save_upload_to_temp(file)
+    try:
+        report = DatabaseMergeService.merge(
+            str(tmp_path), current_user.id, session
+        )
+        return {
+            "imported": [
+                {"id": r.project_id, "name": r.project_name}
+                for r in report.imported
+            ],
+            "renamed": report.renamed,
+        }
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except sqlite3.DatabaseError as e:
+        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 @router.get("", response_model=List[ProjectResponse])
@@ -23,6 +113,16 @@ def list_projects(
     current_user: User = Depends(get_current_user),
 ):
     return ProjectRepository(session).get_all_by_owner(current_user.id)
+
+
+@router.post("/reorder", status_code=204)
+def reorder_projects(
+    id_list: List[int],
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """批量重排序项目（针对当前用户）"""
+    ProjectRepository(session).reorder(current_user.id, id_list)
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -75,28 +175,16 @@ def delete_project(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-
-    # 显式加载所有子关系，确保 ORM cascade 能正确级联删除
-    stmt = (
-        select(Project)
-        .where(Project.id == project_id)
-        .options(
-            selectinload(Project.forms),
-            selectinload(Project.visits),
-            selectinload(Project.units),
-            selectinload(Project.codelists),
-            selectinload(Project.field_definitions),
-        )
-    )
-    project = session.scalars(stmt).first()
+    from datetime import datetime
+    repo = ProjectRepository(session)
+    project = repo.get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
     if project.owner_id != current_user.id:
         raise HTTPException(403, "无权访问此项目")
-    session.delete(project)
-    session.flush()
+    
+    project.deleted_at = datetime.now()
+    repo.update(project)
 
 
 @router.post("/{project_id}/copy", response_model=ProjectResponse, status_code=201)
@@ -135,6 +223,26 @@ def get_logo(
     if not logo_path.exists():
         raise HTTPException(404, "文件不存在")
     return FR(str(logo_path))
+
+
+class BatchDeleteRequest(BaseModel):
+    project_ids: List[int]
+
+
+@router.post("/batch-delete", status_code=204)
+def batch_delete_projects(
+    data: BatchDeleteRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户批量软删除自己的项目。"""
+    from datetime import datetime
+    repo = ProjectRepository(session)
+    for pid in data.project_ids:
+        project = repo.get_by_id(pid)
+        if project and project.owner_id == current_user.id:
+            project.deleted_at = datetime.now()
+            repo.update(project)
 
 
 @router.post("/{project_id}/logo", response_model=ProjectResponse)
