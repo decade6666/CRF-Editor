@@ -5,6 +5,13 @@ import { InfoFilled } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions } from '../composables/useCRFRenderer'
+import {
+  buildFormDesignerRenderGroups,
+  buildFormDesignerUnifiedSegments,
+  getFormFieldDisplayLabel,
+  getFormFieldPreviewStyle,
+  getFormFieldTextColorStyle,
+} from '../composables/formFieldPresentation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -302,21 +309,6 @@ function getInlineRows(fields) {
   return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? '')))
 }
 
-function buildUnifiedSegments(fields) {
-  const sorted = [...fields].sort((a, b) => (a.order_index ?? Number.MAX_SAFE_INTEGER) - (b.order_index ?? Number.MAX_SAFE_INTEGER) || a.id - b.id)
-  const segments = [], inlineBuffer = []
-  for (const f of sorted) {
-    if (f.inline_mark === 1) inlineBuffer.push(f)
-    else {
-      if (inlineBuffer.length) { segments.push({ type: 'inline_block', fields: [...inlineBuffer] }); inlineBuffer.length = 0 }
-      const fd = f.field_definition
-      if (fd?.field_type === '标签' || fd?.field_type === '日志行' || f.is_log_row) segments.push({ type: 'full_row', fields: [f] })
-      else segments.push({ type: 'regular_field', fields: [f] })
-    }
-  }
-  if (inlineBuffer.length) segments.push({ type: 'inline_block', fields: [...inlineBuffer] })
-  return segments
-}
 
 function computeMergeSpans(N, M) {
   if (M <= 0 || M > N) return Array(N).fill(1)
@@ -329,32 +321,7 @@ function computeLabelValueSpans(N) {
   return { labelSpan, valueSpan: N - labelSpan }
 }
 
-const renderGroups = computed(() => {
-  const fields = formFields.value
-  if (!fields.length) return []
-  const hasRegular = fields.some(f => f.inline_mark === 0)
-  let maxBlockWidth = 0, currentWidth = 0
-  for (const f of fields) {
-    if (f.inline_mark === 1) currentWidth++
-    else { maxBlockWidth = Math.max(maxBlockWidth, currentWidth); currentWidth = 0 }
-  }
-  maxBlockWidth = Math.max(maxBlockWidth, currentWidth)
-  if (hasRegular && maxBlockWidth > 4) return [{ type: 'unified', fields, colCount: maxBlockWidth }]
-  const groups = []; let i = 0
-  while (i < fields.length) {
-    const ff = fields[i]
-    if (ff.inline_mark) {
-      const g = []
-      while (i < fields.length && fields[i].inline_mark) { g.push(fields[i]); i++ }
-      groups.push({ type: 'inline', fields: g })
-    } else {
-      const g = []
-      while (i < fields.length && !fields[i].inline_mark) { g.push(fields[i]); i++ }
-      groups.push({ type: 'normal', fields: g })
-    }
-  }
-  return groups
-})
+const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.value))
 
 const needsLandscape = computed(() => renderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
 const forceLandscape = ref(localStorage.getItem('crf_forceLandscape') === 'true')
@@ -421,7 +388,7 @@ const quickEditProp = reactive({ label: '', field_type: '', bg_color: '', text_c
 function openQuickEdit(ff) {
   quickEditField.value = ff
   Object.assign(quickEditProp, {
-    label: ff.label_override || ff.field_definition?.label || '',
+    label: getFormFieldDisplayLabel(ff) || '',
     field_type: ff.field_definition?.field_type || '',
     bg_color: ff.bg_color || '',
     text_color: ff.text_color || '',
@@ -433,8 +400,20 @@ async function saveQuickEdit() {
   if (!quickEditField.value) return
   try {
     const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0 }
-    await api.put(`/api/form-fields/${quickEditField.value.id}`, payload)
-    ElMessage.success('已保存'); showQuickEdit.value = false; loadFormFields()
+    const updated = await api.put(`/api/form-fields/${quickEditField.value.id}`, payload)
+    const currentField = {
+      ...quickEditField.value,
+      ...updated,
+      field_definition: quickEditField.value.field_definition,
+    }
+    quickEditField.value = currentField
+    syncSelectedField(currentField, { syncEditor: false })
+    if (selectedForm.value) {
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      await loadFormFields()
+    }
+    ElMessage.success('已保存')
+    showQuickEdit.value = false
   } catch (e) { ElMessage.error('保存失败: ' + e.message) }
 }
 
@@ -649,30 +628,30 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 <div class="wp-main">
                   <template v-for="(g, gi) in renderGroups" :key="gi">
                     <table v-if="g.type === 'unified'" class="unified-table">
-                      <template v-for="seg in buildUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                      <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                         <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')">{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label }}</td>
-                          <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="(seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : '') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')" v-html="renderCellHtml(seg.fields[0])"></td>
+                          <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
+                          <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                         </tr>
                         <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td :colspan="g.colCount" :style="'font-weight:bold;' + (seg.fields[0]?.bg_color ? 'background:#' + seg.fields[0].bg_color + '40;' : 'background:#d9d9d9;') + (seg.fields[0]?.text_color ? 'color:#' + seg.fields[0].text_color : '')">{{ seg.fields[0]?.label_override || seg.fields[0]?.field_definition?.label || '以下为log行' }}</td>
+                          <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                         </tr>
                         <template v-else-if="seg.type === 'inline_block'">
-                          <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" @dblclick="openQuickEdit(ff)">{{ ff.label_override || ff.field_definition?.label }}</td></tr>
-                          <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="(seg.fields[ci]?.bg_color ? 'background:#' + seg.fields[ci].bg_color + '40;' : '') + (seg.fields[ci]?.text_color ? 'color:#' + seg.fields[ci].text_color : '')" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr>
+                          <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                          <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr>
                         </template>
                       </template>
                     </table>
                     <table v-else-if="g.type === 'normal'">
                       <template v-for="ff in g.fields" :key="ff.id">
-                        <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td></tr>
-                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + (ff.bg_color ? 'background:#' + ff.bg_color + '40;' : 'background:#d9d9d9;') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td></tr>
-                        <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')">{{ ff.label_override || ff.field_definition?.label }}</td><td class="wp-ctrl" :style="(ff.bg_color ? 'background:#' + ff.bg_color + '40;' : '') + (ff.text_color ? 'color:#' + ff.text_color : '')" v-html="renderCellHtml(ff)"></td></tr>
+                        <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
+                        <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                       </template>
                     </table>
                     <table v-else class="inline-table">
-                      <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" @dblclick="openQuickEdit(ff)">{{ ff.label_override || ff.field_definition?.label }}</td></tr>
-                      <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(g.fields[ci]?.bg_color ? 'background:#' + g.fields[ci].bg_color + '40;' : '') + (g.fields[ci]?.text_color ? 'color:#' + g.fields[ci].text_color : '')" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
+                      <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                      <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(getFormFieldPreviewStyle(g.fields[ci]))" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
                     </table>
                   </template>
                 </div>
@@ -695,7 +674,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button></div>
           <div class="fd-canvas-list">
             <div v-for="(ff, idx) in formFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop>{{ idx + 1 }}.</el-checkbox><span class="drag-handle">⠿</span><span class="ff-label" :style="ff.text_color ? 'color:#' + ff.text_color : ''">{{ ff.label_override || ff.field_definition?.label }}</span><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop>{{ idx + 1 }}.</el-checkbox><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
             </div>
           </div>
         </div>
@@ -738,8 +717,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 
 <style scoped>
 .form-designer { display: flex; gap: 16px; height: 100%; }
-.fd-formlist { width: 300px; display: flex; flex-direction: column; }
-.fd-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.fd-formlist { flex: 1 1 0; width: auto; min-width: 0; display: flex; flex-direction: column; }
+.fd-right { flex: 2 1 0; width: auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .fd-canvas { display: flex; flex-direction: column; overflow: hidden; }
 .fd-canvas-header { padding: 8px; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 8px; }
 .fd-canvas-list { flex: 1; overflow-y: auto; padding: 8px; }

@@ -5,9 +5,11 @@ import { api } from '../composables/useApi'
 
 const emit = defineEmits(['logout'])
 
-const activeTab = ref('users')
 const users = ref([])
 const loadingUsers = ref(false)
+const showRecycleBin = ref(false)
+const recycleBinProjects = ref([])
+const loadingRecycle = ref(false)
 
 async function loadUsers() {
   loadingUsers.value = true
@@ -20,7 +22,17 @@ async function loadUsers() {
   }
 }
 
-// 用户编辑
+async function loadRecycleBin() {
+  loadingRecycle.value = true
+  try {
+    recycleBinProjects.value = await api.get('/admin/projects/recycle-bin')
+  } catch (e) {
+    ElMessage.error('加载回收站失败')
+  } finally {
+    loadingRecycle.value = false
+  }
+}
+
 const showUserEdit = ref(false)
 const userForm = reactive({ id: null, username: '' })
 
@@ -30,9 +42,9 @@ function openAddUser() {
   showUserEdit.value = true
 }
 
-function openRenameUser(u) {
-  userForm.id = u.id
-  userForm.username = u.username
+function openRenameUser(user) {
+  userForm.id = user.id
+  userForm.username = user.username
   showUserEdit.value = true
 }
 
@@ -47,51 +59,85 @@ async function saveUser() {
       ElMessage.success('添加成功')
     }
     showUserEdit.value = false
-    loadUsers()
+    await loadUsers()
   } catch (e) {
     ElMessage.error('操作失败: ' + e.message)
   }
 }
 
-async function deleteUser(u) {
+async function deleteUser(user) {
   try {
-    await ElMessageBox.confirm(`确定删除用户 "${u.username}" 吗？`, '删除用户', { type: 'warning' })
-    await api.del(`/admin/users/${u.id}`)
+    await ElMessageBox.confirm(`确定删除用户 "${user.username}" 吗？`, '删除用户', { type: 'warning' })
+    await api.del(`/admin/users/${user.id}`)
     ElMessage.success('删除成功')
-    loadUsers()
+    await loadUsers()
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败: ' + e.message)
   }
 }
 
-// 批量操作
-const selectedUserIds = ref([])
 const showBatchMove = ref(false)
 const showBatchCopy = ref(false)
+const showBatchDelete = ref(false)
 const batchTargetUserId = ref(null)
 const batchSourceUserId = ref(null)
 const sourceUserProjects = ref([])
 const selectedProjectIds = ref([])
+const batchActionTitle = computed(() => {
+  if (showBatchMove.value) return '批量迁移项目'
+  if (showBatchCopy.value) return '批量复制项目'
+  return '批量删除项目'
+})
+const batchActionConfirmText = computed(() => {
+  if (showBatchMove.value) return '确定迁移'
+  if (showBatchCopy.value) return '确定复制'
+  return '确定删除'
+})
 
-async function openBatchMove(u) {
-  batchSourceUserId.value = u.id
+function onProjectSelectionChange(rows) {
+  selectedProjectIds.value = rows.map(item => item.id)
+}
+
+function resetBatchActionState() {
   batchTargetUserId.value = null
+  batchSourceUserId.value = null
+  sourceUserProjects.value = []
   selectedProjectIds.value = []
+  showBatchMove.value = false
+  showBatchCopy.value = false
+  showBatchDelete.value = false
+}
+
+async function loadUserProjects(user) {
+  batchSourceUserId.value = user.id
+  selectedProjectIds.value = []
+  sourceUserProjects.value = await api.get(`/api/projects?user_id=${user.id}`)
+}
+
+async function openBatchMove(user) {
   try {
-    sourceUserProjects.value = await api.get(`/api/projects?user_id=${u.id}`)
+    await loadUserProjects(user)
+    batchTargetUserId.value = null
     showBatchMove.value = true
   } catch (e) {
     ElMessage.error('加载项目失败')
   }
 }
 
-async function openBatchCopy(u) {
-  batchSourceUserId.value = u.id
-  batchTargetUserId.value = null
-  selectedProjectIds.value = []
+async function openBatchCopy(user) {
   try {
-    sourceUserProjects.value = await api.get(`/api/projects?user_id=${u.id}`)
+    await loadUserProjects(user)
+    batchTargetUserId.value = null
     showBatchCopy.value = true
+  } catch (e) {
+    ElMessage.error('加载项目失败')
+  }
+}
+
+async function openBatchDelete(user) {
+  try {
+    await loadUserProjects(user)
+    showBatchDelete.value = true
   } catch (e) {
     ElMessage.error('加载项目失败')
   }
@@ -102,11 +148,11 @@ async function executeBatchMove() {
   try {
     await api.post('/admin/projects/batch-move', {
       project_ids: selectedProjectIds.value,
-      target_user_id: batchTargetUserId.value
+      target_user_id: batchTargetUserId.value,
     })
     ElMessage.success('迁移成功')
-    showBatchMove.value = false
-    loadUsers()
+    resetBatchActionState()
+    await loadUsers()
   } catch (e) {
     ElMessage.error('迁移失败: ' + e.message)
   }
@@ -115,124 +161,97 @@ async function executeBatchMove() {
 async function executeBatchCopy() {
   if (!batchTargetUserId.value || !selectedProjectIds.value.length) return
   try {
-    const res = await api.post('/admin/projects/batch-copy', {
+    const results = await api.post('/admin/projects/batch-copy', {
       project_ids: selectedProjectIds.value,
-      target_user_id: batchTargetUserId.value
+      target_user_id: batchTargetUserId.value,
     })
-    const successCount = res.filter(r => r.status === 'success').length
+    const successCount = results.filter(result => result.status === 'success').length
     ElMessage.success(`成功复制 ${successCount} 个项目`)
-    showBatchCopy.value = false
-    loadUsers()
+    resetBatchActionState()
+    await loadUsers()
   } catch (e) {
     ElMessage.error('复制失败: ' + e.message)
   }
 }
 
-async function executeBatchDelete(u) {
-  batchSourceUserId.value = u.id
-  selectedProjectIds.value = []
+async function executeBatchDelete() {
+  if (!selectedProjectIds.value.length) return
   try {
-    sourceUserProjects.value = await api.get(`/api/projects?user_id=${u.id}`)
-    await ElMessageBox.confirm(`请选择要删除的项目`, '批量删除项目', {
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-      type: 'warning'
+    await api.post('/admin/projects/batch-delete', {
+      project_ids: selectedProjectIds.value,
     })
-    // 这里简单实现：如果用户确认，则弹出选择框
-    // 实际 UI 建议在 Table 中增加勾选
-  } catch (e) {}
-}
-
-// 回收站管理
-const recycleBinProjects = ref([])
-const loadingRecycle = ref(false)
-
-async function loadRecycleBin() {
-  loadingRecycle.value = true
-  try {
-    recycleBinProjects.value = await api.get('/admin/projects/recycle-bin')
+    ElMessage.success('删除成功')
+    resetBatchActionState()
+    await Promise.all([loadUsers(), loadRecycleBin()])
   } catch (e) {
-    ElMessage.error('加载回收站失败')
-  } finally {
-    loadingRecycle.value = false
+    ElMessage.error('删除失败: ' + e.message)
   }
 }
 
-async function restoreProject(p) {
+function closeBatchActionDialog() {
+  resetBatchActionState()
+}
+
+async function openRecycleBin() {
+  showRecycleBin.value = true
+  await loadRecycleBin()
+}
+
+async function restoreProject(project) {
   try {
-    await api.post(`/admin/projects/${p.id}/restore`)
+    await api.post(`/admin/projects/${project.id}/restore`)
     ElMessage.success('已恢复')
-    loadRecycleBin()
+    await Promise.all([loadRecycleBin(), loadUsers()])
   } catch (e) {
-    ElMessage.error('恢复失败')
+    ElMessage.error('恢复失败: ' + e.message)
   }
 }
 
-async function hardDeleteProject(p) {
+async function hardDeleteProject(project) {
   try {
-    await ElMessageBox.confirm(`确定彻底删除项目 "${p.name}" 吗？此操作不可逆！`, '彻底删除', { type: 'warning' })
-    await api.del(`/admin/projects/${p.id}/hard-delete`)
+    await ElMessageBox.confirm(`确定彻底删除项目 "${project.name}" 吗？此操作不可逆！`, '彻底删除', { type: 'warning' })
+    await api.del(`/admin/projects/${project.id}/hard-delete`)
     ElMessage.success('已彻底删除')
-    loadRecycleBin()
+    await Promise.all([loadRecycleBin(), loadUsers()])
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
+    if (e !== 'cancel') ElMessage.error('删除失败: ' + e.message)
   }
 }
 
 onMounted(() => {
   loadUsers()
 })
-
-watch(activeTab, (val) => {
-  if (val === 'users') loadUsers()
-  if (val === 'recycle') loadRecycleBin()
-})
 </script>
 
 <template>
   <div class="admin-view">
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="用户管理" name="users">
-        <div class="tab-header">
-          <el-button type="primary" @click="openAddUser">新增用户</el-button>
-          <el-button @click="loadUsers" :loading="loadingUsers">刷新</el-button>
-        </div>
-        
-        <el-table :data="users" v-loading="loadingUsers" border stripe>
-          <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="username" label="用户名" />
-          <el-table-column prop="project_count" label="项目数" width="100" />
-          <el-table-column label="操作" width="380">
-            <template #default="{ row }">
-              <el-button size="small" @click="openRenameUser(row)">改名</el-button>
-              <el-button size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
-              <el-button size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
-              <el-button size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
+    <div class="workspace-header">
+      <div>
+        <div class="workspace-title">用户管理</div>
+        <div class="workspace-subtitle">统一管理用户、批量项目操作与回收站入口</div>
+      </div>
+      <div class="workspace-actions">
+        <el-button type="primary" @click="openAddUser">新增用户</el-button>
+        <el-button @click="loadUsers" :loading="loadingUsers">刷新</el-button>
+        <el-button @click="openRecycleBin">回收站</el-button>
+      </div>
+    </div>
 
-      <el-tab-pane label="项目回收站" name="recycle">
-        <div class="tab-header">
-          <el-button @click="loadRecycleBin" :loading="loadingRecycle">刷新</el-button>
-        </div>
-        <el-table :data="recycleBinProjects" v-loading="loadingRecycle" border>
-          <el-table-column prop="name" label="项目名称" />
-          <el-table-column prop="owner_id" label="所有者ID" width="100" />
-          <el-table-column prop="deleted_at" label="删除时间" width="160" />
-          <el-table-column label="操作" width="180">
-            <template #default="{ row }">
-              <el-button size="small" type="success" @click="restoreProject(row)">恢复</el-button>
-              <el-button size="small" type="danger" @click="hardDeleteProject(row)">彻底删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-if="recycleBinProjects.length === 0" class="empty-tip">回收站空空如也</div>
-      </el-tab-pane>
-    </el-tabs>
+    <el-table :data="users" v-loading="loadingUsers" border stripe>
+      <el-table-column prop="id" label="ID" width="70" />
+      <el-table-column prop="username" label="用户名" />
+      <el-table-column prop="project_count" label="项目数" width="100" />
+      <el-table-column label="操作" width="460">
+        <template #default="{ row }">
+          <el-button size="small" @click="openRenameUser(row)">改名</el-button>
+          <el-button size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
+          <el-button size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
+          <el-button size="small" type="warning" plain @click="openBatchDelete(row)">批量删除</el-button>
+          <el-button size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
-    <!-- 用户编辑弹窗 -->
     <el-dialog v-model="showUserEdit" :title="userForm.id ? '修改用户名' : '新增用户'" width="400px" append-to-body>
       <el-form label-width="80px">
         <el-form-item label="用户名">
@@ -245,45 +264,105 @@ watch(activeTab, (val) => {
       </template>
     </el-dialog>
 
-    <!-- 批量迁移/复制选择弹窗 -->
-    <el-dialog v-model="showBatchMove" title="批量迁移项目" width="500px" append-to-body>
-      <div style="margin-bottom:12px">
+    <el-dialog
+      :model-value="showBatchMove || showBatchCopy || showBatchDelete"
+      :title="batchActionTitle"
+      width="560px"
+      append-to-body
+      @close="closeBatchActionDialog"
+    >
+      <div v-if="showBatchMove || showBatchCopy" class="batch-target-row">
         选择目标用户：
         <el-select v-model="batchTargetUserId" placeholder="请选择用户">
-          <el-option v-for="u in users.filter(x => x.id !== batchSourceUserId)" :key="u.id" :label="u.username" :value="u.id" />
+          <el-option
+            v-for="user in users.filter(item => item.id !== batchSourceUserId || showBatchCopy)"
+            :key="user.id"
+            :label="user.username"
+            :value="user.id"
+          />
         </el-select>
       </div>
-      <el-table :data="sourceUserProjects" @selection-change="val => selectedProjectIds = val.map(x => x.id)" border max-height="300">
+      <el-table :data="sourceUserProjects" @selection-change="onProjectSelectionChange" border max-height="320">
         <el-table-column type="selection" width="50" />
         <el-table-column prop="name" label="项目名称" />
       </el-table>
       <template #footer>
-        <el-button @click="showBatchMove = false">取消</el-button>
-        <el-button type="primary" @click="executeBatchMove" :disabled="!batchTargetUserId || !selectedProjectIds.length">确定迁移</el-button>
+        <el-button @click="closeBatchActionDialog">取消</el-button>
+        <el-button
+          v-if="showBatchMove"
+          type="primary"
+          :disabled="!batchTargetUserId || !selectedProjectIds.length"
+          @click="executeBatchMove"
+        >{{ batchActionConfirmText }}</el-button>
+        <el-button
+          v-else-if="showBatchCopy"
+          type="primary"
+          :disabled="!batchTargetUserId || !selectedProjectIds.length"
+          @click="executeBatchCopy"
+        >{{ batchActionConfirmText }}</el-button>
+        <el-button
+          v-else
+          type="danger"
+          :disabled="!selectedProjectIds.length"
+          @click="executeBatchDelete"
+        >{{ batchActionConfirmText }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showBatchCopy" title="批量复制项目" width="500px" append-to-body>
-      <div style="margin-bottom:12px">
-        选择目标用户：
-        <el-select v-model="batchTargetUserId" placeholder="请选择用户">
-          <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
-        </el-select>
+    <el-dialog v-model="showRecycleBin" title="项目回收站" width="760px" append-to-body>
+      <div class="tab-header">
+        <span class="workspace-subtitle">仅显示已软删除项目</span>
+        <el-button @click="loadRecycleBin" :loading="loadingRecycle">刷新</el-button>
       </div>
-      <el-table :data="sourceUserProjects" @selection-change="val => selectedProjectIds = val.map(x => x.id)" border max-height="300">
-        <el-table-column type="selection" width="50" />
+      <el-table :data="recycleBinProjects" v-loading="loadingRecycle" border>
         <el-table-column prop="name" label="项目名称" />
+        <el-table-column prop="owner_id" label="所有者ID" width="100" />
+        <el-table-column prop="deleted_at" label="删除时间" width="180" />
+        <el-table-column label="操作" width="180">
+          <template #default="{ row }">
+            <el-button size="small" type="success" @click="restoreProject(row)">恢复</el-button>
+            <el-button size="small" type="danger" @click="hardDeleteProject(row)">彻底删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
-      <template #footer>
-        <el-button @click="showBatchCopy = false">取消</el-button>
-        <el-button type="primary" @click="executeBatchCopy" :disabled="!batchTargetUserId || !selectedProjectIds.length">确定复制</el-button>
-      </template>
+      <div v-if="recycleBinProjects.length === 0" class="empty-tip">回收站空空如也</div>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .admin-view { padding: 8px; }
-.tab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.workspace-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+.workspace-subtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.workspace-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.batch-target-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
 .empty-tip { text-align: center; color: var(--color-text-muted); padding: 40px 0; }
 </style>

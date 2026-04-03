@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -265,11 +266,9 @@ const previewRenderGroups = computed(() => {
 })
 
 const previewNeedsLandscape = computed(() =>
-  previewRenderGroups.value.some(g => g.type === 'inline' && g.fields.length > 4)
+  shouldUseLandscapePreview(previewRenderGroups.value)
 )
-const previewForceLandscape = ref(localStorage.getItem('crf_previewForceLandscape') === 'true')
-watch(previewForceLandscape, v => localStorage.setItem('crf_previewForceLandscape', String(v)))
-const previewLandscapeMode = computed(() => previewForceLandscape.value || previewNeedsLandscape.value)
+const previewLandscapeMode = computed(() => previewNeedsLandscape.value)
 
 async function openFormPreview(form) {
   const seq = ++formPreviewRequestSeq
