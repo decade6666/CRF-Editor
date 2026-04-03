@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -38,82 +39,113 @@ def get_me(current_user: User = Depends(get_current_user)):
     )
 
 
-async def _save_upload_to_temp(file: UploadFile) -> Path:
-    """将上传文件保存到临时文件，返回路径。调用方负责删除。"""
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    total_size = 0
-    first_chunk = True
-    try:
-        with os.fdopen(fd, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                if first_chunk:
-                    first_chunk = False
-                    if not chunk[:16].startswith(b"SQLite format 3"):
-                        raise HTTPException(400, "文件不是有效的 SQLite 数据库")
-                total_size += len(chunk)
-                if total_size > _MAX_IMPORT_SIZE:
-                    raise HTTPException(
-                        400,
-                        f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
-                    )
-                f.write(chunk)
-        if first_chunk:
-            raise HTTPException(400, "文件不是有效的 SQLite 数据库")
-    except Exception:
-        os.unlink(tmp_path)
-        raise
-    return Path(tmp_path)
+from src.repositories.project_repository import ProjectRepository
+from src.schemas.project import ProjectResponse
+from src.services.project_clone_service import ProjectCloneService
 
 
-@router.post("/admin/import/project-db")
-async def import_project_db(
-    file: UploadFile = File(...),
+@router.get("/admin/projects/recycle-bin", response_model=list[ProjectResponse])
+def list_recycle_bin(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_admin),
 ):
-    """导入单项目 .db 文件。"""
-    tmp_path = await _save_upload_to_temp(file)
-    try:
-        result = ProjectDbImportService.import_single_project(
-            str(tmp_path), current_user.id, session
-        )
-        return {"project_id": result.project_id, "project_name": result.project_name}
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except sqlite3.DatabaseError as e:
-        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    """管理员查看所有用户的回收站（或按需调整为仅看自己的）。"""
+    from sqlalchemy import select
+    from src.models.project import Project
+    stmt = select(Project).where(Project.deleted_at.is_not(None)).order_by(Project.deleted_at.desc())
+    return list(session.scalars(stmt).all())
 
 
-@router.post("/admin/import/database-merge")
-async def import_database_merge(
-    file: UploadFile = File(...),
+class BatchDeleteRequest(BaseModel):
+    project_ids: List[int]
+
+
+@router.post("/admin/projects/batch-delete", status_code=204)
+def batch_delete_projects(
+    data: BatchDeleteRequest,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_admin),
+    _: User = Depends(require_admin),
 ):
-    """整库合并导入。"""
-    tmp_path = await _save_upload_to_temp(file)
-    try:
-        report = DatabaseMergeService.merge(
-            str(tmp_path), current_user.id, session
-        )
-        return {
-            "imported": [
-                {"id": r.project_id, "name": r.project_name}
-                for r in report.imported
-            ],
-            "renamed": report.renamed,
-        }
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except sqlite3.DatabaseError as e:
-        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    """批量软删除项目。"""
+    from datetime import datetime
+    from src.models.project import Project
+    for pid in data.project_ids:
+        project = session.get(Project, pid)
+        if project and project.deleted_at is None:
+            project.deleted_at = datetime.now()
+    session.flush()
+
+
+@router.post("/admin/projects/{project_id}/restore", response_model=ProjectResponse)
+def restore_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """还原项目。"""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    project.deleted_at = None
+    session.flush()
+    return project
+
+
+@router.delete("/admin/projects/{project_id}/hard-delete", status_code=204)
+def hard_delete_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """彻底删除项目。"""
+    from sqlalchemy import delete
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    session.delete(project)
+    session.flush()
+
+
+class BatchCopyRequest(BaseModel):
+    project_ids: List[int]
+    target_user_id: int
+
+
+@router.post("/admin/projects/batch-copy")
+def batch_copy_projects(
+    data: BatchCopyRequest,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """批量复制項目给其他用戶。"""
+    results = []
+    for pid in data.project_ids:
+        try:
+            cloned = ProjectCloneService.clone(pid, data.target_user_id, session)
+            results.append({"original_id": pid, "new_id": cloned.id, "status": "success"})
+        except Exception as e:
+            results.append({"original_id": pid, "status": "failed", "error": str(e)})
+    return results
+
+
+class BatchMoveRequest(BaseModel):
+    project_ids: List[int]
+    target_user_id: int
+
+
+@router.post("/admin/projects/batch-move")
+def batch_move_projects(
+    data: BatchMoveRequest,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """批量迁移項目所有者。"""
+    for pid in data.project_ids:
+        project = session.get(Project, pid)
+        if project:
+            project.owner_id = data.target_user_id
+    session.flush()
+    return {"status": "success"}
 
 
 # ── 用户管理 ────────────────────────────────────────────────

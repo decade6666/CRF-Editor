@@ -103,7 +103,7 @@ class ProjectGraphLoader:
             form_fields = session.scalars(
                 select(FormField)
                 .where(FormField.form_id.in_(form_ids))
-                .order_by(FormField.form_id, FormField.sort_order, FormField.id)
+                .order_by(FormField.form_id, FormField.order_index, FormField.id)
             ).all()
             for form_field in form_fields:
                 form_fields_map.setdefault(form_field.form_id, []).append(form_field)
@@ -289,7 +289,7 @@ class ProjectCloneService:
                         else None
                     ),
                     is_log_row=form_field.is_log_row,
-                    sort_order=form_field.sort_order,
+                    order_index=form_field.order_index,
                     required=form_field.required,
                     label_override=form_field.label_override,
                     help_text=form_field.help_text,

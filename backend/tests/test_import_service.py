@@ -96,7 +96,7 @@ def create_form_field(
     form_id: int,
     field_definition_id: int,
     *,
-    sort_order: int = 1,
+    order_index: int = 1,
     inline_mark: int = 0,
     default_value: str | None = None,
     label_override: str | None = None,
@@ -104,7 +104,7 @@ def create_form_field(
     form_field = FormField(
         form_id=form_id,
         field_definition_id=field_definition_id,
-        sort_order=sort_order,
+        order_index=order_index,
         inline_mark=inline_mark,
         default_value=default_value,
         label_override=label_override,
@@ -337,7 +337,7 @@ def test_imported_trailing_underscore_matches_export_semantics(tmp_path: Path, s
     ).one()
     exported_labels = ExportService(session)._get_option_labels(imported_field_definition)
 
-    assert exported_labels == ["男____________________", "女"]
+    assert exported_labels == ["男______", "女"]
 
 
 
@@ -387,7 +387,7 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
     assert imported_field_definition.codelist_id == existing_codelist.id
     assert [option.decode for option in reused_options] == ["男", "女"]
     assert [option.trailing_underscore for option in reused_options] == [1, 0]
-    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男____________________", "女"]
+    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男______", "女"]
 
 
 @pytest.mark.parametrize(

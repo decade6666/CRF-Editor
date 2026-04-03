@@ -48,3 +48,57 @@ def verify_project_owner(project_id: int, current_user: User, session: Session):
     if project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权访问此项目")
     return project
+
+
+def verify_form_owner(form_id: int, current_user: User, session: Session):
+    """校验表单存在且属于当前用户。"""
+    from src.models.form import Form
+    form = session.get(Form, form_id)
+    if not form:
+        raise HTTPException(status_code=404, detail="表单不存在")
+    verify_project_owner(form.project_id, current_user, session)
+    return form
+
+
+def verify_field_definition_owner(fd_id: int, current_user: User, session: Session):
+    """校验字段定义存在且属于当前用户。"""
+    from src.models.field_definition import FieldDefinition
+    field_definition = session.get(FieldDefinition, fd_id)
+    if not field_definition:
+        raise HTTPException(status_code=404, detail="字段定义不存在")
+    verify_project_owner(field_definition.project_id, current_user, session)
+    return field_definition
+
+
+def verify_form_field_owner(ff_id: int, current_user: User, session: Session):
+    """校验表单字段实例存在且属于当前用户。"""
+    from src.models.form_field import FormField
+    form_field = session.get(FormField, ff_id)
+    if not form_field:
+        raise HTTPException(status_code=404, detail="表单字段不存在")
+    verify_form_owner(form_field.form_id, current_user, session)
+    return form_field
+
+
+def verify_project_codelist_owner(codelist_id: int, project_id: int, current_user: User, session: Session):
+    """校验编码字典属于指定项目且当前用户可访问。"""
+    from src.models.codelist import CodeList
+    codelist = session.get(CodeList, codelist_id)
+    if not codelist:
+        raise HTTPException(status_code=404, detail="编码字典不存在")
+    verify_project_owner(project_id, current_user, session)
+    if codelist.project_id != project_id:
+        raise HTTPException(status_code=403, detail="无权使用该项目外的编码字典")
+    return codelist
+
+
+def verify_project_unit_owner(unit_id: int, project_id: int, current_user: User, session: Session):
+    """校验单位属于指定项目且当前用户可访问。"""
+    from src.models.unit import Unit
+    unit = session.get(Unit, unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail="单位不存在")
+    verify_project_owner(project_id, current_user, session)
+    if unit.project_id != project_id:
+        raise HTTPException(status_code=403, detail="无权使用该项目外的单位")
+    return unit
