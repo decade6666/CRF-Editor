@@ -1,5 +1,5 @@
 """Projects Router"""
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ import shutil
 
 from src.database import get_session
 from src.config import get_config
-from src.dependencies import get_current_user
+from src.dependencies import get_current_user, require_admin
 from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
@@ -109,10 +109,15 @@ async def import_database_merge(
 
 @router.get("", response_model=List[ProjectResponse])
 def list_projects(
+    user_id: Optional[int] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    return ProjectRepository(session).get_all_by_owner(current_user.id)
+    target_user_id = current_user.id
+    if user_id is not None and user_id != current_user.id:
+        require_admin(current_user)
+        target_user_id = user_id
+    return ProjectRepository(session).get_all_by_owner(target_user_id)
 
 
 @router.post("/reorder", status_code=204)

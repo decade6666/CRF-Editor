@@ -3,15 +3,18 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.config import get_config
 from src.database import get_session
 from src.dependencies import get_current_user, require_admin
+from src.models.project import Project
 from src.models.user import User
 from src.services.project_import_service import (
     DatabaseMergeService,
@@ -41,19 +44,37 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectResponse
+from src.services.order_service import OrderService
 from src.services.project_clone_service import ProjectCloneService
 
 
-@router.get("/admin/projects/recycle-bin", response_model=list[ProjectResponse])
+class RecycleBinProjectResponse(ProjectResponse):
+    owner_id: Optional[int] = None
+    owner_username: Optional[str] = None
+
+
+@router.get("/admin/projects/recycle-bin", response_model=list[RecycleBinProjectResponse])
 def list_recycle_bin(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_admin),
 ):
-    """管理员查看所有用户的回收站（或按需调整为仅看自己的）。"""
-    from sqlalchemy import select
+    """管理员查看所有用户的回收站。"""
     from src.models.project import Project
-    stmt = select(Project).where(Project.deleted_at.is_not(None)).order_by(Project.deleted_at.desc())
-    return list(session.scalars(stmt).all())
+    stmt = (
+        select(Project, User.username)
+        .outerjoin(User, User.id == Project.owner_id)
+        .where(Project.deleted_at.is_not(None))
+        .order_by(Project.deleted_at.desc(), Project.id.desc())
+    )
+    rows = session.execute(stmt).all()
+    return [
+        RecycleBinProjectResponse(
+            **ProjectResponse.model_validate(project).model_dump(),
+            owner_id=project.owner_id,
+            owner_username=username,
+        )
+        for project, username in rows
+    ]
 
 
 class BatchDeleteRequest(BaseModel):
@@ -67,13 +88,39 @@ def batch_delete_projects(
     _: User = Depends(require_admin),
 ):
     """批量软删除项目。"""
-    from datetime import datetime
     from src.models.project import Project
-    for pid in data.project_ids:
-        project = session.get(Project, pid)
-        if project and project.deleted_at is None:
-            project.deleted_at = datetime.now()
+
+    projects = session.scalars(
+        select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)
+    ).all()
+    if len(projects) != len(data.project_ids):
+        raise HTTPException(400, "project_ids 包含不存在的项目")
+    invalid = [project.id for project in projects if project.deleted_at is not None]
+    if invalid:
+        raise HTTPException(400, "project_ids 包含已软删项目")
+
+    now = datetime.now()
+    for project in projects:
+        project.deleted_at = now
     session.flush()
+
+
+def _resolve_restore_name(session: Session, owner_id: int, base_name: str) -> str:
+    existing_names = set(
+        session.scalars(
+            select(Project.name).where(Project.owner_id == owner_id, Project.deleted_at.is_(None))
+        ).all()
+    )
+    candidate = f"{base_name} (恢复)"
+    if candidate not in existing_names:
+        return candidate
+
+    index = 2
+    while True:
+        candidate = f"{base_name} (恢复{index})"
+        if candidate not in existing_names:
+            return candidate
+        index += 1
 
 
 @router.post("/admin/projects/{project_id}/restore", response_model=ProjectResponse)
@@ -86,7 +133,33 @@ def restore_project(
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.deleted_at is None:
+        raise HTTPException(400, "仅可恢复回收站中的项目")
+
+    existing_active_name = session.scalar(
+        select(Project.id).where(
+            Project.owner_id == project.owner_id,
+            Project.deleted_at.is_(None),
+            Project.name == project.name,
+            Project.id != project.id,
+        )
+    )
+    if existing_active_name is not None:
+        project.name = _resolve_restore_name(session, project.owner_id, project.name)
+
+    next_order = (
+        session.scalar(
+            select(func.max(Project.order_index)).where(
+                Project.owner_id == project.owner_id,
+                Project.deleted_at.is_(None),
+                Project.id != project.id,
+            )
+        )
+        or 0
+    ) + 1
+
     project.deleted_at = None
+    project.order_index = next_order
     session.flush()
     return project
 
@@ -98,12 +171,21 @@ def hard_delete_project(
     _: User = Depends(require_admin),
 ):
     """彻底删除项目。"""
-    from sqlalchemy import delete
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
+    if project.deleted_at is None:
+        raise HTTPException(400, "仅可彻底删除回收站中的项目")
+
+    logo_path = None
+    if project.company_logo_path:
+        logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
+
     session.delete(project)
     session.flush()
+
+    if logo_path and logo_path.exists():
+        logo_path.unlink()
 
 
 class BatchCopyRequest(BaseModel):
@@ -118,11 +200,17 @@ def batch_copy_projects(
     _: User = Depends(require_admin),
 ):
     """批量复制項目给其他用戶。"""
+    target_user = session.get(User, data.target_user_id)
+    if not target_user:
+        raise HTTPException(404, "目标用户不存在")
+
     results = []
     for pid in data.project_ids:
         try:
-            cloned = ProjectCloneService.clone(pid, data.target_user_id, session)
-            results.append({"original_id": pid, "new_id": cloned.id, "status": "success"})
+            with session.begin_nested():
+                cloned = ProjectCloneService.clone(pid, data.target_user_id, session)
+                session.flush()
+                results.append({"original_id": pid, "new_id": cloned.id, "status": "success"})
         except Exception as e:
             results.append({"original_id": pid, "status": "failed", "error": str(e)})
     return results
@@ -140,10 +228,32 @@ def batch_move_projects(
     _: User = Depends(require_admin),
 ):
     """批量迁移項目所有者。"""
-    for pid in data.project_ids:
-        project = session.get(Project, pid)
-        if project:
-            project.owner_id = data.target_user_id
+    target_user = session.get(User, data.target_user_id)
+    if not target_user:
+        raise HTTPException(404, "目标用户不存在")
+
+    projects = session.scalars(
+        select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)
+    ).all()
+    if len(projects) != len(data.project_ids):
+        raise HTTPException(400, "project_ids 包含不存在的项目")
+    invalid = [project.id for project in projects if project.deleted_at is not None]
+    if invalid:
+        raise HTTPException(400, "project_ids 包含已软删项目")
+
+    next_order = (
+        session.scalar(
+            select(func.max(Project.order_index)).where(
+                Project.owner_id == data.target_user_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+
+    for offset, project in enumerate(projects, start=1):
+        project.owner_id = data.target_user_id
+        project.order_index = next_order + offset
     session.flush()
     return {"status": "success"}
 

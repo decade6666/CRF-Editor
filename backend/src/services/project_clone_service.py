@@ -191,6 +191,16 @@ class ProjectCloneService:
             new_owner_id,
         )
 
+        next_order = (
+            session.scalar(
+                select(Project.order_index)
+                .where(Project.owner_id == new_owner_id, Project.deleted_at.is_(None))
+                .order_by(Project.order_index.desc(), Project.id.desc())
+                .limit(1)
+            )
+            or 0
+        ) + 1
+
         new_project = Project(
             name=new_name,
             version=src.version,
@@ -202,6 +212,7 @@ class ProjectCloneService:
             company_logo_path=None,
             data_management_unit=src.data_management_unit,
             owner_id=new_owner_id,
+            order_index=next_order,
         )
         session.add(new_project)
         session.flush()
