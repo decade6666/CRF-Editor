@@ -1,4 +1,5 @@
 """Phase 0 排序真值与模板导入契约测试。"""
+
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -24,6 +25,7 @@ from src.models.field_definition import FieldDefinition
 from src.models.form import Form
 from src.models.form_field import FormField
 from src.models.project import Project
+from src.models.unit import Unit
 from src.models.user import User
 from src.routers import settings as settings_router
 from src.services.export_service import ExportService
@@ -112,6 +114,10 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         )
         session.flush()
 
+        unit = Unit(project_id=project.id, symbol="kg", code="UNIT_KG", order_index=1)
+        session.add(unit)
+        session.flush()
+
         field_definitions = []
         for idx, variable_name in enumerate(["FIELD_A", "FIELD_B", "FIELD_C"], start=1):
             field_definition = FieldDefinition(
@@ -120,6 +126,7 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
                 label=f"字段{idx}",
                 field_type="单选" if idx == 1 else "文本",
                 codelist_id=codelist.id if idx == 1 else None,
+                unit_id=unit.id if idx == 2 else None,
                 order_index=idx,
             )
             session.add(field_definition)
@@ -145,6 +152,8 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
             source_project_id=project.id,
             form_id=form.id,
             form_field_ids=[form_field.id for form_field in form_fields],
+            codelist_id=codelist.id,
+            unit_id=unit.id,
         )
 
     engine.dispose()
@@ -178,7 +187,7 @@ def test_import_template_preview_exposes_form_field_id_and_source_project_id(
     assert {field["project_id"] for field in payload["fields"]} == {template_db_path.source_project_id}
 
 
-def test_import_forms_with_field_ids_compacts_order_index_and_preserves_source_order(
+def test_field_level_import_preserves_source_relative_order(
     client: TestClient,
     engine,
     target_project_id: int,
@@ -374,7 +383,37 @@ def test_delete_form_field_compacts_remaining_order(client: TestClient, engine, 
     assert [field["order_index"] for field in payload] == [1, 2]
 
 
-def test_import_forms_rejects_out_of_scope_field_ids(
+def test_field_level_import_rejects_duplicate_field_ids(
+    client: TestClient,
+    target_project_id: int,
+    auth_token: str,
+    template_db_path: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.routers import import_template as import_template_router
+
+    monkeypatch.setattr(
+        import_template_router,
+        "get_config",
+        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+    )
+
+    duplicate_id = template_db_path.form_field_ids[0]
+    resp = client.post(
+        f"/api/projects/{target_project_id}/import-template/execute",
+        json={
+            "source_project_id": template_db_path.source_project_id,
+            "form_ids": [template_db_path.form_id],
+            "field_ids": [duplicate_id, duplicate_id],
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "重复" in resp.json()["detail"]
+
+
+
+def test_field_level_import_rejects_out_of_scope_field_ids(
     client: TestClient,
     target_project_id: int,
     auth_token: str,
@@ -399,6 +438,259 @@ def test_import_forms_rejects_out_of_scope_field_ids(
         headers=auth_headers(auth_token),
     )
     assert resp.status_code == 400, resp.text
+
+
+def test_field_level_import_includes_dependency_closure(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+    template_db_path: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.routers import import_template as import_template_router
+
+    monkeypatch.setattr(
+        import_template_router,
+        "get_config",
+        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+    )
+
+    selected_field_ids = [template_db_path.form_field_ids[0], template_db_path.form_field_ids[1]]
+    resp = client.post(
+        f"/api/projects/{target_project_id}/import-template/execute",
+        json={
+            "source_project_id": template_db_path.source_project_id,
+            "form_ids": [template_db_path.form_id],
+            "field_ids": selected_field_ids,
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["imported_form_count"] == 1
+    assert payload["merged_units"] == 1
+    assert payload["created_field_definitions"] == 2
+    assert payload["created_form_fields"] == 2
+
+    with Session(engine) as session:
+        imported_defs = list(
+            session.scalars(
+                select(FieldDefinition)
+                .where(FieldDefinition.project_id == target_project_id)
+                .order_by(FieldDefinition.order_index, FieldDefinition.id)
+            ).all()
+        )
+        assert len(imported_defs) == 2
+
+        imported_codelists = list(
+            session.scalars(
+                select(CodeList).where(CodeList.project_id == target_project_id).order_by(CodeList.order_index, CodeList.id)
+            ).all()
+        )
+        imported_units = list(
+            session.scalars(
+                select(Unit).where(Unit.project_id == target_project_id).order_by(Unit.order_index, Unit.id)
+            ).all()
+        )
+        assert len(imported_codelists) == 1
+        assert len(imported_units) == 1
+
+        gender_field = next(definition for definition in imported_defs if definition.variable_name == "FIELD_A")
+        weight_field = next(definition for definition in imported_defs if definition.variable_name == "FIELD_B")
+        assert gender_field.codelist_id == imported_codelists[0].id
+        assert weight_field.unit_id == imported_units[0].id
+
+        option_decodes = list(
+            session.scalars(
+                select(CodeListOption.decode)
+                .where(CodeListOption.codelist_id == imported_codelists[0].id)
+                .order_by(CodeListOption.order_index, CodeListOption.id)
+            ).all()
+        )
+        assert option_decodes == ["男", "女"]
+        assert imported_units[0].symbol == "kg"
+
+
+
+def test_field_level_import_no_orphan_references(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+    template_db_path: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.routers import import_template as import_template_router
+
+    monkeypatch.setattr(
+        import_template_router,
+        "get_config",
+        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+    )
+
+    resp = client.post(
+        f"/api/projects/{target_project_id}/import-template/execute",
+        json={
+            "source_project_id": template_db_path.source_project_id,
+            "form_ids": [template_db_path.form_id],
+            "field_ids": template_db_path.form_field_ids[:2],
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+
+    with Session(engine) as session:
+        valid_codelist_ids = set(
+            session.scalars(select(CodeList.id).where(CodeList.project_id == target_project_id)).all()
+        )
+        valid_unit_ids = set(
+            session.scalars(select(Unit.id).where(Unit.project_id == target_project_id)).all()
+        )
+        imported_defs = list(
+            session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == target_project_id)).all()
+        )
+
+        assert imported_defs
+        for definition in imported_defs:
+            if definition.codelist_id is not None:
+                assert definition.codelist_id in valid_codelist_ids
+            if definition.unit_id is not None:
+                assert definition.unit_id in valid_unit_ids
+
+
+
+def test_import_then_reorder_then_export_consistent_order(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+    template_db_path: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.routers import import_template as import_template_router
+
+    monkeypatch.setattr(
+        import_template_router,
+        "get_config",
+        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+    )
+
+    resp = client.post(
+        f"/api/projects/{target_project_id}/import-template/execute",
+        json={
+            "source_project_id": template_db_path.source_project_id,
+            "form_ids": [template_db_path.form_id],
+            "field_ids": template_db_path.form_field_ids,
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+
+    with Session(engine) as session:
+        imported_form = session.scalar(
+            select(Form).where(Form.project_id == target_project_id).order_by(Form.id.desc())
+        )
+        assert imported_form is not None
+        imported_form_id = imported_form.id
+        imported_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == imported_form_id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        assert len(imported_fields) == 3
+        reorder_ids = [imported_fields[2].id, imported_fields[0].id, imported_fields[1].id]
+
+    reorder_resp = client.post(
+        f"/api/forms/{imported_form_id}/fields/reorder",
+        json={"ordered_ids": reorder_ids},
+        headers=auth_headers(auth_token),
+    )
+    assert reorder_resp.status_code == 204, reorder_resp.text
+
+    with Session(engine) as session:
+        ordered_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == imported_form_id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        assert [field.id for field in ordered_fields] == reorder_ids
+        assert [field.order_index for field in ordered_fields] == [1, 2, 3]
+        segments = ExportService(session)._build_unified_segments(ordered_fields)
+        exported_ids = [field.id for segment in segments for field in segment.fields]
+        assert exported_ids == reorder_ids
+
+
+
+def test_project_copy_preserves_order_index(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    from src.config import StorageConfig
+
+    form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    reorder_ids = [field_ids[1], field_ids[2], field_ids[0]]
+
+    reorder_resp = client.post(
+        f"/api/forms/{form_id}/fields/reorder",
+        json={"ordered_ids": reorder_ids},
+        headers=auth_headers(auth_token),
+    )
+    assert reorder_resp.status_code == 204, reorder_resp.text
+
+    test_config = AppConfig(
+        auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+        admin=AdminConfig(username="admin"),
+        storage=StorageConfig(upload_path="."),
+    )
+
+    with patch("src.services.project_clone_service.get_config", return_value=test_config), patch(
+        "src.routers.projects.get_config", return_value=test_config
+    ):
+        copy_resp = client.post(
+            f"/api/projects/{target_project_id}/copy",
+            headers=auth_headers(auth_token),
+        )
+    assert copy_resp.status_code == 201, copy_resp.text
+    copied_project_id = copy_resp.json()["id"]
+
+    with Session(engine) as session:
+        source_form = session.scalar(
+            select(Form).where(Form.project_id == target_project_id).order_by(Form.id.asc())
+        )
+        copied_form = session.scalar(
+            select(Form).where(Form.project_id == copied_project_id).order_by(Form.id.asc())
+        )
+        assert source_form is not None
+        assert copied_form is not None
+
+        source_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == source_form.id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        copied_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == copied_form.id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        assert [field.order_index for field in copied_fields] == [field.order_index for field in source_fields]
+
+        source_defs = [session.get(FieldDefinition, field.field_definition_id) for field in source_fields]
+        copied_defs = [session.get(FieldDefinition, field.field_definition_id) for field in copied_fields]
+        assert [definition.variable_name for definition in copied_defs] == [definition.variable_name for definition in source_defs]
+        assert [definition.id for definition in copied_defs] != [definition.id for definition in source_defs]
+
 
 
 def test_update_settings_requires_admin(client: TestClient) -> None:
@@ -444,3 +736,190 @@ def test_reorder_form_fields_returns_400_when_ordered_ids_are_incomplete(
             ).all()
         )
         assert [field.id for field in persisted_fields] == field_ids
+
+
+def test_quick_edit_updates_list_readback_and_export_consistently(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    target_field_id = field_ids[1]
+
+    update_resp = client.put(
+        f"/api/form-fields/{target_field_id}",
+        json={
+            "label_override": "快捷编辑标签",
+            "inline_mark": 1,
+            "bg_color": "FFEEDD",
+            "text_color": "112233",
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert update_resp.status_code == 200, update_resp.text
+
+    readback = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    assert readback.status_code == 200, readback.text
+    payload = readback.json()
+    matched = next(item for item in payload if item["id"] == target_field_id)
+    assert matched["label_override"] == "快捷编辑标签"
+    assert matched["inline_mark"] == 1
+    assert matched["bg_color"] == "FFEEDD"
+    assert matched["text_color"] == "112233"
+
+    with Session(engine) as session:
+        ordered_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == form_id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        target_field = next(field for field in ordered_fields if field.id == target_field_id)
+        assert target_field.label_override == "快捷编辑标签"
+        assert target_field.inline_mark == 1
+        assert target_field.bg_color == "FFEEDD"
+        assert target_field.text_color == "112233"
+
+        segments = ExportService(session)._build_unified_segments(ordered_fields)
+        target_segment = next(segment for segment in segments if any(field.id == target_field_id for field in segment.fields))
+        exported_field = next(field for field in target_segment.fields if field.id == target_field_id)
+        assert target_segment.type == "inline_block"
+        assert exported_field.label_override == "快捷编辑标签"
+        assert exported_field.inline_mark == 1
+        assert exported_field.bg_color == "FFEEDD"
+        assert exported_field.text_color == "112233"
+
+
+# ---------------------------------------------------------------------------
+# Task 0.4: 拖拽与手改序号并存 — 连续 reorder 不回弹
+# ---------------------------------------------------------------------------
+
+
+def test_consecutive_reorder_keeps_dense_order(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    """连续两次 reorder 后顺序仍为 1..n 稠密，刷新读回一致。"""
+    form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+
+    # 第一次 reorder：[C, A, B]
+    first_order = [field_ids[2], field_ids[0], field_ids[1]]
+    resp1 = client.post(
+        f"/api/forms/{form_id}/fields/reorder",
+        json={"ordered_ids": first_order},
+        headers=auth_headers(auth_token),
+    )
+    assert resp1.status_code == 204, resp1.text
+
+    # 第二次 reorder：[B, C, A]
+    second_order = [field_ids[1], field_ids[2], field_ids[0]]
+    resp2 = client.post(
+        f"/api/forms/{form_id}/fields/reorder",
+        json={"ordered_ids": second_order},
+        headers=auth_headers(auth_token),
+    )
+    assert resp2.status_code == 204, resp2.text
+
+    # 验证读回顺序与第二次一致
+    readback = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    payload = readback.json()
+    assert [field["id"] for field in payload] == second_order
+    assert [field["order_index"] for field in payload] == [1, 2, 3]
+
+    # 验证数据库层面也稠密
+    with Session(engine) as session:
+        db_fields = list(
+            session.scalars(
+                select(FormField)
+                .where(FormField.form_id == form_id)
+                .order_by(FormField.order_index, FormField.id)
+            ).all()
+        )
+        assert [field.order_index for field in db_fields] == [1, 2, 3]
+
+
+def test_reorder_then_add_field_compacts_correctly(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    """reorder 后在指定位置插入字段，整体顺序仍稠密。"""
+    form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+
+    # reorder 为 [A, C, B]
+    reordered = [field_ids[0], field_ids[2], field_ids[1]]
+    resp = client.post(
+        f"/api/forms/{form_id}/fields/reorder",
+        json={"ordered_ids": reordered},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 204, resp.text
+
+    # 在位置 2 插入新字段（应排在第 2 位，原 2/3 后移）
+    create_fd_resp = client.post(
+        f"/api/projects/{target_project_id}/field-definitions",
+        json={"variable_name": "INSERT_AFTER_REORDER", "label": "插入字段", "field_type": "文本"},
+        headers=auth_headers(auth_token),
+    )
+    assert create_fd_resp.status_code == 201, create_fd_resp.text
+    new_fd_id = create_fd_resp.json()["id"]
+
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": new_fd_id, "order_index": 2},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+
+    readback = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    payload = readback.json()
+    assert [field["order_index"] for field in payload] == [1, 2, 3, 4]
+    assert payload[1]["field_definition_id"] == new_fd_id
+
+
+def test_reorder_then_delete_compacts_remaining(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    """reorder 后删除中间字段，剩余字段自动压实。"""
+    form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+
+    # reorder 为 [C, A, B]
+    reordered = [field_ids[2], field_ids[0], field_ids[1]]
+    resp = client.post(
+        f"/api/forms/{form_id}/fields/reorder",
+        json={"ordered_ids": reordered},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 204, resp.text
+
+    # 删除当前排在第 2 位的字段（原始 field_ids[0]）
+    delete_resp = client.delete(
+        f"/api/form-fields/{field_ids[0]}",
+        headers=auth_headers(auth_token),
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    readback = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    payload = readback.json()
+    assert [field["id"] for field in payload] == [field_ids[2], field_ids[1]]
+    assert [field["order_index"] for field in payload] == [1, 2]
