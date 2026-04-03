@@ -256,3 +256,57 @@ def test_delete_nonexistent_user(client, engine):
         "/api/admin/users/99999", headers=auth_headers(token)
     )
     assert resp.status_code == 400
+
+
+def test_admin_can_list_active_projects_for_specific_user(client, engine):
+    admin_token = login_as(client, "admin")
+    client.post("/api/auth/enter", json={"username": "target_user"})
+
+    with Session(engine) as session:
+        with session.begin():
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
+            target_user = session.scalar(select(User).where(User.username == "target_user"))
+            target_user_id = target_user.id
+            session.add(Project(name="管理员项目", version="1.0", owner_id=admin_user.id))
+            session.add(Project(name="目标活跃项目", version="1.0", owner_id=target_user_id))
+            deleted_project = Project(name="目标回收站项目", version="1.0", owner_id=target_user_id)
+            session.add(deleted_project)
+            session.flush()
+            deleted_project.deleted_at = deleted_project.created_at
+
+    resp = client.get(
+        f"/api/projects?user_id={target_user_id}",
+        headers=auth_headers(admin_token),
+    )
+    assert resp.status_code == 200, resp.text
+    names = [project["name"] for project in resp.json()]
+    assert names == ["目标活跃项目"]
+
+
+def test_non_admin_cannot_list_other_users_projects(client, engine):
+    owner_token = login_as(client, "owner_user")
+    client.post("/api/auth/enter", json={"username": "other_user"})
+
+    with Session(engine) as session:
+        owner = session.scalar(select(User).where(User.username == "owner_user"))
+        other = session.scalar(select(User).where(User.username == "other_user"))
+        owner_id = owner.id
+        other_id = other.id
+
+    resp = client.get(
+        f"/api/projects?user_id={other_id}",
+        headers=auth_headers(owner_token),
+    )
+    assert resp.status_code == 403
+
+    own_resp = client.get(
+        f"/api/projects?user_id={owner_id}",
+        headers=auth_headers(owner_token),
+    )
+    assert resp.status_code == 403
+
+    own_resp = client.get(
+        f"/api/projects?user_id={owner.id}",
+        headers=auth_headers(owner_token),
+    )
+    assert own_resp.status_code == 200, own_resp.text
