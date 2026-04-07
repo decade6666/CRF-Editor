@@ -1,9 +1,10 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import draggable from 'vuedraggable'
 import { useOrderableList } from '../composables/useOrderableList'
+import { useSortableTable } from '../composables/useSortableTable'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -27,12 +28,28 @@ const showAddOpt = ref(false)
 const clForm = reactive({ name: '', code: '', description: '' })
 const optForm = reactive({ code: '', decode: '', trailing_underscore: 0 })
 
-async function load() { codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`) }
+const codelistsTableRef = ref(null)
+const isCodelistsFiltered = computed(() => searchCl.value.trim().length > 0)
+const codelistsReorderUrl = computed(() => `/api/projects/${props.projectId}/codelists/reorder`)
+
+async function load() {
+  codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`)
+  if (selected.value) {
+    selected.value = codelists.value.find(item => item.id === selected.value.id) || null
+  }
+  nextTick(() => initCodelistsSortable())
+}
 // 写操作后强制刷新：先失效缓存，再重新加载
 async function reload() {
   api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
   await load()
 }
+const { initSortable: initCodelistsSortable } = useSortableTable(
+  codelistsTableRef,
+  filteredCodelists,
+  codelistsReorderUrl,
+  { reloadFn: reload, isFiltered: isCodelistsFiltered }
+)
 onMounted(load)
 watch(() => props.projectId, () => { selected.value = null; load() })
 watch(refreshKey, load)
@@ -237,9 +254,12 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
           style="width:180px"
         />
       </div>
-      <el-table :data="filteredCodelists" size="small" border highlight-current-row
+      <el-table ref="codelistsTableRef" :data="filteredCodelists" size="small" border highlight-current-row
         @current-change="r => selected = r" @header-dragend="onClTableHeaderDragend"
-        @selection-change="r => selCls = r" style="width:100%" height="100%">
+        @selection-change="r => selCls = r" style="width:100%" height="100%" row-key="id">
+        <el-table-column width="32" v-if="!isCodelistsFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row, $index }">
@@ -291,7 +311,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
         </div>
         <span style="width:80px;text-align:right">操作</span>
       </div>
-      <draggable v-model="selected.options" item-key="id" handle=".drag-handle" @start="draggingOpt = true" @end="onOptDragEnd">
+      <draggable v-model="selected.options" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
           <div
             v-show="!searchOpt.trim() || (String(element.code ?? '') + String(element.decode ?? '')).toLowerCase().includes(searchOpt.trim().toLowerCase())"

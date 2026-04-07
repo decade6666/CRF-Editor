@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../composables/useApi'
 
 const emit = defineEmits(['logout'])
+const adminApiBase = '/api/admin'
 
 const users = ref([])
 const loadingUsers = ref(false)
@@ -14,7 +15,7 @@ const loadingRecycle = ref(false)
 async function loadUsers() {
   loadingUsers.value = true
   try {
-    users.value = await api.get('/admin/users')
+    users.value = await api.get(`${adminApiBase}/users`)
   } catch (e) {
     ElMessage.error('加载用户失败: ' + e.message)
   } finally {
@@ -25,7 +26,7 @@ async function loadUsers() {
 async function loadRecycleBin() {
   loadingRecycle.value = true
   try {
-    recycleBinProjects.value = await api.get('/admin/projects/recycle-bin')
+    recycleBinProjects.value = await api.get(`${adminApiBase}/projects/recycle-bin`)
   } catch (e) {
     ElMessage.error('加载回收站失败')
   } finally {
@@ -52,10 +53,10 @@ async function saveUser() {
   if (!userForm.username) return
   try {
     if (userForm.id) {
-      await api.patch(`/admin/users/${userForm.id}`, { username: userForm.username })
+      await api.patch(`${adminApiBase}/users/${userForm.id}`, { username: userForm.username })
       ElMessage.success('修改成功')
     } else {
-      await api.post('/admin/users', { username: userForm.username })
+      await api.post(`${adminApiBase}/users`, { username: userForm.username })
       ElMessage.success('添加成功')
     }
     showUserEdit.value = false
@@ -68,7 +69,7 @@ async function saveUser() {
 async function deleteUser(user) {
   try {
     await ElMessageBox.confirm(`确定删除用户 "${user.username}" 吗？`, '删除用户', { type: 'warning' })
-    await api.del(`/admin/users/${user.id}`)
+    await api.del(`${adminApiBase}/users/${user.id}`)
     ElMessage.success('删除成功')
     await loadUsers()
   } catch (e) {
@@ -146,7 +147,7 @@ async function openBatchDelete(user) {
 async function executeBatchMove() {
   if (!batchTargetUserId.value || !selectedProjectIds.value.length) return
   try {
-    await api.post('/admin/projects/batch-move', {
+    await api.post(`${adminApiBase}/projects/batch-move`, {
       project_ids: selectedProjectIds.value,
       target_user_id: batchTargetUserId.value,
     })
@@ -161,7 +162,7 @@ async function executeBatchMove() {
 async function executeBatchCopy() {
   if (!batchTargetUserId.value || !selectedProjectIds.value.length) return
   try {
-    const results = await api.post('/admin/projects/batch-copy', {
+    const results = await api.post(`${adminApiBase}/projects/batch-copy`, {
       project_ids: selectedProjectIds.value,
       target_user_id: batchTargetUserId.value,
     })
@@ -177,7 +178,7 @@ async function executeBatchCopy() {
 async function executeBatchDelete() {
   if (!selectedProjectIds.value.length) return
   try {
-    await api.post('/admin/projects/batch-delete', {
+    await api.post(`${adminApiBase}/projects/batch-delete`, {
       project_ids: selectedProjectIds.value,
     })
     ElMessage.success('删除成功')
@@ -199,7 +200,7 @@ async function openRecycleBin() {
 
 async function restoreProject(project) {
   try {
-    await api.post(`/admin/projects/${project.id}/restore`)
+    await api.post(`${adminApiBase}/projects/${project.id}/restore`)
     ElMessage.success('已恢复')
     await Promise.all([loadRecycleBin(), loadUsers()])
   } catch (e) {
@@ -210,7 +211,7 @@ async function restoreProject(project) {
 async function hardDeleteProject(project) {
   try {
     await ElMessageBox.confirm(`确定彻底删除项目 "${project.name}" 吗？此操作不可逆！`, '彻底删除', { type: 'warning' })
-    await api.del(`/admin/projects/${project.id}/hard-delete`)
+    await api.del(`${adminApiBase}/projects/${project.id}/hard-delete`)
     ElMessage.success('已彻底删除')
     await Promise.all([loadRecycleBin(), loadUsers()])
   } catch (e) {

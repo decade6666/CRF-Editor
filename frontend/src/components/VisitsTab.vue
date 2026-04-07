@@ -1,8 +1,10 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useOrderableList } from '../composables/useOrderableList'
 import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
 
@@ -52,10 +54,12 @@ async function load() {
   if (selectedVisit.value) {
     selectedVisit.value = visits.value.find(v => v.id === selectedVisit.value.id) || null
   }
+  syncVisitForms()
 }
 onMounted(async () => { await load(); nextTick(() => initSortable()) })
 watch(() => props.projectId, () => { selectedVisit.value = null; load() })
 watch(refreshKey, load)
+watch(selectedVisit, syncVisitForms)
 
 // 拖拽排序
 const visitsTableRef = ref(null)
@@ -71,15 +75,19 @@ const { initSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
 })
 
 // 当前访视已关联的表单列表（带 sequence）
-const visitForms = computed(() => {
-  if (!selectedVisit.value || !matrixData.value) return []
+const visitForms = ref([])
+
+function syncVisitForms() {
+  if (!selectedVisit.value || !matrixData.value) {
+    visitForms.value = []
+    return
+  }
   const m = matrixData.value.matrix[selectedVisit.value.id] || {}
-  // 取已关联的 form_id，结合 matrixData.forms 获取表单信息，按 sequence 排序
-  return matrixData.value.forms
+  visitForms.value = matrixData.value.forms
     .filter(f => m[f.id] != null)
     .map(f => ({ ...f, sequence: m[f.id] }))
     .sort((a, b) => a.sequence - b.sequence)
-})
+}
 
 // 当前访视未关联的表单列表（供添加用）
 const availableForms = computed(() => {
@@ -170,6 +178,7 @@ async function addFormToVisit() {
     await api.post(`/api/visits/${selectedVisit.value.id}/forms/${addFormId.value}`, {})
     addFormId.value = null
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message || '添加失败') }
 }
 
@@ -179,6 +188,7 @@ async function removeFormFromVisit(formId) {
   try {
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -300,11 +310,27 @@ function resetFormPreviewState() {
 }
 
 // 更新访视中表单的 sequence
+const visitFormReorderUrl = computed(() => selectedVisit.value ? `/api/visits/${selectedVisit.value.id}/forms/reorder` : '')
+const { dragging: draggingVisitForms, handleDragEnd: handleVisitFormDragEnd } = useOrderableList(visitFormReorderUrl)
+
+async function onVisitFormDragEnd() {
+  if (!selectedVisit.value) return
+  await handleVisitFormDragEnd(
+    visitForms.value,
+    async () => {
+      matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+      syncVisitForms()
+    },
+    (err) => ElMessage.error(err.message)
+  )
+}
+
 async function updateFormSequence(formId, newValue) {
   if (!selectedVisit.value || newValue == null) return
   try {
     await api.put(`/api/visits/${selectedVisit.value.id}/forms/${formId}`, { sequence: newValue })
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -387,13 +413,17 @@ async function toggleCell(visitId, formId) {
         <div v-if="!visitForms.length" style="color:var(--color-text-muted);font-size:13px;padding:20px;text-align:center">
           暂无关联表单，请在上方选择后点击添加
         </div>
-        <div v-for="f in visitForms" :key="f.id"
-          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
-          <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
-          <span style="flex:1;font-size:13px">{{ f.name }}</span>
-          <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
-          <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
-        </div>
+        <draggable v-else v-model="visitForms" item-key="id" handle=".drag-handle" @start="draggingVisitForms = true" @end="onVisitFormDragEnd">
+          <template #item="{ element: f }">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+              <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
+              <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
+              <span style="flex:1;font-size:13px">{{ f.name }}</span>
+              <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
+              <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
+            </div>
+          </template>
+        </draggable>
       </div>
     </div>
 
