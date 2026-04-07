@@ -13,7 +13,12 @@ from src.database import get_read_session, get_session
 from src.models import Base
 from src.models.project import Project
 from src.models.user import User
-from src.services.export_service import ExportService, export_full_database, export_project_database
+from src.services.export_service import (
+    ExportService,
+    export_full_database,
+    export_project_database,
+    export_user_projects_database,
+)
 from tests.helpers import auth_headers, login_as
 
 
@@ -230,5 +235,44 @@ def test_export_project_database_prunes_correctly(tmp_path: Path) -> None:
         assert projects[0][1] == "KeepMe"
         assert projects[0][2] is None  # owner_id 已置 NULL
         assert users == []  # user 表为空
+    finally:
+        Path(result_path).unlink(missing_ok=True)
+
+
+
+def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> None:
+    """用户聚合导出仅保留当前用户项目，并清空 user 表与 owner_id。"""
+    src_path = str(tmp_path / "user_scope.db")
+    conn = sqlite3.connect(src_path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("CREATE TABLE user (id INTEGER PRIMARY KEY, username TEXT)")
+    conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT, owner_id INTEGER REFERENCES user(id))")
+    conn.executemany(
+        "INSERT INTO user VALUES (?, ?)",
+        [(1, 'alice'), (2, 'bob')],
+    )
+    conn.executemany(
+        "INSERT INTO project VALUES (?, ?, ?)",
+        [
+            (1, 'Alice-A', 1),
+            (2, 'Alice-B', 1),
+            (3, 'Bob-A', 2),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    result_path = export_user_projects_database(src_path, 1, 'alice')
+    try:
+        result_conn = sqlite3.connect(result_path)
+        projects = result_conn.execute("SELECT id, name, owner_id FROM project ORDER BY id").fetchall()
+        users = result_conn.execute("SELECT * FROM user").fetchall()
+        result_conn.close()
+
+        assert projects == [
+            (1, 'Alice-A', None),
+            (2, 'Alice-B', None),
+        ]
+        assert users == []
     finally:
         Path(result_path).unlink(missing_ok=True)

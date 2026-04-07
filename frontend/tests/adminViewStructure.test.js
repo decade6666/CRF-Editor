@@ -24,10 +24,18 @@ test('AdminView keeps batch project actions inside user management actions', () 
 
 test('admin entry still mounts a single AdminView dialog without tab dead links', () => {
   assert.match(appSource, /@click="showAdmin = true"/)
-  assert.match(appSource, /<AdminView @logout="isLoggedIn = false; showAdmin = false" \/>/)
+  assert.match(appSource, /<AdminView @logout="logout" \/>/)
   assert.equal(adminViewSource.includes('activeTab'), false)
   assert.equal(adminViewSource.includes('name="recycle"'), false)
   assert.equal(adminViewSource.includes('label="项目回收站" name="recycle"'), false)
+})
+
+test('AdminView uses /api/admin routes for admin API calls', () => {
+  assert.match(adminViewSource, /const adminApiBase = '\/api\/admin'/)
+  assert.equal(/api\.(?:get|post|patch|del)\((`|'|")\/admin\//.test(adminViewSource), false)
+
+  const adminApiBaseCalls = [...adminViewSource.matchAll(/api\.(?:get|post|patch|del)\(`\$\{adminApiBase\}\//g)]
+  assert.ok(adminApiBaseCalls.length >= 8)
 })
 
 test('App.vue shows copy button without hover condition', () => {
