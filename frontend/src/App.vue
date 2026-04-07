@@ -1,6 +1,7 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, provide } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
 import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
 import { getDownloadFilename } from './composables/exportDownloadState'
 import ProjectInfoTab from './components/ProjectInfoTab.vue'
@@ -13,11 +14,32 @@ import DocxCompareDialog from './components/DocxCompareDialog.vue'
 import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
 import LoginView from './components/LoginView.vue'
 import AdminView from './components/AdminView.vue'
-import { useSortableTable } from './composables/useSortableTable'
+import { useOrderableList } from './composables/useOrderableList'
 
 // 登录状态
 const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
 const showAdmin = ref(false)
+
+function getEmptyUser() {
+  return { username: '', is_admin: false }
+}
+
+function rememberUsername(username = currentUser.value.username) {
+  const normalized = String(username || '').trim()
+  if (normalized) localStorage.setItem('crf_last_username', normalized)
+}
+
+function resetSessionState() {
+  api.clearAllCache()
+  localStorage.removeItem('crf_token')
+  isLoggedIn.value = false
+  showAdmin.value = false
+  showSettings.value = false
+  projects.value = []
+  selectedProject.value = null
+  activeTab.value = 'info'
+  currentUser.value = getEmptyUser()
+}
 
 function onLoginSuccess() {
   isLoggedIn.value = true
@@ -25,14 +47,28 @@ function onLoginSuccess() {
   loadMe()
 }
 
+function logout() {
+  rememberUsername()
+  resetSessionState()
+  ElMessage.success('已退出登录')
+}
+
+function handleAuthExpired() {
+  rememberUsername()
+  resetSessionState()
+}
+
 // 当前用户信息
-const currentUser = ref({ username: '', is_admin: false })
+const currentUser = ref(getEmptyUser())
 const isAdmin = computed(() => currentUser.value.is_admin)
 
 async function loadMe() {
   try {
     currentUser.value = await api.get('/api/auth/me')
-  } catch { /* 静默失败 */ }
+    rememberUsername(currentUser.value.username)
+  } catch {
+    currentUser.value = getEmptyUser()
+  }
 }
 
 // 项目数据
@@ -43,20 +79,26 @@ const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
 const copyingProjectId = ref(null)
 
-const projectTableRef = ref(null)
-const { initSortable: initProjectSortable } = useSortableTable(
-  projectTableRef,
-  projects,
-  '/api/projects/reorder'
-)
+const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder')
 
 async function loadProjects() {
   projects.value = await api.get('/api/projects')
-  nextTick(() => initProjectSortable())
+}
+
+async function onProjectDragEnd() {
+  await handleProjectDragEnd(
+    projects.value,
+    loadProjects,
+    (err) => ElMessage.error(err.message)
+  )
 }
 onMounted(() => {
   if (isLoggedIn.value) { loadProjects(); loadMe() }
-  window.addEventListener('crf:auth-expired', () => { isLoggedIn.value = false })
+  window.addEventListener('crf:auth-expired', handleAuthExpired)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('crf:auth-expired', handleAuthExpired)
 })
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
@@ -183,11 +225,20 @@ async function _blobDownload(url, fallbackFilename) {
 }
 
 async function exportFullDatabase() {
+  const exportUrl = isAdmin.value ? '/api/export/database' : '/api/projects/export/database'
+  const dialogTitle = isAdmin.value ? '导出数据库' : '导出我的数据库'
+  const dialogMessage = isAdmin.value
+    ? '将导出整个数据库文件，是否继续？'
+    : '将导出当前账号名下的全部项目数据库，是否继续？'
+  const fallbackFilename = isAdmin.value
+    ? 'crf_editor_full.db'
+    : `${currentUser.value.username || 'my'}_projects.db`
+
   try {
-    await ElMessageBox.confirm('将导出整个数据库文件，是否继续？', '导出整个数据库', { type: 'info' })
+    await ElMessageBox.confirm(dialogMessage, dialogTitle, { type: 'info' })
   } catch { return }
   try {
-    await _blobDownload('/api/export/database', 'crf_editor_full.db')
+    await _blobDownload(exportUrl, fallbackFilename)
     ElMessage.success('数据库导出成功')
   } catch (e) {
     ElMessage.error('导出失败: ' + e.message)
@@ -284,9 +335,20 @@ const settingsForm = reactive({
 const aiTestLoading = ref(false)
 const aiTestResult = ref(null) // { ok, latency_ms, model, error }
 
+function resetSettingsForm() {
+  settingsForm.template_path = ''
+  settingsForm.ai_enabled = false
+  settingsForm.ai_api_url = ''
+  settingsForm.ai_api_key = ''
+  settingsForm.ai_model = ''
+  settingsForm.ai_api_format = ''
+}
+
 async function openSettings() {
   showSettings.value = true
   aiTestResult.value = null
+  resetSettingsForm()
+  if (!isAdmin.value) return
   try {
     const data = await api.get('/api/settings')
     settingsForm.template_path = data.template_path || ''
@@ -299,6 +361,10 @@ async function openSettings() {
 }
 
 async function saveSettings() {
+  if (!isAdmin.value) {
+    showSettings.value = false
+    return
+  }
   try {
     await api.put('/api/settings', {
       template_path: settingsForm.template_path,
@@ -553,10 +619,14 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
 }
 
-function toggleTheme() {
-  isDark.value = !isDark.value
+function setTheme(value) {
+  isDark.value = !!value
   localStorage.setItem('crf_theme', isDark.value ? 'dark' : 'light')
   applyTheme()
+}
+
+function toggleTheme() {
+  setTheme(!isDark.value)
 }
 
 onMounted(() => { applyTheme() })
@@ -615,26 +685,32 @@ function startResize(e) {
           <span>项目列表</span>
           <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"><el-icon><Plus /></el-icon></el-button>
         </div>
-        <div class="project-list" ref="projectTableRef">
-          <div v-for="p in projects" :key="p.id"
-            class="project-item" :class="{ active: selectedProject?.id === p.id }"
-            @click="selectProject(p)">
-            <div class="drag-handle" style="cursor:grab;padding:4px;color:var(--color-text-muted)">
-              <el-icon><Rank /></el-icon>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
-              <el-icon><Files /></el-icon>
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
-            </div>
-            <div class="project-actions">
-              <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" title="复制项目">
-                <el-icon><DocumentCopy /></el-icon>
-              </el-button>
-              <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" title="删除项目">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </div>
-          </div>
+        <div class="project-list">
+          <draggable v-model="projects" item-key="id" handle=".drag-handle" @start="draggingProjects = true" @end="onProjectDragEnd">
+            <template #item="{ element: p }">
+              <div
+                class="project-item"
+                :class="{ active: selectedProject?.id === p.id }"
+                @click="selectProject(p)"
+              >
+                <div class="drag-handle" style="cursor:grab;padding:4px;color:var(--color-text-muted)" aria-label="拖拽排序" role="button" tabindex="0">
+                  <el-icon><Rank /></el-icon>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
+                  <el-icon><Files /></el-icon>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+                </div>
+                <div class="project-actions">
+                  <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" title="复制项目">
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                  <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" title="删除项目">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </template>
+          </draggable>
         </div>
       </div>
     </div>
@@ -688,53 +764,28 @@ function startResize(e) {
   </el-dialog>
 
   <!-- 设置弹窗 -->
-  <el-dialog v-model="showSettings" title="设置" width="480px" :close-on-click-modal="false">
+  <el-dialog v-model="showSettings" title="设置" width="560px" :close-on-click-modal="false">
     <el-form label-width="100px">
+      <el-divider>账号与界面</el-divider>
+      <el-form-item label="当前用户">
+        <span>{{ currentUser.username || '未登录' }}</span>
+      </el-form-item>
       <el-form-item label="编辑模式">
         <el-switch v-model="editMode" />
         <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">开启后显示选项/单位/字段标签及表单编辑按钮</span>
       </el-form-item>
-      <!-- 暂时隐藏，保留代码 -->
-      <el-form-item v-if="false" label="模板路径">
-        <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+      <el-form-item label="主题模式">
+        <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
       </el-form-item>
-      <!-- 暂时隐藏，保留代码 -->
-      <template v-if="false">
-      <el-divider>AI 复核配置</el-divider>
-      <el-form-item label="启用AI复核">
-        <el-switch v-model="settingsForm.ai_enabled" />
-      </el-form-item>
-      <el-form-item label="API URL">
-        <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
-          :disabled="!settingsForm.ai_enabled" clearable />
-      </el-form-item>
-      <el-form-item label="API Key">
-        <el-input v-model="settingsForm.ai_api_key" type="password" show-password
-          :disabled="!settingsForm.ai_enabled" clearable />
-      </el-form-item>
-      <el-form-item label="模型">
-        <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
-          :disabled="!settingsForm.ai_enabled" clearable />
-      </el-form-item>
-      <el-form-item v-if="settingsForm.ai_enabled">
-        <el-button :loading="aiTestLoading" @click="testAiConnection"
-          :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
-          测试连接
-        </el-button>
-        <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
-          <span v-if="aiTestResult.ok" style="color:var(--color-success)">
-            连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
-          </span>
-          <span v-else style="color:var(--color-danger)">
-            连接失败: {{ aiTestResult.error }}
-          </span>
-        </span>
-      </el-form-item>
-      </template>
 
-      <el-divider>数据管理</el-divider>
+      <el-divider>数据导出</el-divider>
       <div style="display:flex;gap:24px">
         <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">数据库</div>
+          <el-button @click="exportFullDatabase">{{ isAdmin ? '导出整个数据库' : '导出我的数据库' }}</el-button>
+          <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+        </div>
+        <div v-if="isAdmin" style="flex:1;display:flex;flex-direction:column;gap:8px">
           <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导入</div>
           <el-button @click="triggerImportProjectDb" :loading="importProjectDbLoading">
             导入项目
@@ -743,18 +794,56 @@ function startResize(e) {
             导入数据库
           </el-button>
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导出</div>
-          <el-button @click="exportFullDatabase">导出整个数据库</el-button>
-          <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-        </div>
       </div>
+
+      <template v-if="isAdmin">
+        <el-divider>全局设置</el-divider>
+        <el-form-item label="模板路径">
+          <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+        </el-form-item>
+        <el-divider>AI 复核配置</el-divider>
+        <el-form-item label="启用AI复核">
+          <el-switch v-model="settingsForm.ai_enabled" />
+        </el-form-item>
+        <el-form-item label="API URL">
+          <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="settingsForm.ai_api_key" type="password" show-password
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="模型">
+          <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item v-if="settingsForm.ai_enabled">
+          <el-button :loading="aiTestLoading" @click="testAiConnection"
+            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
+            测试连接
+          </el-button>
+          <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
+            <span v-if="aiTestResult.ok" style="color:var(--color-success)">
+              连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+            </span>
+            <span v-else style="color:var(--color-danger)">
+              连接失败: {{ aiTestResult.error }}
+            </span>
+          </span>
+        </el-form-item>
+      </template>
+
       <input ref="importProjectDbInput" type="file" accept=".db" style="display:none" @change="handleImportProjectDb" />
       <input ref="importDatabaseMergeInput" type="file" accept=".db" style="display:none" @change="handleImportDatabaseMerge" />
     </el-form>
     <template #footer>
-      <el-button @click="showSettings = false">取消</el-button>
-      <el-button type="primary" @click="saveSettings">保存</el-button>
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <el-button type="danger" plain @click="logout">退出登录</el-button>
+        <div style="display:flex;gap:8px">
+          <el-button @click="showSettings = false">关闭</el-button>
+          <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 
@@ -894,7 +983,7 @@ function startResize(e) {
 
   <!-- 管理员弹窗 -->
   <el-dialog v-model="showAdmin" title="管理" width="800px" :close-on-click-modal="false" top="5vh">
-    <AdminView @logout="isLoggedIn = false; showAdmin = false" />
+    <AdminView @logout="logout" />
   </el-dialog>
   </template>
 </template>

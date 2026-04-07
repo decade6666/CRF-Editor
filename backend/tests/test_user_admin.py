@@ -250,6 +250,83 @@ def test_delete_user_with_projects(client, engine):
     assert "项目" in resp.json()["detail"]
 
 
+def test_deleted_projects_do_not_inflate_count_when_active_projects_exist(client, engine):
+    """混合场景下只统计活跃项目，且活跃项目仍会阻止删除用户。"""
+    token = login_as(client, "admin")
+    create_resp = client.post(
+        "/api/admin/users",
+        json={"username": "mixed_project_user"},
+        headers=auth_headers(token),
+    )
+    uid = create_resp.json()["id"]
+
+    with Session(engine) as session:
+        with session.begin():
+            active_project = Project(
+                name="活跃项目",
+                version="1.0",
+                owner_id=uid,
+            )
+            deleted_project = Project(
+                name="回收站项目",
+                version="1.0",
+                owner_id=uid,
+            )
+            session.add_all([active_project, deleted_project])
+            session.flush()
+            deleted_project.deleted_at = deleted_project.created_at
+
+    list_resp = client.get("/api/admin/users", headers=auth_headers(token))
+    assert list_resp.status_code == 200, list_resp.text
+    user_info = next(
+        user for user in list_resp.json() if user["id"] == uid
+    )
+    assert user_info["project_count"] == 1
+
+    delete_resp = client.delete(
+        f"/api/admin/users/{uid}", headers=auth_headers(token)
+    )
+    assert delete_resp.status_code == 409, delete_resp.text
+    assert "项目" in delete_resp.json()["detail"]
+
+
+def test_deleted_projects_do_not_block_user_count_or_deletion(client, engine):
+    """仅剩回收站项目时，项目数应为 0 且允许删除用户。"""
+    token = login_as(client, "admin")
+    create_resp = client.post(
+        "/api/admin/users",
+        json={"username": "deleted_only_user"},
+        headers=auth_headers(token),
+    )
+    uid = create_resp.json()["id"]
+
+    with Session(engine) as session:
+        with session.begin():
+            deleted_project = Project(
+                name="回收站项目",
+                version="1.0",
+                owner_id=uid,
+            )
+            session.add(deleted_project)
+            session.flush()
+            deleted_project.deleted_at = deleted_project.created_at
+
+    list_resp = client.get("/api/admin/users", headers=auth_headers(token))
+    assert list_resp.status_code == 200, list_resp.text
+    user_info = next(
+        user for user in list_resp.json() if user["id"] == uid
+    )
+    assert user_info["project_count"] == 0
+
+    delete_resp = client.delete(
+        f"/api/admin/users/{uid}", headers=auth_headers(token)
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    with Session(engine) as session:
+        assert session.get(User, uid) is None
+
+
 def test_delete_nonexistent_user(client, engine):
     token = login_as(client, "admin")
     resp = client.delete(

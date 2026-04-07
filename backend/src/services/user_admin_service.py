@@ -30,7 +30,10 @@ class UserAdminService:
                 User.username,
                 func.count(Project.id).label("project_count"),
             )
-            .outerjoin(Project, Project.owner_id == User.id)
+            .outerjoin(
+                Project,
+                (Project.owner_id == User.id) & Project.deleted_at.is_(None),
+            )
             .group_by(User.id)
             .order_by(User.id)
         )
@@ -81,7 +84,9 @@ class UserAdminService:
         if not user:
             raise ValueError("用户不存在")
         project_count = session.scalar(
-            select(func.count(Project.id)).where(Project.owner_id == user_id)
+            select(func.count(Project.id))
+            .where(Project.owner_id == user_id)
+            .where(Project.deleted_at.is_(None))
         ) or 0
         if project_count > 0:
             raise ValueError(f"该用户仍拥有 {project_count} 个项目，无法删除")

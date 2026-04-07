@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 
 const emit = defineEmits(['login-success'])
 
-const username = ref('')
+const username = ref(localStorage.getItem('crf_last_username') || '')
 const loading = ref(false)
 
 async function handleLogin() {
@@ -26,6 +26,7 @@ async function handleLogin() {
     }
     const { access_token } = await r.json()
     localStorage.setItem('crf_token', access_token)
+    localStorage.setItem('crf_last_username', username.value.trim())
     emit('login-success')
   } catch {
     ElMessage.error('网络错误，请稍后重试')

@@ -39,6 +39,11 @@ class VisitFormSequenceUpdate(BaseModel):
     sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")
 
 
+class VisitFormReorderRequest(BaseModel):
+
+    ordered_form_ids: List[int] = Field(..., min_length=1, description="按新顺序排列的表单 ID 列表")
+
+
 
 
 
@@ -274,7 +279,7 @@ def visit_form_matrix(project_id: int, session: Session = Depends(get_session), 
 
 
 
-@router.post("/visits/{visit_id}/forms/{form_id}", status_code=201)
+@router.post("/visits/{visit_id}/forms/{form_id:int}", status_code=201)
 
 def add_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
@@ -314,7 +319,7 @@ def add_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_s
 
 
 
-@router.put("/visits/{visit_id}/forms/{form_id}")
+@router.put("/visits/{visit_id}/forms/{form_id:int}")
 
 def update_visit_form_sequence(
 
@@ -366,7 +371,48 @@ def update_visit_form_sequence(
 
 
 
-@router.delete("/visits/{visit_id}/forms/{form_id}", status_code=204)
+@router.post("/visits/{visit_id}/forms/reorder", status_code=204)
+def reorder_visit_forms(
+    visit_id: int,
+    body: VisitFormReorderRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """按完整列表重排访视内表单 sequence。"""
+    from sqlalchemy import select
+    from src.models.visit_form import VisitForm
+
+    visit = session.get(Visit, visit_id)
+    if not visit:
+        raise HTTPException(404, "访视不存在")
+    verify_project_owner(visit.project_id, current_user, session)
+
+    visit_forms = list(
+        session.scalars(
+            select(VisitForm)
+            .where(VisitForm.visit_id == visit_id)
+            .order_by(VisitForm.sequence, VisitForm.id)
+        ).all()
+    )
+    valid_form_ids = {item.form_id for item in visit_forms}
+    request_form_ids = body.ordered_form_ids
+    request_form_id_set = set(request_form_ids)
+    if len(request_form_id_set) != len(request_form_ids):
+        raise HTTPException(400, "ID 列表包含重复项")
+    if request_form_id_set != valid_form_ids:
+        raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
+
+    visit_form_by_form_id = {item.form_id: item for item in visit_forms}
+    ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in request_form_ids]
+    OrderService.reorder_batch_sequence(
+        session,
+        VisitForm,
+        VisitForm.visit_id == visit_id,
+        ordered_visit_form_ids,
+    )
+
+
+@router.delete("/visits/{visit_id}/forms/{form_id:int}", status_code=204)
 
 def remove_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 

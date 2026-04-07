@@ -7,16 +7,16 @@
   --indigo-400: #93c5fd;
   --indigo-500: #60a5fa;
   --indigo-600: #3b82f6;
-  --indigo-700: #2563eb;   /* 主色 */
-  --indigo-800: #1d4ed8;   /* hover 态 */
-  --indigo-900: #1e3a5f;   /* 深蓝（侧边栏）*/
+  --indigo-700: #2f6fd6;   /* 主色（更浅、更柔和） */
+  --indigo-800: #245fc3;   /* hover 态 */
+  --indigo-900: #234972;   /* 深蓝（侧边栏）*/
 
   /* ——— 语义 Token（Semantic Tokens）——— */
   --color-primary:        var(--indigo-700);
   --color-primary-dark:   var(--indigo-800);
   --color-primary-light:  var(--indigo-100);
   --color-primary-subtle: #f7fbff;
-  --color-primary-rgb:    37, 99, 235;
+  --color-primary-rgb:    47, 111, 214;
 
   --color-sidebar-bg:     var(--indigo-900);
   --color-sidebar-item:   rgba(255,255,255,0.75);
@@ -264,9 +264,9 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 
 /* 暗色模式 CSS 变量覆盖 */
 html[data-theme="dark"] {
-  --indigo-900: #172554;
-  --indigo-700: #3b82f6;
-  --indigo-500: #60a5fa;
+  --indigo-900: #18365a;
+  --indigo-700: #5b93f5;
+  --indigo-500: #74a7f7;
   --color-bg-body: #0f172a;
   --color-bg-card: #1e293b;
   --color-bg-hover: #334155;
@@ -275,7 +275,7 @@ html[data-theme="dark"] {
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
   --color-primary-subtle: #1e3a5f;
-  --color-primary-rgb: 37, 99, 235;
+  --color-primary-rgb: 91, 147, 245;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.6);

@@ -27,6 +27,8 @@ from src.models.form_field import FormField
 from src.models.project import Project
 from src.models.unit import Unit
 from src.models.user import User
+from src.models.visit import Visit
+from src.models.visit_form import VisitForm
 from src.routers import settings as settings_router
 from src.services.export_service import ExportService
 
@@ -84,6 +86,82 @@ def target_project_id(client: TestClient, auth_token: str) -> int:
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
+
+
+def _create_visit_form_sequence_scope(engine, target_project_id: int) -> tuple[int, list[int]]:
+    with Session(engine) as session:
+        project = session.get(Project, target_project_id)
+        assert project is not None
+
+        visit = Visit(project_id=project.id, name="排序访视", code="VISIT_ORDER", sequence=1)
+        session.add(visit)
+        session.flush()
+
+        form_ids = []
+        for idx in range(1, 4):
+            form = Form(
+                project_id=project.id,
+                name=f"访视表单{idx}",
+                code=f"VISIT_FORM_{idx}",
+                order_index=idx,
+            )
+            session.add(form)
+            session.flush()
+
+            visit_form = VisitForm(visit_id=visit.id, form_id=form.id, sequence=idx)
+            session.add(visit_form)
+            session.flush()
+            form_ids.append(form.id)
+
+        session.commit()
+        return visit.id, form_ids
+
+
+def test_reorder_projects_uses_active_scope_only(
+    client: TestClient,
+    engine,
+    auth_token: str,
+) -> None:
+    with Session(engine) as session:
+        owner = session.scalar(select(User).where(User.username == "alice"))
+        assert owner is not None
+
+        active_a = Project(name="项目A", version="1.0", owner_id=owner.id, order_index=1)
+        active_b = Project(name="项目B", version="1.0", owner_id=owner.id, order_index=2)
+        deleted_project = Project(
+            name="回收站项目",
+            version="1.0",
+            owner_id=owner.id,
+            order_index=3,
+        )
+        session.add_all([active_a, active_b, deleted_project])
+        session.flush()
+        deleted_project.deleted_at = deleted_project.created_at
+        deleted_project_id = deleted_project.id
+        session.commit()
+        reordered_ids = [active_b.id, active_a.id]
+
+    reorder_resp = client.post(
+        "/api/projects/reorder",
+        json=reordered_ids,
+        headers=auth_headers(auth_token),
+    )
+    assert reorder_resp.status_code == 204, reorder_resp.text
+
+    readback = client.get(
+        "/api/projects",
+        headers=auth_headers(auth_token),
+    )
+    assert readback.status_code == 200, readback.text
+    payload = readback.json()
+    assert [project["id"] for project in payload] == reordered_ids
+    assert [project["order_index"] for project in payload] == [1, 2]
+
+    with Session(engine) as session:
+        deleted_project = session.get(Project, deleted_project_id)
+        assert deleted_project is not None
+        assert deleted_project.deleted_at is not None
+        assert deleted_project.order_index == 3
 
 
 @pytest.fixture
@@ -276,6 +354,80 @@ def _create_ordered_form_fields(engine, target_project_id: int) -> tuple[int, li
 
         session.commit()
         return form.id, field_ids
+
+
+def test_reorder_codelists_persists_dense_order_in_readback(
+    client: TestClient,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    first = client.post(
+        f"/api/projects/{target_project_id}/codelists",
+        json={"name": "字典A", "code": "CL_A"},
+        headers=auth_headers(auth_token),
+    )
+    second = client.post(
+        f"/api/projects/{target_project_id}/codelists",
+        json={"name": "字典B", "code": "CL_B"},
+        headers=auth_headers(auth_token),
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+
+    reordered_ids = [second.json()["id"], first.json()["id"]]
+    resp = client.post(
+        f"/api/projects/{target_project_id}/codelists/reorder",
+        json=reordered_ids,
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+
+    readback = client.get(
+        f"/api/projects/{target_project_id}/codelists",
+        headers=auth_headers(auth_token),
+    )
+    assert readback.status_code == 200, readback.text
+    payload = readback.json()
+    assert [item["id"] for item in payload] == reordered_ids
+    assert [item["order_index"] for item in payload] == [1, 2]
+
+
+
+def test_reorder_visit_forms_persists_dense_sequence_in_readback(
+    client: TestClient,
+    engine,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    visit_id, form_ids = _create_visit_form_sequence_scope(engine, target_project_id)
+    reordered_form_ids = [form_ids[2], form_ids[0], form_ids[1]]
+
+    resp = client.post(
+        f"/api/visits/{visit_id}/forms/reorder",
+        json={"ordered_form_ids": reordered_form_ids},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 204, resp.text
+
+    matrix_resp = client.get(
+        f"/api/projects/{target_project_id}/visit-form-matrix",
+        headers=auth_headers(auth_token),
+    )
+    assert matrix_resp.status_code == 200, matrix_resp.text
+    matrix = matrix_resp.json()["matrix"][str(visit_id)]
+    assert [matrix[str(form_id)] for form_id in reordered_form_ids] == [1, 2, 3]
+
+    with Session(engine) as session:
+        visit_forms = list(
+            session.scalars(
+                select(VisitForm)
+                .where(VisitForm.visit_id == visit_id)
+                .order_by(VisitForm.sequence, VisitForm.id)
+            ).all()
+        )
+        assert [item.form_id for item in visit_forms] == reordered_form_ids
+        assert [item.sequence for item in visit_forms] == [1, 2, 3]
+
 
 
 def test_reorder_form_fields_persists_dense_order_in_readback(

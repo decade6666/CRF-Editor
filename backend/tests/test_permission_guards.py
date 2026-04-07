@@ -148,6 +148,29 @@ def test_non_admin_cannot_access_global_settings_or_full_export(client: TestClie
     assert client.get("/api/export/database", headers=auth_headers(token)).status_code == 403
 
 
+
+def test_authenticated_user_can_export_owned_projects_database(client: TestClient, engine) -> None:
+    token = login_as(client, "alice")
+    login_as(client, "bob")
+
+    with Session(engine) as session:
+        alice = session.scalar(select(User).where(User.username == "alice"))
+        bob = session.scalar(select(User).where(User.username == "bob"))
+        assert alice is not None
+        assert bob is not None
+
+        session.add_all([
+            Project(name="Alice 导出项目A", version="1.0", owner_id=alice.id, order_index=1),
+            Project(name="Alice 导出项目B", version="1.0", owner_id=alice.id, order_index=2),
+            Project(name="Bob 导出项目", version="1.0", owner_id=bob.id, order_index=1),
+        ])
+        session.commit()
+
+    resp = client.get("/api/projects/export/database", headers=auth_headers(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/octet-stream")
+
+
 @pytest.mark.parametrize(
     ("method", "url_template", "json_body"),
     [
@@ -172,6 +195,7 @@ def test_non_admin_cannot_access_global_settings_or_full_export(client: TestClie
         ("delete", "/api/visits/{visit_id}", None),
         ("post", "/api/visits/{visit_id}/copy", {}),
         ("post", "/api/visits/{visit_id}/forms/{form_id}", None),
+        ("post", "/api/visits/{visit_id}/forms/reorder", {"ordered_form_ids": ["{form_id}"]}),
         ("put", "/api/visits/{visit_id}/forms/{form_id}", {"sequence": 1}),
         ("delete", "/api/visits/{visit_id}/forms/{form_id}", None),
     ],

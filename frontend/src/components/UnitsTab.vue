@@ -116,7 +116,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       </div>
       <span style="width:80px;text-align:right">操作</span>
     </div>
-    <draggable v-model="units" item-key="id" handle=".drag-handle" @start="dragging = true" @end="handleDragEnd(units, load, err => ElMessage.error(err.message))">
+    <draggable v-model="units" item-key="id" handle=".drag-handle" :disabled="Boolean(searchUnit.trim())" @start="dragging = true" @end="handleDragEnd(units, load, err => ElMessage.error(err.message))">
       <template #item="{ element }">
         <div
           v-show="!searchUnit.trim() || (String(element.code ?? '') + String(element.symbol ?? '')).toLowerCase().includes(searchUnit.trim().toLowerCase())"

@@ -14,7 +14,12 @@ from src.database import get_read_session
 from src.dependencies import get_current_user, require_admin, verify_project_owner
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
-from src.services.export_service import ExportService, export_full_database, export_project_database
+from src.services.export_service import (
+    ExportService,
+    export_full_database,
+    export_project_database,
+    export_user_projects_database,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
@@ -74,6 +79,25 @@ def export_database(
     config = get_config()
     tmp_path = export_full_database(config.db_path)
     filename = f"crf_editor_full_{date.today().strftime('%Y%m%d')}.db"
+    return FileResponse(
+        tmp_path,
+        media_type="application/octet-stream",
+        filename=filename,
+        background=BackgroundTask(os.unlink, tmp_path),
+    )
+
+
+@router.get("/projects/export/database")
+def export_user_projects_db(
+    current_user: User = Depends(get_current_user),
+):
+    """导出当前用户全部项目数据库。"""
+    config = get_config()
+    try:
+        tmp_path = export_user_projects_database(config.db_path, current_user.id, current_user.username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    filename = f"{current_user.username}_projects_{date.today().strftime('%Y%m%d')}.db"
     return FileResponse(
         tmp_path,
         media_type="application/octet-stream",
