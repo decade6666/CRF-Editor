@@ -115,7 +115,7 @@ storage:
   upload_path: uploads
 server:
   host: 0.0.0.0
-  port: 8000
+  port: 8888
 ```
 
 ## Usage
@@ -134,7 +134,7 @@ cd ../backend
 python main.py
 ```
 
-After starting, open `http://localhost:8000` in your browser to access the web interface.
+After starting, open `http://localhost:8888` in your browser to access the web interface.
 
 **Option 2: Development Mode** (hot reload, run frontend and backend separately)
 
@@ -148,9 +148,9 @@ cd frontend
 npm run dev
 ```
 
-Access the frontend at `http://localhost:5173`. API requests are automatically proxied to the backend on port 8000.
+Access the frontend at `http://localhost:5173`. API requests are automatically proxied to the backend on port 8888.
 
-API documentation is available at `http://localhost:8000/docs`.
+API documentation is available at `http://localhost:8888/docs`.
 
 ### Basic Workflow
 
