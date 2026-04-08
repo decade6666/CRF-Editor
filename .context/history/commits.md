@@ -1,5 +1,27 @@
 # Commit History
 
+## fix(config): 统一默认端口为 8888
+
+- **ID**: 92e72f5e-4d82-4004-9165-84d27747b07a
+- **Branch**: draft
+- **Timestamp**: 2026-04-08T13:37:54.376889+08:00
+
+**Decisions:**
+- 将 `ServerConfig.port` 默认值从 `8000` 调整为 `8888`，使未显式配置端口时的后端启动行为与当前预期一致
+- 同步更新 Vite `/api` 开发代理目标与中英文 README，避免开发入口、文档说明与实际默认端口出现漂移
+- 新增后端配置回退测试与前端端口一致性文本测试，防止默认端口、代理目标和文档再次失配
+
+**Bugs Fixed:**
+- **Symptom**: 后端默认端口、前端开发代理和 README 中的访问说明仍混用 `8000`，导致默认启动与文档/开发环境配置不一致
+  - **Root Cause**: 默认端口调整后，配置源、Vite 代理和中英文文档没有被统一更新，也缺少针对该契约的回归测试
+  - **Fix**: 将 `backend/src/config.py`、`frontend/vite.config.js`、`README.md` 和 `README.en.md` 全部统一到 `8888`，并补充后端与前端回归测试
+
+**Files**: README.en.md, README.md, backend/src/config.py, backend/tests/test_config.py, frontend/tests/portDefaults.test.js, frontend/vite.config.js
+
+**Tests**: pytest backend/tests/test_config.py（2 passed）；node --test frontend/tests/portDefaults.test.js（4 passed）
+
+---
+
 ## feat(core): 完善导出权限、拖拽排序与设置体验
 
 - **ID**: daad292b-f965-4dcd-87c0-b39edd2f9572

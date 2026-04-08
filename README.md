@@ -123,7 +123,7 @@ storage:
   upload_path: uploads
 server:
   host: 0.0.0.0
-  port: 8000
+  port: 8888
 ```
 
 ## 使用说明
@@ -142,7 +142,7 @@ cd ../backend
 python main.py
 ```
 
-服务启动后访问 `http://localhost:8000` 打开 Web 界面。
+服务启动后访问 `http://localhost:8888` 打开 Web 界面。
 
 **方式二：开发模式**（前后端分别启动，热更新）
 
@@ -156,9 +156,9 @@ cd frontend
 npm run dev
 ```
 
-前端开发服务器启动后访问 `http://localhost:5173`，API 请求自动代理到后端 8000 端口。
+前端开发服务器启动后访问 `http://localhost:5173`，API 请求自动代理到后端 8888 端口。
 
-API 文档见 `http://localhost:8000/docs`。
+API 文档见 `http://localhost:8888/docs`。
 
 ### 基本操作流程
 
