@@ -18,13 +18,13 @@
   --color-primary-subtle: #f7fbff;
   --color-primary-rgb:    47, 111, 214;
 
-  --color-sidebar-bg:     var(--indigo-900);
+  --color-sidebar-bg:     #00BFFF;
   --color-sidebar-item:   rgba(255,255,255,0.75);
   --color-sidebar-hover:  rgba(255,255,255,0.12);
   --color-sidebar-active: rgba(255,255,255,0.18);
   --color-sidebar-border: rgba(255,255,255,0.08);
 
-  --color-header-bg:      var(--indigo-700);
+  --color-header-bg:      #4169E1;
   --color-header-text:    #ffffff;
 
   --color-bg-body:        #f7fbff;

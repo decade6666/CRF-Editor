@@ -696,9 +696,19 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="400px" append-to-body>
+    <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="480px" append-to-body>
       <el-form :model="quickEditProp" label-width="80px" size="small">
         <el-form-item label="变量标签"><el-input v-model="quickEditProp.label" /></el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition" label="字段类型"><el-input :model-value="quickEditField.field_definition.field_type" disabled /></el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition?.variable_name" label="变量名"><el-input :model-value="quickEditField.field_definition.variable_name" disabled /></el-form-item>
+        <template v-if="quickEditField?.field_definition?.field_type === '数值'">
+          <el-form-item label="整数位数"><el-input :model-value="quickEditField.field_definition.integer_digits" disabled /></el-form-item>
+          <el-form-item label="小数位数"><el-input :model-value="quickEditField.field_definition.decimal_digits" disabled /></el-form-item>
+        </template>
+        <el-form-item v-if="['日期','日期时间','时间'].includes(quickEditField?.field_definition?.field_type)" label="日期格式"><el-input :model-value="quickEditField.field_definition.date_format" disabled /></el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典"><el-input :model-value="quickEditField.field_definition.codelist.name" disabled /></el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位"><el-input :model-value="quickEditField.field_definition.unit.symbol" disabled /></el-form-item>
+        <el-form-item v-if="quickEditField?.default_value != null && quickEditField.default_value !== ''" label="默认值"><el-input :model-value="quickEditField.default_value" disabled type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" /></el-form-item>
         <el-form-item label="底纹颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.bg_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.bg_color = opt.value"></div></div></el-form-item>
         <el-form-item label="文字颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.text_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.text_color = opt.value"></div></div></el-form-item>
         <el-form-item label="布局" v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'"><el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox></el-form-item>
