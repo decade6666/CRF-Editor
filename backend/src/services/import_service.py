@@ -78,26 +78,32 @@ class ImportService:
 
 
     def get_template_projects(self, template_path: str) -> List[dict]:
-        """读取模板库中的项目列表（含表单）"""
+        """读取模板库中的项目列表（含表单）
+
+        使用 raw SQL 查询，兼容缺少 order_index 等新增列的旧版模板库。
+        """
+        from sqlalchemy import text
+
         tmpl = self._open_template_session(template_path)
         try:
-            projects = list(tmpl.scalars(
-                select(Project).order_by(Project.id)
-            ).all())
+            # 用 raw SQL 避免 ORM 引用模板库中不存在的列（如 order_index）
+            rows = tmpl.execute(
+                text("SELECT id, name, version FROM project ORDER BY id")
+            ).all()
             result = []
-            for p in projects:
-                forms = list(tmpl.scalars(
-                    select(Form)
-                    .where(Form.project_id == p.id)
-                    .order_by(Form.id)
-                ).all())
+            for row in rows:
+                pid, pname, pversion = row
+                form_rows = tmpl.execute(
+                    text("SELECT id, name, domain FROM form WHERE project_id = :pid ORDER BY id"),
+                    {"pid": pid},
+                ).all()
                 result.append({
-                    "id": p.id,
-                    "name": p.name,
-                    "version": p.version,
+                    "id": pid,
+                    "name": pname,
+                    "version": pversion,
                     "forms": [
-                        {"id": f.id, "name": f.name, "domain": f.domain}
-                        for f in forms
+                        {"id": fid, "name": fname, "domain": fdomain}
+                        for fid, fname, fdomain in form_rows
                     ],
                 })
             return result

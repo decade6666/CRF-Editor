@@ -217,41 +217,41 @@ class ProjectCloneService:
         session.add(new_project)
         session.flush()
 
-        for unit in graph.units:
+        for unit_idx, unit in enumerate(graph.units, start=1):
             new_unit = Unit(
                 project_id=new_project.id,
                 symbol=unit.symbol,
                 code=unit.code,
-                order_index=unit.order_index,
+                order_index=unit_idx,
             )
             session.add(new_unit)
             session.flush()
             id_map["unit"][unit.id] = new_unit.id
 
-        for codelist in graph.codelists:
+        for cl_idx, codelist in enumerate(graph.codelists, start=1):
             new_codelist = CodeList(
                 project_id=new_project.id,
                 name=codelist.name,
                 code=codelist.code,
                 description=codelist.description,
-                order_index=codelist.order_index,
+                order_index=cl_idx,
             )
             session.add(new_codelist)
             session.flush()
             id_map["codelist"][codelist.id] = new_codelist.id
 
-            for option in graph.options_map.get(codelist.id, []):
+            for opt_idx, option in enumerate(graph.options_map.get(codelist.id, []), start=1):
                 session.add(CodeListOption(
                     codelist_id=new_codelist.id,
                     code=option.code,
                     decode=option.decode,
                     trailing_underscore=option.trailing_underscore,
-                    order_index=option.order_index,
+                    order_index=opt_idx,
                 ))
 
         session.flush()
 
-        for field_definition in graph.field_definitions:
+        for fd_idx, field_definition in enumerate(graph.field_definitions, start=1):
             new_field_definition = FieldDefinition(
                 project_id=new_project.id,
                 variable_name=field_definition.variable_name,
@@ -272,26 +272,26 @@ class ProjectCloneService:
                 ),
                 is_multi_record=field_definition.is_multi_record,
                 table_type=field_definition.table_type,
-                order_index=field_definition.order_index,
+                order_index=fd_idx,
             )
             session.add(new_field_definition)
             session.flush()
             id_map["field_definition"][field_definition.id] = new_field_definition.id
 
-        for form in graph.forms:
+        for form_idx, form in enumerate(graph.forms, start=1):
             new_form = Form(
                 project_id=new_project.id,
                 name=form.name,
                 code=form.code,
                 domain=form.domain,
-                order_index=form.order_index,
+                order_index=form_idx,
                 design_notes=form.design_notes,
             )
             session.add(new_form)
             session.flush()
             id_map["form"][form.id] = new_form.id
 
-            for form_field in graph.form_fields_map.get(form.id, []):
+            for ff_idx, form_field in enumerate(graph.form_fields_map.get(form.id, []), start=1):
                 session.add(FormField(
                     form_id=new_form.id,
                     field_definition_id=(
@@ -300,7 +300,7 @@ class ProjectCloneService:
                         else None
                     ),
                     is_log_row=form_field.is_log_row,
-                    order_index=form_field.order_index,
+                    order_index=ff_idx,
                     required=form_field.required,
                     label_override=form_field.label_override,
                     help_text=form_field.help_text,
