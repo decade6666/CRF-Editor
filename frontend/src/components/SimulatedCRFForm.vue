@@ -4,13 +4,21 @@
       <tbody>
         <tr
           v-for="field in displayFields"
-          :key="field.index"
+          :key="field.id"
           :class="{ 'ai-row': field._aiModified && viewMode === 'ai', 'field-row': true }"
+          :style="getRowStyle(field)"
           @click="$emit('field-click', field)"
         >
+          <!-- 日志行：跨列显示 -->
+          <template v-if="field.is_log_row || field.field_type === '日志行'">
+            <td colspan="2" class="crf-log-row">
+              <span class="crf-label">{{ field.label }}</span>
+            </td>
+          </template>
+
           <!-- 标签型：跨列显示 -->
-          <template v-if="field.field_type === '标签'">
-            <td colspan="2" class="crf-label-only">
+          <template v-else-if="field.field_type === '标签'">
+            <td colspan="2" class="crf-label-only" :style="getCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
               <el-tag
                 v-if="field._aiModified && viewMode === 'ai'"
@@ -23,7 +31,7 @@
 
           <!-- 普通字段：左标签 + 右控件 -->
           <template v-else>
-            <td class="crf-label-cell">
+            <td class="crf-label-cell" :style="getCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
               <el-tag
                 v-if="field._aiModified && viewMode === 'ai'"
@@ -32,7 +40,7 @@
                 class="ai-badge"
               >AI</el-tag>
             </td>
-            <td class="crf-control-cell" v-html="renderCtrlHtml(field)"></td>
+            <td class="crf-control-cell" :style="getCellStyle(field)" v-html="renderCtrlHtml(field)"></td>
           </template>
         </tr>
 
@@ -48,6 +56,8 @@
 <script setup>
 import { computed } from 'vue'
 import { isDefaultValueSupported, normalizeDefaultValue, renderCtrlHtml } from '../composables/useCRFRenderer'
+// Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
+import { getFormFieldPreviewStyle, getFormFieldDisplayLabel } from '../composables/formFieldPresentation'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
@@ -76,6 +86,16 @@ function applyPreviewDefaultValue(field) {
     default_value: normalizeDefaultValue(field.default_value, !inlineMark),
     _previewDefaultValue: true,
   }
+}
+
+// Task 3.3: 使用 formFieldPresentation.js 的样式函数
+function getRowStyle(field) {
+  return getFormFieldPreviewStyle(field, '')
+}
+
+// Task 3.3: 使用 formFieldPresentation.js 的标签函数
+function getDisplayLabel(field) {
+  return getFormFieldDisplayLabel(field, '')
 }
 
 const displayFields = computed(() => {
@@ -132,6 +152,15 @@ const displayFields = computed(() => {
 }
 .ai-row td {
   border-left: 3px solid #e6a23c;
+}
+
+/* 日志行（Task 3.2） */
+.crf-log-row {
+  padding: 8px 10px;
+  background: #f5f5f5;
+  text-align: center;
+  font-style: italic;
+  color: #666;
 }
 
 /* 标签列 */

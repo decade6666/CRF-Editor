@@ -226,10 +226,10 @@ async function _blobDownload(url, fallbackFilename) {
 
 async function exportFullDatabase() {
   const exportUrl = isAdmin.value ? '/api/export/database' : '/api/projects/export/database'
-  const dialogTitle = isAdmin.value ? '导出数据库' : '导出我的数据库'
+  const dialogTitle = '导出所有项目'
   const dialogMessage = isAdmin.value
-    ? '将导出整个数据库文件，是否继续？'
-    : '将导出当前账号名下的全部项目数据库，是否继续？'
+    ? '将导出所有项目数据库文件，是否继续？'
+    : '将导出当前账号名下的全部项目，是否继续？'
   const fallbackFilename = isAdmin.value
     ? 'crf_editor_full.db'
     : `${currentUser.value.username || 'my'}_projects.db`
@@ -249,7 +249,7 @@ async function exportProjectDatabase() {
   if (!selectedProject.value) return
   const name = selectedProject.value.name
   try {
-    await ElMessageBox.confirm(`将导出项目「${name}」的数据库模板，是否继续？`, '导出项目数据库', { type: 'info' })
+    await ElMessageBox.confirm(`将导出项目「${name}」的数据库，是否继续？`, '导出当前项目', { type: 'info' })
   } catch { return }
   try {
     await _blobDownload(`/api/projects/${selectedProject.value.id}/export/database`, `${name}_template.db`)
@@ -259,49 +259,21 @@ async function exportProjectDatabase() {
   }
 }
 
-// 导入项目/数据库
-const importProjectDbInput = ref(null)
-const importDatabaseMergeInput = ref(null)
-const importProjectDbLoading = ref(false)
-const importDatabaseMergeLoading = ref(false)
+// 导入项目（统一入口，自动检测单项目/多项目）
+const importProjectInput = ref(null)
+const importProjectLoading = ref(false)
 
-function triggerImportProjectDb() { importProjectDbInput.value?.click() }
-function triggerImportDatabaseMerge() { importDatabaseMergeInput.value?.click() }
+function triggerImportProject() { importProjectInput.value?.click() }
 
-async function handleImportProjectDb(e) {
+async function handleImportProject(e) {
   const file = e.target.files?.[0]
   if (!file) return
   e.target.value = ''
-  importProjectDbLoading.value = true
+  importProjectLoading.value = true
   try {
     const form = new FormData()
     form.append('file', file)
-    const resp = await fetch('/api/projects/import/project-db', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: form,
-    })
-    const data = await resp.json()
-    if (!resp.ok) throw new Error(data.detail || '导入失败')
-    ElMessage.success(`导入成功：${data.project_name}`)
-    api.clearAllCache()
-    loadProjects()
-  } catch (err) {
-    ElMessage.error('导入失败: ' + err.message)
-  } finally {
-    importProjectDbLoading.value = false
-  }
-}
-
-async function handleImportDatabaseMerge(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  e.target.value = ''
-  importDatabaseMergeLoading.value = true
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    const resp = await fetch('/api/projects/import/database-merge', {
+    const resp = await fetch('/api/projects/import/auto', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,
@@ -312,13 +284,17 @@ async function handleImportDatabaseMerge(e) {
     const renamedInfo = data.renamed.length
       ? `\n重命名：${data.renamed.map(r => `${r.original} → ${r.new}`).join('、')}`
       : ''
-    ElMessageBox.alert(`导入 ${data.imported.length} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' })
+    if (data.count === 1) {
+      ElMessage.success(`导入成功：${names}`)
+    } else {
+      ElMessageBox.alert(`导入 ${data.count} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' })
+    }
     api.clearAllCache()
     loadProjects()
   } catch (err) {
     ElMessage.error('导入失败: ' + err.message)
   } finally {
-    importDatabaseMergeLoading.value = false
+    importProjectLoading.value = false
   }
 }
 
@@ -779,21 +755,10 @@ function startResize(e) {
       </el-form-item>
 
       <el-divider>数据导出</el-divider>
-      <div style="display:flex;gap:24px">
-        <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">数据库</div>
-          <el-button @click="exportFullDatabase">{{ isAdmin ? '导出整个数据库' : '导出我的数据库' }}</el-button>
-          <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-        </div>
-        <div v-if="isAdmin" style="flex:1;display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">导入</div>
-          <el-button @click="triggerImportProjectDb" :loading="importProjectDbLoading">
-            导入项目
-          </el-button>
-          <el-button @click="triggerImportDatabaseMerge" :loading="importDatabaseMergeLoading">
-            导入数据库
-          </el-button>
-        </div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-width:360px;margin:0 auto">
+        <el-button @click="exportFullDatabase">导出所有项目</el-button>
+        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+        <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
       </div>
 
       <template v-if="isAdmin">
@@ -833,8 +798,7 @@ function startResize(e) {
         </el-form-item>
       </template>
 
-      <input ref="importProjectDbInput" type="file" accept=".db" style="display:none" @change="handleImportProjectDb" />
-      <input ref="importDatabaseMergeInput" type="file" accept=".db" style="display:none" @change="handleImportDatabaseMerge" />
+      <input ref="importProjectInput" type="file" accept=".db" style="display:none" @change="handleImportProject" />
     </el-form>
     <template #footer>
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
@@ -1030,6 +994,19 @@ function startResize(e) {
 .project-action-btn {
   margin: 0;
   padding: 4px;
+}
+
+/* 侧边栏复制按钮三态对比度（仅作用于 .project-item .project-actions） */
+.project-item .project-actions .project-action-btn:not([type="danger"]) {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.project-item:hover .project-actions .project-action-btn:not([type="danger"]) {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.project-item.active .project-actions .project-action-btn:not([type="danger"]) {
+  color: #ffffff;
 }
 
 .project-actions {

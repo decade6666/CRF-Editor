@@ -16,7 +16,7 @@ test('settings dialog provides logout entry and only saves admin settings', () =
 
 test('settings dialog routes database export by user role', () => {
   assert.match(appSource, /const exportUrl = isAdmin\.value \? '\/api\/export\/database' : '\/api\/projects\/export\/database'/)
-  assert.match(appSource, /\{\{ isAdmin \? '导出整个数据库' : '导出我的数据库' \}\}/)
+  assert.match(appSource, /导出所有项目/)
 })
 
 test('app remembers username on logout and auth expiry', () => {
