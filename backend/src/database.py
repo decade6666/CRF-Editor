@@ -540,34 +540,54 @@ def _warn_orphan_projects(engine):
 
 
 def _is_form_field_rowid_pk_compatible(engine) -> bool:
-    """检查 form_field.id 是否仍是 SQLite 可自动生成的 rowid 主键语义。"""
+    """检查 form_field.id 是否仍是 SQLite 可自动生成的 rowid 主键语义。
+
+    SQLite rowid alias 条件（全部必须满足）：
+    1. 列声明类型精确为 INTEGER（不是 INT、BIGINT 等缩写）
+    2. 是单列 PRIMARY KEY
+    3. 非 DESC 排序
+    4. 表不是 WITHOUT ROWID
+    """
+    import re
+
     insp = inspect(engine)
     if not insp.has_table("form_field"):
         return True
-
-    pk = insp.get_pk_constraint("form_field")
-    if pk.get("constrained_columns") != ["id"]:
-        return False
-
-    cols = {c["name"]: c for c in insp.get_columns("form_field")}
-    id_col = cols.get("id")
-    if not id_col:
-        return False
-
-    id_type = str(id_col.get("type") or "").upper().strip()
-    if id_type != "INTEGER":
-        return False
 
     with engine.connect() as conn:
         create_sql = conn.execute(text(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='form_field'"
         )).scalar()
 
-    normalized_sql = (create_sql or "").upper()
-    if "WITHOUT ROWID" in normalized_sql or "PRIMARY KEY DESC" in normalized_sql:
+    if not create_sql:
         return False
 
-    return True
+    normalized = create_sql.upper()
+
+    if "WITHOUT ROWID" in normalized:
+        return False
+
+    # 检查内联主键：id INTEGER PRIMARY KEY（非 DESC）
+    # SQLite rowid alias 要求声明类型精确为 "INTEGER"，不能是 INT/BIGINT 等
+    inline_pk = re.search(
+        r'\bID\s+INTEGER\s+(?:NOT\s+NULL\s+)?PRIMARY\s+KEY\b(?!\s+DESC)',
+        normalized,
+    )
+    if inline_pk:
+        return True
+
+    # 检查表级主键：PRIMARY KEY (id)（非 DESC）
+    table_pk = re.search(
+        r'PRIMARY\s+KEY\s*\(\s*ID\s*\)',
+        normalized,
+    )
+    if table_pk:
+        # 表级 PRIMARY KEY(id) 也要求 id 列声明类型精确为 INTEGER
+        id_col_match = re.search(r'\bID\s+(INTEGER)\b', normalized)
+        if id_col_match:
+            return True
+
+    return False
 
 
 
