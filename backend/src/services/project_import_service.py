@@ -202,7 +202,11 @@ class DatabaseMergeService:
             _validate_host_schema(session)
 
             projects = list(
-                ext_session.scalars(select(Project).order_by(Project.id)).all()
+                ext_session.scalars(
+                    select(Project)
+                    .where(Project.deleted_at.is_(None))
+                    .order_by(Project.id)
+                ).all()
             )
             if not projects:
                 raise ValueError("导入文件中没有项目")
