@@ -76,11 +76,11 @@ test('export segments keep updated quick edit fields in order', () => {
 test('quick edit fields are subset of form field instance properties', () => {
   assert.match(
     formDesignerSource,
-    /Object\.assign\(quickEditProp, \{\s*label: getFormFieldDisplayLabel\(ff\) \|\| '',\s*field_type: ff\.field_definition\?\.field_type \|\| '',\s*bg_color: ff\.bg_color \|\| '',\s*text_color: ff\.text_color \|\| '',\s*inline_mark: !!ff\.inline_mark\s*\}\)/s,
+    /Object\.assign\(quickEditProp, \{\s*label: getFormFieldDisplayLabel\(ff\) \|\| '',\s*field_type: ff\.field_definition\?\.field_type \|\| '',\s*bg_color: ff\.bg_color \|\| '',\s*text_color: ff\.text_color \|\| '',\s*inline_mark: !!ff\.inline_mark,\s*default_value: ff\.default_value \|\| ''\s*\}\)/s,
   )
   assert.match(
     formDesignerSource,
-    /const payload = \{ label_override: quickEditProp\.label, bg_color: quickEditProp\.bg_color \|\| null, text_color: quickEditProp\.text_color \|\| null, inline_mark: quickEditProp\.inline_mark \? 1 : 0 \}/,
+    /const payload = \{ label_override: quickEditProp\.label, bg_color: quickEditProp\.bg_color \|\| null, text_color: quickEditProp\.text_color \|\| null, inline_mark: quickEditProp\.inline_mark \? 1 : 0, default_value: quickEditProp\.default_value \|\| null \}/,
   )
   assert.match(formDesignerSource, /<el-form-item label="变量标签"><el-input v-model="quickEditProp\.label" \/><\/el-form-item>/)
   assert.match(formDesignerSource, /<el-form-item label="底纹颜色">/)
@@ -89,7 +89,7 @@ test('quick edit fields are subset of form field instance properties', () => {
     formDesignerSource,
     /<el-form-item label="布局" v-if="quickEditProp\.field_type !== '标签' && quickEditProp\.field_type !== '日志行'"><el-checkbox v-model="quickEditProp\.inline_mark">横向显示<\/el-checkbox><\/el-form-item>/,
   )
-  assert.equal(formDesignerSource.includes('default_value: quickEditProp'), false)
+  assert.equal(formDesignerSource.includes('default_value: quickEditProp'), true)
   assert.equal(formDesignerSource.includes('variable_name: quickEditProp'), false)
   assert.equal(formDesignerSource.includes('codelist_id: quickEditProp'), false)
   assert.equal(formDesignerSource.includes('unit_id: quickEditProp'), false)
