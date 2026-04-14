@@ -3,6 +3,18 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue'],
+          'vendor-ep': ['element-plus'],
+          'vendor-misc': ['sortablejs', 'vuedraggable'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

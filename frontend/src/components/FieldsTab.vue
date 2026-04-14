@@ -54,7 +54,13 @@ watch(refreshKey, load)
 const searchField = ref('')
 const visibleFields = computed(() => {
   const kw = searchField.value.trim().toLowerCase()
-  return fields.value.filter(f => {
+  const orderedFields = [...fields.value].sort((a, b) => {
+    const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
+    const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
+    if (orderA !== orderB) return orderA - orderB
+    return (a?.id ?? 0) - (b?.id ?? 0)
+  })
+  return orderedFields.filter(f => {
     if (f.field_type === '日志行') return false
     if (!kw) return true
     return Object.values(f).some(v => String(v ?? '').toLowerCase().includes(kw))
@@ -143,14 +149,18 @@ async function copyField(f) {
 async function updateOrder(row, newValue) {
   if (newValue == null || newValue === row.order_index) return
   try {
-    await api.put(`/api/projects/${props.projectId}/field-definitions/${row.id}`, {
-      variable_name: row.variable_name, label: row.label, field_type: row.field_type,
-      integer_digits: row.integer_digits, decimal_digits: row.decimal_digits,
-      date_format: row.date_format, codelist_id: row.codelist_id, unit_id: row.unit_id,
-      order_index: newValue
-    })
-    reloadFields()
-  } catch (e) { ElMessage.error(e.message) }
+    const oldIdx = fields.value.findIndex(f => f.id === row.id)
+    const newIdx = newValue - 1
+    if (oldIdx === -1 || newIdx < 0 || newIdx >= fields.value.length) return
+    const list = [...fields.value]
+    const [item] = list.splice(oldIdx, 1)
+    list.splice(newIdx, 0, item)
+    await api.post(`/api/projects/${props.projectId}/field-definitions/reorder`, list.map(i => i.id))
+    await reloadFields()
+  } catch (e) {
+    ElMessage.warning('排序保存失败，已恢复')
+    await reloadFields()
+  }
 }
 
 // 拖拽排序
@@ -160,6 +170,7 @@ const reorderUrl = computed(() => `/api/projects/${props.projectId}/field-defini
 const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
   reloadFn: reloadFields,
   isFiltered,
+  renderList: visibleFields,
 })
 </script>
 
@@ -178,7 +189,7 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
           style="width:180px"
         />
       </div>
-      <el-table ref="fieldsTableRef" :data="visibleFields" size="small" border height="100%"
+      <el-table ref="fieldsTableRef" :data="visibleFields" size="small" border height="100%" row-key="id"
         :row-class-name="({ row }) => row.id === selectedFieldId ? 'current-row' : ''"
         :row-style="{ cursor: 'pointer' }"
         @row-click="openEdit" @selection-change="r => selFields = r">
@@ -189,7 +200,7 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
             <div @click.stop>
-              <el-input-number :model-value="row.order_index" @change="v => updateOrder(row, v)" :min="1" :max="visibleFields.length" size="small" style="width:80px" :aria-label="'编辑字段 ' + row.label + ' 的序号'" />
+              <el-input-number :model-value="row.order_index" @change="v => updateOrder(row, v)" :min="1" :max="fields.length" :disabled="isFiltered" size="small" style="width:80px" :aria-label="'编辑字段 ' + row.label + ' 的序号'" />
             </div>
           </template>
         </el-table-column>

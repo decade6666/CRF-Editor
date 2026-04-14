@@ -51,6 +51,9 @@ function invalidateCache(urlPrefix) {
   for (const key of _cache.keys()) {
     if (key.startsWith(urlPrefix)) _cache.delete(key)
   }
+  for (const key of _pending.keys()) {
+    if (key.startsWith(urlPrefix)) _pending.delete(key)
+  }
 }
 
 // 清除全部缓存
@@ -72,12 +75,22 @@ function _autoInvalidate(url) {
   invalidateCache(url)
 }
 
+// 安全解析 JSON 响应，处理代理/网关返回非 JSON 内容的情况
+async function _safeJsonParse(r) {
+  const text = await r.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`服务器返回非 JSON 格式: ${text.slice(0, 100)}...`)
+  }
+}
+
 // API 请求工具
 export const api = {
   async get(url) {
     const r = await fetch(url, { headers: _getAuthHeaders() })
     await _checkStatus(r)
-    return r.json()
+    return _safeJsonParse(r)
   },
 
   // 带缓存的GET，TTL默认30秒
@@ -90,7 +103,7 @@ export const api = {
 
     const p = fetch(url, { headers: _getAuthHeaders() }).then(async (r) => {
       await _checkStatus(r)
-      const data = await r.json()
+      const data = await _safeJsonParse(r)
       _cache.set(url, { data, ts: Date.now() })
       _pending.delete(url)
       return data
@@ -112,7 +125,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return r.status === 204 ? null : r.json()
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async put(url, data) {
     const r = await fetch(url, {
@@ -122,7 +135,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return r.json()
+    return _safeJsonParse(r)
   },
   async patch(url, data) {
     const r = await fetch(url, {
@@ -132,7 +145,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return r.json()
+    return _safeJsonParse(r)
   },
   async del(url) {
     const r = await fetch(url, { method: 'DELETE', headers: _getAuthHeaders() })

@@ -22,8 +22,14 @@ const forms = ref([])
 const searchForm = ref('')
 const filteredForms = computed(() => {
   const kw = searchForm.value.trim().toLowerCase()
-  if (!kw) return forms.value
-  return forms.value.filter(item =>
+  const orderedForms = [...forms.value].sort((a, b) => {
+    const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
+    const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
+    if (orderA !== orderB) return orderA - orderB
+    return (a?.id ?? 0) - (b?.id ?? 0)
+  })
+  if (!kw) return orderedForms
+  return orderedForms.filter(item =>
     Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
   )
 })
@@ -48,8 +54,12 @@ const deletingFieldIds = ref(new Set())
 // 数据加载
 async function loadForms() { forms.value = await api.cachedGet(`/api/projects/${props.projectId}/forms`) }
 async function reloadForms() {
+  const selectedFormId = selectedForm.value?.id ?? null
   api.invalidateCache(`/api/projects/${props.projectId}/forms`)
   await loadForms()
+  if (selectedFormId == null) return
+  selectedForm.value = forms.value.find(f => f.id === selectedFormId) || null
+  if (!selectedForm.value) formFields.value = []
 }
 async function loadFieldDefs() { fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`) }
 async function loadCodelists() { codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`) }
@@ -117,16 +127,19 @@ async function copyForm(f) {
 
 async function updateFormOrder(row, newValue) {
   if (newValue == null || newValue === row.order_index) return
+  const oldIdx = forms.value.findIndex(f => f.id === row.id)
+  const newIdx = newValue - 1
+  if (oldIdx === -1 || newIdx < 0 || newIdx >= forms.value.length) return
   try {
-    const oldIdx = forms.value.findIndex(f => f.id === row.id)
-    const newIdx = newValue - 1
-    if (oldIdx === -1 || newIdx < 0 || newIdx >= forms.value.length) return
     const list = [...forms.value]
     const [item] = list.splice(oldIdx, 1)
     list.splice(newIdx, 0, item)
     await api.post(`/api/projects/${props.projectId}/forms/reorder`, list.map(i => i.id))
     await reloadForms()
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) {
+    ElMessage.warning('排序保存失败，已恢复')
+    await reloadForms()
+  }
 }
 
 function openEditForm(f) {
@@ -197,17 +210,45 @@ async function onDrop(e, targetIdx) {
   e.preventDefault(); dragOverIdx.value = null
   const srcIdx = formFields.value.findIndex(f => f.id === dragSrcId.value)
   if (srcIdx === -1 || srcIdx === targetIdx) return
-  const arr = [...formFields.value]
-  const [item] = arr.splice(srcIdx, 1)
-  arr.splice(targetIdx, 0, item)
-  const normalized = normalizeFormFieldOrder(arr)
-  formFields.value = normalized
-  await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
+  try {
+    const arr = [...formFields.value]
+    const [item] = arr.splice(srcIdx, 1)
+    arr.splice(targetIdx, 0, item)
+    const normalized = normalizeFormFieldOrder(arr)
+    formFields.value = normalized
+    await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+    await loadFormFields()
+  } catch (e) {
+    ElMessage.warning('排序保存失败，已恢复')
+    loadFormFields()
+  }
 }
 
 // 键盘排序与焦点
 const fieldItemRefs = ref({})
 onBeforeUpdate(() => { fieldItemRefs.value = {} })
+
+// 手动序号编辑（与 FieldsTab 对齐）
+async function updateFormFieldOrder(ff, newValue) {
+  if (newValue == null || newValue === ff.order_index) return
+  const oldIdx = formFields.value.findIndex(f => f.id === ff.id)
+  const newIdx = newValue - 1
+  if (oldIdx === -1 || newIdx < 0 || newIdx >= formFields.value.length) return
+  try {
+    const arr = [...formFields.value]
+    const [item] = arr.splice(oldIdx, 1)
+    arr.splice(newIdx, 0, item)
+    const normalized = normalizeFormFieldOrder(arr)
+    formFields.value = normalized
+    await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+    await loadFormFields()
+  } catch (e) {
+    ElMessage.warning('排序保存失败，已恢复')
+    loadFormFields()
+  }
+}
 
 async function handleFieldKeydown(event, field, index) {
   const { key, ctrlKey } = event
@@ -222,13 +263,20 @@ async function handleFieldKeydown(event, field, index) {
   }
   const move = async (from, to) => {
     if (to < 0 || to >= formFields.value.length) return
-    const arr = [...formFields.value]
-    const [item] = arr.splice(from, 1)
-    arr.splice(to, 0, item)
-    const normalized = normalizeFormFieldOrder(arr)
-    formFields.value = normalized
-    await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
-    nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus())
+    try {
+      const arr = [...formFields.value]
+      const [item] = arr.splice(from, 1)
+      arr.splice(to, 0, item)
+      const normalized = normalizeFormFieldOrder(arr)
+      formFields.value = normalized
+      await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      await loadFormFields()
+      nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus())
+    } catch (e) {
+      ElMessage.warning('排序保存失败，已恢复')
+      loadFormFields()
+    }
   }
   if (ctrlKey) {
     if (key === 'ArrowUp') await move(index, index - 1)
@@ -384,7 +432,7 @@ function onNotesResize(evt) {
 // 快速编辑
 const showQuickEdit = ref(false)
 const quickEditField = ref(null)
-const quickEditProp = reactive({ label: '', field_type: '', bg_color: '', text_color: '', inline_mark: false })
+const quickEditProp = reactive({ label: '', field_type: '', bg_color: '', text_color: '', inline_mark: false, default_value: '' })
 function openQuickEdit(ff) {
   quickEditField.value = ff
   Object.assign(quickEditProp, {
@@ -392,14 +440,15 @@ function openQuickEdit(ff) {
     field_type: ff.field_definition?.field_type || '',
     bg_color: ff.bg_color || '',
     text_color: ff.text_color || '',
-    inline_mark: !!ff.inline_mark
+    inline_mark: !!ff.inline_mark,
+    default_value: ff.default_value || ''
   })
   showQuickEdit.value = true
 }
 async function saveQuickEdit() {
   if (!quickEditField.value) return
   try {
-    const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0 }
+    const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0, default_value: quickEditProp.default_value || null }
     const updated = await api.put(`/api/form-fields/${quickEditField.value.id}`, payload)
     const currentField = {
       ...quickEditField.value,
@@ -583,7 +632,7 @@ async function quickAddUnit() {
 
 // 拖拽排序（表单）
 const formsTableRef = ref(null), isFormsFiltered = computed(() => searchForm.value.trim().length > 0), formsReorderUrl = computed(() => `/api/projects/${props.projectId}/forms/reorder`)
-const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, { reloadFn: reloadForms, isFiltered: isFormsFiltered })
+const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, { reloadFn: reloadForms, isFiltered: isFormsFiltered, renderList: filteredForms })
 
 onMounted(async () => { await Promise.all([loadForms(), loadFieldDefs(), loadCodelists(), loadUnits()]); nextTick(() => initFormsSortable()) })
 watch(() => props.projectId, () => { selectedForm.value = null; formFields.value = []; selectedFieldId.value = null; loadForms(); loadFieldDefs(); loadCodelists(); loadUnits() })
@@ -598,11 +647,11 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
-      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
+      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
         <el-table-column width="32" v-if="!isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
-          <template #default="{ row }"><div @click.stop><el-input-number :model-value="row.order_index" @change="v => updateFormOrder(row, v)" :min="1" :max="forms.length" size="small" style="width:80px" /></div></template>
+          <template #default="{ row }"><div @click.stop><el-input-number :model-value="row.order_index" @change="v => updateFormOrder(row, v)" :min="1" :max="forms.length" :disabled="isFormsFiltered" size="small" style="width:80px" /></div></template>
         </el-table-column>
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
@@ -674,7 +723,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button></div>
           <div class="fd-canvas-list">
             <div v-for="(ff, idx) in formFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop>{{ idx + 1 }}.</el-checkbox><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff.order_index" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="formFields.length" size="small" style="width:60px;margin-left:4px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
             </div>
           </div>
         </div>
@@ -700,7 +749,6 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <el-form :model="quickEditProp" label-width="80px" size="small">
         <el-form-item label="变量标签"><el-input v-model="quickEditProp.label" /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition" label="字段类型"><el-input :model-value="quickEditField.field_definition.field_type" disabled /></el-form-item>
-        <el-form-item v-if="quickEditField?.field_definition?.variable_name" label="变量名"><el-input :model-value="quickEditField.field_definition.variable_name" disabled /></el-form-item>
         <template v-if="quickEditField?.field_definition?.field_type === '数值'">
           <el-form-item label="整数位数"><el-input :model-value="quickEditField.field_definition.integer_digits" disabled /></el-form-item>
           <el-form-item label="小数位数"><el-input :model-value="quickEditField.field_definition.decimal_digits" disabled /></el-form-item>
@@ -708,7 +756,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <el-form-item v-if="['日期','日期时间','时间'].includes(quickEditField?.field_definition?.field_type)" label="日期格式"><el-input :model-value="quickEditField.field_definition.date_format" disabled /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典"><el-input :model-value="quickEditField.field_definition.codelist.name" disabled /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位"><el-input :model-value="quickEditField.field_definition.unit.symbol" disabled /></el-form-item>
-        <el-form-item v-if="quickEditField?.default_value != null && quickEditField.default_value !== ''" label="默认值"><el-input :model-value="quickEditField.default_value" disabled type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" /></el-form-item>
+        <el-form-item label="默认值"><el-input v-model="quickEditProp.default_value" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" /></el-form-item>
         <el-form-item label="底纹颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.bg_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.bg_color = opt.value"></div></div></el-form-item>
         <el-form-item label="文字颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.text_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.text_color = opt.value"></div></div></el-form-item>
         <el-form-item label="布局" v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'"><el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox></el-form-item>
