@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
+const stylesSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8')
 
 /**
  * Task 2.3: 验证折叠不破坏项目切换、复制、删除、刷新与设置入口
@@ -48,4 +49,10 @@ test('settings entry is always visible in header regardless of sidebar state', (
 test('refresh action is available outside sidebar content', () => {
   // 刷新按钮不依赖 sidebar 折叠状态
   assert.match(appSource, /@click="handleRefresh"/)
+})
+
+test('header layout keeps action buttons visible on narrow screens', () => {
+  assert.match(stylesSource, /\.header\s*\{[^}]*min-height:\s*50px[^}]*\}/s)
+  assert.match(stylesSource, /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.header\s*\{[\s\S]*?flex-wrap:\s*wrap;[\s\S]*?\}/)
+  assert.match(stylesSource, /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.header-right\s*\{[\s\S]*?width:\s*100%;[\s\S]*?justify-content:\s*flex-start;[\s\S]*?\}/)
 })
