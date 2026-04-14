@@ -10,6 +10,7 @@ from typing import Dict, List
 from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.database import _is_form_field_rowid_pk_compatible
 from src.models.project import Project
 from src.services.project_clone_service import ProjectCloneService, ProjectGraph, ProjectGraphLoader
 
@@ -23,15 +24,25 @@ _REQUIRED_TABLES = frozenset({
 })
 
 _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
-    "project": frozenset({"id", "name", "version"}),
+    "project": frozenset({
+        "id", "name", "version", "order_index", "created_at", "deleted_at",
+        "trial_name", "crf_version", "crf_version_date", "protocol_number", "sponsor",
+        "company_logo_path", "data_management_unit", "owner_id",
+    }),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
-    "form": frozenset({"id", "project_id", "name", "code", "order_index"}),
+    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes"}),
     "visit_form": frozenset({"id", "visit_id", "form_id", "sequence"}),
     "field_definition": frozenset({
-        "id", "project_id", "variable_name", "label", "field_type", "order_index"
+        "id", "project_id", "variable_name", "label", "field_type",
+        "integer_digits", "decimal_digits", "date_format", "codelist_id", "unit_id",
+        "is_multi_record", "table_type", "order_index", "created_at", "updated_at",
     }),
-    "form_field": frozenset({"id", "form_id", "field_definition_id", "order_index"}),
-    "codelist": frozenset({"id", "project_id", "name", "code", "order_index"}),
+    "form_field": frozenset({
+        "id", "form_id", "field_definition_id", "is_log_row", "order_index", "required",
+        "label_override", "help_text", "default_value", "inline_mark", "bg_color",
+        "text_color", "created_at", "updated_at",
+    }),
+    "codelist": frozenset({"id", "project_id", "name", "code", "description", "order_index"}),
     "codelist_option": frozenset({
         "id", "codelist_id", "code", "decode", "order_index", "trailing_underscore"
     }),
@@ -87,18 +98,39 @@ def _load_project_graph_from_session(ext_session: Session, project: Project) -> 
     return ProjectGraphLoader.load(project.id, ext_session)
 
 
+
+def _validate_host_schema(session: Session) -> None:
+    """校验当前宿主库关键表结构，避免导入在 flush 阶段才暴露 DDL 漂移。"""
+    if not _is_form_field_rowid_pk_compatible(session.get_bind()):
+        raise ValueError(
+            "当前数据库 form_field 主键结构不兼容，请重启应用完成迁移后再导入。"
+        )
+
+
 def _resolve_import_name(original_name: str, session: Session, owner_id: int) -> str:
-    """为导入项目生成不冲突的名称。"""
+    """为导入项目生成不冲突的名称（Task 4.1）。
+
+    命名规则：原名 → 原名_导入 → 原名_导入2 → ...
+    查重范围：当前 owner 的未删除项目（回收站项目不占名）
+    """
     existing_names = set(
         session.scalars(
-            select(Project.name).where(Project.owner_id == owner_id)
+            select(Project.name).where(
+                Project.owner_id == owner_id,
+                Project.deleted_at.is_(None),  # 排除回收站项目
+            )
         ).all()
     )
     if original_name not in existing_names:
         return original_name
-    n = 1
+    # 首选：原名_导入
+    candidate = f"{original_name}_导入"
+    if candidate not in existing_names:
+        return candidate
+    # 后续：原名_导入2, 原名_导入3, ...
+    n = 2
     while True:
-        candidate = f"{original_name} (导入{n})"
+        candidate = f"{original_name}_导入{n}"
         if candidate not in existing_names:
             return candidate
         n += 1
@@ -130,6 +162,7 @@ class ProjectDbImportService:
         ext_session = _open_readonly_sqlite(file_path)
         try:
             _validate_schema(ext_session)
+            _validate_host_schema(session)
 
             projects = list(ext_session.scalars(select(Project)).all())
             if len(projects) != 1:
@@ -166,6 +199,7 @@ class DatabaseMergeService:
         ext_session = _open_readonly_sqlite(file_path)
         try:
             _validate_schema(ext_session)
+            _validate_host_schema(session)
 
             projects = list(
                 ext_session.scalars(select(Project).order_by(Project.id)).all()
