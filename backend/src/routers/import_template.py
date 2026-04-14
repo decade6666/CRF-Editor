@@ -4,6 +4,7 @@ from typing import List, Optional
 
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,6 +21,15 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["import-template"])
+
+
+# Task 3.4: 兼容性错误响应 helper
+def _compatibility_error(message: str) -> JSONResponse:
+    """返回稳定的兼容性错误 JSON（detail + code）"""
+    return JSONResponse(
+        status_code=400,
+        content={"detail": message, "code": "TEMPLATE_INCOMPATIBLE"},
+    )
 
 
 # ---- Schema ----
@@ -64,6 +74,19 @@ class TemplateFieldOptionPreview(BaseModel):
     trailing_underscore: int = 0
 
 
+class TemplateFieldDefinitionPreview(BaseModel):
+    """字段定义预览 - 嵌套在 TemplateFieldPreview 中"""
+    id: int
+    project_id: int
+    variable_name: str
+    label: str
+    field_type: str
+    integer_digits: Optional[int] = None
+    decimal_digits: Optional[int] = None
+    date_format: Optional[str] = None
+    order_index: Optional[int] = None
+
+
 class TemplateFieldPreview(BaseModel):
     id: int
     project_id: int
@@ -76,8 +99,13 @@ class TemplateFieldPreview(BaseModel):
     decimal_digits: Optional[int] = None
     date_format: Optional[str] = None
     default_value: Optional[str] = None
-    inline_mark: Optional[bool] = None
+    inline_mark: int = 0
     unit_symbol: Optional[str] = None
+    # 结构性行与样式属性（Task 3.1）
+    is_log_row: int = 0
+    bg_color: Optional[str] = None
+    text_color: Optional[str] = None
+    field_definition: Optional[TemplateFieldDefinitionPreview] = None
 
 
 class TemplateFormFieldsResponse(BaseModel):
@@ -104,7 +132,11 @@ def preview_import(project_id: int, session: Session = Depends(get_session), cur
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        # Task 3.4: 兼容性错误返回结构化 JSON
+        msg = str(e)
+        if "模板库不兼容" in msg:
+            return _compatibility_error(msg)
+        raise HTTPException(400, msg)
     return ImportPreviewResponse(projects=projects)
 
 
@@ -129,7 +161,11 @@ def preview_form_fields(
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        # Task 3.4: 兼容性错误返回结构化 JSON
+        msg = str(e)
+        if "模板库不兼容" in msg:
+            return _compatibility_error(msg)
+        raise HTTPException(400, msg)
     return TemplateFormFieldsResponse(form_id=form_id, fields=fields)
 
 
@@ -162,7 +198,11 @@ def execute_import(
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        # Task 3.4: 兼容性错误返回结构化 JSON
+        msg = str(e)
+        if "模板库不兼容" in msg:
+            return _compatibility_error(msg)
+        raise HTTPException(400, msg)
     except Exception:
         logger.exception("导入模板执行失败")
         raise HTTPException(500, "导入失败，请检查模板文件是否有效")

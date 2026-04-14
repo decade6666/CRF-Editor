@@ -22,7 +22,26 @@ from src.services.project_import_service import (
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
+
 _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
+
+
+# Task 4.4: 项目导入自定义异常（确保事务回滚 + 稳定 JSON 响应）
+class ImportError(Exception):
+    """项目导入错误，携带 detail + code + status_code"""
+
+    def __init__(self, message: str, code: str, status_code: int = 400):
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+        super().__init__(message)
+
+
+_IMPORT_ERROR_CODES = {
+    "SCHEMA_INCOMPATIBLE": "IMPORT_SCHEMA_INCOMPATIBLE",
+    "DATABASE_ERROR": "IMPORT_DATABASE_ERROR",
+    "UNEXPECTED_ERROR": "IMPORT_UNEXPECTED_ERROR",
+}
 
 
 async def _save_upload_to_temp(file: UploadFile) -> Path:
@@ -72,9 +91,15 @@ async def import_project_db(
         )
         return {"project_id": result.project_id, "project_name": result.project_name}
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
     except sqlite3.DatabaseError as e:
-        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
+        raise ImportError(
+            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
+        )
+    except Exception as e:
+        raise ImportError(
+            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -100,9 +125,51 @@ async def import_database_merge(
             "renamed": report.renamed,
         }
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
     except sqlite3.DatabaseError as e:
-        raise HTTPException(400, f"数据库 schema 不兼容: {e}")
+        raise ImportError(
+            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
+        )
+    except Exception as e:
+        raise ImportError(
+            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/import/auto")
+async def import_auto(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """统一导入入口：自动检测 db 文件类型（单项目/多项目），调用对应服务。"""
+    import sqlite3
+    tmp_path = await _save_upload_to_temp(file)
+    try:
+        report = DatabaseMergeService.merge(
+            str(tmp_path), current_user.id, session
+        )
+        imported = [
+            {"id": r.project_id, "name": r.project_name}
+            for r in report.imported
+        ]
+        return {
+            "imported": imported,
+            "renamed": report.renamed,
+            "count": len(imported),
+        }
+    except ValueError as e:
+        raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
+    except sqlite3.DatabaseError as e:
+        raise ImportError(
+            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
+        )
+    except Exception as e:
+        raise ImportError(
+            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 

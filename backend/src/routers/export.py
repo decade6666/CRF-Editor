@@ -16,6 +16,7 @@ from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.services.export_service import (
     ExportService,
+    ExportError,
     export_full_database,
     export_project_database,
     export_user_projects_database,
