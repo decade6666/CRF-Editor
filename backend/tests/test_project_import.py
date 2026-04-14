@@ -517,6 +517,47 @@ def test_merge_empty_db_returns_400(client, engine, tmp_path):
     assert "没有项目" in resp.json()["detail"]
 
 
+def test_merge_skips_deleted_source_projects(client, engine, tmp_path):
+    """整库 merge 应跳过源库中已软删除的项目，不复活。"""
+    from datetime import datetime as dt
+
+    token = login_as(client, "admin")
+    db_path = tmp_path / "with_deleted.db"
+
+    # 创建包含正常项目和已删除项目的源库
+    src_engine = create_engine(f"sqlite:///{db_path}")
+
+    @event.listens_for(src_engine, "connect")
+    def _fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys = ON")
+
+    Base.metadata.create_all(src_engine)
+
+    with Session(src_engine) as s:
+        with s.begin():
+            user = User(username="src_user")
+            s.add(user)
+            s.flush()
+            # 正常项目
+            s.add(Project(name="正常项目", version="1.0", owner_id=user.id))
+            # 已删除项目
+            deleted = Project(name="已删除项目", version="1.0", owner_id=user.id)
+            s.add(deleted)
+            s.flush()
+            deleted.deleted_at = dt.now()
+
+    src_engine.dispose()
+
+    resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
+    assert resp.status_code == 200, resp.text
+
+    data = resp.json()
+    imported_names = {p["name"] for p in data["imported"]}
+    assert "正常项目" in imported_names
+    assert "已删除项目" not in imported_names
+    assert len(data["imported"]) == 1
+
+
 # =============================================================================
 # Task 4.5 / 4.6: 历史坏导出稳定拒绝测试
 # =============================================================================
@@ -755,6 +796,98 @@ def test_form_field_rebuild_preserves_constraints(tmp_path: Path) -> None:
 
 
 # =============================================================================
+# rowid 兼容性判定边缘用例
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "id_ddl,expected",
+    [
+        ("id INTEGER PRIMARY KEY", True),
+        ("id INTEGER NOT NULL PRIMARY KEY", True),
+        ("id INT PRIMARY KEY", False),
+        ("id BIGINT PRIMARY KEY", False),
+        ("id INTEGER PRIMARY KEY DESC", False),
+    ],
+    ids=[
+        "INTEGER_PK_inline",
+        "INTEGER_NOT_NULL_PK",
+        "INT_PK_not_rowid",
+        "BIGINT_PK_not_rowid",
+        "INTEGER_PK_DESC",
+    ],
+)
+def test_rowid_pk_detection_variants(tmp_path: Path, id_ddl: str, expected: bool) -> None:
+    """_is_form_field_rowid_pk_compatible 应精确区分 rowid alias 与非 rowid 主键。"""
+    from src.database import _is_form_field_rowid_pk_compatible
+
+    db_path = tmp_path / "variant.db"
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(f"""
+        CREATE TABLE form_field (
+            {id_ddl},
+            form_id INTEGER NOT NULL,
+            field_definition_id INTEGER,
+            order_index INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    eng = create_engine(f"sqlite:///{db_path}")
+    assert _is_form_field_rowid_pk_compatible(eng) is expected
+    eng.dispose()
+
+
+def test_rowid_pk_detection_table_level_pk(tmp_path: Path) -> None:
+    """表级 PRIMARY KEY(id) + INTEGER 类型应被判为兼容。"""
+    from src.database import _is_form_field_rowid_pk_compatible
+
+    db_path = tmp_path / "table_pk.db"
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE form_field (
+            id INTEGER NOT NULL,
+            form_id INTEGER NOT NULL,
+            field_definition_id INTEGER,
+            order_index INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    eng = create_engine(f"sqlite:///{db_path}")
+    assert _is_form_field_rowid_pk_compatible(eng) is True
+    eng.dispose()
+
+
+def test_rowid_pk_detection_without_rowid(tmp_path: Path) -> None:
+    """WITHOUT ROWID 表应被判为不兼容。"""
+    from src.database import _is_form_field_rowid_pk_compatible
+
+    db_path = tmp_path / "without_rowid.db"
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE form_field (
+            id INTEGER PRIMARY KEY,
+            form_id INTEGER NOT NULL,
+            field_definition_id INTEGER,
+            order_index INTEGER NOT NULL DEFAULT 1
+        ) WITHOUT ROWID
+    """)
+    conn.commit()
+    conn.close()
+
+    eng = create_engine(f"sqlite:///{db_path}")
+    assert _is_form_field_rowid_pk_compatible(eng) is False
+    eng.dispose()
+
+
+# =============================================================================
 # Task 4.2: 导出导入回环测试（根因回归验证）
 # =============================================================================
 
@@ -943,6 +1076,98 @@ def test_project_order_index_migration_is_idempotent(engine):
         ).all()
 
     assert [project.order_index for project in projects] == [20, 10]
+
+
+
+def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path) -> None:
+    """startup 自愈：init_db 应修复坏 form_field schema，修复后导入成功。"""
+    from unittest.mock import patch as mock_patch
+    from src.config import AppConfig, AuthConfig
+    from src.database import init_db, get_engine, _is_form_field_rowid_pk_compatible
+
+    from src.config import DatabaseConfig
+
+    db_path = tmp_path / "startup_heal.db"
+    test_config = AppConfig(
+        database=DatabaseConfig(path=str(db_path)),
+        auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+    )
+
+    # 1. 用 init_db 创建正常库
+    import src.database as db_mod
+    old_engine = db_mod._engine
+    db_mod._engine = None
+    try:
+        with mock_patch("src.database.get_config", return_value=test_config):
+            init_db()
+            eng = get_engine()
+
+            # 2. 破坏 form_field 主键
+            with eng.begin() as conn:
+                conn.execute(text("PRAGMA foreign_keys = OFF"))
+                conn.execute(text("""
+                    CREATE TABLE form_field_broken (
+                        id BIGINT PRIMARY KEY,
+                        form_id INTEGER NOT NULL,
+                        field_definition_id INTEGER,
+                        is_log_row INTEGER NOT NULL DEFAULT 0,
+                        order_index INTEGER NOT NULL DEFAULT 1,
+                        required INTEGER NOT NULL DEFAULT 0,
+                        label_override VARCHAR(255),
+                        help_text VARCHAR(255),
+                        default_value TEXT,
+                        inline_mark INTEGER NOT NULL DEFAULT 0,
+                        bg_color VARCHAR(10),
+                        text_color VARCHAR(10),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.execute(text(
+                    "INSERT INTO form_field_broken "
+                    "SELECT * FROM form_field"
+                ))
+                conn.execute(text("DROP TABLE form_field"))
+                conn.execute(text("ALTER TABLE form_field_broken RENAME TO form_field"))
+                conn.execute(text("PRAGMA foreign_keys = ON"))
+
+            assert not _is_form_field_rowid_pk_compatible(eng)
+
+            # 3. 重新 init_db 模拟 startup 自愈
+            init_db()
+            assert _is_form_field_rowid_pk_compatible(eng)
+
+            # 4. 验证修复后可以正常插入 FormField
+            with Session(eng) as session:
+                with session.begin():
+                    user = User(username="heal_user")
+                    session.add(user)
+                    session.flush()
+                    project = Project(name="自愈测试", version="1.0", owner_id=user.id)
+                    session.add(project)
+                    session.flush()
+                    form = Form(project_id=project.id, name="表单", order_index=1)
+                    session.add(form)
+                    session.flush()
+                    fd = FieldDefinition(
+                        project_id=project.id,
+                        variable_name="HEAL",
+                        label="字段",
+                        field_type="文本",
+                        order_index=1,
+                    )
+                    session.add(fd)
+                    session.flush()
+                    ff = FormField(
+                        form_id=form.id,
+                        field_definition_id=fd.id,
+                        order_index=1,
+                    )
+                    session.add(ff)
+                    session.flush()
+                    assert ff.id is not None
+    finally:
+        db_mod._engine = old_engine
 
 
 
