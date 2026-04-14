@@ -44,6 +44,31 @@ class ImportService:
     # ------------------------------------------------------------------
 
 
+    # Task 3.4: 必需列检查（只读访问，不再 ALTER TABLE）
+    _TEMPLATE_REQUIRED_COLUMNS: Dict[str, List[str]] = {
+        "form": ["order_index"],
+        "form_field": ["order_index", "is_log_row", "inline_mark"],
+        "field_definition": ["order_index"],
+        "codelist_option": ["order_index"],
+        "unit": ["order_index"],
+    }
+
+    @staticmethod
+    def _check_template_compatibility(db_path: str) -> None:
+        """检查模板库兼容性，缺失必需列时抛出 ValueError（Task 3.4: 只读访问）"""
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            for table, required_cols in ImportService._TEMPLATE_REQUIRED_COLUMNS.items():
+                cursor = conn.execute(f"PRAGMA table_info({table})")
+                existing_cols = {row[1] for row in cursor.fetchall()}
+                missing = [c for c in required_cols if c not in existing_cols]
+                if missing:
+                    raise ValueError(
+                        f"模板库不兼容：表 {table} 缺少列 {', '.join(missing)}，请使用迁移脚本转换"
+                    )
+        finally:
+            conn.close()
+
     @staticmethod
     def _open_template_session(template_path: str) -> Session:
         """打开模板库只读 Session
@@ -60,6 +85,9 @@ class ImportService:
 
 
         db_path = str(path.resolve())
+
+        # Task 3.4: 检查兼容性，不兼容模板返回稳定错误（只读访问，不修改源库）
+        ImportService._check_template_compatibility(db_path)
 
 
         # 创建只读 Engine（移除迁移逻辑，防止修改外部数据库）
@@ -115,7 +143,7 @@ class ImportService:
         """读取模板表单的字段详情，返回与 SimulatedCRFForm 兼容的字段列表"""
         tmpl = self._open_template_session(template_path)
         try:
-            # 获取排序后的表单字段列表
+            # 获取排序后的表单字段列表（兼容性由 _check_template_compatibility 保障）
             form_fields = list(tmpl.scalars(
                 select(FormField)
                 .where(FormField.form_id == form_id)
@@ -171,20 +199,52 @@ class ImportService:
 
             result = []
             for idx, ff in enumerate(form_fields):
-                # 跳过日志行
+                # 结构性行（标签行、日志行）也包含在预览中（Task 3.1）
+                fd = field_def_map.get(ff.field_definition_id) if ff.field_definition_id else None
+
+                # 日志行：无 field_definition，但需要显示
                 if ff.is_log_row:
+                    result.append({
+                        "id": ff.id,
+                        "project_id": 0,  # 日志行不属于任何项目字段定义
+                        "order_index": ff.order_index,
+                        "index": idx,
+                        "label": ff.label_override or "日志行",
+                        "field_type": "日志行",
+                        "options": None,
+                        "integer_digits": None,
+                        "decimal_digits": None,
+                        "date_format": None,
+                        "default_value": ff.default_value,
+                        "inline_mark": ff.inline_mark,
+                        "unit_symbol": None,
+                        "is_log_row": ff.is_log_row,
+                        "bg_color": ff.bg_color,
+                        "text_color": ff.text_color,
+                        "field_definition": None,
+                    })
                     continue
 
-
-                fd = field_def_map.get(ff.field_definition_id) if ff.field_definition_id else None
+                # 普通字段必须有 field_definition
                 if fd is None:
                     continue
 
-
-                # label_override 优先于字段定义的 label
+                # 标签行或其他类型字段
                 label = ff.label_override or fd.label
                 options = codelist_options_map.get(fd.codelist_id) if fd.codelist_id else None
 
+                # 构建嵌套 field_definition（Task 3.1）
+                field_def_preview = {
+                    "id": fd.id,
+                    "project_id": fd.project_id,
+                    "variable_name": fd.variable_name,
+                    "label": fd.label,
+                    "field_type": fd.field_type,
+                    "integer_digits": fd.integer_digits,
+                    "decimal_digits": fd.decimal_digits,
+                    "date_format": fd.date_format,
+                    "order_index": fd.order_index,
+                }
 
                 result.append({
                     "id": ff.id,
@@ -198,8 +258,12 @@ class ImportService:
                     "decimal_digits": fd.decimal_digits,
                     "date_format": fd.date_format,
                     "default_value": ff.default_value,
-                    "inline_mark": bool(ff.inline_mark),
+                    "inline_mark": ff.inline_mark,
                     "unit_symbol": unit_map.get(fd.unit_id) if fd.unit_id else None,
+                    "is_log_row": ff.is_log_row,
+                    "bg_color": ff.bg_color,
+                    "text_color": ff.text_color,
+                    "field_definition": field_def_preview,
                 })
             return result
         finally:
@@ -479,6 +543,8 @@ class ImportService:
                     help_text=ff.help_text,
                     default_value=ff.default_value,
                     inline_mark=ff.inline_mark,
+                    bg_color=ff.bg_color,  # Task 3.6: 复制背景色
+                    text_color=ff.text_color,  # Task 3.6: 复制文字色
                 )
                 s.add(new_ff)
                 summary["created_form_fields"] += 1
