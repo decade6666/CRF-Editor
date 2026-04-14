@@ -10,7 +10,8 @@ const readmeZhSource = readFileSync(path.resolve(currentDir, '../../README.md'),
 const readmeEnSource = readFileSync(path.resolve(currentDir, '../../README.en.md'), 'utf8')
 const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8')
 
-test('vite dev server keeps port 5173 and proxies api to backend 8888', () => {
+test('vite dev server binds LAN host on port 5173 and proxies api to backend 8888', () => {
+  assert.match(viteConfigSource, /host:\s*'0\.0\.0\.0'/)
   assert.match(viteConfigSource, /port:\s*5173/)
   assert.match(viteConfigSource, /target:\s*'http:\/\/127\.0\.0\.1:8888'/)
 })
