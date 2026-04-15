@@ -55,11 +55,16 @@ test('preview renders same field order as main list', () => {
 })
 
 
-test('choice codelist row exposes text actions with disable guard', () => {
+test('choice codelist row exposes icon actions with disable guard', () => {
   assert.match(formDesignerSource, /class="choice-codelist-row"/)
+  assert.match(formDesignerSource, /class="choice-codelist-select"/)
   assert.match(formDesignerSource, /class="choice-codelist-actions"/)
-  assert.match(formDesignerSource, />新增字典<\/el-button>/)
-  assert.match(formDesignerSource, />编辑字典<\/el-button>/)
+  assert.match(formDesignerSource, /aria-label="新增字典"/)
+  assert.match(formDesignerSource, /aria-label="编辑字典"/)
+  assert.match(formDesignerSource, /title="新增字典"/)
+  assert.match(formDesignerSource, /title="编辑字典"/)
+  assert.match(formDesignerSource, /:icon="Plus"/)
+  assert.match(formDesignerSource, /:icon="EditPen"/)
   assert.match(formDesignerSource, /:disabled="!editProp\.codelist_id"/)
   assert.match(formDesignerSource, /@click="openQuickAddCodelist"/)
   assert.match(formDesignerSource, /@click="openQuickEditCodelist"/)

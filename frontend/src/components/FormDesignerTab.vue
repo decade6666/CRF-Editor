@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { InfoFilled } from '@element-plus/icons-vue'
+import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions } from '../composables/useCRFRenderer'
@@ -861,8 +861,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                     <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
                   </el-select>
                   <div class="choice-codelist-actions">
-                    <el-button size="small" type="primary" plain @click="openQuickAddCodelist">新增字典</el-button>
-                    <el-button size="small" type="warning" plain :disabled="!editProp.codelist_id" @click="openQuickEditCodelist">编辑字典</el-button>
+                    <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增字典" title="新增字典" @click="openQuickAddCodelist" />
+                    <el-button class="choice-codelist-icon-btn" size="small" circle type="warning" plain :icon="EditPen" aria-label="编辑字典" title="编辑字典" :disabled="!editProp.codelist_id" @click="openQuickEditCodelist" />
                   </div>
                 </div>
               </el-form-item>
@@ -986,9 +986,11 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .fd-item:hover { background: var(--color-bg-hover); }
 .fd-panel-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; }
 .fd-panel-resizer:hover { background: var(--color-primary-subtle); }
-.choice-codelist-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+.choice-codelist-row { display: flex; align-items: center; gap: 4px; width: 100%; }
 .choice-codelist-select { flex: 1; min-width: 0; }
-.choice-codelist-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.choice-codelist-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.choice-codelist-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.choice-codelist-actions :deep(.choice-codelist-icon-btn) { width: 28px; height: 28px; padding: 0; }
 .color-picker { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .color-option { width: 20px; height: 20px; border-radius: 2px; cursor: pointer; border: 1px solid #eee; }
 .color-option.color-selected { border: 2px solid var(--color-primary); }
