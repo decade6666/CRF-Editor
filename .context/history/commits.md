@@ -1,5 +1,25 @@
 # Commit History
 
+## fix(ui): 调整设置页操作区布局与暗色样式
+
+- **ID**: cbef1010-8b65-4772-ab12-cbfea3f911cd
+- **Branch**: draft
+- **Timestamp**: 2026-04-15T17:34:41.476805+08:00
+
+**Decisions:**
+- 为主内容标签页和设置页导入导出操作区补充独立 class，避免继续依赖内联样式导致窄宽度布局难以复用和测试。
+- 增强深色主题下按钮背景与边框对比度，避免浅透明样式在暗色模式中难以识别。
+- 补充 appSettingsShell 结构测试，锁定设置页操作按钮布局和 tabs 样式钩子。
+
+**Bugs Fixed:**
+- Symptom: 设置页导入导出按钮在当前布局下宽度和排列不稳定，暗色主题按钮边界也偏弱； Root Cause: 关键布局仍写在内联样式中，且暗色按钮样式透明度过高； Fix: 提取可测试的样式钩子并提高暗色模式按钮背景与边框对比度。
+
+**Files**: frontend/src/App.vue, frontend/src/styles/main.css, frontend/tests/appSettingsShell.test.js
+
+**Tests**: 新增 node 结构测试 appSettingsShell.test.js 覆盖设置页布局钩子（本次未执行）
+
+---
+
 ## feat(designer): 增强字典快编与字段属性编辑
 
 - **ID**: 2d425e3b-2b3f-409c-8e6f-7889d14debea

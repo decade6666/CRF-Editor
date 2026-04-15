@@ -19,6 +19,15 @@ test('settings dialog routes database export by user role', () => {
   assert.match(appSource, /导出所有项目/)
 })
 
+
+test('settings dialog export actions and main tabs use scoped layout hooks', () => {
+  assert.match(appSource, /<el-tabs class="main-content-tabs" v-model="activeTab"/)
+  assert.match(appSource, /<div class="settings-transfer-actions">[\s\S]*导出所有项目[\s\S]*导出当前项目[\s\S]*:loading="importProjectLoading"[\s\S]*导入项目/s)
+  assert.match(appSource, /\.settings-transfer-actions\s*\{[\s\S]*width:\s*100%/)
+  assert.match(appSource, /\.settings-transfer-actions\s*:deep\(\.el-button\)\s*\{[\s\S]*width:\s*100%/)
+  assert.match(appSource, /\.main-content-tabs[\s\S]*padding-left:\s*20px/)
+})
+
 test('app remembers username on logout and auth expiry', () => {
   assert.match(appSource, /localStorage\.setItem\('crf_last_username', normalized\)/)
   assert.match(appSource, /function logout\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
