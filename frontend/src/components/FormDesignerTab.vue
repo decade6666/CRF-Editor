@@ -5,6 +5,7 @@ import { InfoFilled } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions } from '../composables/useCRFRenderer'
+import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import {
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
@@ -326,6 +327,11 @@ function getPreviewField(ff) {
   }
 }
 
+function canToggleInline(ff) {
+  const type = ff?.field_definition?.field_type || ''
+  return !ff?.is_log_row && type !== '标签' && type !== '日志行'
+}
+
 function getScopedDefaultValue(ff, singleLine = false) {
   const fieldType = ff?.field_definition?.field_type
   const inlineMark = Boolean(ff?.inline_mark)
@@ -466,6 +472,24 @@ async function saveQuickEdit() {
   } catch (e) { ElMessage.error('保存失败: ' + e.message) }
 }
 
+async function toggleInline(ff) {
+  if (!selectedForm.value || !canToggleInline(ff)) return
+  try {
+    await confirmFormChange()
+    await api.patch(`/api/form-fields/${ff.id}/inline-mark`, {
+      inline_mark: ff.inline_mark ? 0 : 1,
+    })
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+    await loadFormFields()
+    if (selectedFieldId.value === ff.id) {
+      const refreshed = formFields.value.find(item => item.id === ff.id)
+      if (refreshed) editProp.inline_mark = refreshed.inline_mark || 0
+    }
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
+}
+
 const selectedFieldId = ref(null)
 const editProp = reactive({
   label: '', variable_name: '', field_type: '文本', integer_digits: null, decimal_digits: null,
@@ -490,11 +514,32 @@ const DATE_FORMAT_OPTIONS = {
 const DEFAULT_DATE_FORMATS = { '日期': 'yyyy-MM-dd', '日期时间': 'yyyy-MM-dd HH:mm', '时间': 'HH:mm' }
 
 watch(() => editProp.field_type, (newType) => {
-  if (['日期', '日期时间', '时间'].includes(newType)) {
-    const opts = DATE_FORMAT_OPTIONS[newType] || []
-    if (!opts.includes(editProp.date_format)) editProp.date_format = DEFAULT_DATE_FORMATS[newType]
-  } else editProp.date_format = null
+  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))
 })
+
+function applyCustomBgColor() {
+  const raw = String(customBgColorInput.value ?? '').trim()
+  if (!raw) {
+    editProp.bg_color = null
+    return
+  }
+  const normalized = normalizeHexColorInput(raw)
+  if (!normalized) return
+  customBgColorInput.value = normalized
+  editProp.bg_color = normalized
+}
+
+function applyCustomTextColor() {
+  const raw = String(customTextColorInput.value ?? '').trim()
+  if (!raw) {
+    editProp.text_color = null
+    return
+  }
+  const normalized = normalizeHexColorInput(raw)
+  if (!normalized) return
+  customTextColorInput.value = normalized
+  editProp.text_color = normalized
+}
 
 function syncSelectedField(updatedField, { syncEditor = true } = {}) {
   if (!updatedField) return
@@ -583,12 +628,12 @@ async function quickAddCodelist() {
   } catch (e) { ElMessage.error(e.message) }
 }
 
-const showQuickEditCodelist = ref(false), quickEditCodelistId = ref(null), quickEditCodelistName = ref(''), quickEditCodelistOpts = ref([]), quickEditOptCode = ref(''), quickEditOptDecode = ref('')
+const showQuickEditCodelist = ref(false), quickEditCodelistId = ref(null), quickEditCodelistName = ref(''), quickEditCodelistDescription = ref(''), quickEditCodelistOpts = ref([]), quickEditOptCode = ref(''), quickEditOptDecode = ref(''), quickEditCodelistSaving = ref(false)
 function openQuickEditCodelist() {
   if (!editProp.codelist_id) return
   const cl = codelists.value.find(c => c.id === editProp.codelist_id)
   if (!cl) return
-  quickEditCodelistId.value = cl.id; quickEditCodelistName.value = cl.name; quickEditCodelistOpts.value = (cl.options || []).map(o => ({ id: o.id, code: o.code, decode: o.decode, trailing_underscore: o.trailing_underscore || 0 }))
+  quickEditCodelistId.value = cl.id; quickEditCodelistName.value = cl.name; quickEditCodelistDescription.value = cl.description || ''; quickEditCodelistOpts.value = (cl.options || []).map(o => ({ id: o.id, code: o.code, decode: o.decode, trailing_underscore: o.trailing_underscore || 0 }))
   quickEditOptCode.value = `C.${(cl.options || []).length + 1}`; quickEditOptDecode.value = ''; showQuickEditCodelist.value = true
 }
 function quickEditAddOptRow() {
@@ -599,18 +644,44 @@ function quickEditAddOptRow() {
 }
 function quickEditDelOptRow(idx) { quickEditCodelistOpts.value.splice(idx, 1) }
 function toggleTrailingLine(row) { row.trailing_underscore = row.trailing_underscore ? 0 : 1 }
-function closeQuickEditCodelist() { showQuickEditCodelist.value = false; quickEditCodelistId.value = null; quickEditCodelistName.value = ''; quickEditCodelistOpts.value = []; quickEditOptCode.value = ''; quickEditOptDecode.value = '' }
+function closeQuickEditCodelist() { showQuickEditCodelist.value = false; quickEditCodelistId.value = null; quickEditCodelistName.value = ''; quickEditCodelistDescription.value = ''; quickEditCodelistOpts.value = []; quickEditOptCode.value = ''; quickEditOptDecode.value = '' }
 async function quickSaveCodelist() {
-  if (!quickEditCodelistName.value.trim()) return ElMessage.warning('请输入字典名称')
+  if (quickEditCodelistSaving.value) return
+
+  const savedName = quickEditCodelistName.value.trim()
+  if (!savedName) return ElMessage.warning('请输入字典名称')
+
+  const normalizedOptions = quickEditCodelistOpts.value.map(opt => ({
+    ...opt,
+    code: String(opt.code ?? '').trim(),
+    decode: String(opt.decode ?? '').trim(),
+    trailing_underscore: opt.trailing_underscore || 0,
+  }))
+  const invalidOptionIndex = normalizedOptions.findIndex(opt => !opt.code || !opt.decode)
+  if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`)
+
+  quickEditCodelistSaving.value = true
   try {
-    const savedName = quickEditCodelistName.value.trim()
-    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}`, { name: savedName, description: '' })
-    const cl = codelists.value.find(c => c.id === quickEditCodelistId.value), originalIds = new Set((cl?.options || []).map(o => o.id)), currentIds = new Set(quickEditCodelistOpts.value.filter(o => o.id).map(o => o.id))
-    for (const id of originalIds) if (!currentIds.has(id)) await api.del(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/options/${id}`)
-    for (const opt of quickEditCodelistOpts.value) {
-      if (opt.id) await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/options/${opt.id}`, { code: opt.code, decode: opt.decode, trailing_underscore: opt.trailing_underscore || 0 })
-      else await api.post(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/options`, { code: opt.code, decode: opt.decode, trailing_underscore: opt.trailing_underscore || 0 })
+    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/references`)
+    if (refs.length) {
+      const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
+      await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
     }
+
+    quickEditCodelistName.value = savedName
+    quickEditCodelistOpts.value = normalizedOptions
+
+    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/snapshot`, {
+      name: savedName,
+      description: quickEditCodelistDescription.value,
+      options: normalizedOptions.map(opt => ({
+        id: opt.id,
+        code: opt.code,
+        decode: opt.decode,
+        trailing_underscore: opt.trailing_underscore || 0,
+      })),
+    })
+
     api.invalidateCache(`/api/projects/${props.projectId}/codelists`); await loadCodelists()
     if (selectedForm.value) {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`); await loadFormFields()
@@ -618,7 +689,20 @@ async function quickSaveCodelist() {
       if (updated) selectField(updated)
     }
     closeQuickEditCodelist(); ElMessage.success('保存成功')
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) {
+    if (e === 'cancel') return
+    api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
+    await loadCodelists()
+    if (selectedForm.value) {
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`); await loadFormFields()
+      const updated = formFields.value.find(f => f.id === selectedFieldId.value)
+      if (updated) selectField(updated)
+    }
+    closeQuickEditCodelist()
+    ElMessage.error(`保存失败：${e.message}。已刷新为最新字典数据，请重新检查后再编辑。`)
+  } finally {
+    quickEditCodelistSaving.value = false
+  }
 }
 
 const showQuickAddUnit = ref(false), quickUnitSymbol = ref('')
@@ -723,7 +807,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button></div>
           <div class="fd-canvas-list">
             <div v-for="(ff, idx) in formFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff.order_index" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="formFields.length" size="small" style="width:60px;margin-left:4px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff.order_index" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="formFields.length" size="small" style="width:60px;margin-left:4px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
             </div>
           </div>
         </div>
@@ -731,14 +815,91 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <div :style="{ width: propWidth + 'px', border: '1px solid var(--color-border)', borderRadius: '4px', display: 'flex', flexDirection: 'column' }">
           <div style="padding:8px 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">属性编辑</div>
           <div v-if="!selectedFieldId" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted)">← 选择字段</div>
-          <div v-else style="flex:1;overflow-y:auto;padding:8px">
+          <div v-else-if="editProp.field_type === '日志行'" style="flex:1;overflow-y:auto;padding:8px">
             <el-form :model="editProp" label-width="70px" size="small">
               <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
-              <el-form-item label="类型"><el-select v-model="editProp.field_type"><el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" /></el-select></el-form-item>
-              <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项"><el-select v-model="editProp.codelist_id" clearable filterable><el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" /></el-select><el-button size="small" @click="openQuickAddCodelist">+</el-button></el-form-item>
-              <el-form-item label="底纹"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value}" :style="opt.value ? {background:'#'+opt.value} : {border:'1px dashed #ccc'}" @click="editProp.bg_color=opt.value"></div></div></el-form-item>
+              <el-form-item label="底纹">
+                <div class="color-picker">
+                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                  <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                    <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
+                  </el-input>
+                </div>
+              </el-form-item>
+              <el-form-item label="文字颜色">
+                <div class="color-picker">
+                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                  <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                    <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
+                  </el-input>
+                </div>
+              </el-form-item>
             </el-form>
-            <el-button type="primary" size="small" style="width:100%" @click="saveFieldProp">保存</el-button>
+            <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
+          </div>
+          <div v-else style="flex:1;overflow-y:auto;padding:8px">
+            <el-form :model="editProp" label-width="70px" size="small">
+              <el-form-item label="变量标签"><el-input v-model="editProp.label" /></el-form-item>
+              <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
+              <el-form-item label="字段类型">
+                <el-select v-model="editProp.field_type" style="width:100%">
+                  <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
+                </el-select>
+              </el-form-item>
+              <template v-if="editProp.field_type === '数值'">
+                <el-form-item label="整数位数"><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width:100%" /></el-form-item>
+                <el-form-item label="小数位数"><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width:100%" /></el-form-item>
+              </template>
+              <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
+                <el-select v-model="editProp.date_format" clearable style="width:100%">
+                  <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
+                <div class="choice-codelist-row">
+                  <el-select v-model="editProp.codelist_id" class="choice-codelist-select" clearable filterable placeholder="请选择">
+                    <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
+                  </el-select>
+                  <div class="choice-codelist-actions">
+                    <el-button size="small" type="primary" plain @click="openQuickAddCodelist">新增字典</el-button>
+                    <el-button size="small" type="warning" plain :disabled="!editProp.codelist_id" @click="openQuickEditCodelist">编辑字典</el-button>
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
+                <div style="display:flex;gap:4px">
+                  <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择">
+                    <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
+                  </el-select>
+                  <el-button size="small" type="primary" plain @click="showQuickAddUnit = true">新增单位</el-button>
+                </div>
+              </el-form-item>
+              <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
+                <template #label>
+                  <el-tooltip :content="editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'">
+                    <span>默认值 <el-icon><InfoFilled /></el-icon></span>
+                  </el-tooltip>
+                </template>
+                <el-input v-model="editProp.default_value" :type="editProp.inline_mark ? 'textarea' : 'text'" :rows="editProp.inline_mark ? 2 : undefined" :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'" />
+              </el-form-item>
+              <el-form-item label="底纹">
+                <div class="color-picker">
+                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                  <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                    <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
+                  </el-input>
+                </div>
+              </el-form-item>
+              <el-form-item label="文字颜色">
+                <div class="color-picker">
+                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                  <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                    <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
+                  </el-input>
+                </div>
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
           </div>
           <div class="design-notes-wrap" style="padding: 8px; border-top: 1px solid var(--color-border);"><div style="font-size: 12px; margin-bottom: 4px;">设计备注</div><el-input v-model="formDesignNotes" type="textarea" :autosize="false" :style="{ height: notesHeight + 'px' }" @input="onNotesInput" /></div>
         </div>
@@ -770,6 +931,40 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <div style="margin-top:8px;display:flex;gap:6px"><el-input v-model="quickOptCode" size="small" style="width:100px" /><el-input v-model="quickOptDecode" size="small" style="flex:1" /><el-button size="small" @click="quickAddOptRow">添加</el-button></div>
       <template #footer><el-button @click="closeQuickAddCodelist">取消</el-button><el-button type="primary" @click="quickAddCodelist">确定</el-button></template>
     </el-dialog>
+
+    <el-dialog v-model="showQuickEditCodelist" title="编辑选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="名称"><el-input v-model="quickEditCodelistName" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="quickEditCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
+      </el-form>
+      <el-table :data="quickEditCodelistOpts" size="small" border>
+        <el-table-column prop="code" label="编码" width="120">
+          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
+        </el-table-column>
+        <el-table-column prop="decode" label="标签">
+          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="后加下划线" width="110" align="center">
+          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickEditDelOptRow($index)">删除</el-button></template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <el-input v-model="quickEditOptCode" size="small" style="width:100px" />
+        <el-input v-model="quickEditOptDecode" size="small" style="flex:1" />
+        <el-button size="small" @click="quickEditAddOptRow">添加</el-button>
+      </div>
+      <template #footer><el-button :disabled="quickEditCodelistSaving" @click="closeQuickEditCodelist">取消</el-button><el-button type="primary" :loading="quickEditCodelistSaving" :disabled="quickEditCodelistSaving" @click="quickSaveCodelist">确定</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px" :close-on-click-modal="false">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="符号"><el-input v-model="quickUnitSymbol" placeholder="单位符号，如 kg" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="showQuickAddUnit = false">取消</el-button><el-button type="primary" @click="quickAddUnit">确定</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -791,7 +986,10 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .fd-item:hover { background: var(--color-bg-hover); }
 .fd-panel-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; }
 .fd-panel-resizer:hover { background: var(--color-primary-subtle); }
-.color-picker { display: flex; gap: 4px; }
+.choice-codelist-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+.choice-codelist-select { flex: 1; min-width: 0; }
+.choice-codelist-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.color-picker { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .color-option { width: 20px; height: 20px; border-radius: 2px; cursor: pointer; border: 1px solid #eee; }
 .color-option.color-selected { border: 2px solid var(--color-primary); }
 </style>
