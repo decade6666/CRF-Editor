@@ -146,3 +146,40 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
             ("1", "男", 1, 1),
             ("2", "女", 0, 2),
         ]
+
+
+def test_create_codelist_with_options_is_atomic_when_option_conflicts(
+    client: TestClient,
+    auth_token: str,
+    engine,
+) -> None:
+    project_id = _create_project(client, auth_token)
+
+    resp = client.post(
+        f"/api/projects/{project_id}/codelists",
+        json={
+            "name": "性别",
+            "code": "CL_SEX",
+            "description": "保留说明",
+            "options": [
+                {"code": "1", "decode": "男", "trailing_underscore": 1},
+                {"code": "1", "decode": "男", "trailing_underscore": 0},
+            ],
+        },
+        headers=auth_headers(auth_token),
+    )
+
+    assert resp.status_code >= 400, resp.text
+
+    list_resp = client.get(
+        f"/api/projects/{project_id}/codelists",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    assert list_resp.json() == []
+
+    with Session(engine) as session:
+        codelists = session.query(CodeList).filter(CodeList.project_id == project_id).all()
+        assert codelists == []
+        options = session.query(CodeListOption).all()
+        assert options == []

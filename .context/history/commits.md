@@ -1,5 +1,40 @@
 # Commit History
 
+## fix(designer): 收口自动保存与字典新增提交流程
+
+- **ID**: 238ceb03-4ec5-4438-b8a7-4b94d7b959dc
+- **Branch**: draft
+- **Timestamp**: 2026-04-15T23:41:49.291178+08:00
+
+**Decisions:**
+- 为字段属性自动保存补充失败分类，仅对网络异常、超时、429 与 5xx 保留重试，其它确定性错误不再无限重试。
+- 将项目切换前的自动保存 guard 提升到 App.vue，通过 FormDesignerTab 暴露 canLeaveProject 阻止父层切到新项目后再丢失旧草稿。
+- 扩展 codelist 创建接口支持一次性提交 options，使前端新增字典改为单请求原子创建并补齐回滚测试。
+- ## 2026-03-23T13:36:01.9886236+08:00
+- **Decision**: 分析 `fastadmin-migration-claude-md` 时，优先以当前仓库真实领域模型为基线，再叠加 FastAdmin 官方仓库已验证的控制器、模型、JS 模块和 CRUD 约定；新 `CLAUDE.md` 必须明确区分“框架通用约定”和“CRF-Editor 领域特有规则”。
+- **Alternatives**: 1. 仅按 proposal 的映射表重写文档；2. 只写 FastAdmin 通用栈说明，不回填当前项目的领域对象、特殊字段和非 CRUD 模块。
+- **Reason**: 该变更是纯文档重写，没有代码可作为后续迁移的真实参照；如果只保留 FastAdmin 通用术语，容易丢失现有领域知识，如 `field_definition`/`form_field` 双层模型、`visit_form` 排序关系、日志行、导入导出和 AI 复核等。先以现有模型校正，再用官方仓库样例验证 `Backend` 控制器、RequireJS 模块、时间戳和 `weigh` 约定，能降低文档误导后续 AI 的概率。
+- **Risk**: 若文档没有显式标注哪些模块适合 CRUD 生成、哪些必须手写，后续 AI 很可能把复杂关系和自定义流程错误地压平为标准增删改查；另外，若只映射表名而不映射唯一约束、空值规则和排序语义，迁移阶段会出现结构正确但行为错误的问题。
+- ## 2026-03-31T14:08:12.6589726+08:00
+- **Decision**: 在 `backend/src/services/export_service.py` 中新增 `_add_cover_para()`，并按目标版式彻底重写 `_add_cover_page()`；同时只在 `_apply_document_style`、`_add_log_row`、`_add_label_row`、`_add_field_row`、`_render_field_control` 这些指定方法做定点格式修正，不碰 `_validate_output`、`_add_inline_table` 和数据模型。
+- **Alternatives**: 1. 继续复用现有封面表格渲染并只改文案；2. 通过调整 `_apply_cover_page_table_style()` 或公共段落样式去间接逼近目标格式；3. 顺手清理 `export_service.py` 里其它已存在的未提交差异。
+- **Reason**: 本次需求对封面顺序、字号、空行、3x2 信息表内容和时间占位格式都有精确约束，继续在旧封面结构上打补丁会把“标题在表格中”和“版本信息在表格中”的旧语义残留住。新增一个很小的封面段落 helper 后，既能最小范围复用字体设置，又能把封面内容从表格中剥离到顶层段落，和测试新断言保持一致；其余只改指定方法，能避免把当前工作区里其他未完成改动卷进这次修复。
+- **Risk**: 封面改成“段落 + 表格”后，依赖旧封面单元格坐标的外部脚本如果存在，可能需要同步更新；另外 `FormLabel` 样式仍只在样式不存在时创建，若未来改成基于模板文档导出且模板已预置同名样式，则可能需要再补一个“已存在样式时也强制覆写”的分支。
+- ## 2026-04-02T11:38:53.6651422+08:00
+- **Decision**: 分析 `admin-and-ui-ordering-enhancements` 时，后端建议采用“弱管理员后端门禁 + 独立项目导入/整库合并服务 + 完整项目树复制服务 + 复用现有 OrderService”的分层实现，不把新能力继续塞进现有 `settings`/`import_template` 单一路由，也不接受仅前端隐藏入口而后端不校验的做法。
+- **Alternatives**: 1. 仅在前端按 `admin_username` 控制入口显示，后端接口不做任何管理员校验；2. 将单项目导入、整库合并、项目复制都塞进 `settings` 或 `import_template` 现有职责；3. 用“替换整库”代替“整库合并”，绕开冲突处理。
+- **Reason**: 当前仓库已经有 `OrderService`、按 owner 隔离的项目模型和模板导入服务，但管理员、项目复制、整库合并都没有现成 API；同时 `settings` 路由当前未鉴权，`/api/auth/enter` 又允许任意用户名自动建号。如果继续沿用“只在前端控入口”的模式，高影响接口会变成显式可绕过的假门禁。将管理员判断至少落到后端依赖中，且把单项目导入、整库合并、项目复制拆成独立服务，才能把 owner 重绑、唯一键冲突、外键重映射和事务边界收束在可测试的后端层。
+- **Risk**: 该方案仍不是强安全模型，因为知道 `admin_username` 的人仍可登录伪装管理员；另外整库合并和项目树复制都需要大事务与全量映射，若冲突策略、logo/文件资源处理和 token 失效规则不先定稿，实现阶段容易出现脏数据或行为不一致。
+
+**Bugs Fixed:**
+- Symptom: 表单设计器属性编辑改为自动保存后，确定性错误会反复重试、关闭设计器/切项目时草稿可能丢失； Root Cause: 前端错误未保留 HTTP 状态，自动保存状态机缺少关闭/切项目前的 guard，父层项目切换也未等待子组件 flush 完成； Fix: 在 useApi 中保留 status，按错误类型分流重试，并让 App.vue 在切项目之前先通过 FormDesignerTab 的 canLeaveProject guard。
+- Symptom: 新增选项字典仍需先建字典再逐条建选项，失败时会留下半成品； Root Cause: 创建接口只支持字典本体，前端只能走多次 POST； Fix: 扩展后端 codelist 创建 schema 与路由，支持一次性创建 options，并为冲突场景补原子性测试。
+
+**Files**: backend/src/routers/codelists.py, backend/src/schemas/codelist.py, backend/tests/test_codelists_router.py, frontend/src/App.vue, frontend/src/components/FormDesignerTab.vue, frontend/src/composables/useApi.js, frontend/tests/quickEditBehavior.test.js
+
+**Tests**: pytest backend/tests/test_codelists_router.py — 3 passed；node --test frontend/tests/quickEditBehavior.test.js — 20 passed
+
+---
 ## test(auth): 覆盖 token 过期时间配置回归
 
 - **ID**: ce6c6593-3132-4e72-8634-aa46edb64c7a
