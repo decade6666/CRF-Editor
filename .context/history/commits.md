@@ -1,5 +1,21 @@
 # Commit History
 
+## test(auth): 覆盖 token 过期时间配置回归
+
+- **ID**: ce6c6593-3132-4e72-8634-aa46edb64c7a
+- **Branch**: draft
+- **Timestamp**: 2026-04-15T17:37:40.814765+08:00
+
+**Decisions:**
+- 在认证测试中直接 patch get_config，验证 create_access_token 会读取 access_token_expire_minutes 配置而不是写死默认值。
+- 在配置测试中补充 auth.access_token_expire_minutes 的显式覆盖与默认回退断言，锁定配置层与令牌生成层的一致性。
+
+**Files**: backend/tests/test_auth.py, backend/tests/test_config.py
+
+**Tests**: 新增 pytest 用例 test_create_access_token_uses_configured_expire_minutes、test_yaml_auth_expire_minutes_overrides_model_default、test_missing_auth_expire_minutes_falls_back_to_auth_default（本次未执行）
+
+---
+
 ## fix(ui): 收紧字典操作按钮占位
 
 - **ID**: 62ee38c1-8817-4ad4-9f54-ff5b4c264602

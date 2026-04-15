@@ -6,10 +6,14 @@
 - 空用户名返回 422
 - 无 token 访问受保护接口返回 401
 """
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
 import jwt
 from fastapi.testclient import TestClient
 
 from src.config import AppConfig, AuthConfig
+from src.services.auth_service import create_access_token
 
 _TEST_CONFIG = AppConfig(auth=AuthConfig(secret_key="test-secret-key-for-testing"))
 
@@ -52,3 +56,26 @@ def test_enter_empty_username_returns_422(client: TestClient):
 def test_no_token_returns_401(client: TestClient):
     r = client.get("/api/projects")
     assert r.status_code == 401
+
+
+def test_create_access_token_uses_configured_expire_minutes() -> None:
+    configured_auth = AuthConfig(
+        secret_key="test-secret-key-for-testing",
+        access_token_expire_minutes=8640,
+    )
+    configured_config = AppConfig(auth=configured_auth)
+
+    issued_before = datetime.now(timezone.utc)
+    with patch("src.services.auth_service.get_config", return_value=configured_config):
+        token = create_access_token(user_id=7, username="carol")
+    issued_after = datetime.now(timezone.utc)
+
+    payload = jwt.decode(
+        token,
+        configured_auth.secret_key,
+        algorithms=[configured_auth.algorithm],
+    )
+    expected_min = int((issued_before + timedelta(minutes=8640)).timestamp()) - 1
+    expected_max = int((issued_after + timedelta(minutes=8640)).timestamp()) + 1
+
+    assert expected_min <= payload["exp"] <= expected_max
