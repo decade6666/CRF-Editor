@@ -301,8 +301,9 @@ html[data-theme="dark"] {
 /* 顶部图标按钮 — 统一风格（白底 header 上保证对比度）*/
 .header .el-button.header-icon-btn {
   color: var(--color-header-text);
-  opacity: 0.85;
-  border: 1px solid transparent;
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   transition: all var(--transition-std);
 }
 .header .el-button.header-icon-btn:hover,

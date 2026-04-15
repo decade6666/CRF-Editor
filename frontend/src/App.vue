@@ -703,7 +703,7 @@ function startResize(e) {
         </div>
       </div>
       <template v-else>
-        <el-tabs v-model="activeTab" style="height:100%;display:flex;flex-direction:column">
+        <el-tabs class="main-content-tabs" v-model="activeTab" style="height:100%;display:flex;flex-direction:column">
           <el-tab-pane label="项目信息" name="info">
             <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
           </el-tab-pane>
@@ -755,7 +755,7 @@ function startResize(e) {
       </el-form-item>
 
       <el-divider>数据导出</el-divider>
-      <div style="display:flex;flex-direction:column;gap:8px;max-width:360px;margin:0 auto">
+      <div class="settings-transfer-actions">
         <el-button @click="exportFullDatabase">导出所有项目</el-button>
         <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
         <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
@@ -1014,6 +1014,27 @@ function startResize(e) {
   gap: 4px;
   align-items: center;
   margin-left: auto;
+}
+
+.settings-transfer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-transfer-actions :deep(.el-button) {
+  width: 100%;
+  margin-left: 0;
+}
+
+.main-content-tabs {
+  min-height: 0;
+}
+
+.main-content-tabs :deep(.el-tabs__header) {
+  margin-bottom: 0;
+  padding-left: 20px;
 }
 
 .sidebar.collapsed {
