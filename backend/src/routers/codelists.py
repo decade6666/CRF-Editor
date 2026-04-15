@@ -55,7 +55,7 @@ def create_codelist(project_id: int, data: CodeListCreate, session: Session = De
     if not dump.get("code"):
         dump["code"] = generate_code("CL")
 
-    cl = CodeList(project_id=project_id, **{k: v for k, v in dump.items() if k != 'order_index'})
+    cl = CodeList(project_id=project_id, **{k: v for k, v in dump.items() if k not in {'order_index', 'options'}})
     if data.order_index is None:
         cl.order_index = OrderService.get_next_order(session, CodeList, CodeList.project_id == project_id)
         session.add(cl)
@@ -63,6 +63,21 @@ def create_codelist(project_id: int, data: CodeListCreate, session: Session = De
         OrderService.insert_at(session, CodeList, CodeList.project_id == project_id, cl, data.order_index)
 
     session.flush()
+
+    options = []
+    for index, item in enumerate(data.options, start=1):
+        opt = CodeListOption(
+            codelist_id=cl.id,
+            code=item.code,
+            decode=item.decode,
+            trailing_underscore=item.trailing_underscore,
+            order_index=index,
+        )
+        session.add(opt)
+        options.append(opt)
+
+    session.flush()
+    cl.options = options
     return cl
 
 

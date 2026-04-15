@@ -34,12 +34,18 @@ function _handle401() {
   window.dispatchEvent(new CustomEvent('crf:auth-expired'))
 }
 
+function _createHttpError(message, status) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+
 async function _checkStatus(r) {
   if (r.status === 401) {
     _handle401()
-    throw new Error('登录已过期，请重新登录')
+    throw _createHttpError('登录已过期，请重新登录', r.status)
   }
-  if (!r.ok) throw new Error(await _parseError(r))
+  if (!r.ok) throw _createHttpError(await _parseError(r), r.status)
 }
 
 // ── 内存缓存层 ──
