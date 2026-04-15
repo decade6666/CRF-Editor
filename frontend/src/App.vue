@@ -75,6 +75,7 @@ async function loadMe() {
 const projects = ref([])
 const selectedProject = ref(null)
 const activeTab = ref('info')
+const formDesignerTabRef = ref(null)
 const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
 const copyingProjectId = ref(null)
@@ -117,7 +118,12 @@ function handleRefresh() {
   ElMessage.success('数据已刷新')
 }
 
-function selectProject(p) {
+async function selectProject(p) {
+  if (selectedProject.value?.id === p.id) return
+  if (activeTab.value === 'designer' && formDesignerTabRef.value?.canLeaveProject) {
+    const canLeave = await formDesignerTabRef.value.canLeaveProject()
+    if (!canLeave) return
+  }
   selectedProject.value = p
   activeTab.value = 'info'
 }
@@ -717,7 +723,7 @@ function startResize(e) {
             <div class="content-inner"><FieldsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
           <el-tab-pane label="表单" name="designer">
-            <div class="content-inner"><FormDesignerTab :project-id="selectedProject.id" /></div>
+            <div class="content-inner"><FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" /></div>
           </el-tab-pane>
           <el-tab-pane label="访视" name="visits">
             <div class="content-inner"><VisitsTab :project-id="selectedProject.id" /></div>

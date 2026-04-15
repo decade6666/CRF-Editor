@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, inject, defineExpose } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
@@ -496,6 +496,14 @@ const editProp = reactive({
   date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
   bg_color: null, text_color: null,
 })
+let fieldPropSaveTimer = null
+let pendingFieldPropSnapshots = []
+let isHydratingFieldProp = false
+let isSavingFieldProp = false
+let fieldPropAutoSaveErrorShown = false
+let fieldPropSaveSession = 0
+const fieldPropProjectId = ref(props.projectId)
+let lastHydratedFieldPropDraftKey = ''
 const designerFieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '标签']
 const COLOR_OPTIONS = [
   { value: null, label: '无颜色' },
@@ -547,48 +555,220 @@ function syncSelectedField(updatedField, { syncEditor = true } = {}) {
   if (syncEditor && selectedFieldId.value === updatedField.id) selectField(updatedField)
 }
 
+function buildFieldPropSnapshot(fieldId = selectedFieldId.value) {
+  if (!fieldId) return null
+  return {
+    fieldId,
+    projectId: fieldPropProjectId.value,
+    label: editProp.label,
+    variable_name: editProp.variable_name,
+    field_type: editProp.field_type,
+    integer_digits: editProp.integer_digits,
+    decimal_digits: editProp.decimal_digits,
+    date_format: editProp.date_format,
+    codelist_id: editProp.codelist_id,
+    unit_id: editProp.unit_id,
+    default_value: editProp.default_value,
+    inline_mark: editProp.inline_mark,
+    bg_color: editProp.bg_color,
+    text_color: editProp.text_color,
+  }
+}
+
+function getFieldPropSnapshotKey(snapshot = buildFieldPropSnapshot()) {
+  return snapshot ? JSON.stringify(snapshot) : ''
+}
+
+function upsertPendingFieldPropSnapshot(snapshot) {
+  if (!snapshot?.fieldId) return
+  const snapshotKey = getFieldPropSnapshotKey(snapshot)
+  pendingFieldPropSnapshots = [
+    ...pendingFieldPropSnapshots.filter(item => item.fieldId !== snapshot.fieldId),
+    { ...snapshot, snapshotKey },
+  ]
+}
+
+function hasPendingFieldPropSnapshot(fieldId, snapshotKey = '') {
+  return pendingFieldPropSnapshots.some(item => item.fieldId === fieldId && (!snapshotKey || item.snapshotKey !== snapshotKey))
+}
+
+function shouldRetryFieldPropSave(error) {
+  const message = String(error?.message || '')
+  if (!message) return true
+  if (message === '自动保存上下文已变更' || message === '单选/多选字段必须选择选项字典') return false
+  const status = Number(error?.status || error?.response?.status)
+  if (!Number.isFinite(status) || status <= 0) return true
+  return status >= 500 || status === 429 || status === 408
+}
+
+function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
+  fieldPropSaveSession += 1
+  clearTimeout(fieldPropSaveTimer)
+  fieldPropSaveTimer = null
+  pendingFieldPropSnapshots = []
+  isSavingFieldProp = false
+  fieldPropAutoSaveErrorShown = false
+  if (!preserveEditor) {
+    selectedFieldId.value = null
+    Object.assign(editProp, {
+      label: '', variable_name: '', field_type: '文本', integer_digits: null, decimal_digits: null,
+      date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
+      bg_color: null, text_color: null,
+    })
+    customBgColorInput.value = ''
+    customTextColorInput.value = ''
+    lastHydratedFieldPropDraftKey = ''
+  }
+}
+
+async function flushFieldPropSaveBeforeReset(resetOptions = {}) {
+  const sessionId = fieldPropSaveSession
+  clearTimeout(fieldPropSaveTimer)
+  fieldPropSaveTimer = null
+  const flushResult = await flushPendingFieldPropSave(sessionId)
+  if (flushResult === false) return false
+  if (isSavingFieldProp) {
+    const settled = await new Promise(resolve => {
+      const check = () => {
+        if (!isSavingFieldProp) {
+          resolve(true)
+          return
+        }
+        if (sessionId !== fieldPropSaveSession) {
+          resolve(false)
+          return
+        }
+        setTimeout(check, 20)
+      }
+      check()
+    })
+    if (!settled) return false
+  }
+  if (pendingFieldPropSnapshots.length) return false
+  resetFieldPropAutoSaveState(resetOptions)
+  return true
+}
+
+const currentFieldPropDraftKey = computed(() => getFieldPropSnapshotKey())
+
+async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
+  if (sessionId !== fieldPropSaveSession) return false
+  if (!pendingFieldPropSnapshots.length || isSavingFieldProp) return true
+  const [snapshot, ...rest] = pendingFieldPropSnapshots
+  pendingFieldPropSnapshots = rest
+  const snapshotKey = snapshot.snapshotKey || getFieldPropSnapshotKey(snapshot)
+  let saveSucceeded = false
+  let flushFailed = false
+  isSavingFieldProp = true
+  try {
+    await saveFieldProp(snapshot, sessionId)
+    fieldPropAutoSaveErrorShown = false
+    saveSucceeded = true
+  } catch (e) {
+    flushFailed = true
+    const isExpiredContext = e?.message === '自动保存上下文已变更'
+    const isRetryableError = !isExpiredContext && shouldRetryFieldPropSave(e)
+    if (!hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)) upsertPendingFieldPropSnapshot(snapshot)
+    if (!fieldPropAutoSaveErrorShown && !isExpiredContext) {
+      ElMessage.error(e.message)
+      fieldPropAutoSaveErrorShown = true
+    }
+    if (isRetryableError) {
+      clearTimeout(fieldPropSaveTimer)
+      fieldPropSaveTimer = setTimeout(() => {
+        void flushPendingFieldPropSave(sessionId)
+      }, 1000)
+    }
+  } finally {
+    if (sessionId !== fieldPropSaveSession) return false
+    isSavingFieldProp = false
+    const isCurrentSelectedField = selectedFieldId.value === snapshot.fieldId
+    const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey() !== snapshotKey
+    const hasQueuedDraft = hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)
+    if (hasNewerDraft && !hasQueuedDraft) upsertPendingFieldPropSnapshot(buildFieldPropSnapshot(snapshot.fieldId))
+    const shouldRefillEditor = selectedFieldId.value === snapshot.fieldId && !hasPendingFieldPropSnapshot(snapshot.fieldId)
+    if (saveSucceeded && shouldRefillEditor) {
+      const updated = formFields.value.find(f => f.id === snapshot.fieldId)
+      if (updated) selectField(updated)
+    }
+    if (saveSucceeded && pendingFieldPropSnapshots.length) {
+      clearTimeout(fieldPropSaveTimer)
+      return flushPendingFieldPropSave(sessionId)
+    }
+  }
+  return !flushFailed
+}
+
+watch(currentFieldPropDraftKey, (draftKey) => {
+  if (!draftKey || isHydratingFieldProp || draftKey === lastHydratedFieldPropDraftKey) return
+  const snapshot = buildFieldPropSnapshot()
+  if (!snapshot) return
+  fieldPropAutoSaveErrorShown = false
+  upsertPendingFieldPropSnapshot(snapshot)
+  clearTimeout(fieldPropSaveTimer)
+  fieldPropSaveTimer = setTimeout(() => {
+    void flushPendingFieldPropSave(fieldPropSaveSession)
+  }, 400)
+})
+
 function selectField(ff) {
+  if (selectedFieldId.value && selectedFieldId.value !== ff.id) void flushPendingFieldPropSave()
+  isHydratingFieldProp = true
   selectedFieldId.value = ff.id
   if (ff.is_log_row) {
     Object.assign(editProp, { label: ff.label_override || '以下为log行', variable_name: '', field_type: '日志行', integer_digits: null, decimal_digits: null, date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
     customBgColorInput.value = (ff.bg_color && !COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
     customTextColorInput.value = (ff.text_color && !COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+    lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
+    isHydratingFieldProp = false
     return
   }
   const fd = ff.field_definition
-  if (!fd) return
+  if (!fd) {
+    lastHydratedFieldPropDraftKey = ''
+    isHydratingFieldProp = false
+    return
+  }
   Object.assign(editProp, { label: fd.label || '', variable_name: fd.variable_name || '', field_type: fd.field_type || '文本', integer_digits: fd.integer_digits, decimal_digits: fd.decimal_digits, date_format: fd.date_format, codelist_id: fd.codelist_id, unit_id: fd.unit_id, default_value: ff.default_value || '', inline_mark: ff.inline_mark || 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
   customBgColorInput.value = (ff.bg_color && !COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
   customTextColorInput.value = (ff.text_color && !COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+  lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
+  isHydratingFieldProp = false
 }
 
-async function saveFieldProp() {
-  const ff = formFields.value.find(f => f.id === selectedFieldId.value)
-  if (!ff) return
-  if (!ff.is_log_row && isChoiceField(editProp.field_type) && !editProp.codelist_id) return ElMessage.warning('单选/多选字段必须选择选项字典')
+async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fieldPropSaveSession) {
+  if (!snapshot?.fieldId) return
+  if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
+  const ff = formFields.value.find(f => f.id === snapshot.fieldId)
+  const formId = selectedForm.value?.id
+  const projectId = snapshot.projectId
+  if (!ff || !formId || projectId !== props.projectId) throw new Error('自动保存上下文已变更')
+  if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id) throw new Error('单选/多选字段必须选择选项字典')
   try {
     if (ff.is_log_row) {
-      const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: editProp.label })
+      const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label })
+      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
       syncSelectedField(updated, { syncEditor: false })
+      api.invalidateCache(`/api/forms/${formId}/fields`)
     } else {
-      const supportsDefaultValue = isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))
-      const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(editProp.default_value, !editProp.inline_mark) : ''
-      const updatedDefinition = await api.put(`/api/projects/${props.projectId}/field-definitions/${ff.field_definition_id}`, { label: editProp.label, variable_name: editProp.variable_name, field_type: editProp.field_type, integer_digits: editProp.integer_digits, decimal_digits: editProp.decimal_digits, date_format: editProp.date_format, codelist_id: editProp.codelist_id, unit_id: editProp.unit_id })
+      const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark))
+      const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark) : ''
+      const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, { label: snapshot.label, variable_name: snapshot.variable_name, field_type: snapshot.field_type, integer_digits: snapshot.integer_digits, decimal_digits: snapshot.decimal_digits, date_format: snapshot.date_format, codelist_id: snapshot.codelist_id, unit_id: snapshot.unit_id })
+      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
       let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } }
       syncSelectedField(currentField, { syncEditor: false })
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      api.invalidateCache(`/api/forms/${formId}/fields`)
       const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue })
+      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
       currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition }
-      syncSelectedField(currentField, { syncEditor: false }); editProp.default_value = normalizedDefaultValue
+      syncSelectedField(currentField, { syncEditor: false })
     }
     const baseField = formFields.value.find(f => f.id === ff.id) || ff
-    const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: editProp.bg_color, text_color: editProp.text_color })
+    const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: snapshot.bg_color, text_color: snapshot.text_color })
+    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
     syncSelectedField({ ...baseField, ...updatedColors, field_definition: baseField.field_definition }, { syncEditor: false })
     await loadFormFields()
-    const updated = formFields.value.find(f => f.id === selectedFieldId.value)
-    if (updated) selectField(updated)
-    ElMessage.success('保存成功')
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) { throw e }
 }
 
 async function newField() {
@@ -609,23 +789,48 @@ async function addLogRow() {
 }
 
 // 选项字典快速CRUD
-const showQuickAddCodelist = ref(false), quickCodelistName = ref(''), quickCodelistOpts = ref([]), quickOptCode = ref(''), quickOptDecode = ref(''), quickOptTrailing = ref(false)
+const showQuickAddCodelist = ref(false), quickCodelistName = ref(''), quickCodelistDescription = ref(''), quickCodelistOpts = ref([]), quickOptCode = ref(''), quickOptDecode = ref(''), quickAddCodelistSaving = ref(false)
 function quickAddOptRow() {
   if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickCodelistOpts.value.length
-  quickCodelistOpts.value.push({ code: quickOptCode.value.trim() || `C.${n + 1}`, decode: quickOptDecode.value.trim(), trailing_underscore: quickOptTrailing.value ? 1 : 0 })
-  quickOptCode.value = `C.${n + 2}`; quickOptDecode.value = ''; quickOptTrailing.value = false
+  quickCodelistOpts.value.push({ id: null, code: quickOptCode.value.trim() || `C.${n + 1}`, decode: quickOptDecode.value.trim(), trailing_underscore: 0 })
+  quickOptCode.value = `C.${n + 2}`; quickOptDecode.value = ''
 }
 function quickDelOptRow(idx) { quickCodelistOpts.value.splice(idx, 1) }
-function closeQuickAddCodelist() { showQuickAddCodelist.value = false; quickCodelistName.value = ''; quickCodelistOpts.value = []; quickOptCode.value = ''; quickOptDecode.value = ''; quickOptTrailing.value = false }
-function openQuickAddCodelist() { quickCodelistName.value = ''; quickCodelistOpts.value = []; quickOptCode.value = 'C.1'; quickOptDecode.value = ''; quickOptTrailing.value = false; showQuickAddCodelist.value = true }
+function closeQuickAddCodelist() { showQuickAddCodelist.value = false; quickCodelistName.value = ''; quickCodelistDescription.value = ''; quickCodelistOpts.value = []; quickOptCode.value = ''; quickOptDecode.value = ''; quickAddCodelistSaving.value = false }
+function openQuickAddCodelist() { quickCodelistName.value = ''; quickCodelistDescription.value = ''; quickCodelistOpts.value = []; quickOptCode.value = 'C.1'; quickOptDecode.value = ''; quickAddCodelistSaving.value = false; showQuickAddCodelist.value = true }
 async function quickAddCodelist() {
-  if (!quickCodelistName.value.trim()) return ElMessage.warning('请输入字典名称')
+  if (quickAddCodelistSaving.value) return
+
+  const savedName = quickCodelistName.value.trim()
+  if (!savedName) return ElMessage.warning('请输入字典名称')
+
+  const normalizedOptions = quickCodelistOpts.value.map(opt => ({
+    ...opt,
+    code: String(opt.code ?? '').trim(),
+    decode: String(opt.decode ?? '').trim(),
+    trailing_underscore: opt.trailing_underscore || 0,
+  }))
+  const invalidOptionIndex = normalizedOptions.findIndex(opt => !opt.code || !opt.decode)
+  if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`)
+
+  quickAddCodelistSaving.value = true
   try {
-    const created = await api.post(`/api/projects/${props.projectId}/codelists`, { name: quickCodelistName.value.trim(), description: '' })
-    for (const opt of quickCodelistOpts.value) await api.post(`/api/projects/${props.projectId}/codelists/${created.id}/options`, { code: opt.code, decode: opt.decode, trailing_underscore: opt.trailing_underscore || 0 })
+    quickCodelistName.value = savedName
+    quickCodelistOpts.value = normalizedOptions
+    const created = await api.post(`/api/projects/${props.projectId}/codelists`, {
+      name: savedName,
+      description: quickCodelistDescription.value,
+      options: normalizedOptions.map((opt, index) => ({
+        code: opt.code,
+        decode: opt.decode,
+        trailing_underscore: opt.trailing_underscore || 0,
+        order_index: index + 1,
+      })),
+    })
     await loadCodelists(); editProp.codelist_id = created.id; closeQuickAddCodelist()
   } catch (e) { ElMessage.error(e.message) }
+  finally { quickAddCodelistSaving.value = false }
 }
 
 const showQuickEditCodelist = ref(false), quickEditCodelistId = ref(null), quickEditCodelistName = ref(''), quickEditCodelistDescription = ref(''), quickEditCodelistOpts = ref([]), quickEditOptCode = ref(''), quickEditOptDecode = ref(''), quickEditCodelistSaving = ref(false)
@@ -719,7 +924,29 @@ const formsTableRef = ref(null), isFormsFiltered = computed(() => searchForm.val
 const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, { reloadFn: reloadForms, isFiltered: isFormsFiltered, renderList: filteredForms })
 
 onMounted(async () => { await Promise.all([loadForms(), loadFieldDefs(), loadCodelists(), loadUnits()]); nextTick(() => initFormsSortable()) })
-watch(() => props.projectId, () => { selectedForm.value = null; formFields.value = []; selectedFieldId.value = null; loadForms(); loadFieldDefs(); loadCodelists(); loadUnits() })
+watch(() => showDesigner.value, async (visible, previousVisible) => {
+  if (!visible && previousVisible) {
+    const resetSucceeded = await flushFieldPropSaveBeforeReset()
+    if (!resetSucceeded) showDesigner.value = true
+  }
+})
+watch(() => props.projectId, async (newProjectId, previousProjectId) => {
+  if (newProjectId === previousProjectId) return
+  const resetSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true })
+  if (!resetSucceeded) {
+    fieldPropProjectId.value = previousProjectId
+    return
+  }
+  fieldPropProjectId.value = newProjectId
+  selectedForm.value = null; formFields.value = []; selectedFieldId.value = null; loadForms(); loadFieldDefs(); loadCodelists(); loadUnits()
+})
+
+async function canLeaveProject() {
+  return flushFieldPropSaveBeforeReset({ preserveEditor: true })
+}
+
+defineExpose({ canLeaveProject })
+
 function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value = true }
 </script>
 
@@ -835,7 +1062,6 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 </div>
               </el-form-item>
             </el-form>
-            <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
           </div>
           <div v-else style="flex:1;overflow-y:auto;padding:8px">
             <el-form :model="editProp" label-width="70px" size="small">
@@ -871,7 +1097,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                   <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择">
                     <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
                   </el-select>
-                  <el-button size="small" type="primary" plain @click="showQuickAddUnit = true">新增单位</el-button>
+                  <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增单位" title="新增单位" @click="showQuickAddUnit = true" />
                 </div>
               </el-form-item>
               <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
@@ -899,7 +1125,6 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 </div>
               </el-form-item>
             </el-form>
-            <el-button type="primary" size="small" style="width:100%;margin-top:4px" @click="saveFieldProp">保存</el-button>
           </div>
           <div class="design-notes-wrap" style="padding: 8px; border-top: 1px solid var(--color-border);"><div style="font-size: 12px; margin-bottom: 4px;">设计备注</div><el-input v-model="formDesignNotes" type="textarea" :autosize="false" :style="{ height: notesHeight + 'px' }" @input="onNotesInput" /></div>
         </div>
@@ -925,11 +1150,31 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <template #footer><el-button @click="showQuickEdit = false">取消</el-button><el-button type="primary" @click="saveQuickEdit">确定</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="500px">
-      <el-form label-width="80px" size="small"><el-form-item label="名称"><el-input v-model="quickCodelistName" /></el-form-item></el-form>
-      <el-table :data="quickCodelistOpts" size="small" border><el-table-column prop="code" label="编码" width="120" /><el-table-column prop="decode" label="标签" /></el-table>
-      <div style="margin-top:8px;display:flex;gap:6px"><el-input v-model="quickOptCode" size="small" style="width:100px" /><el-input v-model="quickOptDecode" size="small" style="flex:1" /><el-button size="small" @click="quickAddOptRow">添加</el-button></div>
-      <template #footer><el-button @click="closeQuickAddCodelist">取消</el-button><el-button type="primary" @click="quickAddCodelist">确定</el-button></template>
+    <el-dialog v-model="showQuickAddCodelist" title="新增选项" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="名称"><el-input v-model="quickCodelistName" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="quickCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
+      </el-form>
+      <el-table :data="quickCodelistOpts" size="small" border>
+        <el-table-column prop="code" label="编码" width="120">
+          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
+        </el-table-column>
+        <el-table-column prop="decode" label="标签">
+          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="后加下划线" width="110" align="center">
+          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <el-input v-model="quickOptCode" size="small" style="width:100px" />
+        <el-input v-model="quickOptDecode" size="small" style="flex:1" />
+        <el-button size="small" @click="quickAddOptRow">添加</el-button>
+      </div>
+      <template #footer><el-button :disabled="quickAddCodelistSaving" @click="closeQuickAddCodelist">取消</el-button><el-button type="primary" :loading="quickAddCodelistSaving" :disabled="quickAddCodelistSaving" @click="quickAddCodelist">确定</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="showQuickEditCodelist" title="编辑选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">

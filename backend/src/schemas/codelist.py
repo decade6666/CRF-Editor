@@ -39,6 +39,7 @@ class CodeListCreate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = Field(None, ge=1)
+    options: List[CodeListOptionBatchUpdate] = Field(default_factory=list)
 
 
 class CodeListUpdate(BaseModel):
