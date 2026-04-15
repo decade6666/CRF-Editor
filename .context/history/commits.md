@@ -1,5 +1,24 @@
 # Commit History
 
+## fix(ui): 收紧字典操作按钮占位
+
+- **ID**: 62ee38c1-8817-4ad4-9f54-ff5b4c264602
+- **Branch**: draft
+- **Timestamp**: 2026-04-15T17:37:07.685750+08:00
+
+**Decisions:**
+- 将字段属性面板中的“新增字典/编辑字典”改为带 aria-label 和 title 的圆形图标按钮，减少窄宽度下的横向占位。
+- 同步更新 quickEditBehavior 结构测试，约束按钮图标、无障碍标签和紧凑样式类。
+
+**Bugs Fixed:**
+- Symptom: 字段属性面板的字典操作按钮占位过大，挤压下拉框可用宽度； Root Cause: 两个文本按钮与默认间距在窄面板中横向空间开销过高； Fix: 换成紧凑图标按钮并保留可访问标签。
+
+**Files**: frontend/src/components/FormDesignerTab.vue, frontend/tests/quickEditBehavior.test.js
+
+**Tests**: 更新 node 结构测试 quickEditBehavior.test.js 覆盖图标按钮与 aria/title 约束（本次未执行）
+
+---
+
 ## fix(ui): 调整设置页操作区布局与暗色样式
 
 - **ID**: cbef1010-8b65-4772-ab12-cbfea3f911cd
