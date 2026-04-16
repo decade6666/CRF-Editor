@@ -100,6 +100,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('crf:auth-expired', handleAuthExpired)
+  if (exportWordResetTimer) clearTimeout(exportWordResetTimer)
 })
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
@@ -176,10 +177,40 @@ async function copyProject(p) {
 }
 
 
+const MAX_EXPORT_WORD_TRIGGERS = 3
+const EXPORT_WORD_TRIGGER_WINDOW_MS = 10000
 const exportWordLoading = ref(false)
+const exportWordTriggerCount = ref(0)
+let exportWordResetTimer = null
+
+function resetExportWordTriggerCount() {
+  exportWordTriggerCount.value = 0
+  if (exportWordResetTimer) {
+    clearTimeout(exportWordResetTimer)
+    exportWordResetTimer = null
+  }
+}
+
+function scheduleExportWordTriggerReset() {
+  if (exportWordResetTimer) clearTimeout(exportWordResetTimer)
+  exportWordResetTimer = setTimeout(() => {
+    exportWordTriggerCount.value = 0
+    exportWordResetTimer = null
+  }, EXPORT_WORD_TRIGGER_WINDOW_MS)
+}
+
+watch(() => selectedProject.value?.id, () => {
+  resetExportWordTriggerCount()
+})
 
 async function exportWord() {
-  if (!selectedProject.value) return
+  if (!selectedProject.value || exportWordLoading.value) return
+  if (exportWordTriggerCount.value >= MAX_EXPORT_WORD_TRIGGERS) {
+    ElMessage.warning(`导出过于频繁，请在 ${Math.ceil(EXPORT_WORD_TRIGGER_WINDOW_MS / 1000)} 秒后重试`)
+    return
+  }
+  exportWordTriggerCount.value += 1
+  scheduleExportWordTriggerReset()
   exportWordLoading.value = true
   try {
     await new Promise(resolve => setTimeout(resolve, 1000))
