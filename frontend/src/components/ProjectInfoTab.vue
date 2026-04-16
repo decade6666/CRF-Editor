@@ -1,15 +1,23 @@
 <script setup>
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api } from '../composables/useApi'
+import { api, getAuthHeaders } from '../composables/useApi'
 
 const props = defineProps({ project: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
 
 const form = reactive({})
 const logoInput = ref(null)
-const logoTs = ref(Date.now())
+const logoUrl = ref(null)
 const skipFormReset = ref(false)
+
+async function fetchLogo(projectId) {
+  if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
+  try {
+    const r = await fetch(`/api/projects/${projectId}/logo`, { headers: getAuthHeaders() })
+    if (r.ok) logoUrl.value = URL.createObjectURL(await r.blob())
+  } catch { /* 无logo或加载失败，保持null */ }
+}
 
 watch(() => props.project, (p) => {
   if (skipFormReset.value) { skipFormReset.value = false; return }
@@ -19,6 +27,7 @@ watch(() => props.project, (p) => {
     protocol_number: p.protocol_number || '', sponsor: p.sponsor || '',
     data_management_unit: p.data_management_unit || '',
   })
+  if (p.company_logo_path) fetchLogo(p.id)
 }, { immediate: true })
 
 async function save() {
@@ -36,12 +45,12 @@ async function uploadLogo(e) {
   if (!file) return
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch(`/api/projects/${props.project.id}/logo`, { method: 'POST', body: fd })
+  const r = await fetch(`/api/projects/${props.project.id}/logo`, { method: 'POST', body: fd, headers: getAuthHeaders() })
   if (r.ok) {
     const d = await r.json()
-    logoTs.value = Date.now()
     skipFormReset.value = true
     emit('updated', d)
+    fetchLogo(props.project.id)
     ElMessage.success('Logo上传成功')
   } else {
     ElMessage.error('上传失败')
@@ -63,8 +72,8 @@ async function uploadLogo(e) {
     <el-form-item label="数据管理单位"><el-input v-model="form.data_management_unit" /></el-form-item>
     <el-form-item label="公司Logo">
       <div style="display:flex;flex-direction:column;gap:8px">
-        <div v-if="project.company_logo_path">
-          <img :src="'/api/projects/'+project.id+'/logo?t='+logoTs" style="max-height:80px;max-width:200px;border:1px solid var(--color-border);border-radius:4px;padding:4px" />
+        <div v-if="logoUrl">
+          <img :src="logoUrl" style="max-height:80px;max-width:200px;border:1px solid var(--color-border);border-radius:4px;padding:4px" />
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <el-button size="small" @click="logoInput.click()">{{ project.company_logo_path ? '更换Logo' : '上传Logo' }}</el-button>

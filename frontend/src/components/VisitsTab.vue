@@ -1,8 +1,12 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
+import { useSortableTable } from '../composables/useSortableTable'
+import { useOrderableList } from '../composables/useOrderableList'
 import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -28,10 +32,17 @@ const showVisitPreview = ref(false)
 // 表单内容预览弹窗
 const showFormPreview = ref(false)
 const formPreviewTitle = ref('')
+const formPreviewDesignNotes = ref('')
 const formPreviewFields = ref([])
 const formPreviewLoading = ref(false)
 const formPreviewError = ref('')
 let formPreviewRequestSeq = 0
+
+// 计算属性：设计备注预览内容
+const hasPreviewNotes = computed(() => Boolean(formPreviewDesignNotes.value.trim()))
+const previewDesignNotesHtml = computed(() => (
+  hasPreviewNotes.value ? escapePreviewText(formPreviewDesignNotes.value) : ''
+))
 // 当前选中的访视（右侧面板）
 const selectedVisit = ref(null)
 
@@ -43,21 +54,40 @@ async function load() {
   if (selectedVisit.value) {
     selectedVisit.value = visits.value.find(v => v.id === selectedVisit.value.id) || null
   }
+  syncVisitForms()
 }
-onMounted(load)
+onMounted(async () => { await load(); nextTick(() => initSortable()) })
 watch(() => props.projectId, () => { selectedVisit.value = null; load() })
 watch(refreshKey, load)
+watch(selectedVisit, syncVisitForms)
+
+// 拖拽排序
+const visitsTableRef = ref(null)
+const isFiltered = computed(() => searchVisit.value.trim().length > 0)
+const reorderUrl = computed(() => `/api/projects/${props.projectId}/visits/reorder`)
+async function reloadVisits() {
+  api.invalidateCache(`/api/projects/${props.projectId}/visits`)
+  await load()
+}
+const { initSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
+  reloadFn: reloadVisits,
+  isFiltered,
+})
 
 // 当前访视已关联的表单列表（带 sequence）
-const visitForms = computed(() => {
-  if (!selectedVisit.value || !matrixData.value) return []
+const visitForms = ref([])
+
+function syncVisitForms() {
+  if (!selectedVisit.value || !matrixData.value) {
+    visitForms.value = []
+    return
+  }
   const m = matrixData.value.matrix[selectedVisit.value.id] || {}
-  // 取已关联的 form_id，结合 matrixData.forms 获取表单信息，按 sequence 排序
-  return matrixData.value.forms
+  visitForms.value = matrixData.value.forms
     .filter(f => m[f.id] != null)
     .map(f => ({ ...f, sequence: m[f.id] }))
     .sort((a, b) => a.sequence - b.sequence)
-})
+}
 
 // 当前访视未关联的表单列表（供添加用）
 const availableForms = computed(() => {
@@ -122,8 +152,16 @@ async function update() {
 async function updateSequence(row, newValue) {
   if (newValue === row.sequence) return
   try {
-    await api.put(`/api/projects/${props.projectId}/visits/${row.id}`, { name: row.name, code: row.code, sequence: newValue })
-    load()
+    const oldIdx = visits.value.findIndex(v => v.id === row.id)
+    const newIdx = newValue - 1
+    if (oldIdx === -1 || newIdx < 0 || newIdx >= visits.value.length) return
+    
+    const list = [...visits.value]
+    const [item] = list.splice(oldIdx, 1)
+    list.splice(newIdx, 0, item)
+    
+    await api.post(`/api/projects/${props.projectId}/visits/reorder`, list.map(i => i.id))
+    await reloadVisits()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -140,6 +178,7 @@ async function addFormToVisit() {
     await api.post(`/api/visits/${selectedVisit.value.id}/forms/${addFormId.value}`, {})
     addFormId.value = null
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message || '添加失败') }
 }
 
@@ -149,6 +188,7 @@ async function removeFormFromVisit(formId) {
   try {
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -236,12 +276,14 @@ const previewRenderGroups = computed(() => {
 })
 
 const previewNeedsLandscape = computed(() =>
-  previewRenderGroups.value.some(g => g.type === 'inline' && g.fields.length > 4)
+  shouldUseLandscapePreview(previewRenderGroups.value)
 )
+const previewLandscapeMode = computed(() => previewNeedsLandscape.value)
 
 async function openFormPreview(form) {
   const seq = ++formPreviewRequestSeq
   formPreviewTitle.value = form.name || '表单预览'
+  formPreviewDesignNotes.value = form.design_notes || ''
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewLoading.value = true
@@ -268,11 +310,27 @@ function resetFormPreviewState() {
 }
 
 // 更新访视中表单的 sequence
+const visitFormReorderUrl = computed(() => selectedVisit.value ? `/api/visits/${selectedVisit.value.id}/forms/reorder` : '')
+const { dragging: draggingVisitForms, handleDragEnd: handleVisitFormDragEnd } = useOrderableList(visitFormReorderUrl)
+
+async function onVisitFormDragEnd() {
+  if (!selectedVisit.value) return
+  await handleVisitFormDragEnd(
+    visitForms.value,
+    async () => {
+      matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+      syncVisitForms()
+    },
+    (err) => ElMessage.error(err.message)
+  )
+}
+
 async function updateFormSequence(formId, newValue) {
   if (!selectedVisit.value || newValue == null) return
   try {
     await api.put(`/api/visits/${selectedVisit.value.id}/forms/${formId}`, { sequence: newValue })
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -305,9 +363,12 @@ async function toggleCell(visitId, formId) {
           style="width:180px"
         />
       </div>
-      <el-table :data="filteredVisits" size="small" border highlight-current-row row-key="id"
+      <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
         @current-change="row => { if (row) selectedVisit = row }"
         @selection-change="r => selVisits = r" style="width:100%" height="100%">
+        <el-table-column width="32" v-if="!isFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
@@ -316,7 +377,6 @@ async function toggleCell(visitId, formId) {
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="code" label="Code" width="100" show-overflow-tooltip />
         <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
@@ -353,13 +413,17 @@ async function toggleCell(visitId, formId) {
         <div v-if="!visitForms.length" style="color:var(--color-text-muted);font-size:13px;padding:20px;text-align:center">
           暂无关联表单，请在上方选择后点击添加
         </div>
-        <div v-for="f in visitForms" :key="f.id"
-          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
-          <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
-          <span style="flex:1;font-size:13px">{{ f.name }}</span>
-          <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
-          <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
-        </div>
+        <draggable v-else v-model="visitForms" item-key="id" handle=".drag-handle" @start="draggingVisitForms = true" @end="onVisitFormDragEnd">
+          <template #item="{ element: f }">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
+              <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
+              <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
+              <span style="flex:1;font-size:13px">{{ f.name }}</span>
+              <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
+              <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
+            </div>
+          </template>
+        </draggable>
       </div>
     </div>
 
@@ -423,7 +487,7 @@ async function toggleCell(visitId, formId) {
     <!-- 新增访视弹窗 -->
     <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="form.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="form.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="form.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -436,7 +500,7 @@ async function toggleCell(visitId, formId) {
     <!-- 编辑访视弹窗 -->
     <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
       <el-form :model="editForm" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editForm.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="editForm.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="editForm.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -447,7 +511,12 @@ async function toggleCell(visitId, formId) {
     </el-dialog>
   </div>
   <!-- 表单内容预览弹窗 -->
-  <el-dialog v-model="showFormPreview" :title="formPreviewTitle" width="90%" style="max-width:800px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">
+  <el-dialog v-model="showFormPreview" width="90%" style="max-width:1200px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">
+    <template #header>
+      <div style="display:flex;align-items:center;gap:12px;padding-right:32px">
+        <span style="font-size:16px;font-weight:bold">{{ formPreviewTitle }}</span>
+      </div>
+    </template>
     <div v-if="formPreviewLoading" style="text-align:center;padding:40px">
       <el-icon class="is-loading"><Loading /></el-icon> 加载中...
     </div>
@@ -456,34 +525,42 @@ async function toggleCell(visitId, formId) {
       暂无字段
     </div>
     <div v-else class="word-preview">
-      <div class="word-page" :class="{ landscape: previewNeedsLandscape }">
+      <div :class="['word-page', { landscape: previewLandscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
         <div class="wp-form-title">{{ formPreviewTitle }}</div>
-        <template v-for="(group, gi) in previewRenderGroups" :key="gi">
-          <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
-            <template v-for="ff in group.fields" :key="ff.id">
-              <tr v-if="ff.field_definition?.field_type === '标签'">
-                <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
-              </tr>
-              <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
-              </tr>
-              <tr v-else>
-                <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
-                <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
-              </tr>
+        <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
+          <div class="wp-main">
+            <template v-for="(group, gi) in previewRenderGroups" :key="gi">
+              <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
+                <template v-for="ff in group.fields" :key="ff.id">
+                  <tr v-if="ff.field_definition?.field_type === '标签'">
+                    <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+                  </tr>
+                  <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
+                    <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                  </tr>
+                  <tr v-else>
+                    <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
+                    <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
+                  </tr>
+                </template>
+              </table>
+              <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
+                <tr>
+                  <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
+                    {{ ff.label_override || ff.field_definition?.label }}
+                  </td>
+                </tr>
+                <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
+                  <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
+                </tr>
+              </table>
             </template>
-          </table>
-          <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
-            <tr>
-              <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
-                {{ ff.label_override || ff.field_definition?.label }}
-              </td>
-            </tr>
-            <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
-              <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
-            </tr>
-          </table>
-        </template>
+          </div>
+          <aside v-if="hasPreviewNotes" class="wp-notes" aria-label="设计备注">
+            <div class="wp-notes-title">设计备注</div>
+            <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+          </aside>
+        </div>
       </div>
     </div>
   </el-dialog>

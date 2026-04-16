@@ -16,6 +16,13 @@ class CodeListOptionUpdate(BaseModel):
     order_index: Optional[int] = Field(None, ge=1)
 
 
+class CodeListOptionBatchUpdate(BaseModel):
+    id: Optional[int] = None
+    code: Optional[str] = None
+    decode: str
+    trailing_underscore: int = 0
+
+
 class CodeListOptionResponse(BaseModel):
     id: int
     codelist_id: int
@@ -32,6 +39,7 @@ class CodeListCreate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = Field(None, ge=1)
+    options: List[CodeListOptionBatchUpdate] = Field(default_factory=list)
 
 
 class CodeListUpdate(BaseModel):
@@ -39,6 +47,12 @@ class CodeListUpdate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     order_index: Optional[int] = Field(None, ge=1)
+
+
+class CodeListSnapshotUpdate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    options: List[CodeListOptionBatchUpdate] = Field(default_factory=list)
 
 
 class CodeListResponse(BaseModel):

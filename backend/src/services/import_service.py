@@ -1,12 +1,15 @@
 """模板导入服务 - 从外部 .db 文件导入表单到当前项目"""
 from __future__ import annotations
 
+
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, TypedDict
 
+
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
+
 
 from src.models import Base
 from src.models.project import Project
@@ -22,6 +25,7 @@ from src.services.order_service import OrderService
 class OptionMetadata(TypedDict):
     """选项结构化语义元数据。"""
 
+
     code: Optional[str]
     decode: str
     trailing_underscore: int
@@ -30,16 +34,45 @@ class OptionMetadata(TypedDict):
 class ImportService:
     """模板导入服务（双 Engine 读写分离）"""
 
+
     def __init__(self, session: Session):
         self.session = session
+
 
     # ------------------------------------------------------------------
     # 模板库只读访问
     # ------------------------------------------------------------------
 
+
+    # Task 3.4: 必需列检查（只读访问，不再 ALTER TABLE）
+    _TEMPLATE_REQUIRED_COLUMNS: Dict[str, List[str]] = {
+        "form": ["order_index"],
+        "form_field": ["order_index", "is_log_row", "inline_mark"],
+        "field_definition": ["order_index"],
+        "codelist_option": ["order_index"],
+        "unit": ["order_index"],
+    }
+
+    @staticmethod
+    def _check_template_compatibility(db_path: str) -> None:
+        """检查模板库兼容性，缺失必需列时抛出 ValueError（Task 3.4: 只读访问）"""
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            for table, required_cols in ImportService._TEMPLATE_REQUIRED_COLUMNS.items():
+                cursor = conn.execute(f"PRAGMA table_info({table})")
+                existing_cols = {row[1] for row in cursor.fetchall()}
+                missing = [c for c in required_cols if c not in existing_cols]
+                if missing:
+                    raise ValueError(
+                        f"模板库不兼容：表 {table} 缺少列 {', '.join(missing)}，请使用迁移脚本转换"
+                    )
+        finally:
+            conn.close()
+
     @staticmethod
     def _open_template_session(template_path: str) -> Session:
         """打开模板库只读 Session
+
 
         不使用 SQLite URI 模式，因为 SQLAlchemy URL 解析器会破坏中文路径。
         改用 creator 回调直接传原始路径给 sqlite3，再通过事件钩子设置只读。
@@ -50,7 +83,12 @@ class ImportService:
         if path.suffix.lower() != ".db":
             raise ValueError(f"模板文件必须是 .db 格式: {template_path}")
 
+
         db_path = str(path.resolve())
+
+        # Task 3.4: 检查兼容性，不兼容模板返回稳定错误（只读访问，不修改源库）
+        ImportService._check_template_compatibility(db_path)
+
 
         # 创建只读 Engine（移除迁移逻辑，防止修改外部数据库）
         engine = create_engine(
@@ -58,49 +96,60 @@ class ImportService:
             creator=lambda: sqlite3.connect(db_path, check_same_thread=False),
         )
 
+
         @event.listens_for(engine, "connect")
         def _set_readonly(dbapi_conn, connection_record):
             dbapi_conn.execute("PRAGMA query_only = ON")
 
+
         return sessionmaker(bind=engine)()
 
+
     def get_template_projects(self, template_path: str) -> List[dict]:
-        """读取模板库中的项目列表（含表单）"""
+        """读取模板库中的项目列表（含表单）
+
+        使用 raw SQL 查询，兼容缺少 order_index 等新增列的旧版模板库。
+        """
+        from sqlalchemy import text
+
         tmpl = self._open_template_session(template_path)
         try:
-            projects = list(tmpl.scalars(
-                select(Project).order_by(Project.id)
-            ).all())
+            # 用 raw SQL 避免 ORM 引用模板库中不存在的列（如 order_index）
+            rows = tmpl.execute(
+                text("SELECT id, name, version FROM project ORDER BY id")
+            ).all()
             result = []
-            for p in projects:
-                forms = list(tmpl.scalars(
-                    select(Form)
-                    .where(Form.project_id == p.id)
-                    .order_by(Form.id)
-                ).all())
+            for row in rows:
+                pid, pname, pversion = row
+                form_rows = tmpl.execute(
+                    text("SELECT id, name, domain FROM form WHERE project_id = :pid ORDER BY id"),
+                    {"pid": pid},
+                ).all()
                 result.append({
-                    "id": p.id,
-                    "name": p.name,
-                    "version": p.version,
+                    "id": pid,
+                    "name": pname,
+                    "version": pversion,
                     "forms": [
-                        {"id": f.id, "name": f.name, "domain": f.domain}
-                        for f in forms
+                        {"id": fid, "name": fname, "domain": fdomain}
+                        for fid, fname, fdomain in form_rows
                     ],
                 })
             return result
         finally:
             tmpl.close()
 
+
     def get_template_form_fields(self, template_path: str, form_id: int) -> List[dict]:
         """读取模板表单的字段详情，返回与 SimulatedCRFForm 兼容的字段列表"""
         tmpl = self._open_template_session(template_path)
         try:
-            # 获取排序后的表单字段列表
+            # 获取排序后的表单字段列表（兼容性由 _check_template_compatibility 保障）
             form_fields = list(tmpl.scalars(
                 select(FormField)
                 .where(FormField.form_id == form_id)
-                .order_by(FormField.sort_order)
+                .order_by(FormField.order_index)
             ).all())
+
 
             # 收集所有需要查询的 codelist_id
             fd_ids = [
@@ -111,11 +160,13 @@ class ImportService:
             codelist_options_map: Dict[int, List[OptionMetadata]] = {}
             unit_map: Dict[int, str] = {}
 
+
             if fd_ids:
                 for fd in tmpl.scalars(
                     select(FieldDefinition).where(FieldDefinition.id.in_(fd_ids))
                 ).all():
                     field_def_map[fd.id] = fd
+
 
                 # 收集所有 codelist_id 并一次性查询选项
                 codelist_ids = {
@@ -133,6 +184,7 @@ class ImportService:
                             **self._serialize_option_metadata(opt),
                         })
 
+
                 # 收集所有 unit_id 并一次性查询单位符号
                 unit_ids = {
                     fd.unit_id for fd in field_def_map.values()
@@ -144,21 +196,60 @@ class ImportService:
                     ).all():
                         unit_map[u.id] = u.symbol
 
+
             result = []
             for idx, ff in enumerate(form_fields):
-                # 跳过日志行
+                # 结构性行（标签行、日志行）也包含在预览中（Task 3.1）
+                fd = field_def_map.get(ff.field_definition_id) if ff.field_definition_id else None
+
+                # 日志行：无 field_definition，但需要显示
                 if ff.is_log_row:
+                    result.append({
+                        "id": ff.id,
+                        "project_id": 0,  # 日志行不属于任何项目字段定义
+                        "order_index": ff.order_index,
+                        "index": idx,
+                        "label": ff.label_override or "日志行",
+                        "field_type": "日志行",
+                        "options": None,
+                        "integer_digits": None,
+                        "decimal_digits": None,
+                        "date_format": None,
+                        "default_value": ff.default_value,
+                        "inline_mark": ff.inline_mark,
+                        "unit_symbol": None,
+                        "is_log_row": ff.is_log_row,
+                        "bg_color": ff.bg_color,
+                        "text_color": ff.text_color,
+                        "field_definition": None,
+                    })
                     continue
 
-                fd = field_def_map.get(ff.field_definition_id) if ff.field_definition_id else None
+                # 普通字段必须有 field_definition
                 if fd is None:
                     continue
 
-                # label_override 优先于字段定义的 label
+                # 标签行或其他类型字段
                 label = ff.label_override or fd.label
                 options = codelist_options_map.get(fd.codelist_id) if fd.codelist_id else None
 
+                # 构建嵌套 field_definition（Task 3.1）
+                field_def_preview = {
+                    "id": fd.id,
+                    "project_id": fd.project_id,
+                    "variable_name": fd.variable_name,
+                    "label": fd.label,
+                    "field_type": fd.field_type,
+                    "integer_digits": fd.integer_digits,
+                    "decimal_digits": fd.decimal_digits,
+                    "date_format": fd.date_format,
+                    "order_index": fd.order_index,
+                }
+
                 result.append({
+                    "id": ff.id,
+                    "project_id": fd.project_id,
+                    "order_index": ff.order_index,
                     "index": idx,
                     "label": label,
                     "field_type": fd.field_type,
@@ -167,16 +258,22 @@ class ImportService:
                     "decimal_digits": fd.decimal_digits,
                     "date_format": fd.date_format,
                     "default_value": ff.default_value,
-                    "inline_mark": bool(ff.inline_mark),
+                    "inline_mark": ff.inline_mark,
                     "unit_symbol": unit_map.get(fd.unit_id) if fd.unit_id else None,
+                    "is_log_row": ff.is_log_row,
+                    "bg_color": ff.bg_color,
+                    "text_color": ff.text_color,
+                    "field_definition": field_def_preview,
                 })
             return result
         finally:
             tmpl.close()
 
+
     # ------------------------------------------------------------------
     # 冲突处理辅助方法
     # ------------------------------------------------------------------
+
 
     @staticmethod
     def _make_unique_name(existing: set, base: str, suffix: str = "_导入") -> str:
@@ -189,6 +286,7 @@ class ImportService:
             idx += 1
         return f"{base}{suffix}{idx}"
 
+
     @staticmethod
     def _make_unique_import_codelist_name(existing: set[str], base: str) -> str:
         """生成字典冲突名：名称（导入）→ 名称（导入2）→ ..."""
@@ -200,6 +298,7 @@ class ImportService:
             idx += 1
         return f"{base}（导入{idx}）"
 
+
     @staticmethod
     def _serialize_option_metadata(option: CodeListOption) -> OptionMetadata:
         """序列化选项语义元数据。"""
@@ -208,6 +307,7 @@ class ImportService:
             "decode": option.decode,
             "trailing_underscore": option.trailing_underscore,
         }
+
 
     @classmethod
     def _build_codelist_option_signature(cls, options: List[CodeListOption]) -> tuple[tuple[int, Optional[str], str, int], ...]:
@@ -225,6 +325,7 @@ class ImportService:
             )
         )
 
+
     @staticmethod
     def _load_codelist_options(session: Session, codelist_id: int) -> List[CodeListOption]:
         """按稳定顺序读取字典选项。"""
@@ -233,6 +334,7 @@ class ImportService:
             .where(CodeListOption.codelist_id == codelist_id)
             .order_by(CodeListOption.order_index, CodeListOption.id)
         ).all())
+
 
     @staticmethod
     def _make_unique_var(existing: set, base: str) -> str:
@@ -245,9 +347,11 @@ class ImportService:
             idx += 1
         return f"{base}_IMP{idx}"
 
+
     # ------------------------------------------------------------------
     # 核心导入方法
     # ------------------------------------------------------------------
+
 
     def import_forms(
         self,
@@ -255,17 +359,20 @@ class ImportService:
         template_path: str,
         source_project_id: int,
         form_ids: List[int],
+        field_ids: Optional[List[int]] = None,
     ) -> dict:
-        """从模板库导入表单到目标项目（单事务，由调用方控制提交）
+        """从模板库导入表單到目標項目（單事務，由調用方控制提交）
+
 
         Returns:
-            导入摘要 dict
+            導入摘要 dict
         """
         tmpl = self._open_template_session(template_path)
         try:
-            return self._do_import(tmpl, target_project_id, source_project_id, form_ids)
+            return self._do_import(tmpl, target_project_id, source_project_id, form_ids, field_ids)
         finally:
             tmpl.close()
+
 
     def _do_import(
         self,
@@ -273,9 +380,10 @@ class ImportService:
         target_project_id: int,
         source_project_id: int,
         form_ids: List[int],
+        field_ids: Optional[List[int]] = None,
     ) -> dict:
-        """实际导入逻辑"""
-        s = self.session  # 主库 session
+        """實際導入邏輯"""
+        s = self.session  # 主庫 session
         summary = {
             "imported_form_count": 0,
             "renamed_forms": [],
@@ -285,7 +393,8 @@ class ImportService:
             "created_form_fields": 0,
         }
 
-        # ---- 1. 构建目标库已有数据缓存 ----
+
+        # ---- 1. 構建目標庫已有數據緩存 ----
         existing_forms = {
             f.name for f in s.scalars(
                 select(Form).where(Form.project_id == target_project_id)
@@ -309,12 +418,14 @@ class ImportService:
             ).all()
         }
 
+
         # ---- ID 映射表 ----
-        unit_id_map: Dict[int, int] = {}      # 源ID → 目标ID
+        unit_id_map: Dict[int, int] = {}      # 源ID → 目標ID
         codelist_id_map: Dict[int, int] = {}
         field_def_id_map: Dict[int, int] = {}
 
-        # ---- 2. 收集源表单依赖的字段定义 ----
+
+        # ---- 2. 收集源表單依賴的字段定義 ----
         src_forms = list(tmpl.scalars(
             select(Form)
             .where(Form.project_id == source_project_id, Form.id.in_(form_ids))
@@ -326,16 +437,28 @@ class ImportService:
         # 收集所有源 FormField
         src_form_fields_map: Dict[int, list] = {}
         needed_field_def_ids: set = set()
+        requested_field_ids = list(field_ids or [])
+        if len(requested_field_ids) != len(set(requested_field_ids)):
+            raise ValueError("field_ids 包含重复项")
+        valid_field_ids: set[int] = set()
         for sf in src_forms:
-            ffs = list(tmpl.scalars(
-                select(FormField)
-                .where(FormField.form_id == sf.id)
-                .order_by(FormField.sort_order)
-            ).all())
+            stmt = select(FormField).where(FormField.form_id == sf.id).order_by(FormField.order_index)
+            ffs = list(tmpl.scalars(stmt).all())
+            valid_field_ids.update(ff.id for ff in ffs)
+
+            # 如果指定了 field_ids，則進行過濾
+            if field_ids is not None:
+                ffs = [ff for ff in ffs if ff.id in field_ids]
+
             src_form_fields_map[sf.id] = ffs
             for ff in ffs:
                 if ff.field_definition_id is not None:
                     needed_field_def_ids.add(ff.field_definition_id)
+
+        invalid_field_ids = sorted(set(requested_field_ids) - valid_field_ids)
+        if invalid_field_ids:
+            raise ValueError("field_ids 包含不属于所选表单的字段")
+
 
         # 读取源字段定义
         src_field_defs: Dict[int, FieldDefinition] = {}
@@ -353,17 +476,20 @@ class ImportService:
                 if fd.unit_id is not None:
                     needed_unit_ids.add(fd.unit_id)
 
+
         # ---- 3. 合并 Unit ----
         summary["merged_units"] = self._merge_units(
             tmpl, s, target_project_id,
             needed_unit_ids, existing_units, unit_id_map,
         )
 
+
         # ---- 4. 合并 Codelist ----
         summary["merged_codelists"] = self._merge_codelists(
             tmpl, s, target_project_id,
             needed_codelist_ids, existing_codelists, codelist_id_map,
         )
+
 
         # ---- 5. 创建 FieldDefinition ----
         summary["created_field_definitions"] = self._create_field_defs(
@@ -372,6 +498,7 @@ class ImportService:
             unit_id_map, codelist_id_map, field_def_id_map,
         )
 
+
         # ---- 6. 创建 Form + FormField ----
         # 预查询 max order 以优化性能
         from sqlalchemy import func
@@ -379,12 +506,14 @@ class ImportService:
             select(func.max(Form.order_index)).where(Form.project_id == target_project_id)
         ) or 0
 
+
         for form_idx, sf in enumerate(src_forms, start=1):
             new_name = sf.name
             if sf.name in existing_forms:
                 new_name = self._make_unique_name(existing_forms, sf.name)
                 summary["renamed_forms"].append(f"{sf.name} → {new_name}")
             existing_forms.add(new_name)
+
 
             new_form = Form(
                 project_id=target_project_id,
@@ -396,33 +525,41 @@ class ImportService:
             s.add(new_form)
             s.flush()  # 拿到 new_form.id
 
+
             # 创建 FormField
-            for ff in src_form_fields_map.get(sf.id, []):
+            for new_order_index, ff in enumerate(src_form_fields_map.get(sf.id, []), start=1):
                 new_fd_id = None
                 if ff.field_definition_id is not None:
                     new_fd_id = field_def_id_map.get(ff.field_definition_id)
+
 
                 new_ff = FormField(
                     form_id=new_form.id,
                     field_definition_id=new_fd_id,
                     is_log_row=ff.is_log_row,
-                    sort_order=ff.sort_order,
+                    order_index=new_order_index,
                     required=ff.required,
                     label_override=ff.label_override,
                     help_text=ff.help_text,
                     default_value=ff.default_value,
                     inline_mark=ff.inline_mark,
+                    bg_color=ff.bg_color,  # Task 3.6: 复制背景色
+                    text_color=ff.text_color,  # Task 3.6: 复制文字色
                 )
                 s.add(new_ff)
                 summary["created_form_fields"] += 1
 
+
             summary["imported_form_count"] += 1
 
+
         return summary
+
 
     # ------------------------------------------------------------------
     # 合并辅助方法
     # ------------------------------------------------------------------
+
 
     @staticmethod
     def _merge_units(
@@ -438,11 +575,13 @@ class ImportService:
         if not needed_ids:
             return count
 
+
         from sqlalchemy import func
         max_unit_order = s.scalar(
             select(func.max(Unit.order_index)).where(Unit.project_id == target_project_id)
         ) or 0
         counter = 0
+
 
         for src_unit in tmpl.scalars(
             select(Unit).where(Unit.id.in_(needed_ids)).order_by(Unit.order_index, Unit.id)
@@ -464,6 +603,7 @@ class ImportService:
             count += 1
         return count
 
+
     @staticmethod
     def _merge_codelists(
         tmpl: Session,
@@ -483,6 +623,7 @@ class ImportService:
             src_opts = ImportService._load_codelist_options(tmpl, src_cl.id)
             src_signature = ImportService._build_codelist_option_signature(src_opts)
 
+
             target_cl_id = existing.get(src_cl.name)
             if target_cl_id is not None:
                 target_opts = ImportService._load_codelist_options(s, target_cl_id)
@@ -492,9 +633,11 @@ class ImportService:
                     merged += 1
                     continue
 
+
                 new_name = ImportService._make_unique_import_codelist_name(set(existing.keys()), src_cl.name)
             else:
                 new_name = src_cl.name
+
 
             new_cl = CodeList(
                 project_id=target_project_id,
@@ -517,6 +660,7 @@ class ImportService:
                 ))
         return merged
 
+
     @staticmethod
     def _create_field_defs(
         s: Session,
@@ -530,18 +674,22 @@ class ImportService:
         """创建 FieldDefinition，variable_name 冲突时自动加后缀"""
         created = 0
 
+
         from sqlalchemy import func
         max_fd_order = s.scalar(
             select(func.max(FieldDefinition.order_index)).where(FieldDefinition.project_id == target_project_id)
         ) or 0
 
+
         sorted_src_fds = sorted(src_field_defs.items(), key=lambda x: (x[1].order_index or 999999, x[0]))
+
 
         for idx, (src_id, src_fd) in enumerate(sorted_src_fds, start=1):
             var_name = src_fd.variable_name
             if var_name in existing_vars:
                 var_name = ImportService._make_unique_var(existing_vars, var_name)
             existing_vars.add(var_name)
+
 
             # 映射 codelist_id / unit_id
             new_cl_id = None
@@ -550,6 +698,7 @@ class ImportService:
             new_unit_id = None
             if src_fd.unit_id is not None:
                 new_unit_id = unit_id_map.get(src_fd.unit_id)
+
 
             new_fd = FieldDefinition(
                 project_id=target_project_id,

@@ -9,12 +9,10 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-from main import app
-from src.database import get_session
+from helpers import auth_headers, login_as
 from src.models import Base
 from src.models.project import Project
 from src.models.form import Form
@@ -24,54 +22,34 @@ from src.models.codelist import CodeList, CodeListOption
 
 
 @pytest.fixture
-def engine():
-    """内存 SQLite 引擎，允许 TestClient 跨线程访问。"""
-    _engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+def auth_token(client: TestClient) -> str:
+    return login_as(client, "alice")
+
+
+@pytest.fixture
+def project_id(client: TestClient, auth_token: str) -> int:
+    resp = client.post(
+        "/api/projects",
+        json={"name": "字段项目", "version": "1.0"},
+        headers=auth_headers(auth_token),
     )
-
-    @event.listens_for(_engine, "connect")
-    def _enable_fk(dbapi_conn, connection_record):
-        dbapi_conn.execute("PRAGMA foreign_keys = ON")
-
-    Base.metadata.create_all(_engine)
-    yield _engine
-    _engine.dispose()
-
-
-@pytest.fixture
-def client(engine):
-    """TestClient，依赖注入替换为内存 Session。"""
-
-    def _override():
-        with Session(engine) as session:
-            with session.begin():
-                yield session
-
-    app.dependency_overrides[get_session] = _override
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def project_id(client: TestClient) -> int:
-    resp = client.post("/api/projects", json={"name": "字段项目", "version": "1.0"})
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
 @pytest.fixture
-def unit_id(client: TestClient, project_id: int) -> int:
-    resp = client.post(f"/api/projects/{project_id}/units", json={"symbol": "kg", "code": "KG"})
+def unit_id(client: TestClient, project_id: int, auth_token: str) -> int:
+    resp = client.post(
+        f"/api/projects/{project_id}/units",
+        json={"symbol": "kg", "code": "KG"},
+        headers=auth_headers(auth_token),
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
 @pytest.fixture
-def field_definition_id(client: TestClient, project_id: int, unit_id: int) -> int:
+def field_definition_id(client: TestClient, project_id: int, unit_id: int, auth_token: str) -> int:
     resp = client.post(
         f"/api/projects/{project_id}/field-definitions",
         json={
@@ -80,23 +58,29 @@ def field_definition_id(client: TestClient, project_id: int, unit_id: int) -> in
             "field_type": "数值",
             "unit_id": unit_id,
         },
+        headers=auth_headers(auth_token),
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
 @pytest.fixture
-def form_id(client: TestClient, project_id: int) -> int:
-    resp = client.post(f"/api/projects/{project_id}/forms", json={"name": "筛选表"})
+def form_id(client: TestClient, project_id: int, auth_token: str) -> int:
+    resp = client.post(
+        f"/api/projects/{project_id}/forms",
+        json={"name": "筛选表"},
+        headers=auth_headers(auth_token),
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
 @pytest.fixture
-def codelist_id(client: TestClient, project_id: int) -> int:
+def codelist_id(client: TestClient, project_id: int, auth_token: str) -> int:
     resp = client.post(
         f"/api/projects/{project_id}/codelists",
         json={"name": "性别", "code": "CL_SEX"},
+        headers=auth_headers(auth_token),
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -136,7 +120,7 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         session.add(FormField(
             form_id=form.id,
             field_definition_id=field_definition.id,
-            sort_order=1,
+            order_index=1,
         ))
         session.commit()
 
@@ -145,15 +129,17 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
 
 
 @pytest.fixture
-def choice_field_definition_id(client: TestClient, project_id: int, codelist_id: int) -> int:
+def choice_field_definition_id(client: TestClient, project_id: int, codelist_id: int, auth_token: str) -> int:
     option1_resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
         json={"code": "1", "decode": "男", "trailing_underscore": 1},
+        headers=auth_headers(auth_token),
     )
     assert option1_resp.status_code == 201, option1_resp.text
     option2_resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
         json={"code": "2", "decode": "女", "trailing_underscore": 0},
+        headers=auth_headers(auth_token),
     )
     assert option2_resp.status_code == 201, option2_resp.text
     resp = client.post(
@@ -164,6 +150,7 @@ def choice_field_definition_id(client: TestClient, project_id: int, codelist_id:
             "field_type": "单选",
             "codelist_id": codelist_id,
         },
+        headers=auth_headers(auth_token),
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -173,10 +160,12 @@ def test_update_field_definition_can_clear_unit_with_null(
     client: TestClient,
     project_id: int,
     field_definition_id: int,
+    auth_token: str,
 ) -> None:
     resp = client.put(
         f"/api/projects/{project_id}/field-definitions/{field_definition_id}",
         json={"unit_id": None},
+        headers=auth_headers(auth_token),
     )
 
     assert resp.status_code == 200, resp.text
@@ -184,7 +173,10 @@ def test_update_field_definition_can_clear_unit_with_null(
     assert data["unit_id"] is None
     assert data["unit"] is None
 
-    list_resp = client.get(f"/api/projects/{project_id}/field-definitions")
+    list_resp = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
     assert list_resp.status_code == 200, list_resp.text
     matched = [item for item in list_resp.json() if item["id"] == field_definition_id]
     assert len(matched) == 1
@@ -197,29 +189,36 @@ def test_update_field_definition_clear_unit_is_idempotent_and_visible_in_form_re
     project_id: int,
     form_id: int,
     field_definition_id: int,
+    auth_token: str,
 ) -> None:
     add_resp = client.post(
         f"/api/forms/{form_id}/fields",
         json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
     )
     assert add_resp.status_code == 201, add_resp.text
 
     first_resp = client.put(
         f"/api/projects/{project_id}/field-definitions/{field_definition_id}",
         json={"unit_id": None},
+        headers=auth_headers(auth_token),
     )
     assert first_resp.status_code == 200, first_resp.text
 
     second_resp = client.put(
         f"/api/projects/{project_id}/field-definitions/{field_definition_id}",
         json={"unit_id": None},
+        headers=auth_headers(auth_token),
     )
     assert second_resp.status_code == 200, second_resp.text
     second_data = second_resp.json()
     assert second_data["unit_id"] is None
     assert second_data["unit"] is None
 
-    form_fields_resp = client.get(f"/api/forms/{form_id}/fields")
+    form_fields_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
     assert form_fields_resp.status_code == 200, form_fields_resp.text
     fields = form_fields_resp.json()
     assert len(fields) == 1
@@ -233,6 +232,7 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
+    auth_token: str,
 ) -> None:
     add_resp = client.post(
         f"/api/forms/{form_id}/fields",
@@ -241,6 +241,7 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
             "inline_mark": 1,
             "default_value": "保留值",
         },
+        headers=auth_headers(auth_token),
     )
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
@@ -248,13 +249,17 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
     patch_resp = client.patch(
         f"/api/form-fields/{form_field['id']}/inline-mark",
         json={"inline_mark": 0},
+        headers=auth_headers(auth_token),
     )
     assert patch_resp.status_code == 200, patch_resp.text
     patched = patch_resp.json()
     assert patched["inline_mark"] == 0
     assert patched["default_value"] == "保留值"
 
-    list_resp = client.get(f"/api/forms/{form_id}/fields")
+    list_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
     assert list_resp.status_code == 200, list_resp.text
     matched = [item for item in list_resp.json() if item["id"] == form_field["id"]]
     assert len(matched) == 1
@@ -267,14 +272,19 @@ def test_form_fields_response_includes_trailing_underscore_for_choice_options(
     client: TestClient,
     form_id: int,
     choice_field_definition_id: int,
+    auth_token: str,
 ) -> None:
     add_resp = client.post(
         f"/api/forms/{form_id}/fields",
         json={"field_definition_id": choice_field_definition_id},
+        headers=auth_headers(auth_token),
     )
     assert add_resp.status_code == 201, add_resp.text
 
-    list_resp = client.get(f"/api/forms/{form_id}/fields")
+    list_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
     assert list_resp.status_code == 200, list_resp.text
     fields = list_resp.json()
     assert len(fields) == 1
@@ -290,6 +300,7 @@ def test_import_template_preview_response_includes_trailing_underscore(
     project_id: int,
     template_db_path: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
+    auth_token: str,
 ) -> None:
     from src.routers import import_template as import_template_router
 
@@ -300,7 +311,8 @@ def test_import_template_preview_response_includes_trailing_underscore(
     )
 
     preview_resp = client.get(
-        f"/api/projects/{project_id}/import-template/form-fields?form_id={template_db_path.form_id}"
+        f"/api/projects/{project_id}/import-template/form-fields?form_id={template_db_path.form_id}",
+        headers=auth_headers(auth_token),
     )
     assert preview_resp.status_code == 200, preview_resp.text
     payload = preview_resp.json()
