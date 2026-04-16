@@ -13,10 +13,12 @@ const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8
  * 验证右侧预览双击字段实例可触发快捷编辑
  */
 
-test('preview field has double-click handler for quick edit', () => {
-  // 预览区字段行绑定 dblclick 事件
+test('fullscreen preview field has double-click handler for quick edit', () => {
+  assert.match(formDesignerSource, /class="designer-workspace-bottom"[\s\S]*class="designer-preview-pane"/)
+  assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/)
   assert.match(formDesignerSource, /@dblclick="openQuickEdit\(seg\.fields\[0\]\)"/)
   assert.match(formDesignerSource, /@dblclick="openQuickEdit\(ff\)"/)
+  assert.match(formDesignerSource, /@dblclick="openQuickEdit\(seg\.fields\[ci\]\)"|@dblclick="openQuickEdit\(g\.fields\[ci\]\)"/)
 })
 
 test('quick edit method exists and handles field instance properties', () => {
@@ -48,11 +50,17 @@ test('quick edit is limited to field instance properties only', () => {
   assert.equal(hasFieldTypeEditInQuickEdit, false, 'Quick edit should not include field_type selector')
 })
 
-test('preview renders same field order as main list', () => {
-  // 预览和主列表使用相同的 order_index 排序
-  assert.match(formDesignerSource, /order_index/)
-  // 预览分组使用 formFields 数据源
-  assert.match(formDesignerSource, /formFields|props\.fields/)
+test('preview uses derived visible and preview field models', () => {
+  assert.match(formDesignerSource, /const designerVisibleFields = computed\(\(\) => \{/)
+  assert.match(formDesignerSource, /_displayOrder: index \+ 1/)
+  assert.match(formDesignerSource, /const designerPreviewFields = computed\(\(\) => \{/)
+  assert.match(formDesignerSource, /pendingFieldPropSnapshotMap\.value\.get\(field\.id\)/)
+  assert.match(formDesignerSource, /liveEditSnapshot\.value\?\.fieldId === field\.id/)
+  assert.match(formDesignerSource, /const designerRenderGroups = computed\(\(\) => buildFormDesignerRenderGroups\(designerPreviewFields\.value\)\)/)
+  assert.match(formDesignerSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
+  assert.match(formDesignerSource, /async function selectForm\(nextForm\)/)
+  assert.match(formDesignerSource, /formsTableRef\.value\?\.setCurrentRow\(currentForm\)/)
+  assert.match(formDesignerSource, /@current-change="selectForm"/)
 })
 
 
