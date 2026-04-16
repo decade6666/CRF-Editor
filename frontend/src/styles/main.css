@@ -39,6 +39,7 @@
   --color-warning:        #f59e0b;
   --color-danger:         #ef4444;
   --color-info:           #06b6d4;
+  --preview-structure-bg: #BFBFBF40;
 
   /* ——— 阴影 ——— */
   --shadow-sm:   0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
@@ -187,16 +188,19 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 24px; text-align: center; }
 .word-page table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 .word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; word-break: break-word; }
-.word-page .wp-label { font-weight: bold; background: #fafafa; }
+.word-page .wp-label { font-weight: bold; background: transparent; }
 .word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; }
-.word-page .wp-inline-header { background: #d9d9d9; font-weight: bold; text-align: center; }
+.word-page .wp-inline-header { background: var(--preview-structure-bg); font-weight: bold; text-align: center; }
 /* inline-table 和 unified-table 允许内容驱动的列宽 */
 .word-page .inline-table { width: 100%; table-layout: auto; }
 .word-page .inline-table td { word-break: break-word; }
 .word-page .inline-table colgroup col { } /* 显式 colgroup 宽度 */
 /* unified 模式：单一横向表格样式 */
 .word-page .unified-table { width: 100%; table-layout: auto; }
-.word-page .unified-label { font-weight: bold; background: #f5f5f5; }
+.word-page .unified-label { font-weight: bold; background: transparent; }
+.form-designer-word-page .wp-label { background: transparent; }
+.form-designer-word-page .wp-inline-header { background: var(--preview-structure-bg); }
+.form-designer-word-page .unified-label { background: transparent; }
 .word-page .unified-value { font-family: 'SimSun', serif; color: #333; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
 /* choice atom 不换行包装 */

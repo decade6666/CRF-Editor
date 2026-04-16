@@ -36,7 +36,7 @@
                       <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                     </tr>
                     <tr v-else-if="seg.type === 'full_row'">
-                      <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                      <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                     </tr>
                     <template v-else-if="seg.type === 'inline_block'">
                       <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
@@ -48,7 +48,7 @@
                 <table v-else-if="g.type === 'normal'" class="normal-table">
                   <template v-for="ff in g.fields" :key="ff.id">
                     <tr v-if="ff.field_definition?.field_type === '标签'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
+                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
                     <tr v-else><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                   </template>
                 </table>
@@ -114,7 +114,7 @@ import {
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
 } from '../composables/formFieldPresentation'
-import { renderCtrlHtml, normalizeDefaultValue, isDefaultValueSupported, planInlineColumnFractions } from '../composables/useCRFRenderer'
+import { renderCtrlHtml, normalizeDefaultValue, isDefaultValueSupported, planInlineColumnFractions, toHtml } from '../composables/useCRFRenderer'
 import { api } from '../composables/useApi'
 
 const props = defineProps({
@@ -174,7 +174,7 @@ function renderCellHtml(ff) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const defaultValue = ff.default_value
   if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)) {
-    return normalizeDefaultValue(defaultValue, false)
+    return toHtml(normalizeDefaultValue(defaultValue, false))
   }
   return renderCtrlHtml(ff)
 }
@@ -374,7 +374,6 @@ async function handleImport() {
 
 .wp-label {
   width: 30%;
-  background: var(--color-bg-subtle);
   border-right: 1px solid var(--color-border);
   font-weight: 600;
 }
@@ -384,13 +383,12 @@ async function handleImport() {
 }
 
 .wp-inline-header {
-  background: var(--color-bg-subtle);
+  background: var(--preview-structure-bg);
   font-weight: 600;
   border-bottom: 1px solid var(--color-border);
 }
 
 .unified-label {
-  background: var(--color-bg-subtle);
   border-right: 1px solid var(--color-border);
   font-weight: 600;
 }

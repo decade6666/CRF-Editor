@@ -20,6 +20,18 @@ test('settings dialog routes database export by user role', () => {
 })
 
 
+test('word export blocks rapid repeat triggers at three attempts', () => {
+  assert.match(appSource, /const MAX_EXPORT_WORD_TRIGGERS = 3/)
+  assert.match(appSource, /let exportWordResetTimer = null/)
+  assert.match(appSource, /if \(!selectedProject\.value \|\| exportWordLoading\.value\) return/)
+  assert.match(appSource, /if \(exportWordTriggerCount\.value >= MAX_EXPORT_WORD_TRIGGERS\) \{[\s\S]*ElMessage\.warning\(`导出过于频繁，请在 \$\{Math\.ceil\(EXPORT_WORD_TRIGGER_WINDOW_MS \/ 1000\)\} 秒后重试`\)[\s\S]*return/)
+  assert.match(appSource, /exportWordTriggerCount\.value \+= 1/)
+  assert.match(appSource, /exportWordResetTimer = setTimeout\(\(\) => \{[\s\S]*exportWordTriggerCount\.value = 0[\s\S]*exportWordResetTimer = null[\s\S]*\}, EXPORT_WORD_TRIGGER_WINDOW_MS\)/)
+  assert.match(appSource, /watch\(\(\) => selectedProject\.value\?\.id, \(\) => \{[\s\S]*resetExportWordTriggerCount\(\)/)
+  assert.match(appSource, /onBeforeUnmount\(\(\) => \{[\s\S]*if \(exportWordResetTimer\) clearTimeout\(exportWordResetTimer\)/)
+})
+
+
 test('settings dialog export actions and main tabs use scoped layout hooks', () => {
   assert.match(appSource, /<el-tabs class="main-content-tabs" v-model="activeTab"/)
   assert.match(appSource, /<div class="settings-transfer-actions">[\s\S]*导出所有项目[\s\S]*导出当前项目[\s\S]*:loading="importProjectLoading"[\s\S]*导入项目/s)

@@ -65,9 +65,20 @@ async function reloadForms() {
 async function loadFieldDefs() { fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`) }
 async function loadCodelists() { codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`) }
 async function loadUnits() { units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`) }
+
+function sortFormFieldsByOrder(fields) {
+  return [...fields].sort((a, b) => {
+    const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
+    const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
+    if (orderA !== orderB) return orderA - orderB
+    return (a?.id ?? 0) - (b?.id ?? 0)
+  })
+}
+
 async function loadFormFields() {
   if (!selectedForm.value) return
-  formFields.value = await api.cachedGet(`/api/forms/${selectedForm.value.id}/fields`)
+  const loadedFields = await api.cachedGet(`/api/forms/${selectedForm.value.id}/fields`)
+  formFields.value = sortFormFieldsByOrder(loadedFields)
 }
 watch(selectedForm, loadFormFields)
 
@@ -232,7 +243,8 @@ onBeforeUpdate(() => { fieldItemRefs.value = {} })
 
 // 手动序号编辑（与 FieldsTab 对齐）
 async function updateFormFieldOrder(ff, newValue) {
-  if (newValue == null || newValue === ff.order_index) return
+  const currentOrder = ff._displayOrder ?? ff.order_index
+  if (newValue == null || newValue === currentOrder) return
   const oldIdx = formFields.value.findIndex(f => f.id === ff.id)
   const newIdx = newValue - 1
   if (oldIdx === -1 || newIdx < 0 || newIdx >= formFields.value.length) return
@@ -377,10 +389,90 @@ function computeLabelValueSpans(N) {
 
 const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.value))
 
+const designerVisibleFields = computed(() => {
+  return sortFormFieldsByOrder(formFields.value).map((field, index) => ({
+    ...field,
+    _displayOrder: index + 1,
+  }))
+})
+
+function resolveCodelist(codelistId) {
+  return codelists.value.find(item => item.id === codelistId) || null
+}
+
+function resolveUnit(unitId) {
+  return units.value.find(item => item.id === unitId) || null
+}
+
+function normalizePreviewDefaultValue(fieldType, inlineMark, defaultValue) {
+  if (!isDefaultValueSupported(fieldType, Boolean(inlineMark))) return ''
+  return normalizeDefaultValue(defaultValue ?? '', !inlineMark)
+}
+
+function applyPreviewSnapshot(baseField, snapshot) {
+  if (!snapshot) return baseField
+  if (baseField.is_log_row) {
+    return {
+      ...baseField,
+      label_override: snapshot.label ?? baseField.label_override,
+      bg_color: snapshot.bg_color ?? baseField.bg_color ?? null,
+      text_color: snapshot.text_color ?? baseField.text_color ?? null,
+    }
+  }
+
+  const fieldDefinition = baseField.field_definition || {}
+  const fieldType = snapshot.field_type ?? fieldDefinition.field_type ?? '文本'
+  const inlineMark = snapshot.inline_mark ?? baseField.inline_mark ?? 0
+  const supportsUnit = fieldType === '文本' || fieldType === '数值'
+  const supportsDateFormat = ['日期', '日期时间', '时间'].includes(fieldType)
+  const codelistId = isChoiceField(fieldType) ? (snapshot.codelist_id ?? fieldDefinition.codelist_id ?? null) : null
+  const unitId = supportsUnit ? (snapshot.unit_id ?? fieldDefinition.unit_id ?? null) : null
+
+  return {
+    ...baseField,
+    default_value: normalizePreviewDefaultValue(fieldType, inlineMark, snapshot.default_value ?? baseField.default_value),
+    inline_mark: inlineMark,
+    bg_color: snapshot.bg_color ?? baseField.bg_color ?? null,
+    text_color: snapshot.text_color ?? baseField.text_color ?? null,
+    field_definition: {
+      ...fieldDefinition,
+      label: snapshot.label ?? fieldDefinition.label,
+      variable_name: snapshot.variable_name ?? fieldDefinition.variable_name,
+      field_type: fieldType,
+      integer_digits: fieldType === '数值' ? (snapshot.integer_digits ?? fieldDefinition.integer_digits) : null,
+      decimal_digits: fieldType === '数值' ? (snapshot.decimal_digits ?? fieldDefinition.decimal_digits) : null,
+      date_format: supportsDateFormat ? (snapshot.date_format ?? fieldDefinition.date_format) : null,
+      codelist_id: codelistId,
+      unit_id: unitId,
+      codelist: codelistId ? resolveCodelist(codelistId) : null,
+      unit: unitId ? resolveUnit(unitId) : null,
+    },
+  }
+}
+
+const pendingFieldPropSnapshotVersion = ref(0)
+const pendingFieldPropSnapshotMap = computed(() => {
+  pendingFieldPropSnapshotVersion.value
+  return new Map(pendingFieldPropSnapshots.map(snapshot => [snapshot.fieldId, snapshot]))
+})
+const liveEditSnapshot = computed(() => {
+  if (!selectedFieldId.value) return null
+  return buildFieldPropSnapshot(selectedFieldId.value)
+})
+const designerPreviewFields = computed(() => {
+  return designerVisibleFields.value.map(field => {
+    const pendingSnapshot = pendingFieldPropSnapshotMap.value.get(field.id)
+    const liveSnapshot = liveEditSnapshot.value?.fieldId === field.id ? liveEditSnapshot.value : null
+    return applyPreviewSnapshot(field, liveSnapshot || pendingSnapshot)
+  })
+})
+const designerRenderGroups = computed(() => buildFormDesignerRenderGroups(designerPreviewFields.value))
+
 const needsLandscape = computed(() => renderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
 const forceLandscape = ref(localStorage.getItem('crf_forceLandscape') === 'true')
 watch(forceLandscape, v => localStorage.setItem('crf_forceLandscape', String(v)))
 const landscapeMode = computed(() => forceLandscape.value || needsLandscape.value)
+const designerLandscapeMode = computed(() => forceLandscape.value || designerRenderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
 
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240)
 const isLibResizing = ref(false)
@@ -393,46 +485,90 @@ function startLibResize(e) {
   document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp)
 }
 
-const propWidth = ref(parseInt(localStorage.getItem('crf_propWidth')) || 320)
-const isPropResizing = ref(false)
-watch(propWidth, v => localStorage.setItem('crf_propWidth', v))
-function startPropResize(e) {
-  isPropResizing.value = true
-  const startX = e.clientX, startW = propWidth.value
-  function onMove(e) { propWidth.value = Math.max(240, Math.min(500, startW - (e.clientX - startX))) }
-  function onUp() { isPropResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp)
-}
+const previewPaneWidth = 460
+const propWidth = computed(() => previewPaneWidth)
 
-const notesHeight = ref(parseInt(localStorage.getItem('crf_notesHeight')) || 120)
-watch(notesHeight, v => localStorage.setItem('crf_notesHeight', v))
 const formDesignNotes = ref('')
 let notesTimer = null
-const previewDesignNotesText = computed(() => selectedForm.value?.design_notes || '')
+let isSavingDesignNotes = false
+let notesPendingSave = null
+let notesSavePromise = null
+let notesAutoSaveErrorShown = false
+const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''))
 const hasPreviewNotes = computed(() => Boolean(previewDesignNotesText.value.trim()))
 const previewDesignNotesHtml = computed(() => hasPreviewNotes.value ? escapePreviewText(previewDesignNotesText.value) : '')
+const designerHasPreviewNotes = computed(() => false)
 
 watch(() => selectedForm.value?.id, (formId) => {
   clearTimeout(notesTimer)
+  notesAutoSaveErrorShown = false
   const current = forms.value.find(f => f.id === formId) || selectedForm.value
   formDesignNotes.value = current?.design_notes || ''
 })
 
-async function saveDesignNotes() {
-  if (!selectedForm.value) return
-  const formId = selectedForm.value.id, submittedNotes = formDesignNotes.value
-  try {
-    await api.put(`/api/forms/${formId}`, { design_notes: submittedNotes })
-    if (selectedForm.value?.id !== formId || formDesignNotes.value !== submittedNotes) return
-    forms.value = forms.value.map(f => (f.id === formId ? { ...f, design_notes: submittedNotes } : f))
-    selectedForm.value = forms.value.find(f => f.id === formId) || selectedForm.value
-    api.invalidateCache(`/api/projects/${props.projectId}/forms`)
-  } catch (e) { console.error('备注保存失败', e) }
+function buildDesignNotesSaveSnapshot({ form = selectedForm.value, projectId = props.projectId, notes = formDesignNotes.value } = {}) {
+  if (!form?.id) return null
+  return { formId: form.id, projectId, notes: String(notes ?? '') }
 }
-function onNotesInput() { clearTimeout(notesTimer); notesTimer = setTimeout(saveDesignNotes, 500) }
-function onNotesResize(evt) {
-  const textarea = evt.target?.closest('.design-notes-wrap')?.querySelector('textarea')
-  if (textarea) notesHeight.value = textarea.offsetHeight
+
+async function persistDesignNotesSnapshot(snapshot) {
+  await api.put(`/api/forms/${snapshot.formId}`, { design_notes: snapshot.notes })
+  forms.value = forms.value.map(f => (f.id === snapshot.formId ? { ...f, design_notes: snapshot.notes } : f))
+  if (selectedForm.value?.id === snapshot.formId) {
+    selectedForm.value = forms.value.find(f => f.id === snapshot.formId) || selectedForm.value
+  }
+  api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`)
+  notesAutoSaveErrorShown = false
+}
+
+async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
+  clearTimeout(notesTimer)
+  if (snapshot) notesPendingSave = snapshot
+  if (!notesPendingSave && !notesSavePromise) return true
+  if (notesSavePromise) return notesSavePromise
+  notesSavePromise = (async () => {
+    isSavingDesignNotes = true
+    try {
+      while (notesPendingSave) {
+        const queuedSave = notesPendingSave
+        notesPendingSave = null
+        try {
+          await persistDesignNotesSnapshot(queuedSave)
+        } catch (e) {
+          if (!notesAutoSaveErrorShown) {
+            ElMessage.error(`设计备注保存失败：${e.message}`)
+            notesAutoSaveErrorShown = true
+          }
+          if (!notesPendingSave) notesPendingSave = queuedSave
+          break
+        }
+      }
+      return !notesPendingSave
+    } finally {
+      isSavingDesignNotes = false
+      notesSavePromise = null
+    }
+  })()
+  return notesSavePromise
+}
+
+async function selectForm(nextForm) {
+  const currentForm = selectedForm.value
+  if ((currentForm?.id ?? null) === (nextForm?.id ?? null)) return
+  const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }))
+  if (!flushSucceeded && currentForm?.id) {
+    formsTableRef.value?.setCurrentRow(currentForm)
+    return
+  }
+  selectedForm.value = nextForm || null
+}
+
+function onNotesInput() {
+  notesAutoSaveErrorShown = false
+  clearTimeout(notesTimer)
+  notesTimer = setTimeout(() => {
+    void flushDesignNotesSave()
+  }, 500)
 }
 
 // 快速编辑
@@ -586,6 +722,7 @@ function upsertPendingFieldPropSnapshot(snapshot) {
     ...pendingFieldPropSnapshots.filter(item => item.fieldId !== snapshot.fieldId),
     { ...snapshot, snapshotKey },
   ]
+  pendingFieldPropSnapshotVersion.value += 1
 }
 
 function hasPendingFieldPropSnapshot(fieldId, snapshotKey = '') {
@@ -606,6 +743,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   clearTimeout(fieldPropSaveTimer)
   fieldPropSaveTimer = null
   pendingFieldPropSnapshots = []
+  pendingFieldPropSnapshotVersion.value += 1
   isSavingFieldProp = false
   fieldPropAutoSaveErrorShown = false
   if (!preserveEditor) {
@@ -656,6 +794,7 @@ async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
   if (!pendingFieldPropSnapshots.length || isSavingFieldProp) return true
   const [snapshot, ...rest] = pendingFieldPropSnapshots
   pendingFieldPropSnapshots = rest
+  pendingFieldPropSnapshotVersion.value += 1
   const snapshotKey = snapshot.snapshotKey || getFieldPropSnapshotKey(snapshot)
   let saveSucceeded = false
   let flushFailed = false
@@ -932,6 +1071,9 @@ watch(() => showDesigner.value, async (visible, previousVisible) => {
 })
 watch(() => props.projectId, async (newProjectId, previousProjectId) => {
   if (newProjectId === previousProjectId) return
+  const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId })
+  const flushSucceeded = await flushDesignNotesSave(flushSnapshot)
+  if (!flushSucceeded && selectedForm.value?.id) return
   const resetSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true })
   if (!resetSucceeded) {
     fieldPropProjectId.value = previousProjectId
@@ -942,6 +1084,8 @@ watch(() => props.projectId, async (newProjectId, previousProjectId) => {
 })
 
 async function canLeaveProject() {
+  const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot())
+  if (!flushSucceeded && selectedForm.value?.id) return false
   return flushFieldPropSaveBeforeReset({ preserveEditor: true })
 }
 
@@ -958,7 +1102,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
-      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="r => selectedForm = r" @selection-change="r => selForms = r" style="width:100%" height="100%">
+      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => selForms = r" style="width:100%" height="100%">
         <el-table-column width="32" v-if="!isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
@@ -994,7 +1138,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                           <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                         </tr>
                         <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                          <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                         </tr>
                         <template v-else-if="seg.type === 'inline_block'">
                           <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
@@ -1005,7 +1149,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                     <table v-else-if="g.type === 'normal'">
                       <template v-for="ff in g.fields" :key="ff.id">
                         <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:#d9d9d9;')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
+                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
                         <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                       </template>
                     </table>
@@ -1023,113 +1167,159 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       </div>
     </div>
 
-    <!-- 各类弹窗 -->
-    <el-dialog v-model="showAddForm" title="新建表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item></el-form><template #footer><el-button @click="showAddForm=false">取消</el-button><el-button type="primary" @click="addForm">确定</el-button></template></el-dialog>
-    <el-dialog v-model="showEditForm" title="编辑表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item></el-form><template #footer><el-button @click="showEditForm=false">取消</el-button><el-button type="primary" @click="updateForm">确定</el-button></template></el-dialog>
-    <el-dialog v-model="showDesigner" :title="'设计：' + (selectedForm?.name || '')" width="85vw" top="5vh">
-      <div style="display:flex;height:80vh">
-        <div class="fd-library" :style="{ width: libraryWidth + 'px' }"><div class="fd-library-header">字段库</div><div style="padding:4px 6px;border-bottom:1px solid var(--color-border)"><el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable /></div><div class="fd-library-list"><div v-for="fd in filteredFieldDefs" :key="fd.id" class="fd-item" :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)"><span>{{ fd.label }}</span><span style="color:var(--color-text-muted);font-size:11px">{{ fd.field_type }}</span></div></div></div>
+    <el-dialog v-model="showDesigner" :title="'设计：' + (selectedForm?.name || '')" fullscreen class="designer-dialog">
+      <div class="designer-shell">
+        <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
+          <div class="fd-library-header">字段库</div>
+          <div class="designer-pane-toolbar"><el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable /></div>
+          <div class="fd-library-list"><div v-for="fd in filteredFieldDefs" :key="fd.id" class="fd-item" :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)"><span>{{ fd.label }}</span><span style="color:var(--color-text-muted);font-size:11px">{{ fd.field_type }}</span></div></div>
+        </div>
         <div class="fd-panel-resizer" @mousedown="startLibResize"></div>
-        <div class="fd-canvas" style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
-          <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button></div>
-          <div class="fd-canvas-list">
-            <div v-for="(ff, idx) in formFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-              <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff.order_index" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="formFields.length" size="small" style="width:60px;margin-left:4px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+        <div class="designer-workspace">
+          <div class="designer-workspace-top">
+            <div class="fd-canvas designer-fields-panel">
+              <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button><span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ designerVisibleFields.length }} 个字段</span></div>
+              <div class="fd-canvas-list designer-field-list">
+                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
+                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff._displayOrder" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="designerVisibleFields.length" size="small" style="width:56px;margin-left:2px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="designer-workspace-bottom">
+            <div class="designer-preview-pane">
+              <div class="designer-section-title">实时预览</div>
+              <div class="designer-preview-viewport">
+                <div class="designer-preview-stage">
+                  <div class="designer-preview-page">
+                    <div :class="['word-page', 'form-designer-word-page', 'designer-scaled-word-page', { landscape: designerLandscapeMode, 'word-page--with-notes': designerHasPreviewNotes }]">
+                      <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
+                      <template v-else>
+                        <div v-if="!designerPreviewFields.length" class="wp-empty">暂无字段</div>
+                        <div :class="['wp-body', { 'wp-body--with-notes': designerHasPreviewNotes }]">
+                          <div class="wp-main">
+                            <template v-for="(g, gi) in designerRenderGroups" :key="gi">
+                              <table v-if="g.type === 'unified'" class="unified-table">
+                                <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                                  <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
+                                  <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
+                                  <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
+                                </template>
+                              </table>
+                              <table v-else-if="g.type === 'normal'"><template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template></table>
+                              <table v-else class="inline-table"><tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr></table>
+                            </template>
+                          </div>
+                          <aside v-if="designerHasPreviewNotes" class="wp-notes"><div class="wp-notes-title">设计备注</div><div class="wp-notes-content" v-html="previewDesignNotesHtml"></div></aside>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="fd-panel-resizer" @mousedown="startPropResize"></div>
-        <div :style="{ width: propWidth + 'px', border: '1px solid var(--color-border)', borderRadius: '4px', display: 'flex', flexDirection: 'column' }">
-          <div style="padding:8px 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">属性编辑</div>
-          <div v-if="!selectedFieldId" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted)">← 选择字段</div>
-          <div v-else-if="editProp.field_type === '日志行'" style="flex:1;overflow-y:auto;padding:8px">
-            <el-form :model="editProp" label-width="70px" size="small">
-              <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
-              <el-form-item label="底纹">
-                <div class="color-picker">
-                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
-                  <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
-                    <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
-                  </el-input>
-                </div>
-              </el-form-item>
-              <el-form-item label="文字颜色">
-                <div class="color-picker">
-                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
-                  <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
-                    <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
-                  </el-input>
-                </div>
-              </el-form-item>
-            </el-form>
-          </div>
-          <div v-else style="flex:1;overflow-y:auto;padding:8px">
-            <el-form :model="editProp" label-width="70px" size="small">
-              <el-form-item label="变量标签"><el-input v-model="editProp.label" /></el-form-item>
-              <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
-              <el-form-item label="字段类型">
-                <el-select v-model="editProp.field_type" style="width:100%">
-                  <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
-                </el-select>
-              </el-form-item>
-              <template v-if="editProp.field_type === '数值'">
-                <el-form-item label="整数位数"><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width:100%" /></el-form-item>
-                <el-form-item label="小数位数"><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width:100%" /></el-form-item>
-              </template>
-              <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
-                <el-select v-model="editProp.date_format" clearable style="width:100%">
-                  <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
-                </el-select>
-              </el-form-item>
-              <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
-                <div class="choice-codelist-row">
-                  <el-select v-model="editProp.codelist_id" class="choice-codelist-select" clearable filterable placeholder="请选择">
-                    <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
-                  </el-select>
-                  <div class="choice-codelist-actions">
-                    <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增字典" title="新增字典" @click="openQuickAddCodelist" />
-                    <el-button class="choice-codelist-icon-btn" size="small" circle type="warning" plain :icon="EditPen" aria-label="编辑字典" title="编辑字典" :disabled="!editProp.codelist_id" @click="openQuickEditCodelist" />
+        <div class="designer-side-pane" :style="{ width: propWidth + 'px' }">
+          <div class="designer-editor-card">
+            <div class="designer-section-title">属性编辑</div>
+            <div v-if="!selectedFieldId" class="designer-empty-state">← 选择字段</div>
+            <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
+              <el-form :model="editProp" label-width="70px" size="small">
+                <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
+                <el-form-item label="底纹">
+                  <div class="color-picker">
+                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                      <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
+                    </el-input>
                   </div>
-                </div>
-              </el-form-item>
-              <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
-                <div style="display:flex;gap:4px">
-                  <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择">
-                    <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
+                </el-form-item>
+                <el-form-item label="文字颜色">
+                  <div class="color-picker">
+                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                      <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
+                    </el-input>
+                  </div>
+                </el-form-item>
+              </el-form>
+            </div>
+            <div v-else class="designer-editor-scroll">
+              <el-form :model="editProp" label-width="70px" size="small">
+                <el-form-item label="变量标签"><el-input v-model="editProp.label" /></el-form-item>
+                <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
+                <el-form-item label="字段类型">
+                  <el-select v-model="editProp.field_type" style="width:100%">
+                    <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
                   </el-select>
-                  <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增单位" title="新增单位" @click="showQuickAddUnit = true" />
-                </div>
-              </el-form-item>
-              <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
-                <template #label>
-                  <el-tooltip :content="editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'">
-                    <span>默认值 <el-icon><InfoFilled /></el-icon></span>
-                  </el-tooltip>
+                </el-form-item>
+                <template v-if="editProp.field_type === '数值'">
+                  <el-form-item label="整数位数"><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width:100%" /></el-form-item>
+                  <el-form-item label="小数位数"><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width:100%" /></el-form-item>
                 </template>
-                <el-input v-model="editProp.default_value" :type="editProp.inline_mark ? 'textarea' : 'text'" :rows="editProp.inline_mark ? 2 : undefined" :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'" />
-              </el-form-item>
-              <el-form-item label="底纹">
-                <div class="color-picker">
-                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
-                  <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
-                    <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
-                  </el-input>
-                </div>
-              </el-form-item>
-              <el-form-item label="文字颜色">
-                <div class="color-picker">
-                  <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
-                  <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
-                    <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
-                  </el-input>
-                </div>
-              </el-form-item>
-            </el-form>
+                <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
+                  <el-select v-model="editProp.date_format" clearable style="width:100%">
+                    <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
+                  <div class="choice-codelist-row">
+                    <el-select v-model="editProp.codelist_id" class="choice-codelist-select" clearable filterable placeholder="请选择">
+                      <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
+                    </el-select>
+                    <div class="choice-codelist-actions">
+                      <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增字典" title="新增字典" @click="openQuickAddCodelist" />
+                      <el-button class="choice-codelist-icon-btn" size="small" circle type="warning" plain :icon="EditPen" aria-label="编辑字典" title="编辑字典" :disabled="!editProp.codelist_id" @click="openQuickEditCodelist" />
+                    </div>
+                  </div>
+                </el-form-item>
+                <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
+                  <div style="display:flex;gap:4px">
+                    <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择">
+                      <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
+                    </el-select>
+                    <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增单位" title="新增单位" @click="showQuickAddUnit = true" />
+                  </div>
+                </el-form-item>
+                <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
+                  <template #label>
+                    <el-tooltip :content="editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'">
+                      <span>默认值 <el-icon><InfoFilled /></el-icon></span>
+                    </el-tooltip>
+                  </template>
+                  <el-input v-model="editProp.default_value" :type="editProp.inline_mark ? 'textarea' : 'text'" :rows="editProp.inline_mark ? 2 : undefined" :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'" />
+                </el-form-item>
+                <el-form-item label="底纹">
+                  <div class="color-picker">
+                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                      <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
+                    </el-input>
+                  </div>
+                </el-form-item>
+                <el-form-item label="文字颜色">
+                  <div class="color-picker">
+                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                      <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
+                    </el-input>
+                  </div>
+                </el-form-item>
+              </el-form>
+            </div>
           </div>
-          <div class="design-notes-wrap" style="padding: 8px; border-top: 1px solid var(--color-border);"><div style="font-size: 12px; margin-bottom: 4px;">设计备注</div><el-input v-model="formDesignNotes" type="textarea" :autosize="false" :style="{ height: notesHeight + 'px' }" @input="onNotesInput" /></div>
+          <div class="designer-notes-card">
+            <div class="designer-section-title">设计备注</div>
+            <div class="designer-notes-editor"><el-input v-model="formDesignNotes" type="textarea" :autosize="false" class="designer-notes-input" @input="onNotesInput" /></div>
+          </div>
         </div>
       </div>
     </el-dialog>
+
+    <!-- 各类弹窗 -->
+    <el-dialog v-model="showAddForm" title="新建表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item></el-form><template #footer><el-button @click="showAddForm=false">取消</el-button><el-button type="primary" @click="addForm">确定</el-button></template></el-dialog>
+    <el-dialog v-model="showEditForm" title="编辑表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item></el-form><template #footer><el-button @click="showEditForm=false">取消</el-button><el-button type="primary" @click="updateForm">确定</el-button></template></el-dialog>
 
     <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="480px" append-to-body>
       <el-form :model="quickEditProp" label-width="80px" size="small">
@@ -1213,20 +1403,28 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
   </div>
 </template>
 
+<style>
+.designer-dialog .el-dialog__body {
+  padding: 0;
+  height: calc(100vh - 54px);
+  overflow: hidden;
+}
+</style>
+
 <style scoped>
 .form-designer { display: flex; gap: 16px; height: 100%; }
 .fd-formlist { flex: 1 1 0; width: auto; min-width: 0; display: flex; flex-direction: column; }
 .fd-right { flex: 2 1 0; width: auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .fd-canvas { display: flex; flex-direction: column; overflow: hidden; }
-.fd-canvas-header { padding: 8px; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 8px; }
+.fd-canvas-header { padding: 8px 12px; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 8px; }
 .fd-canvas-list { flex: 1; overflow-y: auto; padding: 8px; }
-.ff-item { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--color-border); margin-bottom: 4px; background: var(--color-bg-card); cursor: pointer; }
+.ff-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--color-border); margin-bottom: 2px; background: var(--color-bg-card); cursor: pointer; }
 .ff-item.ff-selected { border-color: var(--color-primary); background: var(--color-primary-subtle); }
 .drag-handle { cursor: move; color: #ccc; }
 .ff-label { flex: 1; font-size: 13px; }
-.fd-library { border: 1px solid var(--color-border); display: flex; flex-direction: column; }
+.fd-library { border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 .fd-library-header { padding: 8px; background: var(--color-bg-hover); font-weight: bold; font-size: 13px; }
-.fd-library-list { flex: 1; overflow-y: auto; }
+.fd-library-list { flex: 1; min-height: 0; overflow-y: auto; }
 .fd-item { padding: 6px 10px; border-bottom: 1px solid var(--color-border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
 .fd-item:hover { background: var(--color-bg-hover); }
 .fd-panel-resizer { width: 4px; cursor: col-resize; background: transparent; transition: background 0.2s; }
@@ -1239,4 +1437,182 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .color-picker { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .color-option { width: 20px; height: 20px; border-radius: 2px; cursor: pointer; border: 1px solid #eee; }
 .color-option.color-selected { border: 2px solid var(--color-primary); }
+
+.designer-shell {
+  display: grid;
+  grid-template-columns: auto 4px minmax(320px, 1fr) 460px;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-bg-body);
+}
+
+.designer-library-pane {
+  min-width: 220px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+.designer-pane-toolbar {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.designer-workspace {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 8px;
+  padding: 8px;
+}
+
+.designer-workspace-top,
+.designer-workspace-bottom {
+  min-height: 0;
+}
+
+.designer-workspace-bottom {
+  display: flex;
+  overflow: hidden;
+}
+
+.designer-workspace-top {
+  padding: 0;
+}
+
+.designer-fields-panel {
+  height: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.designer-field-list {
+  padding: 4px;
+}
+
+.designer-side-pane {
+  min-width: 460px;
+  max-width: 460px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(180px, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-hover);
+}
+
+.designer-editor-card,
+.designer-notes-card,
+.designer-preview-pane,
+.designer-preview-viewport {
+  min-height: 0;
+}
+
+.designer-editor-card,
+.designer-notes-card {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.designer-section-title {
+  padding: 8px 12px;
+  background: var(--color-bg-hover);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.designer-empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.designer-editor-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.designer-notes-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 6px;
+}
+
+.designer-notes-input {
+  flex: 1;
+}
+
+.designer-notes-input :deep(.el-textarea),
+.designer-notes-input :deep(.el-textarea__inner) {
+  height: 100%;
+}
+
+.designer-notes-input :deep(.el-textarea__inner) {
+  resize: none;
+}
+
+.designer-preview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.designer-preview-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.designer-preview-stage {
+  width: 100%;
+  min-height: 100%;
+}
+
+.designer-preview-page {
+  position: static;
+  width: 100%;
+  min-height: 100%;
+  transform: none;
+}
+
+.designer-scaled-word-page {
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.designer-scaled-word-page.landscape {
+  width: 100%;
+}
 </style>
