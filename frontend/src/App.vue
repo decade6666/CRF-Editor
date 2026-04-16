@@ -1,7 +1,9 @@
 <script setup>
-import { ref, reactive, watch, onMounted, provide } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, toggleSelectAll } from './composables/useApi'
+import draggable from 'vuedraggable'
+import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
+import { getDownloadFilename } from './composables/exportDownloadState'
 import ProjectInfoTab from './components/ProjectInfoTab.vue'
 import VisitsTab from './components/VisitsTab.vue'
 import FormDesignerTab from './components/FormDesignerTab.vue'
@@ -10,20 +12,104 @@ import CodelistsTab from './components/CodelistsTab.vue'
 import UnitsTab from './components/UnitsTab.vue'
 import DocxCompareDialog from './components/DocxCompareDialog.vue'
 import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
+import LoginView from './components/LoginView.vue'
+import AdminView from './components/AdminView.vue'
+import { useOrderableList } from './composables/useOrderableList'
+
+// 登录状态
+const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
+const showAdmin = ref(false)
+
+function getEmptyUser() {
+  return { username: '', is_admin: false }
+}
+
+function rememberUsername(username = currentUser.value.username) {
+  const normalized = String(username || '').trim()
+  if (normalized) localStorage.setItem('crf_last_username', normalized)
+}
+
+function resetSessionState() {
+  api.clearAllCache()
+  localStorage.removeItem('crf_token')
+  isLoggedIn.value = false
+  showAdmin.value = false
+  showSettings.value = false
+  projects.value = []
+  selectedProject.value = null
+  activeTab.value = 'info'
+  currentUser.value = getEmptyUser()
+}
+
+function onLoginSuccess() {
+  isLoggedIn.value = true
+  loadProjects()
+  loadMe()
+}
+
+function logout() {
+  rememberUsername()
+  resetSessionState()
+  ElMessage.success('已退出登录')
+}
+
+function handleAuthExpired() {
+  rememberUsername()
+  resetSessionState()
+}
+
+// 当前用户信息
+const currentUser = ref(getEmptyUser())
+const isAdmin = computed(() => currentUser.value.is_admin)
+
+async function loadMe() {
+  try {
+    currentUser.value = await api.get('/api/auth/me')
+    rememberUsername(currentUser.value.username)
+  } catch {
+    currentUser.value = getEmptyUser()
+  }
+}
 
 // 项目数据
 const projects = ref([])
 const selectedProject = ref(null)
 const activeTab = ref('info')
+const formDesignerTabRef = ref(null)
 const showCreateProject = ref(false)
 const newProject = reactive({ name: '', version: '1.0' })
+const copyingProjectId = ref(null)
 
-async function loadProjects() { projects.value = await api.get('/api/projects') }
-onMounted(loadProjects)
+const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder')
+
+async function loadProjects() {
+  projects.value = await api.get('/api/projects')
+}
+
+async function onProjectDragEnd() {
+  await handleProjectDragEnd(
+    projects.value,
+    loadProjects,
+    (err) => ElMessage.error(err.message)
+  )
+}
+onMounted(() => {
+  if (isLoggedIn.value) { loadProjects(); loadMe() }
+  window.addEventListener('crf:auth-expired', handleAuthExpired)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('crf:auth-expired', handleAuthExpired)
+})
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
 const refreshKey = ref(0)
 provide('refreshKey', refreshKey)
+
+// 编辑模式（持久化，默认关闭）
+const editMode = ref(localStorage.getItem('crf_edit_mode') === 'true')
+watch(editMode, v => localStorage.setItem('crf_edit_mode', String(v)))
+provide('editMode', editMode)
 
 function handleRefresh() {
   api.clearAllCache()
@@ -32,7 +118,15 @@ function handleRefresh() {
   ElMessage.success('数据已刷新')
 }
 
-function selectProject(p) { selectedProject.value = p; activeTab.value = 'info' }
+async function selectProject(p) {
+  if (selectedProject.value?.id === p.id) return
+  if (activeTab.value === 'designer' && formDesignerTabRef.value?.canLeaveProject) {
+    const canLeave = await formDesignerTabRef.value.canLeaveProject()
+    if (!canLeave) return
+  }
+  selectedProject.value = p
+  activeTab.value = 'info'
+}
 
 // 切换Tab时刷新相关数据
 watch(activeTab, (newTab) => {
@@ -61,28 +155,153 @@ async function createProject() {
 async function deleteProject(p) {
   await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' })
   await api.del(`/api/projects/${p.id}`)
-  if (selectedProject.value?.id === p.id) selectedProject.value = null
+  if (selectedProject.value?.id === p.id) {
+    selectedProject.value = null
+  }
   loadProjects()
 }
 
-// 导出Word
-async function exportWord() {
+async function copyProject(p) {
+  copyingProjectId.value = p.id
   try {
-    const resp = await fetch(`/api/projects/${selectedProject.value.id}/export/word/prepare`, { method: 'POST' })
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}))
+    const copied = await api.post(`/api/projects/${p.id}/copy`, {})
+    await loadProjects()
+    selectProject(copied)
+    ElMessage.success('项目复制成功')
+  } catch (e) {
+    ElMessage.error('项目复制失败: ' + e.message)
+  } finally {
+    copyingProjectId.value = null
+  }
+}
+
+
+const exportWordLoading = ref(false)
+
+async function exportWord() {
+  if (!selectedProject.value) return
+  exportWordLoading.value = true
+  try {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
       return ElMessage.error('导出失败: ' + (err.detail || '未知错误'))
     }
-    const { token } = await resp.json()
-    const fileResp = await fetch(`/api/export/download/${token}`)
-    if (!fileResp.ok) return ElMessage.error('下载失败，请重试')
-    const blob = await fileResp.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `${selectedProject.value.name}_CRF.docx`
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  } catch (e) { ElMessage.error('导出失败: ' + e.message) }
+    const blob = await response.blob()
+    const contentDisposition = response.headers.get('content-disposition')
+    const fallbackFilename = `${selectedProject.value.name}_CRF.docx`
+    const filename = getDownloadFilename(contentDisposition, fallbackFilename)
+    const objectUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(objectUrl)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message)
+  } finally {
+    exportWordLoading.value = false
+  }
+}
+
+async function _blobDownload(url, fallbackFilename) {
+  const response = await fetch(url, { headers: getAuthHeaders() })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || '未知错误')
+  }
+  const blob = await response.blob()
+  const contentDisposition = response.headers.get('content-disposition')
+  const filename = getDownloadFilename(contentDisposition, fallbackFilename)
+  const objectUrl = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(objectUrl)
+}
+
+async function exportFullDatabase() {
+  const exportUrl = isAdmin.value ? '/api/export/database' : '/api/projects/export/database'
+  const dialogTitle = '导出所有项目'
+  const dialogMessage = isAdmin.value
+    ? '将导出所有项目数据库文件，是否继续？'
+    : '将导出当前账号名下的全部项目，是否继续？'
+  const fallbackFilename = isAdmin.value
+    ? 'crf_editor_full.db'
+    : `${currentUser.value.username || 'my'}_projects.db`
+
+  try {
+    await ElMessageBox.confirm(dialogMessage, dialogTitle, { type: 'info' })
+  } catch { return }
+  try {
+    await _blobDownload(exportUrl, fallbackFilename)
+    ElMessage.success('数据库导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message)
+  }
+}
+
+async function exportProjectDatabase() {
+  if (!selectedProject.value) return
+  const name = selectedProject.value.name
+  try {
+    await ElMessageBox.confirm(`将导出项目「${name}」的数据库，是否继续？`, '导出当前项目', { type: 'info' })
+  } catch { return }
+  try {
+    await _blobDownload(`/api/projects/${selectedProject.value.id}/export/database`, `${name}_template.db`)
+    ElMessage.success('项目数据库导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败: ' + e.message)
+  }
+}
+
+// 导入项目（统一入口，自动检测单项目/多项目）
+const importProjectInput = ref(null)
+const importProjectLoading = ref(false)
+
+function triggerImportProject() { importProjectInput.value?.click() }
+
+async function handleImportProject(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  e.target.value = ''
+  importProjectLoading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await fetch('/api/projects/import/auto', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: form,
+    })
+    const data = await resp.json()
+    if (!resp.ok) throw new Error(data.detail || '导入失败')
+    const names = data.imported.map(p => p.name).join('、')
+    const renamedInfo = data.renamed.length
+      ? `\n重命名：${data.renamed.map(r => `${r.original} → ${r.new}`).join('、')}`
+      : ''
+    if (data.count === 1) {
+      ElMessage.success(`导入成功：${names}`)
+    } else {
+      ElMessageBox.alert(`导入 ${data.count} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' })
+    }
+    api.clearAllCache()
+    loadProjects()
+  } catch (err) {
+    ElMessage.error('导入失败: ' + err.message)
+  } finally {
+    importProjectLoading.value = false
+  }
 }
 
 // 设置弹窗
@@ -98,9 +317,20 @@ const settingsForm = reactive({
 const aiTestLoading = ref(false)
 const aiTestResult = ref(null) // { ok, latency_ms, model, error }
 
+function resetSettingsForm() {
+  settingsForm.template_path = ''
+  settingsForm.ai_enabled = false
+  settingsForm.ai_api_url = ''
+  settingsForm.ai_api_key = ''
+  settingsForm.ai_model = ''
+  settingsForm.ai_api_format = ''
+}
+
 async function openSettings() {
   showSettings.value = true
   aiTestResult.value = null
+  resetSettingsForm()
+  if (!isAdmin.value) return
   try {
     const data = await api.get('/api/settings')
     settingsForm.template_path = data.template_path || ''
@@ -113,6 +343,10 @@ async function openSettings() {
 }
 
 async function saveSettings() {
+  if (!isAdmin.value) {
+    showSettings.value = false
+    return
+  }
   try {
     await api.put('/api/settings', {
       template_path: settingsForm.template_path,
@@ -203,6 +437,12 @@ function openTemplatePreview(node) {
   templatePreviewFormId.value = node.formId
   templatePreviewFormName.value = node.label
   showTemplatePreview.value = true
+}
+
+function onTemplateImported() {
+  showImport.value = false
+  api.clearAllCache()
+  refreshKey.value++
 }
 
 // 从选中的表单中推断 source_project_id（取第一个选中表单所属项目）
@@ -361,13 +601,20 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
 }
 
-function toggleTheme() {
-  isDark.value = !isDark.value
+function setTheme(value) {
+  isDark.value = !!value
   localStorage.setItem('crf_theme', isDark.value ? 'dark' : 'light')
   applyTheme()
 }
 
+function toggleTheme() {
+  setTheme(!isDark.value)
+}
+
 onMounted(() => { applyTheme() })
+
+// 侧边栏折叠
+const isCollapsed = ref(false)
 
 // 侧边栏宽度拖拽（持久化）
 const sidebarWidth = ref(parseInt(localStorage.getItem('crf_sidebarWidth')) || 220)
@@ -375,6 +622,7 @@ const isResizing = ref(false)
 watch(sidebarWidth, v => localStorage.setItem('crf_sidebarWidth', v))
 
 function startResize(e) {
+  if (isCollapsed.value) return
   isResizing.value = true
   const startX = e.clientX, startW = sidebarWidth.value
   function onMove(e) { sidebarWidth.value = Math.max(120, Math.min(400, startW + e.clientX - startX)) }
@@ -385,61 +633,97 @@ function startResize(e) {
 </script>
 
 <template>
+  <LoginView v-if="!isLoggedIn" @login-success="onLoginSuccess" />
+  <template v-else>
   <!-- 头部 -->
   <div class="header">
     <div class="header-left">
-      <h1>CRF编辑器</h1>
+      <h1 v-if="!isCollapsed">CRF编辑器</h1>
+      <el-button v-else class="header-icon-btn" text circle @click="isCollapsed = false" title="展开侧边栏">
+        <el-icon><Expand /></el-icon>
+      </el-button>
       <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
         <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
       </el-button>
+      <el-button v-if="isAdmin" class="header-icon-btn" text circle @click="showAdmin = true" title="管理" aria-label="管理">
+        <el-icon aria-hidden="true"><UserFilled /></el-icon>
+      </el-button>
     </div>
     <div class="header-right">
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportWordDialog">导入Word</el-button>
       <el-button v-if="selectedProject" type="primary" size="small" @click="openImportDialog">导入模板</el-button>
-      <el-button v-if="selectedProject" type="warning" size="small" @click="exportWord">导出Word</el-button>
+      <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord">导出Word</el-button>
     </div>
   </div>
 
   <!-- 主体布局 -->
   <div class="main">
     <!-- 侧边栏 -->
-    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
-      <div class="sidebar-header">
-        <span>项目列表</span>
-        <el-button type="primary" size="small" @click="showCreateProject = true">新建</el-button>
-      </div>
-      <div class="project-list">
-        <div v-for="p in projects" :key="p.id"
-          class="project-item" :class="{ active: selectedProject?.id === p.id }"
-          @click="selectProject(p)">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
-          <span class="del-btn" @click.stop="deleteProject(p)">✕</span>
+    <div class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '0px' : sidebarWidth + 'px' }">
+      <div class="sidebar-content" v-show="!isCollapsed">
+        <div class="sidebar-header">
+          <span>项目列表</span>
+          <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"><el-icon><Plus /></el-icon></el-button>
+        </div>
+        <div class="project-list">
+          <draggable v-model="projects" item-key="id" handle=".drag-handle" @start="draggingProjects = true" @end="onProjectDragEnd">
+            <template #item="{ element: p }">
+              <div
+                class="project-item"
+                :class="{ active: selectedProject?.id === p.id }"
+                @click="selectProject(p)"
+              >
+                <div class="drag-handle" style="cursor:grab;padding:4px;color:var(--color-text-muted)" aria-label="拖拽排序" role="button" tabindex="0">
+                  <el-icon><Rank /></el-icon>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
+                  <el-icon><Files /></el-icon>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+                </div>
+                <div class="project-actions">
+                  <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" title="复制项目">
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                  <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" title="删除项目">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </template>
+          </draggable>
         </div>
       </div>
     </div>
-    <div class="sidebar-resizer" :class="{ dragging: isResizing }" @mousedown="startResize"></div>
+    <div v-if="!isCollapsed" class="sidebar-resizer" :class="{ dragging: isResizing }" @mousedown="startResize"></div>
 
     <!-- 内容区 -->
     <div class="content">
-      <div v-if="!selectedProject" class="empty-tip">← 请选择或新建项目</div>
+      <div v-if="!selectedProject" class="empty-tip">
+        <div class="empty-state">
+          <el-icon size="64px" color="var(--color-text-muted)"><Monitor /></el-icon>
+          <h3>欢迎使用 CRF 编辑器</h3>
+          <p>请从左侧选择一个项目开始编辑，或新建一个项目</p>
+          <el-button type="primary" plain @click="showCreateProject = true">新建项目</el-button>
+        </div>
+      </div>
       <template v-else>
-        <el-tabs v-model="activeTab" style="height:100%;display:flex;flex-direction:column">
+        <el-tabs class="main-content-tabs" v-model="activeTab" style="height:100%;display:flex;flex-direction:column">
           <el-tab-pane label="项目信息" name="info">
             <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
           </el-tab-pane>
-          <el-tab-pane label="选项" name="codelists">
+          <el-tab-pane v-if="editMode" label="选项" name="codelists">
             <div class="content-inner"><CodelistsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
-          <el-tab-pane label="单位" name="units">
+          <el-tab-pane v-if="editMode" label="单位" name="units">
             <div class="content-inner"><UnitsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
-          <el-tab-pane label="字段" name="fields">
+          <el-tab-pane v-if="editMode" label="字段" name="fields">
             <div class="content-inner"><FieldsTab :project-id="selectedProject.id" /></div>
           </el-tab-pane>
           <el-tab-pane label="表单" name="designer">
-            <div class="content-inner"><FormDesignerTab :project-id="selectedProject.id" /></div>
+            <div class="content-inner"><FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" /></div>
           </el-tab-pane>
           <el-tab-pane label="访视" name="visits">
             <div class="content-inner"><VisitsTab :project-id="selectedProject.id" /></div>
@@ -462,49 +746,74 @@ function startResize(e) {
   </el-dialog>
 
   <!-- 设置弹窗 -->
-  <el-dialog v-model="showSettings" title="设置" width="480px" :close-on-click-modal="false">
+  <el-dialog v-model="showSettings" title="设置" width="560px" :close-on-click-modal="false">
     <el-form label-width="100px">
-      <!-- 暂时隐藏，保留代码 -->
-      <el-form-item v-if="false" label="模板路径">
-        <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+      <el-divider>账号与界面</el-divider>
+      <el-form-item label="当前用户">
+        <span>{{ currentUser.username || '未登录' }}</span>
       </el-form-item>
-      <!-- 暂时隐藏，保留代码 -->
-      <template v-if="false">
-      <el-divider>AI 复核配置</el-divider>
-      <el-form-item label="启用AI复核">
-        <el-switch v-model="settingsForm.ai_enabled" />
+      <el-form-item label="编辑模式">
+        <el-switch v-model="editMode" />
+        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">开启后显示选项/单位/字段标签及表单编辑按钮</span>
       </el-form-item>
-      <el-form-item label="API URL">
-        <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
-          :disabled="!settingsForm.ai_enabled" clearable />
+      <el-form-item label="主题模式">
+        <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
       </el-form-item>
-      <el-form-item label="API Key">
-        <el-input v-model="settingsForm.ai_api_key" type="password" show-password
-          :disabled="!settingsForm.ai_enabled" clearable />
-      </el-form-item>
-      <el-form-item label="模型">
-        <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
-          :disabled="!settingsForm.ai_enabled" clearable />
-      </el-form-item>
-      <el-form-item v-if="settingsForm.ai_enabled">
-        <el-button :loading="aiTestLoading" @click="testAiConnection"
-          :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
-          测试连接
-        </el-button>
-        <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
-          <span v-if="aiTestResult.ok" style="color:var(--color-success)">
-            连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+
+      <el-divider>数据导出</el-divider>
+      <div class="settings-transfer-actions">
+        <el-button @click="exportFullDatabase">导出所有项目</el-button>
+        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+        <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
+      </div>
+
+      <template v-if="isAdmin">
+        <el-divider>全局设置</el-divider>
+        <el-form-item label="模板路径">
+          <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+        </el-form-item>
+        <el-divider>AI 复核配置</el-divider>
+        <el-form-item label="启用AI复核">
+          <el-switch v-model="settingsForm.ai_enabled" />
+        </el-form-item>
+        <el-form-item label="API URL">
+          <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="settingsForm.ai_api_key" type="password" show-password
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="模型">
+          <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item v-if="settingsForm.ai_enabled">
+          <el-button :loading="aiTestLoading" @click="testAiConnection"
+            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
+            测试连接
+          </el-button>
+          <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
+            <span v-if="aiTestResult.ok" style="color:var(--color-success)">
+              连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+            </span>
+            <span v-else style="color:var(--color-danger)">
+              连接失败: {{ aiTestResult.error }}
+            </span>
           </span>
-          <span v-else style="color:var(--color-danger)">
-            连接失败: {{ aiTestResult.error }}
-          </span>
-        </span>
-      </el-form-item>
+        </el-form-item>
       </template>
+
+      <input ref="importProjectInput" type="file" accept=".db" style="display:none" @change="handleImportProject" />
     </el-form>
     <template #footer>
-      <el-button @click="showSettings = false">取消</el-button>
-      <el-button type="primary" @click="saveSettings">保存</el-button>
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <el-button type="danger" plain @click="logout">退出登录</el-button>
+        <div style="display:flex;gap:8px">
+          <el-button @click="showSettings = false">关闭</el-button>
+          <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 
@@ -560,6 +869,7 @@ function startResize(e) {
         <el-upload
           drag
           :action="'/api/projects/' + selectedProject.id + '/import-docx/preview'"
+          :headers="getAuthHeaders()"
           :show-file-list="false"
           accept=".docx"
           :on-success="handleDocxUploadSuccess"
@@ -640,6 +950,12 @@ function startResize(e) {
     :all-forms-data="importedFormsPreview"
     @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
   />
+
+  <!-- 管理员弹窗 -->
+  <el-dialog v-model="showAdmin" title="管理" width="800px" :close-on-click-modal="false" top="5vh">
+    <AdminView @logout="logout" />
+  </el-dialog>
+  </template>
 </template>
 
 <style scoped>
@@ -679,6 +995,60 @@ function startResize(e) {
   flex-shrink: 0 !important;
   flex-grow: 0 !important;
   margin-left: auto !important;
+}
+
+.project-action-btn {
+  margin: 0;
+  padding: 4px;
+}
+
+/* 侧边栏复制按钮三态对比度（仅作用于 .project-item .project-actions） */
+.project-item .project-actions .project-action-btn:not([type="danger"]) {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.project-item:hover .project-actions .project-action-btn:not([type="danger"]) {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.project-item.active .project-actions .project-action-btn:not([type="danger"]) {
+  color: #ffffff;
+}
+
+.project-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.settings-transfer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-transfer-actions :deep(.el-button) {
+  width: 100%;
+  margin-left: 0;
+}
+
+.main-content-tabs {
+  min-height: 0;
+}
+
+.main-content-tabs :deep(.el-tabs__header) {
+  margin-bottom: 0;
+  padding-left: 20px;
+}
+
+.sidebar.collapsed {
+  border-right: none;
+}
+
+.sidebar.collapsed .sidebar-content {
+  display: none;
 }
 
 /* 弹窗圆角与头部渐变主题 */

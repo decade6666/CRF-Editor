@@ -6,15 +6,24 @@
 - 列表接口返回 design_notes
 - 复制表单时继承 design_notes
 """
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from helpers import auth_headers, login_as
 from main import app
+from src.config import AdminConfig, AppConfig, AuthConfig
 from src.database import get_session
 from src.models import Base
+
+_TEST_CONFIG = AppConfig(
+    auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+    admin=AdminConfig(username="admin"),
+)
 
 
 @pytest.fixture
@@ -48,8 +57,16 @@ def client(engine):
                 yield session
 
     app.dependency_overrides[get_session] = _override
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c
+    with patch("main.get_config", return_value=_TEST_CONFIG), \
+         patch("src.database.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
+         patch("src.dependencies.get_config", return_value=_TEST_CONFIG), \
+         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
+         patch("main.init_db"):
+        with TestClient(app, raise_server_exceptions=False) as c:
+            token = login_as(c, "alice")
+            c.headers.update(auth_headers(token))
+            yield c
     app.dependency_overrides.clear()
 
 
