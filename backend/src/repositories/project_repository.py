@@ -1,10 +1,12 @@
 """Project Repository"""
+from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from src.models.project import Project
+from src.services.order_service import OrderService
 
 from .base_repository import BaseRepository
 
@@ -14,6 +16,49 @@ class ProjectRepository(BaseRepository[Project]):
 
     def __init__(self, session: Session):
         super().__init__(session, Project)
+
+    def get_all_by_owner(self, owner_id: int) -> List[Project]:
+        """获取指定用户的所有项目（排除已删除）"""
+        stmt = (
+            select(Project)
+            .where(Project.owner_id == owner_id)
+            .where(Project.deleted_at.is_(None))
+            .order_by(Project.order_index)
+        )
+        return list(self.session.scalars(stmt))
+
+    def get_recycle_bin(self, owner_id: int) -> List[Project]:
+        """获取指定用户的回收站项目"""
+        stmt = (
+            select(Project)
+            .where(Project.owner_id == owner_id)
+            .where(Project.deleted_at.is_not(None))
+            .order_by(Project.deleted_at.desc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def reorder(self, owner_id: int, ordered_ids: List[int]) -> None:
+        """重新排序项目"""
+        OrderService.reorder_batch(
+            self.session,
+            Project,
+            (Project.owner_id == owner_id) & Project.deleted_at.is_(None),
+            ordered_ids
+        )
+
+    def create_with_owner(self, project: Project, owner_id: int) -> Project:
+        """创建项目并關聯 owner"""
+        project.owner_id = owner_id
+        # 获取下一个可用序号
+        project.order_index = OrderService.get_next_order(
+            self.session,
+            Project,
+            (Project.owner_id == owner_id) & Project.deleted_at.is_(None),
+        )
+        self.session.add(project)
+        self.session.flush()
+        self.session.refresh(project)
+        return project
 
     def get_by_name(self, name: str) -> Optional[Project]:
         """根据名称获取项目"""

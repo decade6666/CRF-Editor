@@ -1,9 +1,10 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import draggable from 'vuedraggable'
 import { useOrderableList } from '../composables/useOrderableList'
+import { useSortableTable } from '../composables/useSortableTable'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -27,12 +28,28 @@ const showAddOpt = ref(false)
 const clForm = reactive({ name: '', code: '', description: '' })
 const optForm = reactive({ code: '', decode: '', trailing_underscore: 0 })
 
-async function load() { codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`) }
+const codelistsTableRef = ref(null)
+const isCodelistsFiltered = computed(() => searchCl.value.trim().length > 0)
+const codelistsReorderUrl = computed(() => `/api/projects/${props.projectId}/codelists/reorder`)
+
+async function load() {
+  codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`)
+  if (selected.value) {
+    selected.value = codelists.value.find(item => item.id === selected.value.id) || null
+  }
+  nextTick(() => initCodelistsSortable())
+}
 // 写操作后强制刷新：先失效缓存，再重新加载
 async function reload() {
   api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
   await load()
 }
+const { initSortable: initCodelistsSortable } = useSortableTable(
+  codelistsTableRef,
+  filteredCodelists,
+  codelistsReorderUrl,
+  { reloadFn: reload, isFiltered: isCodelistsFiltered }
+)
 onMounted(load)
 watch(() => props.projectId, () => { selected.value = null; load() })
 watch(refreshKey, load)
@@ -237,9 +254,12 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
           style="width:180px"
         />
       </div>
-      <el-table :data="filteredCodelists" size="small" border highlight-current-row
+      <el-table ref="codelistsTableRef" :data="filteredCodelists" size="small" border highlight-current-row
         @current-change="r => selected = r" @header-dragend="onClTableHeaderDragend"
-        @selection-change="r => selCls = r" style="width:100%" height="100%">
+        @selection-change="r => selCls = r" style="width:100%" height="100%" row-key="id">
+        <el-table-column width="32" v-if="!isCodelistsFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+        </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row, $index }">
@@ -255,7 +275,6 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
           </template>
         </el-table-column>
         <el-table-column prop="name" label="字典名称" :width="codelistNameColWidth" resizable />
-        <el-table-column prop="code" label="Code" width="100" show-overflow-tooltip />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column label="操作" width="120">
           <template #default="{ row }">
@@ -286,13 +305,13 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
         <span style="width:80px;flex-shrink:0">序号</span>
         <span style="width:22px;flex-shrink:0"></span>
         <div style="flex:1;display:flex;gap:12px;align-items:center">
-          <span style="width:100px;flex-shrink:0">编码值</span>
+          <span style="width:100px;flex-shrink:0;display:none">编码值</span>
           <span style="flex:1">标签</span>
           <span style="width:60px;text-align:center">后加下划线</span>
         </div>
         <span style="width:80px;text-align:right">操作</span>
       </div>
-      <draggable v-model="selected.options" item-key="id" handle=".drag-handle" @start="draggingOpt = true" @end="onOptDragEnd">
+      <draggable v-model="selected.options" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
           <div
             v-show="!searchOpt.trim() || (String(element.code ?? '') + String(element.decode ?? '')).toLowerCase().includes(searchOpt.trim().toLowerCase())"
@@ -302,7 +321,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
             <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
             <el-input-number :model-value="element.order_index ?? (index + 1)" @change="v => updateOptOrder(element, v, index + 1)" :min="1" :max="selected.options.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑选项 ' + element.decode + ' 的序号'" />
             <div style="flex:1;display:flex;gap:12px;align-items:center">
-              <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
+              <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0;display:none">{{ element.code }}</span>
               <span style="flex:1;font-size:13px">{{ element.decode }}</span>
               <el-checkbox :model-value="element.trailing_underscore === 1" disabled style="width:60px;justify-content:center" />
             </div>
@@ -316,7 +335,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     <!-- 新增字典弹窗 -->
     <el-dialog v-model="showAddCl" title="新增字典" width="360px" :close-on-click-modal="false">
       <el-form :model="clForm" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="clForm.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="clForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="clForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="clForm.description" /></el-form-item>
       </el-form>
@@ -329,7 +348,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     <!-- 新增选项弹窗 -->
     <el-dialog v-model="showAddOpt" title="新增选项" width="480px" :close-on-click-modal="false">
       <el-form :model="optForm" label-width="100px">
-        <el-form-item label="编码值"><el-input v-model="optForm.code" /></el-form-item>
+        <el-form-item label="编码值" v-show="false"><el-input v-model="optForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="optForm.decode" /></el-form-item>
         <el-form-item label="后加下划线"><el-checkbox v-model="addOptTrailingLine" /></el-form-item>
       </el-form>
@@ -342,7 +361,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     <!-- 编辑字典弹窗 -->
     <el-dialog v-model="showEditCl" title="编辑字典" width="360px" :close-on-click-modal="false">
       <el-form :model="editClForm" label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editClForm.code" /></el-form-item>
+        <el-form-item label="Code" v-show="false"><el-input v-model="editClForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editClForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editClForm.description" /></el-form-item>
       </el-form>
@@ -355,7 +374,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
     <!-- 编辑选项弹窗 -->
     <el-dialog v-model="showEditOpt" title="编辑选项" width="480px" :close-on-click-modal="false">
       <el-form :model="editOptForm" label-width="100px">
-        <el-form-item label="编码值"><el-input v-model="editOptForm.code" /></el-form-item>
+        <el-form-item label="编码值" v-show="false"><el-input v-model="editOptForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="editOptForm.decode" /></el-form-item>
         <el-form-item label="后加下划线"><el-checkbox v-model="editOptTrailingLine" /></el-form-item>
       </el-form>

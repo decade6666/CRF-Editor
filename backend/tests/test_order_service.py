@@ -140,3 +140,20 @@ def test_reorder_batch_validates_ids(session: Session) -> None:
             FakeItem.scope_id == 1,
             [items[0].id, items[1].id, 999],
         )
+
+
+def test_reorder_batch_validates_duplicate_ids(session: Session) -> None:
+    """验证 duplicate ID 不改状态。"""
+    items = seed_items(session, [1, 2, 3])
+    original_orders = get_scope_orders(session)
+
+    with pytest.raises(ValueError, match="包含重复项"):
+        OrderService.reorder_batch(
+            session,
+            FakeItem,
+            FakeItem.scope_id == 1,
+            [items[0].id, items[1].id, items[0].id],  # 重复 ID
+        )
+
+    # 状态不变
+    assert get_scope_orders(session) == original_orders

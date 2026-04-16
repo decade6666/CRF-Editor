@@ -22,6 +22,32 @@ async function _parseError(r) {
   }
 }
 
+function _getAuthHeaders() {
+  const token = localStorage.getItem('crf_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+export { _getAuthHeaders as getAuthHeaders }
+
+function _handle401() {
+  localStorage.removeItem('crf_token')
+  window.dispatchEvent(new CustomEvent('crf:auth-expired'))
+}
+
+function _createHttpError(message, status) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+
+async function _checkStatus(r) {
+  if (r.status === 401) {
+    _handle401()
+    throw _createHttpError('登录已过期，请重新登录', r.status)
+  }
+  if (!r.ok) throw _createHttpError(await _parseError(r), r.status)
+}
+
 // ── 内存缓存层 ──
 const _cache = new Map()   // key → { data, ts }
 const _pending = new Map() // key → Promise（去重并发请求）
@@ -30,6 +56,9 @@ const _pending = new Map() // key → Promise（去重并发请求）
 function invalidateCache(urlPrefix) {
   for (const key of _cache.keys()) {
     if (key.startsWith(urlPrefix)) _cache.delete(key)
+  }
+  for (const key of _pending.keys()) {
+    if (key.startsWith(urlPrefix)) _pending.delete(key)
   }
 }
 
@@ -52,12 +81,22 @@ function _autoInvalidate(url) {
   invalidateCache(url)
 }
 
+// 安全解析 JSON 响应，处理代理/网关返回非 JSON 内容的情况
+async function _safeJsonParse(r) {
+  const text = await r.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`服务器返回非 JSON 格式: ${text.slice(0, 100)}...`)
+  }
+}
+
 // API 请求工具
 export const api = {
   async get(url) {
-    const r = await fetch(url)
-    if (!r.ok) throw new Error(await _parseError(r))
-    return r.json()
+    const r = await fetch(url, { headers: _getAuthHeaders() })
+    await _checkStatus(r)
+    return _safeJsonParse(r)
   },
 
   // 带缓存的GET，TTL默认30秒
@@ -68,9 +107,9 @@ export const api = {
     // Promise去重：同一URL并发只发一次请求
     if (_pending.has(url)) return _pending.get(url)
 
-    const p = fetch(url).then(async (r) => {
-      if (!r.ok) throw new Error(await _parseError(r))
-      const data = await r.json()
+    const p = fetch(url, { headers: _getAuthHeaders() }).then(async (r) => {
+      await _checkStatus(r)
+      const data = await _safeJsonParse(r)
       _cache.set(url, { data, ts: Date.now() })
       _pending.delete(url)
       return data
@@ -87,36 +126,36 @@ export const api = {
   async post(url, data) {
     const r = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
     })
-    if (!r.ok) throw new Error(await _parseError(r))
+    await _checkStatus(r)
     _autoInvalidate(url)
-    return r.status === 204 ? null : r.json()
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async put(url, data) {
     const r = await fetch(url, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
     })
-    if (!r.ok) throw new Error(await _parseError(r))
+    await _checkStatus(r)
     _autoInvalidate(url)
-    return r.json()
+    return _safeJsonParse(r)
   },
   async patch(url, data) {
     const r = await fetch(url, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
     })
-    if (!r.ok) throw new Error(await _parseError(r))
+    await _checkStatus(r)
     _autoInvalidate(url)
-    return r.json()
+    return _safeJsonParse(r)
   },
   async del(url) {
-    const r = await fetch(url, { method: 'DELETE' })
-    if (!r.ok) throw new Error(await _parseError(r))
+    const r = await fetch(url, { method: 'DELETE', headers: _getAuthHeaders() })
+    await _checkStatus(r)
     _autoInvalidate(url)
   },
 }
