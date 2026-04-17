@@ -321,3 +321,151 @@ def test_import_template_preview_response_includes_trailing_underscore(
     options = payload["fields"][0]["options"]
     assert [option["decode"] for option in options] == ["男", "女"]
     assert [option["trailing_underscore"] for option in options] == [1, 0]
+
+
+def test_patch_colors_can_clear_bg_and_set_text_black(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    seed_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"bg_color": "FFEEDD", "text_color": "112233"},
+        headers=auth_headers(auth_token),
+    )
+    assert seed_resp.status_code == 200, seed_resp.text
+    seeded = seed_resp.json()
+    assert seeded["bg_color"] == "FFEEDD"
+    assert seeded["text_color"] == "112233"
+
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"bg_color": None, "text_color": "000000"},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    patched = patch_resp.json()
+    assert patched["bg_color"] is None
+    assert patched["text_color"] == "000000"
+
+    list_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    matched = [item for item in list_resp.json() if item["id"] == form_field["id"]]
+    assert len(matched) == 1
+    assert matched[0]["bg_color"] is None
+    assert matched[0]["text_color"] == "000000"
+
+
+def test_patch_colors_rejects_invalid_hex(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"text_color": "GGGGGG"},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 422, patch_resp.text
+
+
+def test_patch_colors_keeps_omitted_field_unchanged(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    seed_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"bg_color": "FFEEDD", "text_color": "112233"},
+        headers=auth_headers(auth_token),
+    )
+    assert seed_resp.status_code == 200, seed_resp.text
+
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"text_color": "000000"},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    patched = patch_resp.json()
+    assert patched["bg_color"] == "FFEEDD"
+    assert patched["text_color"] == "000000"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_status", "expected_bg_color", "expected_text_color"),
+    [
+        ({"bg_color": None}, 200, None, "112233"),
+        ({"text_color": None}, 200, "FFEEDD", None),
+        ({"bg_color": "A1B2C3", "text_color": "000000"}, 200, "A1B2C3", "000000"),
+        ({"text_color": "GGGGGG"}, 422, None, None),
+    ],
+)
+def test_put_form_field_color_validation_and_null_semantics(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+    payload: dict,
+    expected_status: int,
+    expected_bg_color: str | None,
+    expected_text_color: str | None,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    seed_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"bg_color": "FFEEDD", "text_color": "112233"},
+        headers=auth_headers(auth_token),
+    )
+    assert seed_resp.status_code == 200, seed_resp.text
+
+    put_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json=payload,
+        headers=auth_headers(auth_token),
+    )
+    assert put_resp.status_code == expected_status, put_resp.text
+
+    if expected_status != 200:
+        return
+
+    updated = put_resp.json()
+    assert updated["bg_color"] == expected_bg_color
+    assert updated["text_color"] == expected_text_color
