@@ -73,9 +73,9 @@ test('FormDesignerTab wires form drag sorting through useSortableTable with isFi
   assert.match(formsSource, /isFiltered: isFormsFiltered/)
 })
 
-test('FormDesignerTab drag handle is hidden when filtered', () => {
-  // 拖拽手柄列在过滤态下隐藏
-  assert.match(formsSource, /<el-table-column width="32" v-if="!isFormsFiltered">/)
+test('FormDesignerTab drag handle is hidden when filtered and remains gated by editMode', () => {
+  // 拖拽手柄列在过滤态下隐藏，且简要模式下也不显示
+  assert.match(formsSource, /<el-table-column width="32" v-if="editMode && !isFormsFiltered">/)
 })
 
 test('FormDesignerTab keeps form list sorted by order_index after reload', () => {
@@ -85,9 +85,9 @@ test('FormDesignerTab keeps form list sorted by order_index after reload', () =>
   assert.match(formsSource, /<el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id"/)
 })
 
-test('FormDesignerTab manual order input is disabled when filtered', () => {
-  // 手动序号输入在过滤态下禁用 - 匹配属性片段即可
-  assert.match(formsSource, /:disabled="isFormsFiltered"/)
+test('FormDesignerTab manual order input is disabled when filtered or editMode is off', () => {
+  // 手动序号输入在过滤态或简要模式下禁用
+  assert.match(formsSource, /:disabled="isFormsFiltered \|\| !editMode"/)
 })
 
 test('FormDesignerTab updateFormOrder uses reorder API', () => {
@@ -100,6 +100,39 @@ test('FormDesignerTab field reorder invalidates cached form fields in each reord
   assert.match(formsSource, /async function onDrop\([\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
   assert.match(formsSource, /async function updateFormFieldOrder\([\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
   assert.match(formsSource, /const move = async \(from, to\) => \{[\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
+})
+
+test('FormDesignerTab keeps designer entry visible for selected form outside edit mode gate', () => {
+  assert.match(formsSource, /<el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单<\/el-button>/)
+  assert.doesNotMatch(formsSource, /<el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单<\/el-button>/)
+  assert.match(formsSource, /<el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单<\/el-button>/)
+})
+
+test('FormDesignerTab keeps advanced editing surfaces gated by editMode in brief mode', () => {
+  assert.match(formsSource, /<el-button v-if="editMode" type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除\(\{\{ selForms.length \}\}\)<\/el-button>/)
+  assert.match(formsSource, /<el-table-column width="32" v-if="editMode && !isFormsFiltered">/)
+  assert.match(formsSource, /<el-table-column type="selection" width="40" v-if="editMode" \/>/)
+  assert.match(formsSource, /<el-input-number :model-value="row\.order_index"[\s\S]*:disabled="isFormsFiltered \|\| !editMode"/)
+  assert.match(formsSource, /<el-table-column v-if="editMode" label="操作" width="150" fixed="right">/)
+  assert.match(formsSource, /<div class="designer-shell" :class="\{ 'designer-shell--readonly': !editMode \}">/)
+  assert.match(formsSource, /<div v-if="editMode" class="fd-library designer-library-pane"/)
+  assert.match(formsSource, /<div v-if="editMode" class="fd-panel-resizer" @mousedown="startLibResize"><\/div>/)
+  assert.match(formsSource, /<div class="fd-canvas-header"><el-button v-if="editMode" size="small" type="primary" @click="newField">新建字段<\/el-button><el-button v-if="editMode" size="small" @click="addLogRow">添加log行<\/el-button>/)
+  assert.match(formsSource, /:draggable="editMode"/)
+  assert.match(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/)
+  assert.match(formsSource, /<el-input-number :model-value="ff\._displayOrder"[\s\S]*:disabled="!editMode"/)
+  assert.match(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/)
+  assert.match(formsSource, /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)">删除<\/el-button>/)
+  assert.match(formsSource, /<div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览，开启完整模式后可编辑字段属性<\/div>/)
+  assert.match(formsSource, /<div v-if="!editMode" class="designer-notes-readonly">[\s\S]*简要模式下仅支持预览，开启完整模式后可编辑设计备注/s)
+  assert.match(formsSource, /async function addForm\(\) \{[\s\S]*if \(!editMode\.value\) return/)
+  assert.match(formsSource, /async function updateForm\(\) \{[\s\S]*if \(!editMode\.value\) return/)
+  assert.match(formsSource, /function openQuickEdit\(ff\) \{[\s\S]*if \(!editMode\.value\) return/)
+  assert.match(formsSource, /async function saveQuickEdit\(\) \{[\s\S]*if \(!editMode\.value \|\| !quickEditField\.value\) return/)
+  assert.match(formsSource, /async function toggleInline\(ff\) \{[\s\S]*if \(!editMode\.value \|\| !selectedForm\.value \|\| !canToggleInline\(ff\)\) return/)
+  assert.match(formsSource, /async function addField\(fd\) \{[\s\S]*if \(!editMode\.value\) return/)
+  assert.match(formsSource, /async function onDrop\(e, targetIdx\) \{[\s\S]*if \(!editMode\.value\) return/)
+  assert.match(formsSource, /async function handleFieldKeydown\(event, field, index\) \{[\s\S]*if \(!editMode\.value\) return/)
 })
 
 test('FormDesignerTab designer dialog uses center-bottom preview and right-side notes layout', () => {

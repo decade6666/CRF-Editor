@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.database import _is_form_field_rowid_pk_compatible
 from src.models.project import Project
+from src.schemas.project import normalize_screening_number_format
 from src.services.project_clone_service import ProjectCloneService, ProjectGraph, ProjectGraphLoader
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ _REQUIRED_TABLES = frozenset({
 _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
     "project": frozenset({
         "id", "name", "version", "order_index", "created_at", "deleted_at",
-        "trial_name", "crf_version", "crf_version_date", "protocol_number", "sponsor",
+        "trial_name", "crf_version", "crf_version_date", "protocol_number", "screening_number_format", "sponsor",
         "company_logo_path", "data_management_unit", "owner_id",
     }),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
@@ -48,6 +49,40 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
     }),
     "unit": frozenset({"id", "project_id", "symbol", "code", "order_index"}),
 }
+
+
+def _patch_legacy_project_schema(file_path: str) -> None:
+    """为旧版项目库补齐导入所需的新增 project 列，仅修改临时副本。"""
+    conn = sqlite3.connect(file_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if 'project' not in tables:
+            return
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
+        if 'screening_number_format' not in cols:
+            conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def _build_import_project_snapshot(project: Project) -> Project:
+    """构造脱离外部 session 的项目快照，避免只读库 autoflush。"""
+    return Project(
+        name=project.name,
+        version=project.version,
+        trial_name=project.trial_name,
+        crf_version=project.crf_version,
+        crf_version_date=project.crf_version_date,
+        protocol_number=project.protocol_number,
+        screening_number_format=normalize_screening_number_format(project.screening_number_format),
+        sponsor=project.sponsor,
+        company_logo_path=project.company_logo_path,
+        data_management_unit=project.data_management_unit,
+        owner_id=project.owner_id,
+        order_index=project.order_index or 1,
+        deleted_at=project.deleted_at,
+    )
 
 
 def _open_readonly_sqlite(file_path: str) -> Session:
@@ -82,7 +117,10 @@ def _validate_schema(ext_session: Session) -> None:
     incompatible: list[str] = []
     for table_name, required_columns in _REQUIRED_COLUMNS.items():
         existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
-        missing_columns = required_columns - existing_columns
+        effective_required_columns = set(required_columns)
+        if table_name == "project":
+            effective_required_columns.discard("screening_number_format")
+        missing_columns = effective_required_columns - existing_columns
         if missing_columns:
             incompatible.append(
                 f"{table_name} 缺少列: {', '.join(sorted(missing_columns))}"
@@ -159,6 +197,7 @@ class ProjectDbImportService:
         current_user_id: int,
         session: Session,
     ) -> ImportResult:
+        _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
             _validate_schema(ext_session)
@@ -171,6 +210,7 @@ class ProjectDbImportService:
                 )
 
             graph = _load_project_graph_from_session(ext_session, projects[0])
+            graph.project = _build_import_project_snapshot(projects[0])
             final_name = _resolve_import_name(
                 projects[0].name, session, current_user_id
             )
@@ -196,6 +236,7 @@ class DatabaseMergeService:
         current_user_id: int,
         session: Session,
     ) -> MergeReport:
+        _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
             _validate_schema(ext_session)
@@ -215,6 +256,7 @@ class DatabaseMergeService:
 
             for project in projects:
                 graph = _load_project_graph_from_session(ext_session, project)
+                graph.project = _build_import_project_snapshot(project)
                 final_name = _resolve_import_name(
                     project.name, session, current_user_id
                 )
