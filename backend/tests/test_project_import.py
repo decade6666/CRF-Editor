@@ -52,7 +52,7 @@ def _create_export_db(
 
             names = project_names or [f"项目{i + 1}" for i in range(project_count)]
             for i, name in enumerate(names):
-                project = Project(name=name, version="1.0", owner_id=user.id)
+                project = Project(name=name, version="1.0", owner_id=user.id, screening_number_format=f"SCR-{i + 1:03d}")
                 session.add(project)
                 session.flush()
 
@@ -159,6 +159,7 @@ def test_import_project_db_accepts_authenticated_user(client, engine, tmp_path):
         assert bob is not None
         assert imported is not None
         assert imported.owner_id == bob.id
+        assert imported.screening_number_format == "SCR-001"
 
 
 def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):
@@ -177,6 +178,7 @@ def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):
         assert bob is not None
         assert len(imported_projects) == 2
         assert all(project.owner_id == bob.id for project in imported_projects)
+        assert {project.screening_number_format for project in imported_projects} == {"SCR-001", "SCR-002"}
 
 
 # ── 文件校验 ───────────────────────────────────────────────────
@@ -274,6 +276,7 @@ def test_import_single_project_owner_rebind(client, engine, tmp_path):
         imported = session.get(Project, data["project_id"])
         assert imported is not None
         assert imported.owner_id == admin_user.id
+        assert imported.screening_number_format == "SCR-001"
 
         # 子资源完整性
         fds = session.scalars(
@@ -403,10 +406,13 @@ def test_merge_imports_all_projects(client, engine, tmp_path):
         admin_user = session.scalar(
             select(User).where(User.username == "admin")
         )
+        imported_projects = []
         for item in data["imported"]:
             p = session.get(Project, item["id"])
             assert p is not None
             assert p.owner_id == admin_user.id
+            imported_projects.append(p)
+        assert {p.screening_number_format for p in imported_projects} == {"SCR-001", "SCR-002", "SCR-003"}
 
 
 def test_merge_rename_on_conflict(client, engine, tmp_path):
@@ -960,7 +966,8 @@ def test_import_rejects_db_missing_project_orm_columns(client, engine, tmp_path)
         CREATE TABLE project (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            version TEXT NOT NULL
+            version TEXT NOT NULL,
+            screening_number_format TEXT
         );
         CREATE TABLE visit (
             id INTEGER PRIMARY KEY,
@@ -1041,7 +1048,7 @@ def test_import_rejects_db_missing_project_orm_columns(client, engine, tmp_path)
             order_index INTEGER
         );
         INSERT INTO user (id, username) VALUES (1, 'export_user');
-        INSERT INTO project (id, name, version) VALUES (1, '缺列项目', '1.0');
+        INSERT INTO project (id, name, version, screening_number_format) VALUES (1, '缺列项目', '1.0', 'LEGACY-SCR');
         """
     )
     conn.commit()

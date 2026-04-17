@@ -105,6 +105,7 @@ watch(refreshKey, () => {
 
 // 表单CRUD
 async function addForm() {
+  if (!editMode.value) return
   try {
     const created = await api.post(`/api/projects/${props.projectId}/forms`, { name: newFormName.value, code: newFormCode.value })
     showAddForm.value = false; newFormName.value = ''; newFormCode.value = ''
@@ -115,6 +116,7 @@ async function addForm() {
 }
 
 async function delForm(f) {
+  if (!editMode.value) return
   try {
     const refs = await api.get(`/api/forms/${f.id}/references`)
     if (refs.length) {
@@ -135,6 +137,7 @@ async function delForm(f) {
 
 const selForms = ref([])
 async function batchDelForms() {
+  if (!editMode.value) return
   try {
     const ids = selForms.value.map(f => f.id)
     const refsMap = await api.post(`/api/projects/${props.projectId}/forms/batch-references`, { ids })
@@ -154,12 +157,13 @@ async function batchDelForms() {
 }
 
 async function copyForm(f) {
+  if (!editMode.value) return
   try { await api.post(`/api/forms/${f.id}/copy`, {}); reloadForms(); ElMessage.success('复制成功') }
   catch (e) { ElMessage.error(e.message) }
 }
 
 async function updateFormOrder(row, newValue) {
-  if (newValue == null || newValue === row.order_index) return
+  if (!editMode.value || newValue == null || newValue === row.order_index) return
   const oldIdx = forms.value.findIndex(f => f.id === row.id)
   const newIdx = newValue - 1
   if (oldIdx === -1 || newIdx < 0 || newIdx >= forms.value.length) return
@@ -176,11 +180,13 @@ async function updateFormOrder(row, newValue) {
 }
 
 function openEditForm(f) {
+  if (!editMode.value) return
   editFormName.value = f.name; editFormCode.value = f.code || ''
   editFormTarget.value = f; showEditForm.value = true
 }
 
 async function updateForm() {
+  if (!editMode.value) return
   try {
     const refs = await api.get(`/api/forms/${editFormTarget.value.id}/references`)
     if (refs.length) {
@@ -203,13 +209,14 @@ async function confirmFormChange() {
 }
 
 async function addField(fd) {
+  if (!editMode.value) return
   if (!selectedForm.value) return ElMessage.warning('请先选择表单')
   try { await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id }); loadFormFields() }
   catch (e) { ElMessage.error(e.message) }
 }
 
 async function removeField(ff) {
-  if (deletingFieldIds.value.has(ff.id)) return
+  if (!editMode.value || deletingFieldIds.value.has(ff.id)) return
   try {
     await confirmFormChange()
     deletingFieldIds.value = new Set([...deletingFieldIds.value, ff.id])
@@ -226,7 +233,7 @@ async function removeField(ff) {
 }
 
 async function batchDelete() {
-  if (!selectedIds.value.length) return
+  if (!editMode.value || !selectedIds.value.length) return
   try { await confirmFormChange(); await api.post(`/api/forms/${selectedForm.value.id}/fields/batch-delete`, { ids: selectedIds.value }); selectedIds.value = []; loadFormFields() }
   catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
@@ -241,6 +248,7 @@ function normalizeFormFieldOrder(fields) {
 
 async function onDrop(e, targetIdx) {
   e.preventDefault(); dragOverIdx.value = null
+  if (!editMode.value) return
   const srcIdx = formFields.value.findIndex(f => f.id === dragSrcId.value)
   if (srcIdx === -1 || srcIdx === targetIdx) return
   try {
@@ -264,6 +272,7 @@ onBeforeUpdate(() => { fieldItemRefs.value = {} })
 
 // 手动序号编辑（与 FieldsTab 对齐）
 async function updateFormFieldOrder(ff, newValue) {
+  if (!editMode.value) return
   const currentOrder = ff._displayOrder ?? ff.order_index
   if (newValue == null || newValue === currentOrder) return
   const oldIdx = formFields.value.findIndex(f => f.id === ff.id)
@@ -285,6 +294,7 @@ async function updateFormFieldOrder(ff, newValue) {
 }
 
 async function handleFieldKeydown(event, field, index) {
+  if (!editMode.value) return
   const { key, ctrlKey } = event
   if (!['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(key)) return
   event.preventDefault()
@@ -608,6 +618,7 @@ const showQuickEdit = ref(false)
 const quickEditField = ref(null)
 const quickEditProp = reactive({ label: '', field_type: '', bg_color: '', text_color: '', inline_mark: false, default_value: '' })
 function openQuickEdit(ff) {
+  if (!editMode.value) return
   quickEditField.value = ff
   Object.assign(quickEditProp, {
     label: getFormFieldDisplayLabel(ff) || '',
@@ -620,7 +631,7 @@ function openQuickEdit(ff) {
   showQuickEdit.value = true
 }
 async function saveQuickEdit() {
-  if (!quickEditField.value) return
+  if (!editMode.value || !quickEditField.value) return
   try {
     const supportsDefaultValue = isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))
     const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(quickEditProp.default_value, !quickEditProp.inline_mark) : ''
@@ -643,7 +654,7 @@ async function saveQuickEdit() {
 }
 
 async function toggleInline(ff) {
-  if (!selectedForm.value || !canToggleInline(ff)) return
+  if (!editMode.value || !selectedForm.value || !canToggleInline(ff)) return
   try {
     await confirmFormChange()
     await api.patch(`/api/form-fields/${ff.id}/inline-mark`, {
@@ -952,7 +963,7 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
 }
 
 async function newField() {
-  if (!selectedForm.value) return
+  if (!editMode.value || !selectedForm.value) return
   try {
     const fd = await api.post(`/api/projects/${props.projectId}/field-definitions`, { variable_name: genFieldVarName(), label: '新字段', field_type: '文本' })
     const ff = await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id })
@@ -963,7 +974,7 @@ async function newField() {
 }
 
 async function addLogRow() {
-  if (!selectedForm.value) return
+  if (!editMode.value || !selectedForm.value) return
   try { await api.post(`/api/forms/${selectedForm.value.id}/fields`, { is_log_row: 1, label_override: '以下为log行' }); await loadFormFields() }
   catch (e) { ElMessage.error(e.message) }
 }
@@ -1141,17 +1152,17 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
     <div class="fd-formlist">
       <div style="margin-bottom:12px;display:flex;gap:8px">
         <el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单</el-button>
-        <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
+        <el-button v-if="editMode" type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
       <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => selForms = r" style="width:100%" height="100%">
-        <el-table-column width="32" v-if="!isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
-        <el-table-column type="selection" width="40" />
+        <el-table-column width="32" v-if="editMode && !isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
+        <el-table-column type="selection" width="40" v-if="editMode" />
         <el-table-column label="序号" width="100">
-          <template #default="{ row }"><div @click.stop><el-input-number :model-value="row.order_index" @change="v => updateFormOrder(row, v)" :min="1" :max="forms.length" :disabled="isFormsFiltered" size="small" style="width:80px" /></div></template>
+          <template #default="{ row }"><div @click.stop><el-input-number :model-value="row.order_index" @change="v => updateFormOrder(row, v)" :min="1" :max="forms.length" :disabled="isFormsFiltered || !editMode" size="small" style="width:80px" /></div></template>
         </el-table-column>
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column v-if="editMode" label="操作" width="150" fixed="right">
           <template #default="{ row }"><el-button size="small" link @click.stop="copyForm(row)">复制</el-button><el-button size="small" link @click.stop="openEditForm(row)">编辑</el-button><el-button type="danger" size="small" link @click.stop="delForm(row)">删除</el-button></template>
         </el-table-column>
       </el-table>
@@ -1160,7 +1171,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
     <div class="fd-right">
       <div class="fd-canvas" style="flex:1">
         <div class="fd-canvas-header">
-          <el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
+          <el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
           <span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ formFields.length }} 个字段</span>
         </div>
@@ -1210,20 +1221,20 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
     </div>
 
     <el-dialog v-model="showDesigner" :title="'设计：' + (selectedForm?.name || '')" fullscreen class="designer-dialog">
-      <div class="designer-shell">
-        <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
+      <div class="designer-shell" :class="{ 'designer-shell--readonly': !editMode }">
+        <div v-if="editMode" class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
           <div class="designer-pane-toolbar"><el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable /></div>
           <div class="fd-library-list"><div v-for="fd in filteredFieldDefs" :key="fd.id" class="fd-item" :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)"><span>{{ fd.label }}</span><span style="color:var(--color-text-muted);font-size:11px">{{ fd.field_type }}</span></div></div>
         </div>
-        <div class="fd-panel-resizer" @mousedown="startLibResize"></div>
+        <div v-if="editMode" class="fd-panel-resizer" @mousedown="startLibResize"></div>
         <div class="designer-workspace">
           <div class="designer-workspace-top">
             <div class="fd-canvas designer-fields-panel">
-              <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button><span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ designerVisibleFields.length }} 个字段</span></div>
+              <div class="fd-canvas-header"><el-button v-if="editMode" size="small" type="primary" @click="newField">新建字段</el-button><el-button v-if="editMode" size="small" @click="addLogRow">添加log行</el-button><el-button v-if="editMode && selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button><span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ designerVisibleFields.length }} 个字段</span></div>
               <div class="fd-canvas-list designer-field-list">
-                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff._displayOrder" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="designerVisibleFields.length" size="small" style="width:56px;margin-left:2px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id, 'ff-item--readonly': !editMode }" :draggable="editMode" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
+                  <el-checkbox v-if="editMode" v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff._displayOrder" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="designerVisibleFields.length" size="small" style="width:56px;margin-left:2px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" :disabled="!editMode" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="editMode && canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button v-if="editMode" type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
                 </div>
               </div>
             </div>
@@ -1266,6 +1277,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           <div class="designer-editor-card">
             <div class="designer-section-title">属性编辑</div>
             <div v-if="!selectedFieldId" class="designer-empty-state">← 选择字段</div>
+            <div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览，开启完整模式后可编辑字段属性</div>
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
               <el-form :model="editProp" label-width="70px" size="small">
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
@@ -1357,7 +1369,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           </div>
           <div class="designer-notes-card">
             <div class="designer-section-title">设计备注</div>
-            <div class="designer-notes-editor"><el-input v-model="formDesignNotes" type="textarea" :autosize="false" class="designer-notes-input" @input="onNotesInput" /></div>
+            <div v-if="!editMode" class="designer-notes-readonly"><div class="designer-empty-state">简要模式下仅支持预览，开启完整模式后可编辑设计备注</div></div>
+            <div v-else class="designer-notes-editor"><el-input v-model="formDesignNotes" type="textarea" :autosize="false" class="designer-notes-input" @input="onNotesInput" /></div>
           </div>
         </div>
       </div>
@@ -1466,7 +1479,9 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .fd-canvas-list { flex: 1; overflow-y: auto; padding: 8px; }
 .ff-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--color-border); margin-bottom: 2px; background: var(--color-bg-card); cursor: pointer; }
 .ff-item.ff-selected { border-color: var(--color-primary); background: var(--color-primary-subtle); }
+.ff-item--readonly { cursor: default; }
 .drag-handle { cursor: move; color: #ccc; }
+.ff-item--readonly .drag-handle { opacity: 0.35; cursor: default; }
 .ff-label { flex: 1; font-size: 13px; }
 .fd-library { border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
 .fd-library-header { padding: 8px; background: var(--color-bg-hover); font-weight: bold; font-size: 13px; }
@@ -1493,6 +1508,10 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
   min-height: 0;
   overflow: hidden;
   background: var(--color-bg-body);
+}
+
+.designer-shell--readonly {
+  grid-template-columns: minmax(320px, 1fr) 460px;
 }
 
 .designer-library-pane {
@@ -1601,6 +1620,13 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 }
 
 .designer-notes-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 6px;
+}
+
+.designer-notes-readonly {
   flex: 1;
   min-height: 0;
   display: flex;

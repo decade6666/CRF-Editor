@@ -24,6 +24,7 @@ def _create_full_project_graph(session: Session, owner_id: int) -> Project:
         trial_name="试验A",
         crf_version="v1",
         protocol_number="P-001",
+        screening_number_format="SCR-001",
         sponsor="Sponsor",
         owner_id=owner_id,
         company_logo_path="source-logo.png",
@@ -117,6 +118,7 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         source_project, cloned_project = projects
         assert copied["company_logo_path"] == cloned_project.company_logo_path
         assert cloned_project.owner_id == source_project.owner_id
+        assert cloned_project.screening_number_format == source_project.screening_number_format
         assert cloned_project.company_logo_path is not None
         assert cloned_project.company_logo_path != source_project.company_logo_path
 
