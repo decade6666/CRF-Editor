@@ -51,6 +51,12 @@ const editFormTarget = ref(null)
 const dragSrcId = ref(null)
 const dragOverIdx = ref(null)
 const deletingFieldIds = ref(new Set())
+let formFieldsLoadSession = 0
+let formSelectionSession = 0
+
+function invalidateFormSelectionSession() {
+  formSelectionSession += 1
+}
 
 // 数据加载
 async function loadForms() { forms.value = await api.cachedGet(`/api/projects/${props.projectId}/forms`) }
@@ -59,6 +65,7 @@ async function reloadForms() {
   api.invalidateCache(`/api/projects/${props.projectId}/forms`)
   await loadForms()
   if (selectedFormId == null) return
+  invalidateFormSelectionSession()
   selectedForm.value = forms.value.find(f => f.id === selectedFormId) || null
   if (!selectedForm.value) formFields.value = []
 }
@@ -75,12 +82,20 @@ function sortFormFieldsByOrder(fields) {
   })
 }
 
-async function loadFormFields() {
-  if (!selectedForm.value) return
-  const loadedFields = await api.cachedGet(`/api/forms/${selectedForm.value.id}/fields`)
+async function loadFormFields(formId = selectedForm.value?.id ?? null) {
+  const sessionId = ++formFieldsLoadSession
+  if (!formId) {
+    formFields.value = []
+    selectedIds.value = []
+    return
+  }
+  const loadedFields = await api.cachedGet(`/api/forms/${formId}/fields`)
+  if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return
   formFields.value = sortFormFieldsByOrder(loadedFields)
 }
-watch(selectedForm, loadFormFields)
+watch(selectedForm, form => {
+  void loadFormFields(form?.id ?? null)
+})
 
 // 刷新信号
 watch(refreshKey, () => {
@@ -94,6 +109,7 @@ async function addForm() {
     const created = await api.post(`/api/projects/${props.projectId}/forms`, { name: newFormName.value, code: newFormCode.value })
     showAddForm.value = false; newFormName.value = ''; newFormCode.value = ''
     await loadForms()
+    invalidateFormSelectionSession()
     selectedForm.value = forms.value.find(f => f.id === created.id) || created
   } catch (e) { ElMessage.error(e.message) }
 }
@@ -108,7 +124,11 @@ async function delForm(f) {
       await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' })
     }
     await api.del(`/api/forms/${f.id}`)
-    if (selectedForm.value?.id === f.id) { selectedForm.value = null; formFields.value = [] }
+    if (selectedForm.value?.id === f.id) {
+      invalidateFormSelectionSession()
+      selectedForm.value = null
+      formFields.value = []
+    }
     reloadForms()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
@@ -128,6 +148,7 @@ async function batchDelForms() {
       : `确认删除选中的 ${selForms.value.length} 个表单？`
     await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids })
+    invalidateFormSelectionSession()
     selForms.value = []; selectedForm.value = null; formFields.value = []; reloadForms()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
@@ -415,8 +436,8 @@ function applyPreviewSnapshot(baseField, snapshot) {
     return {
       ...baseField,
       label_override: snapshot.label ?? baseField.label_override,
-      bg_color: snapshot.bg_color ?? baseField.bg_color ?? null,
-      text_color: snapshot.text_color ?? baseField.text_color ?? null,
+      bg_color: Object.prototype.hasOwnProperty.call(snapshot, 'bg_color') ? snapshot.bg_color : (baseField.bg_color ?? null),
+      text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color') ? snapshot.text_color : (baseField.text_color ?? null),
     }
   }
 
@@ -432,8 +453,8 @@ function applyPreviewSnapshot(baseField, snapshot) {
     ...baseField,
     default_value: normalizePreviewDefaultValue(fieldType, inlineMark, snapshot.default_value ?? baseField.default_value),
     inline_mark: inlineMark,
-    bg_color: snapshot.bg_color ?? baseField.bg_color ?? null,
-    text_color: snapshot.text_color ?? baseField.text_color ?? null,
+    bg_color: Object.prototype.hasOwnProperty.call(snapshot, 'bg_color') ? snapshot.bg_color : (baseField.bg_color ?? null),
+    text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color') ? snapshot.text_color : (baseField.text_color ?? null),
     field_definition: {
       ...fieldDefinition,
       label: snapshot.label ?? fieldDefinition.label,
@@ -553,13 +574,24 @@ async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
 }
 
 async function selectForm(nextForm) {
+  const sessionId = ++formSelectionSession
   const currentForm = selectedForm.value
   if ((currentForm?.id ?? null) === (nextForm?.id ?? null)) return
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }))
+  if (sessionId !== formSelectionSession) return
   if (!flushSucceeded && currentForm?.id) {
     formsTableRef.value?.setCurrentRow(currentForm)
     return
   }
+  const flushFieldPropSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true })
+  if (sessionId !== formSelectionSession) return
+  if (!flushFieldPropSucceeded) {
+    formsTableRef.value?.setCurrentRow(currentForm)
+    return
+  }
+  resetFieldPropAutoSaveState()
+  formFields.value = []
+  selectedIds.value = []
   selectedForm.value = nextForm || null
 }
 
@@ -590,7 +622,9 @@ function openQuickEdit(ff) {
 async function saveQuickEdit() {
   if (!quickEditField.value) return
   try {
-    const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0, default_value: quickEditProp.default_value || null }
+    const supportsDefaultValue = isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))
+    const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(quickEditProp.default_value, !quickEditProp.inline_mark) : ''
+    const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0, default_value: normalizedDefaultValue || null }
     const updated = await api.put(`/api/form-fields/${quickEditField.value.id}`, payload)
     const currentField = {
       ...quickEditField.value,
@@ -641,8 +675,15 @@ let fieldPropSaveSession = 0
 const fieldPropProjectId = ref(props.projectId)
 let lastHydratedFieldPropDraftKey = ''
 const designerFieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '标签']
-const COLOR_OPTIONS = [
-  { value: null, label: '无颜色' },
+const BG_COLOR_OPTIONS = [
+  { value: null, label: '默认' },
+  { value: 'A6A6A6', label: '灰色' },
+  { value: '0070C0', label: '蓝色' },
+  { value: 'E3F2FD', label: '浅蓝' },
+  { value: 'E8F5E9', label: '浅绿' },
+  { value: 'FFE0B2', label: '浅橙' },
+]
+const TEXT_COLOR_OPTIONS = [
   { value: 'A6A6A6', label: '灰色' },
   { value: '0070C0', label: '蓝色' },
   { value: 'E3F2FD', label: '浅蓝' },
@@ -856,8 +897,8 @@ function selectField(ff) {
   selectedFieldId.value = ff.id
   if (ff.is_log_row) {
     Object.assign(editProp, { label: ff.label_override || '以下为log行', variable_name: '', field_type: '日志行', integer_digits: null, decimal_digits: null, date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
-    customBgColorInput.value = (ff.bg_color && !COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
-    customTextColorInput.value = (ff.text_color && !COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+    customBgColorInput.value = (ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
+    customTextColorInput.value = (ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
     lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
     isHydratingFieldProp = false
     return
@@ -868,9 +909,9 @@ function selectField(ff) {
     isHydratingFieldProp = false
     return
   }
-  Object.assign(editProp, { label: fd.label || '', variable_name: fd.variable_name || '', field_type: fd.field_type || '文本', integer_digits: fd.integer_digits, decimal_digits: fd.decimal_digits, date_format: fd.date_format, codelist_id: fd.codelist_id, unit_id: fd.unit_id, default_value: ff.default_value || '', inline_mark: ff.inline_mark || 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
-  customBgColorInput.value = (ff.bg_color && !COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
-  customTextColorInput.value = (ff.text_color && !COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+  Object.assign(editProp, { label: fd.label || '', variable_name: fd.variable_name || '', field_type: fd.field_type || '文本', integer_digits: fd.integer_digits, decimal_digits: fd.decimal_digits, date_format: fd.date_format, codelist_id: fd.codelist_id, unit_id: fd.unit_id ?? null, default_value: ff.default_value || '', inline_mark: ff.inline_mark || 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
+  customBgColorInput.value = (ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
+  customTextColorInput.value = (ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
   lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
   isHydratingFieldProp = false
 }
@@ -892,7 +933,7 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
     } else {
       const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark))
       const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark) : ''
-      const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, { label: snapshot.label, variable_name: snapshot.variable_name, field_type: snapshot.field_type, integer_digits: snapshot.integer_digits, decimal_digits: snapshot.decimal_digits, date_format: snapshot.date_format, codelist_id: snapshot.codelist_id, unit_id: snapshot.unit_id })
+      const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, { label: snapshot.label, variable_name: snapshot.variable_name, field_type: snapshot.field_type, integer_digits: snapshot.integer_digits, decimal_digits: snapshot.decimal_digits, date_format: snapshot.date_format, codelist_id: snapshot.codelist_id, unit_id: snapshot.unit_id ?? null })
       if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
       let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } }
       syncSelectedField(currentField, { syncEditor: false })
@@ -1071,6 +1112,7 @@ watch(() => showDesigner.value, async (visible, previousVisible) => {
 })
 watch(() => props.projectId, async (newProjectId, previousProjectId) => {
   if (newProjectId === previousProjectId) return
+  invalidateFormSelectionSession()
   const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId })
   const flushSucceeded = await flushDesignNotesSave(flushSnapshot)
   if (!flushSucceeded && selectedForm.value?.id) return
@@ -1138,7 +1180,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                           <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                         </tr>
                         <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                          <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                         </tr>
                         <template v-else-if="seg.type === 'inline_block'">
                           <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
@@ -1148,7 +1190,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                     </table>
                     <table v-else-if="g.type === 'normal'">
                       <template v-for="ff in g.fields" :key="ff.id">
-                        <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                        <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                         <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
                         <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                       </template>
@@ -1202,11 +1244,11 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                               <table v-if="g.type === 'unified'" class="unified-table">
                                 <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                                   <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
-                                  <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
+                                  <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
                                   <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
                                 </template>
                               </table>
-                              <table v-else-if="g.type === 'normal'"><template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template></table>
+                              <table v-else-if="g.type === 'normal'"><template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template></table>
                               <table v-else class="inline-table"><tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr></table>
                             </template>
                           </div>
@@ -1227,9 +1269,10 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
               <el-form :model="editProp" label-width="70px" size="small">
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
-                <el-form-item label="底纹">
+                <el-form-item label="底纹颜色">
                   <div class="color-picker">
-                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.bg_color && !customBgColorInput}" @click="editProp.bg_color = null; customBgColorInput = ''">默认</div>
+                    <div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
                     <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
                       <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
                     </el-input>
@@ -1237,7 +1280,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 </el-form-item>
                 <el-form-item label="文字颜色">
                   <div class="color-picker">
-                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.text_color && !customTextColorInput}" @click="editProp.text_color = null; customTextColorInput = ''">默认</div>
+                    <div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
                     <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
                       <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
                     </el-input>
@@ -1247,7 +1291,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
             </div>
             <div v-else class="designer-editor-scroll">
               <el-form :model="editProp" label-width="70px" size="small">
-                <el-form-item label="变量标签"><el-input v-model="editProp.label" /></el-form-item>
+                <el-form-item label="变量标签"><el-input v-model="editProp.label" :type="editProp.field_type === '标签' ? 'textarea' : 'text'" :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined" /></el-form-item>
                 <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
                 <el-form-item label="字段类型">
                   <el-select v-model="editProp.field_type" style="width:100%">
@@ -1276,7 +1320,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 </el-form-item>
                 <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
                   <div style="display:flex;gap:4px">
-                    <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择">
+                    <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择" :value-on-clear="null">
                       <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
                     </el-select>
                     <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增单位" title="新增单位" @click="showQuickAddUnit = true" />
@@ -1290,9 +1334,10 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                   </template>
                   <el-input v-model="editProp.default_value" :type="editProp.inline_mark ? 'textarea' : 'text'" :rows="editProp.inline_mark ? 2 : undefined" :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'" />
                 </el-form-item>
-                <el-form-item label="底纹">
+                <el-form-item label="底纹颜色">
                   <div class="color-picker">
-                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
+                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.bg_color && !customBgColorInput}" @click="editProp.bg_color = null; customBgColorInput = ''">默认</div>
+                    <div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
                     <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
                       <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
                     </el-input>
@@ -1300,7 +1345,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 </el-form-item>
                 <el-form-item label="文字颜色">
                   <div class="color-picker">
-                    <div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
+                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.text_color && !customTextColorInput}" @click="editProp.text_color = null; customTextColorInput = ''">默认</div>
+                    <div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
                     <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
                       <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
                     </el-input>
@@ -1323,7 +1369,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 
     <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="480px" append-to-body>
       <el-form :model="quickEditProp" label-width="80px" size="small">
-        <el-form-item label="变量标签"><el-input v-model="quickEditProp.label" /></el-form-item>
+        <el-form-item label="变量标签"><el-input v-model="quickEditProp.label" :type="quickEditProp.field_type === '标签' ? 'textarea' : 'text'" :autosize="quickEditProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined" /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition" label="字段类型"><el-input :model-value="quickEditField.field_definition.field_type" disabled /></el-form-item>
         <template v-if="quickEditField?.field_definition?.field_type === '数值'">
           <el-form-item label="整数位数"><el-input :model-value="quickEditField.field_definition.integer_digits" disabled /></el-form-item>
@@ -1332,9 +1378,9 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <el-form-item v-if="['日期','日期时间','时间'].includes(quickEditField?.field_definition?.field_type)" label="日期格式"><el-input :model-value="quickEditField.field_definition.date_format" disabled /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典"><el-input :model-value="quickEditField.field_definition.codelist.name" disabled /></el-form-item>
         <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位"><el-input :model-value="quickEditField.field_definition.unit.symbol" disabled /></el-form-item>
-        <el-form-item label="默认值"><el-input v-model="quickEditProp.default_value" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" /></el-form-item>
-        <el-form-item label="底纹颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.bg_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.bg_color = opt.value"></div></div></el-form-item>
-        <el-form-item label="文字颜色"><div class="color-picker"><div v-for="opt in COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.text_color === opt.value}" :style="opt.value ? { background: '#' + opt.value } : { border: '1px dashed #ccc' }" @click="quickEditProp.text_color = opt.value"></div></div></el-form-item>
+        <el-form-item v-if="isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))" label="默认值"><el-input v-model="quickEditProp.default_value" :type="quickEditProp.inline_mark ? 'textarea' : 'text'" :autosize="quickEditProp.inline_mark ? { minRows: 1, maxRows: 3 } : undefined" /></el-form-item>
+        <el-form-item label="底纹颜色"><div class="color-picker"><div class="color-option color-option-default" :class="{'color-selected': !quickEditProp.bg_color}" @click="quickEditProp.bg_color = null">默认</div><div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.bg_color === opt.value}" :style="{ background: '#' + opt.value }" @click="quickEditProp.bg_color = opt.value"></div></div></el-form-item>
+        <el-form-item label="文字颜色"><div class="color-picker"><div class="color-option color-option-default" :class="{'color-selected': !quickEditProp.text_color}" @click="quickEditProp.text_color = null">默认</div><div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.text_color === opt.value}" :style="{ background: '#' + opt.value }" @click="quickEditProp.text_color = opt.value"></div></div></el-form-item>
         <el-form-item label="布局" v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'"><el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox></el-form-item>
       </el-form>
       <template #footer><el-button @click="showQuickEdit = false">取消</el-button><el-button type="primary" @click="saveQuickEdit">确定</el-button></template>
@@ -1436,6 +1482,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .choice-codelist-actions :deep(.choice-codelist-icon-btn) { width: 28px; height: 28px; padding: 0; }
 .color-picker { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .color-option { width: 20px; height: 20px; border-radius: 2px; cursor: pointer; border: 1px solid #eee; }
+.color-option-default { width: auto; min-width: 36px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: var(--color-text-secondary); background: var(--color-bg-card); border-style: dashed; }
 .color-option.color-selected { border: 2px solid var(--color-primary); }
 
 .designer-shell {
