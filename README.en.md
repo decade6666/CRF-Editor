@@ -8,17 +8,18 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ### Key Features
 
-- **Project Management**: Create and manage clinical research projects, including trial name, protocol number, version information, etc.
-- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations; matrix-style batch editing of visit-form associations
-- **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), field drag-and-drop sorting, and design notes/remarks
-- **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as label, colors, inline layout, and default value
-- **Field Library**: Centralized field definition management, supporting field reuse and standardization
-- **Code Lists**: Manage option lists and coding dictionaries
-- **Unit Management**: Centralized management of measurement units and symbols
-- **Word Export**: Export forms to compliant Word documents, including cover page, table of contents, visit distribution diagram, and form content; includes a short-term rate limit to prevent repeated export triggers
+- **Project and Access Management**: Create and manage clinical research projects with login, admin user management, and project isolation
+- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
+- **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
+- **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values
+- **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units
+- **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview
+- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit to prevent repeated triggers
+- **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
 - **Form Preview**: Preview form field layout directly from the visits management panel
-- **Global Fuzzy Search**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists) for quick content navigation
-- **Dark Mode**: One-click toggle between light and dark themes
+- **AI and Settings**: Supports AI endpoint configuration, connectivity testing, and import / export related settings
+- **Global Fuzzy Search and Dark Mode**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists) plus light / dark theme switching
+- **Desktop Distribution**: Supports PyInstaller packaging, auto-opening the browser, and running from a system tray icon
 
 ## Technical Architecture
 
@@ -33,36 +34,36 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ### Project Structure
 
-```
+```text
 CRF-Editor/
 ├── config.yaml              # Application config (optional, at project root)
 ├── backend/
+│   ├── main.py              # FastAPI application entry point
+│   ├── app_launcher.py      # PyInstaller desktop entry
+│   ├── requirements.txt     # Python runtime dependencies
+│   ├── requirements-dev.txt # Python dev / test dependencies
 │   ├── src/
 │   │   ├── models/          # Data model layer (SQLAlchemy ORM)
 │   │   ├── repositories/    # Data access layer
-│   │   ├── services/        # Business logic layer
-│   │   │   └── export_service.py  # Word export service
-│   │   ├── routers/         # API routing layer (FastAPI)
-│   │   │   ├── projects.py  # Projects API
-│   │   │   ├── visits.py    # Visits API
-│   │   │   ├── forms.py     # Forms API
-│   │   │   ├── fields.py    # Fields API
-│   │   │   ├── codelists.py # Code lists API
-│   │   │   ├── units.py     # Units API
-│   │   │   └── export.py    # Export API
+│   │   ├── services/        # Business logic (import / export / ordering / cloning)
+│   │   ├── routers/         # API routing layer (auth, projects, visits, forms, fields, etc.)
 │   │   ├── schemas/         # Request/response schemas (Pydantic)
-│   │   ├── config.py        # Configuration loader
-│   │   └── database.py      # Database session management
-│   ├── requirements.txt     # Python dependencies
-│   └── main.py              # FastAPI application entry point
-└── frontend/
-    ├── src/
-    │   ├── components/      # Vue components
-    │   ├── composables/     # Vue composables
-    │   ├── styles/          # Global styles
-    │   └── App.vue          # Root component
-    ├── package.json         # Frontend dependencies
-    └── vite.config.js       # Vite configuration
+│   │   ├── config.py        # Config loading and atomic updates
+│   │   └── database.py      # SQLite engine, sessions, and lightweight migrations
+│   └── tests/               # pytest / hypothesis tests
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # Vue components
+│   │   ├── composables/     # Vue composables
+│   │   ├── styles/          # Global styles
+│   │   └── App.vue          # Root component
+│   ├── tests/               # node:test regression checks
+│   ├── package.json         # Frontend dependencies and scripts
+│   ├── vite.config.js       # Vite configuration
+│   └── README.md            # Frontend module guide
+└── assets/
+    └── logos/
+        └── README.md        # Static logo resource notes
 ```
 
 ## Installation
@@ -149,18 +150,28 @@ cd frontend
 npm run dev
 ```
 
-Access the frontend at `http://localhost:5173`. API requests are automatically proxied to the backend on port 8888.
+Access the frontend at `http://localhost:5173`. API requests are automatically proxied to `http://127.0.0.1:8888`.
 
 API documentation is available at `http://localhost:8888/docs`.
+
+**Option 3: Desktop Entry** (for packaged PyInstaller distribution)
+
+```bash
+cd backend
+python app_launcher.py
+```
+
+The desktop entry launches the local backend, opens the browser automatically, and keeps a tray icon running.
 
 ### Basic Workflow
 
 1. **Create Project**: Create a new clinical research project in the project management interface
-2. **Define Visits**: Add research visit nodes and set visit sequences
-3. **Design Forms**: Create CRF forms using the form designer
-4. **Add Fields**: Select from field library or create new fields, configure field properties
-5. **Associate Forms**: Link forms to corresponding visit nodes
-6. **Export Document**: Export project to Word document
+2. **Define Visits**: Add visit nodes and set visit sequences
+3. **Design Forms**: Create CRF forms in the form designer and maintain design notes
+4. **Add Fields**: Select from the field library or create new fields, then configure instance-level display properties
+5. **Associate Forms**: Link forms to the corresponding visit nodes and preview layouts from the visits page
+6. **Import Data**: Run template import, project database import, or Word compare-based import when needed
+7. **Export Results**: Export the project as a Word document or database template
 
 ### Word Document Export Format
 
@@ -170,6 +181,24 @@ The exported Word document contains:
 - **Table of Contents**: Auto-generated document TOC
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
+
+## Testing
+
+### Backend
+```bash
+cd backend
+python -m pytest
+```
+
+### Frontend
+```bash
+cd frontend
+node --test tests/*.test.js
+```
+
+In the current repository:
+- `backend/tests/` uses `pytest`, including some `hypothesis` property tests
+- `frontend/tests/` uses `node:test` for source-level regression checks
 
 ## Contributing
 
