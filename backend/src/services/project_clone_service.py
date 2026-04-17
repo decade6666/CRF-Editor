@@ -208,6 +208,7 @@ class ProjectCloneService:
             crf_version=src.crf_version,
             crf_version_date=src.crf_version_date,
             protocol_number=src.protocol_number,
+            screening_number_format=src.screening_number_format,
             sponsor=src.sponsor,
             company_logo_path=None,
             data_management_unit=src.data_management_unit,
