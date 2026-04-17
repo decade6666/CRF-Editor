@@ -27,5 +27,8 @@ export function syncFieldTypeSpecificProps(editProp, newType, dateFormatOptions,
 export function normalizeHexColorInput(value) {
   const normalized = String(value ?? '').trim().replace(/^#/, '').toUpperCase()
   if (!normalized) return null
-  return /^[0-9A-F]{3}([0-9A-F]{3})?$/.test(normalized) ? normalized : null
+  if (/^[0-9A-F]{3}$/.test(normalized)) {
+    return normalized.split('').map(char => char + char).join('')
+  }
+  return /^[0-9A-F]{6}$/.test(normalized) ? normalized : null
 }
