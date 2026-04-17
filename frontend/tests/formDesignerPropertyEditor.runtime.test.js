@@ -1,6 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../src/composables/formDesignerPropertyEditor.js'
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
+const fieldDefinitionPayloadExpression = /const updatedDefinition = await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`, (\{[\s\S]*?\})\)/.exec(formDesignerSource)?.[1]
+const buildFieldDefinitionPayload = fieldDefinitionPayloadExpression
+  ? new Function('snapshot', `return (${fieldDefinitionPayloadExpression})`)
+  : null
 
 const DATE_FORMAT_OPTIONS = {
   日期: ['yyyy-MM-dd', 'MM/dd/yyyy'],
@@ -60,8 +70,37 @@ test('syncFieldTypeSpecificProps assigns default date format when current one is
   assert.equal(next.date_format, 'yyyy-MM-dd HH:mm')
 })
 
+test('field definition payload keeps cleared unit as null', () => {
+  assert.ok(buildFieldDefinitionPayload, 'should extract field definition payload builder from FormDesignerTab.vue')
+
+  const clearedPayload = buildFieldDefinitionPayload({
+    label: '体温',
+    variable_name: 'TEMP',
+    field_type: '文本',
+    integer_digits: null,
+    decimal_digits: null,
+    date_format: null,
+    codelist_id: null,
+    unit_id: undefined,
+  })
+  const selectedPayload = buildFieldDefinitionPayload({
+    label: '体温',
+    variable_name: 'TEMP',
+    field_type: '文本',
+    integer_digits: null,
+    decimal_digits: null,
+    date_format: null,
+    codelist_id: null,
+    unit_id: 12,
+  })
+
+  assert.equal(Object.hasOwn(clearedPayload, 'unit_id'), true)
+  assert.equal(clearedPayload.unit_id, null)
+  assert.equal(selectedPayload.unit_id, 12)
+})
+
 test('normalizeHexColorInput accepts 3 or 6 digit hex values', () => {
-  assert.equal(normalizeHexColorInput('#abc'), 'ABC')
+  assert.equal(normalizeHexColorInput('#abc'), 'AABBCC')
   assert.equal(normalizeHexColorInput('a1b2c3'), 'A1B2C3')
 })
 

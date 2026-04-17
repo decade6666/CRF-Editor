@@ -48,6 +48,23 @@ test('preview style falls back to unified structural gray with transparency when
   assert.equal(getFormFieldPreviewStyle(field, 'background:#BFBFBF40;'), 'background:#BFBFBF40;color:#445566')
 })
 
+test('preview text defaults to true black when no custom text color is set', () => {
+  const field = createField({ text_color: null })
+
+  assert.equal(getFormFieldTextColorStyle(field), '')
+  assert.equal(getFormFieldPreviewStyle(field), 'color:#000000')
+})
+
+test('preview style normalizes legacy hex color inputs while keeping invalid values rejected', () => {
+  const legacyBgField = createField({ bg_color: '#112233', text_color: ' 112233 ' })
+  const legacyTextField = createField({ bg_color: ' 112233 ', text_color: '#112233' })
+  const invalidTextField = createField({ bg_color: null, text_color: 'zzzzzz' })
+
+  assert.equal(getFormFieldPreviewStyle(legacyBgField), 'background:#11223340;color:#112233')
+  assert.equal(getFormFieldPreviewStyle(legacyTextField), 'background:#11223340;color:#112233')
+  assert.equal(getFormFieldPreviewStyle(invalidTextField), 'color:#000000')
+})
+
 test('preview groups switch to inline when inline_mark changes', () => {
   const groups = buildFormDesignerRenderGroups([
     createField({ id: 1, order_index: 1, inline_mark: 0, label_override: '普通字段' }),
@@ -80,33 +97,43 @@ test('quick edit fields are subset of form field instance properties', () => {
     formDesignerSource,
     /Object\.assign\(quickEditProp, \{\s*label: getFormFieldDisplayLabel\(ff\) \|\| '',\s*field_type: ff\.field_definition\?\.field_type \|\| '',\s*bg_color: ff\.bg_color \|\| '',\s*text_color: ff\.text_color \|\| '',\s*inline_mark: !!ff\.inline_mark,\s*default_value: ff\.default_value \|\| ''\s*\}\)/s,
   )
-  assert.match(
-    formDesignerSource,
-    /const payload = \{ label_override: quickEditProp\.label, bg_color: quickEditProp\.bg_color \|\| null, text_color: quickEditProp\.text_color \|\| null, inline_mark: quickEditProp\.inline_mark \? 1 : 0, default_value: quickEditProp\.default_value \|\| null \}/,
-  )
-  assert.match(formDesignerSource, /<el-form-item label="变量标签"><el-input v-model="quickEditProp\.label" \/><\/el-form-item>/)
+  assert.match(formDesignerSource, /const supportsDefaultValue = isDefaultValueSupported\(quickEditProp\.field_type, Boolean\(quickEditProp\.inline_mark\)\)/)
+  assert.match(formDesignerSource, /const normalizedDefaultValue = supportsDefaultValue \? normalizeDefaultValue\(quickEditProp\.default_value, !quickEditProp\.inline_mark\) : ''/)
+  assert.match(formDesignerSource, /default_value: normalizedDefaultValue \|\| null/)
+  assert.match(formDesignerSource, /<el-form-item label="变量标签"><el-input v-model="quickEditProp\.label" :type="quickEditProp\.field_type === '标签' \? 'textarea' : 'text'"/)
+  assert.match(formDesignerSource, /:autosize="quickEditProp\.field_type === '标签' \? \{ minRows: 2, maxRows: 4 \} : undefined"/)
+  assert.match(formDesignerSource, /<el-form-item v-if="isDefaultValueSupported\(quickEditProp\.field_type, Boolean\(quickEditProp\.inline_mark\)\)" label="默认值"><el-input v-model="quickEditProp\.default_value" :type="quickEditProp\.inline_mark \? 'textarea' : 'text'" :autosize="quickEditProp\.inline_mark \? \{ minRows: 1, maxRows: 3 \} : undefined" \/><\/el-form-item>/)
   assert.match(formDesignerSource, /<el-form-item label="底纹颜色">/)
   assert.match(formDesignerSource, /<el-form-item label="文字颜色">/)
   assert.match(
     formDesignerSource,
     /<el-form-item label="布局" v-if="quickEditProp\.field_type !== '标签' && quickEditProp\.field_type !== '日志行'"><el-checkbox v-model="quickEditProp\.inline_mark">横向显示<\/el-checkbox><\/el-form-item>/,
   )
-  assert.equal(formDesignerSource.includes('default_value: quickEditProp'), true)
+  assert.equal(formDesignerSource.includes('default_value: quickEditProp'), false)
   assert.equal(formDesignerSource.includes('variable_name: quickEditProp'), false)
   assert.equal(formDesignerSource.includes('codelist_id: quickEditProp'), false)
   assert.equal(formDesignerSource.includes('unit_id: quickEditProp'), false)
 })
+
 
 test('preview structural colors are unified across designer and template preview paths', () => {
   assert.match(formDesignerSource, /form-designer-word-page/)
   assert.match(mainCssSource, /--preview-structure-bg: #BFBFBF40;/)
   assert.match(mainCssSource, /\.word-page \.wp-inline-header \{ background: var\(--preview-structure-bg\); font-weight: bold; text-align: center; \}/)
   assert.match(mainCssSource, /\.word-page \.wp-label \{ font-weight: bold; background: transparent; \}/)
+  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000; \}/)
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/)
+  assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/)
   assert.match(formDesignerSource, /background:var\(--preview-structure-bg\);/)
   assert.match(templatePreviewSource, /background:var\(--preview-structure-bg\);/)
   assert.match(templatePreviewSource, /\.wp-inline-header \{\s*background: var\(--preview-structure-bg\);/s)
   assert.doesNotMatch(mainCssSource, /#fafafa|#f5f5f5|#d9d9d9/)
+})
+
+test('label preview rows preserve multiline text through dedicated class', () => {
+  assert.match(formDesignerSource, /wp-structure-label--multiline/)
+  assert.match(templatePreviewSource, /wp-structure-label--multiline/)
+  assert.match(mainCssSource, /\.word-page \.wp-structure-label--multiline \{ white-space: pre-wrap; overflow-wrap: anywhere; \}/)
 })
 
 test('designer preview uses full-width static layout without scale logic', () => {
