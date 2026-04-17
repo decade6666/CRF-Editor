@@ -1,16 +1,24 @@
 const ORDER_INDEX_FALLBACK = Number.MAX_SAFE_INTEGER
 
+export function normalizePreviewHexColor(value) {
+  const normalized = String(value ?? '').trim().replace(/^#/, '')
+  return /^[0-9A-F]{6}$/i.test(normalized) ? normalized : null
+}
+
 export function getFormFieldDisplayLabel(formField, fallback = '') {
   return formField?.label_override || formField?.field_definition?.label || fallback
 }
 
 export function getFormFieldTextColorStyle(formField) {
-  return formField?.text_color ? `color:#${formField.text_color}` : ''
+  const normalized = normalizePreviewHexColor(formField?.text_color)
+  return normalized ? `color:#${normalized}` : ''
 }
 
 export function getFormFieldPreviewStyle(formField, defaultBackground = '') {
-  const background = formField?.bg_color ? `background:#${formField.bg_color}40;` : defaultBackground
-  const textColor = formField?.text_color ? `color:#${formField.text_color}` : ''
+  const normalizedBg = normalizePreviewHexColor(formField?.bg_color)
+  const normalizedText = normalizePreviewHexColor(formField?.text_color)
+  const background = normalizedBg ? `background:#${normalizedBg}40;` : defaultBackground
+  const textColor = normalizedText ? `color:#${normalizedText}` : 'color:#000000'
   return `${background}${textColor}`
 }
 
