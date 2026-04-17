@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from pydantic import BaseModel
 
+from src.schemas.field import HexColor
+
 
 
 from src.database import get_session
@@ -370,9 +372,9 @@ class InlineMarkUpdate(BaseModel):
 
 class ColorUpdate(BaseModel):
 
-    bg_color: Optional[str] = None
+    bg_color: Optional[HexColor] = None
 
-    text_color: Optional[str] = None
+    text_color: Optional[HexColor] = None
 
 
 
@@ -406,13 +408,9 @@ def update_colors(ff_id: int, data: ColorUpdate, session: Session = Depends(get_
 
     ff = verify_form_field_owner(ff_id, current_user, session)
 
-    if data.bg_color is not None:
+    for key, value in data.model_dump(exclude_unset=True).items():
 
-        ff.bg_color = data.bg_color
-
-    if data.text_color is not None:
-
-        ff.text_color = data.text_color
+        setattr(ff, key, value)
 
     repo.update(ff)
 

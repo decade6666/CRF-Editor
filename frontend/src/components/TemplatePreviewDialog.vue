@@ -36,7 +36,7 @@
                       <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                     </tr>
                     <tr v-else-if="seg.type === 'full_row'">
-                      <td :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                      <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                     </tr>
                     <template v-else-if="seg.type === 'inline_block'">
                       <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
@@ -47,7 +47,7 @@
                 <!-- normal 类型：普通表格布局 -->
                 <table v-else-if="g.type === 'normal'" class="normal-table">
                   <template v-for="ff in g.fields" :key="ff.id">
-                    <tr v-if="ff.field_definition?.field_type === '标签'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                    <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
                     <tr v-else><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                   </template>
@@ -113,6 +113,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
+  normalizePreviewHexColor,
 } from '../composables/formFieldPresentation'
 import { renderCtrlHtml, normalizeDefaultValue, isDefaultValueSupported, planInlineColumnFractions, toHtml } from '../composables/useCRFRenderer'
 import { api } from '../composables/useApi'
@@ -227,8 +228,10 @@ function toggleAll() {
 
 // Task 3.2: 获取字段项样式（背景色 + 文字色）
 function getItemStyle(field) {
-  const bg = field.bg_color ? `background-color:#${field.bg_color}20;` : ''
-  const text = field.text_color ? `color:#${field.text_color};` : ''
+  const bgColor = normalizePreviewHexColor(field?.bg_color)
+  const textColor = normalizePreviewHexColor(field?.text_color)
+  const bg = bgColor ? `background-color:#${bgColor}20;` : ''
+  const text = textColor ? `color:#${textColor};` : ''
   return bg || text ? `${bg}${text}` : null
 }
 

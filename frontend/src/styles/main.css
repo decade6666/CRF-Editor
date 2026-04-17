@@ -189,7 +189,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 .word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; word-break: break-word; }
 .word-page .wp-label { font-weight: bold; background: transparent; }
-.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #333; }
+.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #000; }
 .word-page .wp-inline-header { background: var(--preview-structure-bg); font-weight: bold; text-align: center; }
 /* inline-table 和 unified-table 允许内容驱动的列宽 */
 .word-page .inline-table { width: 100%; table-layout: auto; }
@@ -201,7 +201,8 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .form-designer-word-page .wp-label { background: transparent; }
 .form-designer-word-page .wp-inline-header { background: var(--preview-structure-bg); }
 .form-designer-word-page .unified-label { background: transparent; }
-.word-page .unified-value { font-family: 'SimSun', serif; color: #333; }
+.word-page .unified-value { font-family: 'SimSun', serif; color: #000; }
+.word-page .wp-structure-label--multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
 /* choice atom 不换行包装 */
 .word-page .choice-atom { display: inline-flex; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
