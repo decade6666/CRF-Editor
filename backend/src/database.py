@@ -457,6 +457,26 @@ def _migrate_add_project_owner_id(engine):
 
 
 
+def _migrate_add_project_screening_number_format(engine):
+
+    """给 project 表补上 screening_number_format 列。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("project"):
+
+        return
+
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("project")]
+
+        if "screening_number_format" not in cols:
+
+            conn.execute(text('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)'))
+
+
+
 
 
 def _migrate_user_hashed_password_nullable(engine):
@@ -757,6 +777,8 @@ def init_db():
     _migrate_add_color_mark(engine)
 
     _migrate_add_project_owner_id(engine)
+
+    _migrate_add_project_screening_number_format(engine)
 
     _migrate_project_soft_delete_and_ordering(engine)
 

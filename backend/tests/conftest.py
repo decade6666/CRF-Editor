@@ -1,6 +1,7 @@
 """共享测试夹具。"""
 
 import sys
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,12 @@ from sqlalchemy.pool import StaticPool
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+
+warnings.filterwarnings(
+    "ignore",
+    message="Please use `import python_multipart` instead.",
+    category=PendingDeprecationWarning,
+)
 
 from main import app
 from src.config import AppConfig, AdminConfig, AuthConfig

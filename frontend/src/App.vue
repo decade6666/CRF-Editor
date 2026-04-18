@@ -100,7 +100,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('crf:auth-expired', handleAuthExpired)
-  if (exportWordResetTimer) clearTimeout(exportWordResetTimer)
 })
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
@@ -109,7 +108,11 @@ provide('refreshKey', refreshKey)
 
 // 编辑模式（持久化，默认关闭）
 const editMode = ref(localStorage.getItem('crf_edit_mode') === 'true')
-watch(editMode, v => localStorage.setItem('crf_edit_mode', String(v)))
+const ADVANCED_EDIT_TABS = new Set(['codelists', 'units', 'fields'])
+watch(editMode, v => {
+  localStorage.setItem('crf_edit_mode', String(v))
+  if (!v && ADVANCED_EDIT_TABS.has(activeTab.value)) activeTab.value = 'info'
+})
 provide('editMode', editMode)
 
 function handleRefresh() {
@@ -177,43 +180,12 @@ async function copyProject(p) {
 }
 
 
-const MAX_EXPORT_WORD_TRIGGERS = 3
-const EXPORT_WORD_TRIGGER_WINDOW_MS = 10000
 const exportWordLoading = ref(false)
-const exportWordTriggerCount = ref(0)
-let exportWordResetTimer = null
-
-function resetExportWordTriggerCount() {
-  exportWordTriggerCount.value = 0
-  if (exportWordResetTimer) {
-    clearTimeout(exportWordResetTimer)
-    exportWordResetTimer = null
-  }
-}
-
-function scheduleExportWordTriggerReset() {
-  if (exportWordResetTimer) clearTimeout(exportWordResetTimer)
-  exportWordResetTimer = setTimeout(() => {
-    exportWordTriggerCount.value = 0
-    exportWordResetTimer = null
-  }, EXPORT_WORD_TRIGGER_WINDOW_MS)
-}
-
-watch(() => selectedProject.value?.id, () => {
-  resetExportWordTriggerCount()
-})
 
 async function exportWord() {
   if (!selectedProject.value || exportWordLoading.value) return
-  if (exportWordTriggerCount.value >= MAX_EXPORT_WORD_TRIGGERS) {
-    ElMessage.warning(`导出过于频繁，请在 ${Math.ceil(EXPORT_WORD_TRIGGER_WINDOW_MS / 1000)} 秒后重试`)
-    return
-  }
-  exportWordTriggerCount.value += 1
-  scheduleExportWordTriggerReset()
   exportWordLoading.value = true
   try {
-    await new Promise(resolve => setTimeout(resolve, 1000))
     const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -683,8 +655,7 @@ function startResize(e) {
       </el-button>
     </div>
     <div class="header-right">
-      <el-button v-if="selectedProject" type="primary" size="small" @click="openImportWordDialog">导入Word</el-button>
-      <el-button v-if="selectedProject" type="primary" size="small" @click="openImportDialog">导入模板</el-button>
+      <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
       <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord">导出Word</el-button>
     </div>
   </div>
@@ -784,18 +755,19 @@ function startResize(e) {
         <span>{{ currentUser.username || '未登录' }}</span>
       </el-form-item>
       <el-form-item label="编辑模式">
-        <el-switch v-model="editMode" />
-        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">开启后显示选项/单位/字段标签及表单编辑按钮</span>
+        <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
+        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span>
       </el-form-item>
       <el-form-item label="主题模式">
         <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
       </el-form-item>
 
-      <el-divider>数据导出</el-divider>
+      <el-divider />
       <div class="settings-transfer-actions">
         <el-button @click="exportFullDatabase">导出所有项目</el-button>
         <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
         <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
+        <el-button :disabled="!selectedProject" @click="openImportWordDialog">导入Word</el-button>
       </div>
 
       <template v-if="isAdmin">

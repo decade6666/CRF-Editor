@@ -69,3 +69,6 @@ docx-compare-*.png
 # ==========================================
 assets/logos/*.jpg
 config.yaml
+/.agents
+AGENTS.md
+backend/.pytest-tmp/

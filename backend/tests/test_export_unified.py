@@ -149,7 +149,13 @@ def test_export_normal_form_remains_2col_portrait(session: Session, tmp_path: Pa
     doc = Document(str(output_path))
 
     # 检查页面方向
-    for section in doc.sections:
+    # - sections[0]（封面/目录）portrait
+    # - sections[1]（访视分布图）landscape，由 section 切换固定控制
+    # - sections[2:]（表单内容）portrait，本测试确认不触发 unified landscape
+    assert len(doc.sections) >= 3
+    assert doc.sections[0].orientation == WD_ORIENT.PORTRAIT
+    assert doc.sections[1].orientation == WD_ORIENT.LANDSCAPE
+    for section in doc.sections[2:]:
         assert section.orientation == WD_ORIENT.PORTRAIT, "纯 normal 表单应保持 portrait"
 
     # 检查表格列数（跳过封面和访视流程表）
@@ -188,8 +194,10 @@ def test_export_inline_form_max4_remains_portrait(session: Session, tmp_path: Pa
 
     doc = Document(str(output_path))
 
-    # 检查页面方向
-    for section in doc.sections:
+    # 检查页面方向：访视分布图 landscape，表单内容回到 portrait
+    assert len(doc.sections) >= 3
+    assert doc.sections[1].orientation == WD_ORIENT.LANDSCAPE
+    for section in doc.sections[2:]:
         assert section.orientation == WD_ORIENT.PORTRAIT, "≤4 列 inline 应保持 portrait"
 
 
@@ -227,8 +235,10 @@ def test_export_mixed_block_le4_remains_split_table(session: Session, tmp_path: 
 
     doc = Document(str(output_path))
 
-    # 检查页面方向（不触发 unified，保持 portrait）
-    for section in doc.sections:
+    # 检查页面方向（不触发 unified）：访视分布图 landscape，表单内容 portrait
+    assert len(doc.sections) >= 3
+    assert doc.sections[1].orientation == WD_ORIENT.LANDSCAPE
+    for section in doc.sections[2:]:
         assert section.orientation == WD_ORIENT.PORTRAIT, "block ≤ 4 应保持 portrait"
 
     # 检查表格数量（应有多表格，非单一 unified 表）

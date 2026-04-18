@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useColumnResize } from '../composables/useColumnResize'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions } from '../composables/useCRFRenderer'
 import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import {
@@ -158,23 +159,6 @@ async function copyForm(f) {
   catch (e) { ElMessage.error(e.message) }
 }
 
-async function updateFormOrder(row, newValue) {
-  if (newValue == null || newValue === row.order_index) return
-  const oldIdx = forms.value.findIndex(f => f.id === row.id)
-  const newIdx = newValue - 1
-  if (oldIdx === -1 || newIdx < 0 || newIdx >= forms.value.length) return
-  try {
-    const list = [...forms.value]
-    const [item] = list.splice(oldIdx, 1)
-    list.splice(newIdx, 0, item)
-    await api.post(`/api/projects/${props.projectId}/forms/reorder`, list.map(i => i.id))
-    await reloadForms()
-  } catch (e) {
-    ElMessage.warning('排序保存失败，已恢复')
-    await reloadForms()
-  }
-}
-
 function openEditForm(f) {
   editFormName.value = f.name; editFormCode.value = f.code || ''
   editFormTarget.value = f; showEditForm.value = true
@@ -261,28 +245,6 @@ async function onDrop(e, targetIdx) {
 // 键盘排序与焦点
 const fieldItemRefs = ref({})
 onBeforeUpdate(() => { fieldItemRefs.value = {} })
-
-// 手动序号编辑（与 FieldsTab 对齐）
-async function updateFormFieldOrder(ff, newValue) {
-  const currentOrder = ff._displayOrder ?? ff.order_index
-  if (newValue == null || newValue === currentOrder) return
-  const oldIdx = formFields.value.findIndex(f => f.id === ff.id)
-  const newIdx = newValue - 1
-  if (oldIdx === -1 || newIdx < 0 || newIdx >= formFields.value.length) return
-  try {
-    const arr = [...formFields.value]
-    const [item] = arr.splice(oldIdx, 1)
-    arr.splice(newIdx, 0, item)
-    const normalized = normalizeFormFieldOrder(arr)
-    formFields.value = normalized
-    await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
-    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
-    await loadFormFields()
-  } catch (e) {
-    ElMessage.warning('排序保存失败，已恢复')
-    loadFormFields()
-  }
-}
 
 async function handleFieldKeydown(event, field, index) {
   const { key, ctrlKey } = event
@@ -494,6 +456,27 @@ const forceLandscape = ref(localStorage.getItem('crf_forceLandscape') === 'true'
 watch(forceLandscape, v => localStorage.setItem('crf_forceLandscape', String(v)))
 const landscapeMode = computed(() => forceLandscape.value || needsLandscape.value)
 const designerLandscapeMode = computed(() => forceLandscape.value || designerRenderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
+
+// 预览表格列宽拖拽（R5）：per-group 隔离（同一表单内多张表可独立调整）
+const resizerCache = new Map()
+watch(() => selectedForm.value?.id, () => { resizerCache.clear() })
+function getResizer(kind, colCount, groupIndex) {
+  const mapKey = `${groupIndex}-${kind}-${colCount}`
+  if (!resizerCache.has(mapKey)) {
+    const formId = selectedForm.value?.id
+    if (formId == null) return null
+    const defaults = kind === 'normal' && colCount === 2
+      ? [0.3, 0.7]
+      : Array.from({ length: colCount }, () => 1 / colCount)
+    resizerCache.set(mapKey, useColumnResize(formId, mapKey, defaults))
+  }
+  return resizerCache.get(mapKey)
+}
+function cumRatio(ratios, boundaryIdx) {
+  let sum = 0
+  for (let i = 0; i <= boundaryIdx; i += 1) sum += ratios[i]
+  return sum
+}
 
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240)
 const isLibResizing = ref(false)
@@ -1140,7 +1123,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
   <div class="form-designer">
     <div class="fd-formlist">
       <div style="margin-bottom:12px;display:flex;gap:8px">
-        <el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单</el-button>
+        <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
@@ -1148,7 +1131,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
         <el-table-column width="32" v-if="!isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
-          <template #default="{ row }"><div @click.stop><el-input-number :model-value="row.order_index" @change="v => updateFormOrder(row, v)" :min="1" :max="forms.length" :disabled="isFormsFiltered" size="small" style="width:80px" /></div></template>
+          <template #default="{ row }"><div @click.stop><span class="ordinal-cell">{{ row.order_index }}</span></div></template>
         </el-table-column>
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
@@ -1160,7 +1143,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
     <div class="fd-right">
       <div class="fd-canvas" style="flex:1">
         <div class="fd-canvas-header">
-          <el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
+          <el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
           <span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ formFields.length }} 个字段</span>
         </div>
@@ -1188,17 +1171,25 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                         </template>
                       </template>
                     </table>
-                    <table v-else-if="g.type === 'normal'">
-                      <template v-for="ff in g.fields" :key="ff.id">
-                        <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                        <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                        <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
-                      </template>
-                    </table>
-                    <table v-else class="inline-table">
-                      <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                      <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(getFormFieldPreviewStyle(g.fields[ci]))" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
-                    </table>
+                    <div v-else-if="g.type === 'normal'" class="col-resize-host">
+                      <table>
+                        <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <template v-for="ff in g.fields" :key="ff.id">
+                          <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                          <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
+                          <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
+                        </template>
+                      </table>
+                      <template v-if="getResizer('normal', 2, gi)"><div v-for="bi in getResizer('normal', 2, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi).snapGuideX + 'px' }"></div></template>
+                    </div>
+                    <div v-else class="col-resize-host inline-host">
+                      <table class="inline-table">
+                        <colgroup v-if="getResizer('inline', g.fields.length, gi)"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                        <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(getFormFieldPreviewStyle(g.fields[ci]))" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
+                      </table>
+                      <template v-if="getResizer('inline', g.fields.length, gi)"><div v-for="bi in getResizer('inline', g.fields.length, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi).snapGuideX + 'px' }"></div></template>
+                    </div>
                   </template>
                 </div>
                 <aside v-if="hasPreviewNotes" class="wp-notes"><div class="wp-notes-title">设计备注</div><div class="wp-notes-content" v-html="previewDesignNotesHtml"></div></aside>
@@ -1222,8 +1213,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button><span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ designerVisibleFields.length }} 个字段</span></div>
               <div class="fd-canvas-list designer-field-list">
-                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><el-input-number :model-value="ff._displayOrder" @change="v => updateFormFieldOrder(ff, v)" :min="1" :max="designerVisibleFields.length" size="small" style="width:56px;margin-left:2px" :aria-label="'编辑字段 ' + getFormFieldDisplayLabel(ff) + ' 的序号'" /><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" :draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
+                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><span class="ordinal-cell" style="width:56px;margin-left:2px">{{ ff._displayOrder }}</span><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
                 </div>
               </div>
             </div>
@@ -1248,8 +1239,21 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                                   <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
                                 </template>
                               </table>
-                              <table v-else-if="g.type === 'normal'"><template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template></table>
-                              <table v-else class="inline-table"><tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr></table>
+                              <div v-else-if="g.type === 'normal'" class="col-resize-host">
+                                <table>
+                                  <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template>
+                                </table>
+                                <template v-if="getResizer('normal', 2, gi)"><div v-for="bi in getResizer('normal', 2, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi).snapGuideX + 'px' }"></div></template>
+                              </div>
+                              <div v-else class="col-resize-host inline-host">
+                                <table class="inline-table">
+                                  <colgroup v-if="getResizer('inline', g.fields.length, gi)"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                                  <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
+                                </table>
+                                <template v-if="getResizer('inline', g.fields.length, gi)"><div v-for="bi in getResizer('inline', g.fields.length, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi).snapGuideX + 'px' }"></div></template>
+                              </div>
                             </template>
                           </div>
                           <aside v-if="designerHasPreviewNotes" class="wp-notes"><div class="wp-notes-title">设计备注</div><div class="wp-notes-content" v-html="previewDesignNotesHtml"></div></aside>
@@ -1662,4 +1666,52 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
 .designer-scaled-word-page.landscape {
   width: 100%;
 }
+
+/* 预览表格列宽拖拽（R5） */
+.col-resize-host {
+  position: relative;
+  margin-bottom: 4px;
+}
+/* 必须用 !important 压过 main.css 的 .word-page .inline-table { table-layout: auto } */
+.col-resize-host > table,
+.col-resize-host > table.inline-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+  margin: 0;
+}
+.resizer-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(-5px);
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}
+.resizer-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
+  pointer-events: none;
+  transition: background 0.15s;
+}
+.resizer-handle:hover::after,
+.resizer-handle:active::after {
+  background: var(--color-primary);
+}
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-primary);
+  pointer-events: none;
+  z-index: 1;
+}
+.unified-table-host { cursor: default; }
 </style>

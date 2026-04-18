@@ -208,35 +208,6 @@ async function onOptDragEnd() {
     (err) => ElMessage.error(err.message)
   )
 }
-
-async function updateOptOrder(element, newValue, fallbackIndex = null) {
-  // null 合并：存量脏数据 order_index 可能为 null，直接使用模板索引作为兜底，避免 indexOf 的 O(N) 查找
-  const currentOrder = element.order_index ?? fallbackIndex
-  if (currentOrder == null || newValue == null || newValue === currentOrder) return
-  try {
-    await api.put(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options/${element.id}`, { code: element.code, decode: element.decode, trailing_underscore: element.trailing_underscore, order_index: newValue })
-    const id = selected.value.id
-    await reload()
-    selected.value = codelists.value.find(c => c.id === id) || null
-  } catch (e) { ElMessage.error(e.message) }
-}
-
-async function updateClOrder(element, newValue, fallbackIndex = null) {
-  // null 合并：存量脏数据 order_index 可能为 null，直接使用模板索引作为兜底，避免 indexOf 的 O(N) 查找
-  const currentOrder = element.order_index ?? fallbackIndex
-  if (currentOrder == null || newValue == null || newValue === currentOrder) return
-  try {
-    await api.put(`/api/projects/${props.projectId}/codelists/${element.id}`, {
-      name: element.name,
-      code: element.code,
-      description: element.description,
-      order_index: newValue
-    })
-    await reload()
-  } catch (e) {
-    ElMessage.error(e.message)
-  }
-}
 </script>
 
 <template>
@@ -263,15 +234,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row, $index }">
-            <el-input-number
-              :model-value="row.order_index ?? ($index + 1)"
-              @change="v => updateClOrder(row, v, $index + 1)"
-              :min="1"
-              :max="codelists.length"
-              size="small"
-              style="width:80px"
-              :aria-label="'编辑字典 ' + row.name + ' 的序号'"
-            />
+            <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="name" label="字典名称" :width="codelistNameColWidth" resizable />
@@ -319,7 +282,7 @@ async function updateClOrder(element, newValue, fallbackIndex = null) {
           >
             <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
             <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
-            <el-input-number :model-value="element.order_index ?? (index + 1)" @change="v => updateOptOrder(element, v, index + 1)" :min="1" :max="selected.options.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑选项 ' + element.decode + ' 的序号'" />
+            <span class="ordinal-cell">{{ element.order_index ?? (index + 1) }}</span>
             <div style="flex:1;display:flex;gap:12px;align-items:center">
               <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0;display:none">{{ element.code }}</span>
               <span style="flex:1;font-size:13px">{{ element.decode }}</span>

@@ -5,6 +5,7 @@ import logging
 import os
 
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 
@@ -58,7 +59,47 @@ def _setup_app_logging():
 
 
 
-app = FastAPI(title="CRF编辑器")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    _setup_app_logging()
+
+    config = get_config()
+
+    if not config.auth.secret_key:
+
+        raise RuntimeError("config.yaml 缺少 auth.secret_key")
+
+    Path(config.upload_path).mkdir(parents=True, exist_ok=True)
+
+    init_db()
+
+    try:
+
+        yield
+
+    finally:
+
+        logger = logging.getLogger("src.main")
+
+        try:
+
+            result = DocxScreenshotService.cleanup_old_caches(days=0)
+
+            logger.info(
+
+                "应用关闭，已清理截图缓存：删除 %d 个目录，释放 %.2f MB",
+
+                result["deleted_count"], result["freed_bytes"] / 1024 / 1024
+
+            )
+
+        except Exception as e:
+
+            logger.warning("清理截图缓存失败: %s", e)
+
+
+app = FastAPI(title="CRF编辑器", lifespan=lifespan)
 
 
 
@@ -246,55 +287,6 @@ async def export_error_handler(request: Request, exc: ExportError):
         status_code=exc.status_code,
         content={"detail": exc.message, "code": exc.code},
     )
-
-
-
-
-@app.on_event("startup")
-
-def startup():
-
-    _setup_app_logging()
-
-    config = get_config()
-
-    if not config.auth.secret_key:
-
-        raise RuntimeError("config.yaml 缺少 auth.secret_key")
-
-    Path(config.upload_path).mkdir(parents=True, exist_ok=True)
-
-    init_db()
-
-
-
-
-
-@app.on_event("shutdown")
-
-def shutdown():
-
-    """应用关闭时清理截图缓存"""
-
-    logger = logging.getLogger("src.main")
-
-    try:
-
-        result = DocxScreenshotService.cleanup_old_caches(days=0)
-
-        logger.info(
-
-            "应用关闭，已清理截图缓存：删除 %d 个目录，释放 %.2f MB",
-
-            result["deleted_count"], result["freed_bytes"] / 1024 / 1024
-
-        )
-
-    except Exception as e:
-
-        logger.warning("清理截图缓存失败: %s", e)
-
-
 
 
 
