@@ -4,6 +4,7 @@ import re
 import tempfile
 
 from docx import Document
+from docx.enum.section import WD_ORIENT
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -235,6 +236,114 @@ def test_export_project_visit_flow_uses_cross_marks_and_order_index_sorting(
     assert visit_flow_table.cell(4, 1).text.strip() == "×"
 
 
+def _find_tbl_headers(tr) -> list:
+    from docx.oxml.ns import qn
+    trPr = tr.find(qn('w:trPr'))
+    if trPr is None:
+        return []
+    return [el for el in trPr.findall(qn('w:tblHeader')) if el.get(qn('w:val')) == 'true']
+
+
+def _find_applicable_visits_paragraphs(doc) -> list:
+    return [p for p in doc.paragraphs if p.style and p.style.name == 'ApplicableVisits']
+
+
+def test_export_project_visit_flow_header_row_sets_tblHeader(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="生命体征", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    visit_flow_table = doc.tables[1]
+    assert len(_find_tbl_headers(visit_flow_table.rows[0]._tr)) == 1
+
+
+def test_export_project_no_visits_skeleton_header_row_still_sets_tblHeader(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    create_form(session, project.id, name="孤立表单", order_index=1)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    visit_flow_table = doc.tables[1]
+    assert len(_find_tbl_headers(visit_flow_table.rows[0]._tr)) == 1
+
+
+def test_export_project_applicable_visits_footer_uses_sequence_order_and_matches_header_order(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="实验室", order_index=1)
+    v3 = create_visit(session, project.id, name="V3", sequence=3)
+    v1 = create_visit(session, project.id, name="V1", sequence=1)
+    v2 = create_visit(session, project.id, name="V2", sequence=2)
+    create_visit_form(session, v3.id, form.id, sequence=10)
+    create_visit_form(session, v1.id, form.id, sequence=7)
+    create_visit_form(session, v2.id, form.id, sequence=5)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    visit_flow_table = doc.tables[1]
+    assert visit_flow_table.cell(0, 1).text.strip() == "V1"
+    assert visit_flow_table.cell(0, 2).text.strip() == "V2"
+    assert visit_flow_table.cell(0, 3).text.strip() == "V3"
+
+    paragraphs = _find_applicable_visits_paragraphs(doc)
+    assert len(paragraphs) == 1
+    assert paragraphs[0].text == "适用访视：V1、V2、V3"
+
+
+def test_export_project_skips_applicable_visits_footer_for_orphan_form(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    create_form(session, project.id, name="孤立表单", order_index=1)
+    create_visit(session, project.id, name="筛选期", sequence=1)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    assert _find_applicable_visits_paragraphs(doc) == []
+
+
+def test_export_project_applicable_visits_footer_prefix_bold_and_names_run_use_expected_fonts(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    from docx.oxml.ns import qn
+
+    project = create_project(session)
+    form = create_form(session, project.id, name="实验室", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    paragraphs = _find_applicable_visits_paragraphs(doc)
+    assert len(paragraphs) == 1
+    paragraph = paragraphs[0]
+    assert paragraph.style.name == "ApplicableVisits"
+    assert len(paragraph.runs) == 2
+    prefix_run, names_run = paragraph.runs
+    assert prefix_run.text == "适用访视："
+    assert prefix_run.bold is True
+    assert names_run.text == "筛选期"
+    assert names_run.bold is not True
+
+    for run in paragraph.runs:
+        rFonts = run._element.find(qn('w:rPr')).find(qn('w:rFonts'))
+        assert rFonts.get(qn('w:eastAsia')) == "SimSun"
+        assert rFonts.get(qn('w:ascii')) == "Times New Roman"
+
+
 def test_export_project_groups_adjacent_inline_fields_into_one_table(
     session: Session,
     tmp_path: Path,
@@ -381,6 +490,70 @@ def test_export_project_preserves_skip_first_two_tables_import_assumption(
     assert doc.tables[0].cell(0, 0).text.strip() != "访视名称"
     assert doc.tables[1].cell(0, 0).text.strip() == "访视名称"
     assert doc.tables[2].cell(0, 0).text.strip() == "实验室"
+
+
+def test_export_cover_uses_project_screening_number_format_when_set(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    project.screening_number_format = "X|__|__|-|__|__|"
+
+    doc = export_document(session, project.id, tmp_path)
+
+    cover_table = doc.tables[0]
+    assert cover_table.cell(2, 0).text.strip() == "筛选号"
+    assert cover_table.cell(2, 1).text.strip() == "X|__|__|-|__|__|"
+
+
+def test_export_cover_falls_back_to_default_screening_number_format(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    project.screening_number_format = None
+
+    doc = export_document(session, project.id, tmp_path)
+
+    cover_table = doc.tables[0]
+    assert cover_table.cell(2, 0).text.strip() == "筛选号"
+    assert cover_table.cell(2, 1).text.strip() == "S|__|__||__|__|__|"
+
+
+def test_export_cover_falls_back_to_default_for_legacy_whitespace_value(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    """legacy 存量 whitespace 值也必须走默认回退，与 UI/API 的归一化语义保持一致。"""
+    project = create_project(session)
+    project.screening_number_format = "   "
+
+    doc = export_document(session, project.id, tmp_path)
+
+    cover_table = doc.tables[0]
+    assert cover_table.cell(2, 1).text.strip() == "S|__|__||__|__|__|"
+
+
+def test_export_visit_flow_has_landscape_section_restored_to_portrait(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="实验室检查", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+    field_definition = create_field_definition(session, project.id, variable_name="LAB", label="实验室")
+    create_form_field(session, form.id, field_definition.id, order_index=1, default_value="值")
+
+    doc = export_document(session, project.id, tmp_path)
+
+    orientations = [section.orientation for section in doc.sections]
+    assert len(orientations) >= 3
+    assert orientations[0] == WD_ORIENT.PORTRAIT
+    assert orientations[1] == WD_ORIENT.LANDSCAPE
+    assert orientations[2] == WD_ORIENT.PORTRAIT
+    assert doc.tables[0].cell(0, 0).text.strip() != "访视名称"
+    assert doc.tables[1].cell(0, 0).text.strip() == "访视名称"
 
 
 # ---------------------------------------------------------------------------

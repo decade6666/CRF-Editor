@@ -146,23 +146,6 @@ async function copyField(f) {
   catch (e) { ElMessage.error(e.message) }
 }
 
-async function updateOrder(row, newValue) {
-  if (newValue == null || newValue === row.order_index) return
-  try {
-    const oldIdx = fields.value.findIndex(f => f.id === row.id)
-    const newIdx = newValue - 1
-    if (oldIdx === -1 || newIdx < 0 || newIdx >= fields.value.length) return
-    const list = [...fields.value]
-    const [item] = list.splice(oldIdx, 1)
-    list.splice(newIdx, 0, item)
-    await api.post(`/api/projects/${props.projectId}/field-definitions/reorder`, list.map(i => i.id))
-    await reloadFields()
-  } catch (e) {
-    ElMessage.warning('排序保存失败，已恢复')
-    await reloadFields()
-  }
-}
-
 // 拖拽排序
 const fieldsTableRef = ref(null)
 const isFiltered = computed(() => searchField.value.trim().length > 0)
@@ -200,7 +183,7 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
             <div @click.stop>
-              <el-input-number :model-value="row.order_index" @change="v => updateOrder(row, v)" :min="1" :max="fields.length" :disabled="isFiltered" size="small" style="width:80px" :aria-label="'编辑字段 ' + row.label + ' 的序号'" />
+              <span class="ordinal-cell">{{ row.order_index }}</span>
             </div>
           </template>
         </el-table-column>

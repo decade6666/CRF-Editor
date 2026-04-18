@@ -27,8 +27,6 @@ const form = reactive({ name: '', code: '', sequence: null })
 const showAdd = ref(false)
 // 预览弹窗
 const showPreview = ref(false)
-// 右侧访视详情预览弹窗
-const showVisitPreview = ref(false)
 // 表单内容预览弹窗
 const showFormPreview = ref(false)
 const formPreviewTitle = ref('')
@@ -146,22 +144,6 @@ async function update() {
   try {
     await api.put(`/api/projects/${props.projectId}/visits/${editTarget.value.id}`, { ...editForm })
     showEdit.value = false; load()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
-async function updateSequence(row, newValue) {
-  if (newValue === row.sequence) return
-  try {
-    const oldIdx = visits.value.findIndex(v => v.id === row.id)
-    const newIdx = newValue - 1
-    if (oldIdx === -1 || newIdx < 0 || newIdx >= visits.value.length) return
-    
-    const list = [...visits.value]
-    const [item] = list.splice(oldIdx, 1)
-    list.splice(newIdx, 0, item)
-    
-    await api.post(`/api/projects/${props.projectId}/visits/reorder`, list.map(i => i.id))
-    await reloadVisits()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -325,15 +307,6 @@ async function onVisitFormDragEnd() {
   )
 }
 
-async function updateFormSequence(formId, newValue) {
-  if (!selectedVisit.value || newValue == null) return
-  try {
-    await api.put(`/api/visits/${selectedVisit.value.id}/forms/${formId}`, { sequence: newValue })
-    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-    syncVisitForms()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
 // 预览弹窗中切换关联（矩阵单元格点击）
 async function toggleCell(visitId, formId) {
   const m = matrixData.value?.matrix
@@ -373,7 +346,7 @@ async function toggleCell(visitId, formId) {
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
             <div @click.stop>
-              <el-input-number :model-value="row.sequence" @change="v => updateSequence(row, v)" :min="1" :max="visits.length" size="small" style="width:80px" :aria-label="'编辑访视 ' + row.name + ' 的序号'" />
+              <span class="ordinal-cell">{{ row.sequence }}</span>
             </div>
           </template>
         </el-table-column>
@@ -393,7 +366,6 @@ async function toggleCell(visitId, formId) {
       <div style="margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px">
         <b>{{ selectedVisit.name }}</b>
         <span style="color:var(--color-text-muted);font-size:12px">关联表单 {{ visitForms.length }} 个</span>
-        <el-button type="info" plain size="small" @click="showVisitPreview = true" style="margin-left:auto">预览</el-button>
       </div>
       <!-- 添加表单行 -->
       <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-shrink:0">
@@ -417,7 +389,7 @@ async function toggleCell(visitId, formId) {
           <template #item="{ element: f }">
             <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
               <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
-              <el-input-number :model-value="f.sequence" @change="v => updateFormSequence(f.id, v)" :min="1" :max="visitForms.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑表单 ' + f.name + ' 的序号'" @click.stop />
+              <span class="ordinal-cell" style="flex-shrink:0">{{ f.sequence }}</span>
               <span style="flex:1;font-size:13px">{{ f.name }}</span>
               <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
               <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
@@ -431,18 +403,6 @@ async function toggleCell(visitId, formId) {
     <div v-else style="width:50%;min-width:0;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:14px;border:1px dashed var(--color-border);border-radius:4px">
       ← 点击左侧访视行查看和编辑关联表单
     </div>
-
-    <!-- 访视关联表单只读预览弹窗 -->
-    <el-dialog v-model="showVisitPreview" :title="(selectedVisit?.name || '') + ' - 表单预览'" width="400px" :close-on-click-modal="false">
-      <div v-if="visitForms.length" style="max-height:60vh;overflow-y:auto">
-        <div v-for="f in visitForms" :key="f.id"
-          style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--color-border)">
-          <span style="width:40px;flex-shrink:0;color:var(--color-text-muted);font-size:12px;text-align:center">{{ f.sequence }}</span>
-          <span style="flex:1;font-size:13px">{{ f.name }}</span>
-        </div>
-      </div>
-      <div v-else style="color:var(--color-text-muted);text-align:center;padding:40px;font-size:13px">暂无关联表单</div>
-    </el-dialog>
 
     <!-- 批量编辑弹窗（访视-表单矩阵） -->
     <el-dialog v-model="showPreview" width="92%" top="3vh" class="matrix-preview-dialog" :close-on-click-modal="false">

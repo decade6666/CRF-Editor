@@ -59,15 +59,6 @@ async function update() {
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
-async function updateOrder(element, newValue) {
-  if (newValue == null || newValue === element.order_index) return
-  try {
-    await api.put(`/api/units/${element.id}`, { symbol: element.symbol, code: element.code, order_index: newValue })
-    api.invalidateCache(`/api/projects/${props.projectId}/units`)
-    load()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
 const selUnits = ref([])
 async function batchDelUnits() {
   try {
@@ -124,7 +115,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
         >
           <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
           <el-checkbox :model-value="selUnits.some(u => u.id === element.id)" @change="v => v ? selUnits.push(element) : selUnits.splice(selUnits.findIndex(u => u.id === element.id), 1)" style="flex-shrink:0" />
-          <el-input-number :model-value="element.order_index" @change="v => updateOrder(element, v)" :min="1" :max="units.length" size="small" style="width:80px;flex-shrink:0" :aria-label="'编辑单位 ' + element.symbol + ' 的序号'" />
+          <span class="ordinal-cell" style="flex-shrink:0">{{ element.order_index }}</span>
           <div style="flex:1;display:flex;gap:12px;align-items:center">
             <span style="font-size:13px;color:var(--color-text-primary)">{{ element.symbol }}</span>
           </div>
