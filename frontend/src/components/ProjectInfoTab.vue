@@ -3,6 +3,8 @@ import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, getAuthHeaders } from '../composables/useApi'
 
+const DEFAULT_SCREENING_NUMBER_FORMAT = 'S|__|__||__|__|__|'
+
 const props = defineProps({ project: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
 
@@ -10,6 +12,7 @@ const form = reactive({})
 const logoInput = ref(null)
 const logoUrl = ref(null)
 const skipFormReset = ref(false)
+const screeningNumberFormatTouched = ref(false)
 
 async function fetchLogo(projectId) {
   if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
@@ -21,10 +24,13 @@ async function fetchLogo(projectId) {
 
 watch(() => props.project, (p) => {
   if (skipFormReset.value) { skipFormReset.value = false; return }
+  screeningNumberFormatTouched.value = false
   Object.assign(form, {
     name: p.name, version: p.version, trial_name: p.trial_name || '',
     crf_version: p.crf_version || '', crf_version_date: p.crf_version_date || '',
-    protocol_number: p.protocol_number || '', sponsor: p.sponsor || '',
+    protocol_number: p.protocol_number || '',
+    screening_number_format: p.screening_number_format || DEFAULT_SCREENING_NUMBER_FORMAT,
+    sponsor: p.sponsor || '',
     data_management_unit: p.data_management_unit || '',
   })
   if (p.company_logo_path) fetchLogo(p.id)
@@ -34,6 +40,9 @@ async function save() {
   try {
     const data = { ...form }
     if (!data.crf_version_date) data.crf_version_date = null
+    if (!screeningNumberFormatTouched.value && !props.project.screening_number_format && data.screening_number_format === DEFAULT_SCREENING_NUMBER_FORMAT) {
+      data.screening_number_format = null
+    }
     const r = await api.put(`/api/projects/${props.project.id}`, data)
     emit('updated', r)
     ElMessage.success('保存成功')
@@ -68,6 +77,7 @@ async function uploadLogo(e) {
     <el-form-item label="CRF版本"><el-input v-model="form.crf_version" /></el-form-item>
     <el-form-item label="CRF版本日期"><el-input v-model="form.crf_version_date" placeholder="YYYY-MM-DD" /></el-form-item>
     <el-form-item label="方案编号"><el-input v-model="form.protocol_number" /></el-form-item>
+    <el-form-item label="筛选号格式"><el-input v-model="form.screening_number_format" @input="screeningNumberFormatTouched = true" /></el-form-item>
     <el-form-item label="申办方"><el-input v-model="form.sponsor" /></el-form-item>
     <el-form-item label="数据管理单位"><el-input v-model="form.data_management_unit" /></el-form-item>
     <el-form-item label="公司Logo">
