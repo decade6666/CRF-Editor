@@ -12,7 +12,7 @@ import tempfile
 
 from pathlib import Path
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import html
 
@@ -117,6 +117,8 @@ from sqlalchemy.orm import Session
 from src.models import Project
 
 from src.repositories.project_repository import ProjectRepository
+
+from src.schemas.project import normalize_screening_number_format
 
 from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, extract_default_lines
 
@@ -284,11 +286,15 @@ class ExportService:
 
             self._add_toc_placeholder(doc)
 
+            self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
 
 
             # 4. 添加访视流程图
 
             self._add_visit_flow_diagram(doc, project)
+
+            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
 
 
@@ -442,7 +448,7 @@ class ExportService:
 
             ("中心编号", "|__|__|"),
 
-            ("筛选号", "S|__|__||__|__|__|"),
+            ("筛选号", normalize_screening_number_format(project.screening_number_format) or "S|__|__||__|__|__|"),
 
         ]
 
@@ -726,10 +732,6 @@ class ExportService:
 
 
 
-        doc.add_page_break()
-
-
-
     def _add_visit_flow_diagram(self, doc: Document, project: Project):
 
         """添加访视流程图"""
@@ -768,7 +770,7 @@ class ExportService:
 
         )
 
-        visits = sorted(project.visits, key=lambda v: v.sequence)
+        visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
 
 
 
@@ -779,6 +781,17 @@ class ExportService:
         table = doc.add_table(rows=row_count, cols=col_count)
 
         self._apply_grid_table_style(table)
+
+        header_tr = table.rows[0]._tr
+        tr_pr = header_tr.trPr
+        if tr_pr is None:
+            tr_pr = OxmlElement('w:trPr')
+            header_tr.insert(0, tr_pr)
+        tbl_header = tr_pr.find(qn('w:tblHeader'))
+        if tbl_header is None:
+            tbl_header = OxmlElement('w:tblHeader')
+            tr_pr.append(tbl_header)
+        tbl_header.set(qn('w:val'), 'true')
 
 
 
@@ -842,7 +855,7 @@ class ExportService:
 
                     cross_run = cross_para.add_run("×")
 
-                    self._set_run_font(cross_run, size=Pt(10.5))
+                    self._set_run_font(cross_run, size=Pt(10.5), bold=True)
 
                     cross_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -857,14 +870,6 @@ class ExportService:
                 for paragraph in cell.paragraphs:
 
                     paragraph.style = 'VisitFlow'
-
-
-
-        new_section = doc.add_section(WD_SECTION.NEW_PAGE)
-
-        self._apply_header_to_section(new_section, project)
-
-        self._apply_footer_to_section(new_section)
 
 
 
@@ -889,6 +894,12 @@ class ExportService:
         )
 
         total_forms = len(sorted_forms)
+
+        sorted_visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
+        form_to_visits: Dict[int, List] = {}
+        for visit in sorted_visits:
+            for visit_form in visit.visit_forms:
+                form_to_visits.setdefault(visit_form.form_id, []).append(visit)
 
 
 
@@ -917,6 +928,8 @@ class ExportService:
                 segments = self._build_unified_segments(form_fields)
 
                 self._build_unified_table(doc, segments, layout)
+
+                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
                 # 仅当后续还有表单时才切回 portrait，避免末尾空白页
 
@@ -984,13 +997,27 @@ class ExportService:
 
                     self._build_form_table(doc, [])
 
-
+                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
                 # 仅当后续还有表单时才分页，避免末尾空白页
 
                 if not is_last_form:
 
                     doc.add_page_break()
+
+
+
+    def _add_applicable_visits_paragraph(self, doc: Document, visits):
+        """在表单末尾追加"适用访视：<name>、..."段落。"""
+
+        if not visits:
+            return
+
+        para = doc.add_paragraph(style='ApplicableVisits')
+        prefix_run = para.add_run('适用访视：')
+        self._set_run_font(prefix_run, size=Pt(10.5), bold=True)
+        names_run = para.add_run('、'.join(visit.name for visit in visits))
+        self._set_run_font(names_run, size=Pt(10.5))
 
 
 
@@ -2623,6 +2650,36 @@ class ExportService:
             label_style.paragraph_format.space_after = Pt(5.25)
 
             label_style.paragraph_format.line_spacing = 1.0
+
+
+
+        # 新增自定义样式：适用访视 footer
+
+        if "ApplicableVisits" not in doc.styles:
+
+            applicable_style = doc.styles.add_style("ApplicableVisits", WD_STYLE_TYPE.PARAGRAPH)
+
+            applicable_style.font.size = Pt(10.5)
+
+            applicable_style.font.name = self.FONT_ASCII
+
+            rPr = applicable_style.element.get_or_add_rPr()
+
+            rFonts = rPr.get_or_add_rFonts()
+
+            rFonts.set(qn("w:ascii"), self.FONT_ASCII)
+
+            rFonts.set(qn("w:hAnsi"), self.FONT_ASCII)
+
+            rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
+
+            applicable_style.paragraph_format.space_before = Pt(5.25)
+
+            applicable_style.paragraph_format.space_after = Pt(5.25)
+
+            applicable_style.paragraph_format.line_spacing = 1.0
+
+            applicable_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
 
 

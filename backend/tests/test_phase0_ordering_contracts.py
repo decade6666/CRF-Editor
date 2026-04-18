@@ -404,7 +404,7 @@ def test_reorder_visit_forms_persists_dense_sequence_in_readback(
 
     resp = client.post(
         f"/api/visits/{visit_id}/forms/reorder",
-        json={"ordered_form_ids": reordered_form_ids},
+        json=reordered_form_ids,
         headers=auth_headers(auth_token),
     )
     assert resp.status_code == 204, resp.text

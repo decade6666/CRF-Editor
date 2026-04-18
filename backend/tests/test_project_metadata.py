@@ -84,6 +84,16 @@ def test_project_update_rejects_invalid_screening_number_format(client, engine):
     assert newline_resp.status_code == 422, newline_resp.text
     assert '筛选号格式不能包含换行或控制字符' in newline_resp.json()['detail']
 
+    # 回归：首尾换行/Tab 不能被 strip() 静默吞掉
+    for sample in ('A\n', '\nA', 'A\t', '\tA', 'A\rB'):
+        resp = client.put(
+            f'/api/projects/{project_id}',
+            json=_project_payload('非法项目', '1.0', screening_number_format=sample),
+            headers=auth_headers(token),
+        )
+        assert resp.status_code == 422, (sample, resp.text)
+        assert '筛选号格式不能包含换行或控制字符' in resp.json()['detail']
+
 
 def test_project_update_still_requires_name_and_version(client, engine):
     token = login_as(client, 'alice')
