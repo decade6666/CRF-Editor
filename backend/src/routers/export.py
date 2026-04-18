@@ -1,7 +1,7 @@
 """Export Router"""
 import logging
-import tempfile
 import os
+import tempfile
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -63,11 +63,9 @@ def export_word(
             pass
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
-    filename = f"{project.name}_CRF.docx"
     return FileResponse(
         tmp_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=filename,
         background=BackgroundTask(os.unlink, tmp_path),
     )
 

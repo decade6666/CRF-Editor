@@ -18,13 +18,14 @@ def normalize_screening_number_format(value):
             raise ValueError("筛选号格式必须是有效UTF-8文本") from exc
     if not isinstance(value, str):
         raise ValueError("筛选号格式必须是字符串")
-    if not value.strip():
-        return None
+    # 先在原始输入上拦截换行/控制字符，避免被 strip() 静默吞掉首尾换行或 Tab
+    if _CONTROL_CHAR_PATTERN.search(value):
+        raise ValueError("筛选号格式不能包含换行或控制字符")
     normalized = value.strip()
+    if not normalized:
+        return None
     if len(normalized) > 100:
         raise ValueError("筛选号格式长度不能超过100个字符")
-    if _CONTROL_CHAR_PATTERN.search(normalized):
-        raise ValueError("筛选号格式不能包含换行或控制字符")
     return normalized
 
 
