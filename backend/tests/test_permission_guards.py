@@ -195,7 +195,7 @@ def test_authenticated_user_can_export_owned_projects_database(client: TestClien
         ("delete", "/api/visits/{visit_id}", None),
         ("post", "/api/visits/{visit_id}/copy", {}),
         ("post", "/api/visits/{visit_id}/forms/{form_id}", None),
-        ("post", "/api/visits/{visit_id}/forms/reorder", {"ordered_form_ids": ["{form_id}"]}),
+        ("post", "/api/visits/{visit_id}/forms/reorder", ["{form_id}"]),
         ("put", "/api/visits/{visit_id}/forms/{form_id}", {"sequence": 1}),
         ("delete", "/api/visits/{visit_id}/forms/{form_id}", None),
     ],

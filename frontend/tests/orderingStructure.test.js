@@ -52,15 +52,16 @@ test('FieldsTab keeps field list sorted by order_index after reload', () => {
   assert.match(fieldsSource, /<el-table ref="fieldsTableRef" :data="visibleFields" size="small" border height="100%" row-key="id"/)
 })
 
-test('FieldsTab manual order input is disabled when filtered', () => {
-  // 手动序号输入在过滤态下禁用 - 匹配属性片段即可
-  assert.match(fieldsSource, /:disabled="isFiltered"/)
+test('FieldsTab manual order column renders read-only ordinal cell after R1', () => {
+  // R1：el-input-number 被替换为 .ordinal-cell span，手动修改入口从 UI 移除
+  assert.match(fieldsSource, /<span class="ordinal-cell">\{\{ row\.order_index \}\}<\/span>/)
+  assert.doesNotMatch(fieldsSource, /<el-input-number[^>]*:model-value="row\.order_index"/)
 })
 
-test('FieldsTab updateOrder uses reorder API', () => {
-  // 手动改序号走 reorder API
-  assert.match(fieldsSource, /async function updateOrder\(row, newValue\)/)
-  assert.match(fieldsSource, /api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/field-definitions\/reorder`/)
+test('FieldsTab has no imperative updateOrder handler after R1', () => {
+  // R1：updateOrder handler 删除，排序只保留 drag-end 路径
+  assert.doesNotMatch(fieldsSource, /async function updateOrder\(row, newValue\)/)
+  assert.match(fieldsSource, /\/api\/projects\/\$\{props\.projectId\}\/field-definitions\/reorder/)
 })
 
 // ===== Task 2.3: FormDesignerTab 排序一致性 =====
@@ -73,9 +74,10 @@ test('FormDesignerTab wires form drag sorting through useSortableTable with isFi
   assert.match(formsSource, /isFiltered: isFormsFiltered/)
 })
 
-test('FormDesignerTab drag handle is hidden when filtered', () => {
-  // 拖拽手柄列在过滤态下隐藏
+test('FormDesignerTab drag handle is hidden only when filtered after R3 brief-mode unlock', () => {
+  // R3：editMode 门禁移除，拖拽把手列仅依赖过滤态
   assert.match(formsSource, /<el-table-column width="32" v-if="!isFormsFiltered">/)
+  assert.doesNotMatch(formsSource, /<el-table-column width="32" v-if="editMode && !isFormsFiltered">/)
 })
 
 test('FormDesignerTab keeps form list sorted by order_index after reload', () => {
@@ -85,28 +87,65 @@ test('FormDesignerTab keeps form list sorted by order_index after reload', () =>
   assert.match(formsSource, /<el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id"/)
 })
 
-test('FormDesignerTab manual order input is disabled when filtered', () => {
-  // 手动序号输入在过滤态下禁用 - 匹配属性片段即可
-  assert.match(formsSource, /:disabled="isFormsFiltered"/)
+test('FormDesignerTab form order column renders read-only ordinal cell after R1', () => {
+  // R1：el-input-number 被替换为 .ordinal-cell span，无 :disabled 条件
+  assert.match(formsSource, /<span class="ordinal-cell">\{\{ row\.order_index \}\}<\/span>/)
+  assert.doesNotMatch(formsSource, /<el-input-number[^>]*:model-value="row\.order_index"/)
 })
 
-test('FormDesignerTab updateFormOrder uses reorder API', () => {
-  // 手动改序号走 reorder API
-  assert.match(formsSource, /async function updateFormOrder\(row, newValue\)/)
-  assert.match(formsSource, /api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/forms\/reorder`/)
+test('FormDesignerTab has no imperative updateFormOrder handler after R1', () => {
+  // R1：updateFormOrder handler 删除，排序只保留 drag-end 路径
+  assert.doesNotMatch(formsSource, /async function updateFormOrder\(row, newValue\)/)
+  assert.match(formsSource, /\/api\/projects\/\$\{props\.projectId\}\/forms\/reorder/)
 })
 
 test('FormDesignerTab field reorder invalidates cached form fields in each reorder path', () => {
+  // R1 删除了 updateFormFieldOrder 手动路径；仅剩 onDrop + keyboard move 两条路径
   assert.match(formsSource, /async function onDrop\([\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
-  assert.match(formsSource, /async function updateFormFieldOrder\([\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
   assert.match(formsSource, /const move = async \(from, to\) => \{[\s\S]*?api\.post\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder`, \{ ordered_ids: normalized\.map\(f => f\.id\) \}\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)/)
+  assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/)
+})
+
+test('FormDesignerTab keeps designer entry visible for selected form outside edit mode gate', () => {
+  assert.match(formsSource, /<el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单<\/el-button>/)
+  assert.doesNotMatch(formsSource, /<el-button v-if="editMode && selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单<\/el-button>/)
+  // R3：新建表单按钮不再被 editMode 门禁包裹
+  assert.match(formsSource, /<el-button type="primary" size="small" @click="openAddForm">新建表单<\/el-button>/)
+  assert.doesNotMatch(formsSource, /<el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单<\/el-button>/)
+})
+
+test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', () => {
+  // R3：以下门禁全部移除，简要模式也可用
+  assert.doesNotMatch(formsSource, /<el-button v-if="editMode" type="danger" size="small" :disabled="!selForms\.length" @click="batchDelForms"/)
+  assert.match(formsSource, /<el-button type="danger" size="small" :disabled="!selForms\.length" @click="batchDelForms">批量删除/)
+  assert.doesNotMatch(formsSource, /<el-table-column width="32" v-if="editMode && !isFormsFiltered">/)
+  assert.doesNotMatch(formsSource, /<el-table-column type="selection" width="40" v-if="editMode" \/>/)
+  assert.doesNotMatch(formsSource, /<el-table-column v-if="editMode" label="操作" width="150" fixed="right">/)
+  assert.doesNotMatch(formsSource, /designer-shell--readonly/)
+  assert.doesNotMatch(formsSource, /<div v-if="editMode" class="fd-library designer-library-pane"/)
+  assert.match(formsSource, /<div class="fd-library designer-library-pane"/)
+  assert.doesNotMatch(formsSource, /<div v-if="editMode" class="fd-panel-resizer"/)
+  assert.match(formsSource, /<div class="fd-panel-resizer" @mousedown="startLibResize"><\/div>/)
+  assert.doesNotMatch(formsSource, /:draggable="editMode"/)
+  assert.match(formsSource, /:draggable="true"/)
+  assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/)
+  assert.doesNotMatch(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/)
+  assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\)"/)
+  assert.doesNotMatch(formsSource, /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)"/)
+  assert.match(formsSource, /<el-button type="danger" size="small" link @click\.stop="removeField\(ff\)">删除<\/el-button>/)
+  assert.doesNotMatch(formsSource, /<div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览/)
+  assert.doesNotMatch(formsSource, /<div v-if="!editMode" class="designer-notes-readonly">/)
+  // 脚本端：所有函数首行的 !editMode.value 守卫清零
+  assert.doesNotMatch(formsSource, /if \(!editMode\.value\) return/)
+  assert.doesNotMatch(formsSource, /if \(!editMode\.value \|\|/)
 })
 
 test('FormDesignerTab designer dialog uses center-bottom preview and right-side notes layout', () => {
   assert.match(formsSource, /const designerVisibleFields = computed\(\(\) => \{/)
   assert.match(formsSource, /_displayOrder: index \+ 1/)
   assert.match(formsSource, /v-for="\(ff, idx\) in designerVisibleFields"/)
-  assert.match(formsSource, /:model-value="ff\._displayOrder"/)
+  // R1：_displayOrder 由 ordinal-cell span 展示
+  assert.match(formsSource, /<span class="ordinal-cell"[\s\S]*>\{\{ ff\._displayOrder \}\}<\/span>/)
   assert.match(formsSource, /<el-dialog v-model="showDesigner" :title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)" fullscreen class="designer-dialog">/)
   assert.match(formsSource, /class="designer-shell"/)
   assert.match(formsSource, /class="designer-workspace"/)

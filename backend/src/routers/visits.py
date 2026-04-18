@@ -39,10 +39,6 @@ class VisitFormSequenceUpdate(BaseModel):
     sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")
 
 
-class VisitFormReorderRequest(BaseModel):
-
-    ordered_form_ids: List[int] = Field(..., min_length=1, description="按新顺序排列的表单 ID 列表")
-
 
 
 
@@ -374,7 +370,7 @@ def update_visit_form_sequence(
 @router.post("/visits/{visit_id}/forms/reorder", status_code=204)
 def reorder_visit_forms(
     visit_id: int,
-    body: VisitFormReorderRequest,
+    id_list: List[int],
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -395,15 +391,16 @@ def reorder_visit_forms(
         ).all()
     )
     valid_form_ids = {item.form_id for item in visit_forms}
-    request_form_ids = body.ordered_form_ids
-    request_form_id_set = set(request_form_ids)
-    if len(request_form_id_set) != len(request_form_ids):
+    if not id_list:
+        raise HTTPException(400, "ID 列表不能为空")
+    request_form_id_set = set(id_list)
+    if len(request_form_id_set) != len(id_list):
         raise HTTPException(400, "ID 列表包含重复项")
     if request_form_id_set != valid_form_ids:
         raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
 
     visit_form_by_form_id = {item.form_id: item for item in visit_forms}
-    ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in request_form_ids]
+    ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in id_list]
     OrderService.reorder_batch_sequence(
         session,
         VisitForm,
