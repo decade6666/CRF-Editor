@@ -72,3 +72,4 @@ config.yaml
 /.agents
 AGENTS.md
 backend/.pytest-tmp/
+/.context
