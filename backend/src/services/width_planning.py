@@ -6,6 +6,8 @@
 - 宽度度量 = 2C（中文按 2、英文/数字按 1）
 - 超页宽回退 = 3B（等比缩放，不退化为等宽分配）
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import List, Tuple
 

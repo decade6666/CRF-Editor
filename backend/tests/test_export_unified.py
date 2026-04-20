@@ -5,6 +5,7 @@
 - legacy 路径回归：纯 normal/inline 表单不受影响
 - unified 表格结构：单一 N 列表格 + landscape section
 """
+from __future__ import annotations
 
 from pathlib import Path
 

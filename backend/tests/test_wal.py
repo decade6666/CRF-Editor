@@ -3,6 +3,8 @@
 验证 SQLite WAL 模式下两个线程并发写入不产生 SQLITE_BUSY 异常，
 且写入的数据相互独立、均持久化成功。
 """
+from __future__ import annotations
+
 import threading
 
 import pytest
