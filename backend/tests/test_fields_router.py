@@ -4,6 +4,8 @@
 - 清空单位时显式提交 unit_id: null 能持久化为空
 - 相关列表接口返回 trailing_underscore，支持导入后预览语义
 """
+from __future__ import annotations
+
 from pathlib import Path
 from types import SimpleNamespace
 

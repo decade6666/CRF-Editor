@@ -1,4 +1,5 @@
 """认证测试辅助。"""
+from __future__ import annotations
 
 from fastapi.testclient import TestClient
 

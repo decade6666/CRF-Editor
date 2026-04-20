@@ -53,7 +53,7 @@ class RecycleBinProjectResponse(ProjectResponse):
     owner_username: Optional[str] = None
 
 
-@router.get("/admin/projects/recycle-bin", response_model=list[RecycleBinProjectResponse])
+@router.get("/admin/projects/recycle-bin", response_model=List[RecycleBinProjectResponse])
 def list_recycle_bin(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_admin),
@@ -282,7 +282,7 @@ class UserListItem(BaseModel):
     project_count: int
 
 
-@router.get("/admin/users", response_model=list[UserListItem])
+@router.get("/admin/users", response_model=List[UserListItem])
 def list_users(
     session: Session = Depends(get_session),
     _: User = Depends(require_admin),

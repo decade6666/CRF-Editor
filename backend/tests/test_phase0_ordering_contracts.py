@@ -1,4 +1,5 @@
 """Phase 0 排序真值与模板导入契约测试。"""
+from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace

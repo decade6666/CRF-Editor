@@ -1,4 +1,5 @@
-from typing import Optional, List, Annotated
+from typing import Optional, List
+from typing_extensions import Annotated
 from datetime import datetime
 from pydantic import BaseModel, StringConstraints
 

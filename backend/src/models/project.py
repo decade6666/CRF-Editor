@@ -1,6 +1,8 @@
 """Project 模型"""
+from __future__ import annotations
+
 from datetime import datetime, date
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,23 +54,23 @@ class Project(Base):
     )
     owner: Mapped[Optional["User"]] = relationship(back_populates="projects")
 
-    visits: Mapped[list["Visit"]] = relationship(
+    visits: Mapped[List["Visit"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan"
     )
-    forms: Mapped[list["Form"]] = relationship(
+    forms: Mapped[List["Form"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan"
     )
-    units: Mapped[list["Unit"]] = relationship(
+    units: Mapped[List["Unit"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan"
     )
-    codelists: Mapped[list["CodeList"]] = relationship(
+    codelists: Mapped[List["CodeList"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan"
     )
-    field_definitions: Mapped[list["FieldDefinition"]] = relationship(
+    field_definitions: Mapped[List["FieldDefinition"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan"
     )
