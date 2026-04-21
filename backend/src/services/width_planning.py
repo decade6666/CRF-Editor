@@ -19,6 +19,9 @@ WEIGHT_ASCII = 1    # 英文/数字/标点权重
 # 填写线默认权重（代表语义长度，不以实际字符数计算）
 FILL_LINE_WEIGHT = 6
 
+# 结构字段类型集合（标签 / 日志行）——不参与 normal 列宽聚合
+STRUCTURAL_FIELD_TYPES = {"标签", "日志行"}
+
 
 @dataclass(frozen=True)
 class WidthToken:
@@ -53,14 +56,18 @@ def compute_char_weight(char: str) -> float:
     - 英文/数字/标点：权重 1
     """
     code = ord(char)
-    # CJK 统一汉字范围（含扩展）
+    # CJK 统一汉字范围（基本区 + 扩展 A–I + 兼容汉字 + 兼容补充）
     if (
         0x4E00 <= code <= 0x9FFF      # 基本区
-        or 0x3400 <= code <= 0x4DBF   # 扩展A
-        or 0x20000 <= code <= 0x2A6DF # 扩展B-F
-        or 0x2A700 <= code <= 0x2B73F # 扩展G
-        or 0x2B740 <= code <= 0x2B81F # 扩展H
-        or 0x2B820 <= code <= 0x2CEAF # 扩展I-J
+        or 0x3400 <= code <= 0x4DBF   # 扩展 A
+        or 0x20000 <= code <= 0x2A6DF # 扩展 B
+        or 0x2A700 <= code <= 0x2B73F # 扩展 C
+        or 0x2B740 <= code <= 0x2B81F # 扩展 D
+        or 0x2B820 <= code <= 0x2CEAF # 扩展 E
+        or 0x2CEB0 <= code <= 0x2EBEF # 扩展 F
+        or 0x2EBF0 <= code <= 0x2EE5F # 扩展 I
+        or 0x30000 <= code <= 0x3134F # 扩展 G
+        or 0x31350 <= code <= 0x323AF # 扩展 H
         or 0xF900 <= code <= 0xFAFF   # 兼容汉字
         or 0x2F800 <= code <= 0x2FA1F # 兼容补充
     ):
@@ -299,4 +306,91 @@ def plan_unified_table_width(
     plan = plan_width(aggregated_demands, available_weight)
 
     # 转换为厘米
+    return [fraction * available_cm for fraction in plan.normalized_fractions]
+
+
+def build_normal_table_demands(fields) -> List[ColumnDemand]:
+    """构建 normal 表格 label / control 两列的内容需求。
+
+    与前端 `buildNormalColumnDemands` 保持对等语义：
+      1. 剔除结构字段（field_type ∈ STRUCTURAL_FIELD_TYPES 或 is_log_row）
+      2. label 列：对所有有效字段 label 文本权重取 max
+      3. control 列：对每个字段调用 `build_inline_column_demands([ff])[0][1]`
+         获取控件语义权重（含 choice atom / fill-line / 默认值等），聚合 max
+      4. 两列均应用 `max(weight, WEIGHT_ASCII * 4)` 最小保护
+
+    Args:
+        fields: FormField 列表（允许 None）
+
+    Returns:
+        长度恒为 2 的 ColumnDemand 列表：[label 列, control 列]
+    """
+    min_weight = WEIGHT_ASCII * 4
+
+    def _is_structural(ff) -> bool:
+        field_def = getattr(ff, "field_definition", None)
+        field_type = getattr(field_def, "field_type", None) if field_def else None
+        return (
+            field_type in STRUCTURAL_FIELD_TYPES
+            or bool(getattr(ff, "is_log_row", 0))
+        )
+
+    effective = [ff for ff in (fields or []) if ff is not None and not _is_structural(ff)]
+
+    if not effective:
+        return [
+            ColumnDemand(column_key="label", intrinsic_weight=min_weight, min_weight=min_weight),
+            ColumnDemand(column_key="control", intrinsic_weight=min_weight, min_weight=min_weight),
+        ]
+
+    # 延迟导入打破与 field_rendering.py 的循环依赖：
+    # field_rendering.py 顶层 import width_planning 的常量与工具；
+    # 仅在存在有效字段时才需要 build_inline_column_demands 的 choice/fill-line 语义。
+    from src.services.field_rendering import build_inline_column_demands
+
+    label_weight = 0.0
+    control_weight = 0.0
+    for ff in effective:
+        field_def = getattr(ff, "field_definition", None)
+        label_text = getattr(ff, "label_override", None) or (
+            getattr(field_def, "label", None) if field_def else None
+        ) or ""
+        label_weight = max(label_weight, compute_text_weight(label_text))
+
+        inline = build_inline_column_demands([ff])
+        if inline:
+            control_weight = max(control_weight, inline[0][1])
+
+    return [
+        ColumnDemand(
+            column_key="label",
+            intrinsic_weight=max(label_weight, min_weight),
+            min_weight=min_weight,
+        ),
+        ColumnDemand(
+            column_key="control",
+            intrinsic_weight=max(control_weight, min_weight),
+            min_weight=min_weight,
+        ),
+    ]
+
+
+def plan_normal_table_width(fields, available_cm: float = 14.66) -> List[float]:
+    """为 normal 表格规划 label / control 两列宽度（厘米单位）。
+
+    使用与 inline / unified 一致的权重常量、最小保护、等比缩放语义。
+
+    Args:
+        fields: FormField 列表
+        available_cm: 可用总宽度（厘米）。默认 14.66 与 export_service.py
+                      原硬编码 `Cm(7.2) + Cm(7.4)` ≈ 14.6 cm 对齐，保持导出
+                      布局稳定。
+
+    Returns:
+        长度恒为 2 的宽度列表 [label_width_cm, control_width_cm]，
+        其和等于 available_cm（误差 ≤ 1e-6）。
+    """
+    demands = build_normal_table_demands(fields)
+    available_weight = available_cm * 2
+    plan = plan_width(demands, available_weight)
     return [fraction * available_cm for fraction in plan.normalized_fractions]
