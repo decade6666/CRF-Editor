@@ -5,7 +5,7 @@ import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue'
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useColumnResize } from '../composables/useColumnResize'
-import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions } from '../composables/useCRFRenderer'
+import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions, planNormalColumnFractions, planUnifiedColumnFractions } from '../composables/useCRFRenderer'
 import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import {
   buildFormDesignerRenderGroups,
@@ -458,17 +458,51 @@ const landscapeMode = computed(() => forceLandscape.value || needsLandscape.valu
 const designerLandscapeMode = computed(() => forceLandscape.value || designerRenderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)))
 
 // 预览表格列宽拖拽（R5）：per-group 隔离（同一表单内多张表可独立调整）
+// formIdRef / tableKindRef 以 computed 形式传入 useColumnResize，切表单时自动 rehydrate；
+// defaultsSource 使用工厂闭包，基于内容驱动的 planner 计算默认比例（与 width_planning.py 对齐）。
+const formIdRef = computed(() => selectedForm.value?.id)
 const resizerCache = new Map()
 watch(() => selectedForm.value?.id, () => { resizerCache.clear() })
+function resolveGroupAt(groupIndex) {
+  return renderGroups.value[groupIndex] ?? designerRenderGroups.value[groupIndex] ?? null
+}
+function buildResizerDefaultsFactory(kind, colCount, groupIndex) {
+  if (kind === 'normal') {
+    return () => {
+      const group = resolveGroupAt(groupIndex)
+      const fractions = planNormalColumnFractions(group?.fields || [])
+      return fractions.length === 2 ? fractions : [0.5, 0.5]
+    }
+  }
+  if (kind === 'inline') {
+    return () => {
+      const group = resolveGroupAt(groupIndex)
+      const fractions = planInlineColumnFractions(group?.fields || [])
+      return fractions.length === colCount
+        ? fractions
+        : Array.from({ length: colCount }, () => 1 / colCount)
+    }
+  }
+  if (kind === 'unified') {
+    return () => {
+      const group = resolveGroupAt(groupIndex)
+      const unifiedColCount = group?.colCount || colCount
+      const segments = buildFormDesignerUnifiedSegments(group?.fields || [])
+      const fractions = planUnifiedColumnFractions(segments, unifiedColCount)
+      return fractions.length === unifiedColCount
+        ? fractions
+        : Array.from({ length: unifiedColCount }, () => 1 / unifiedColCount)
+    }
+  }
+  return () => Array.from({ length: colCount }, () => 1 / colCount)
+}
 function getResizer(kind, colCount, groupIndex) {
+  if (selectedForm.value?.id == null) return null
   const mapKey = `${groupIndex}-${kind}-${colCount}`
   if (!resizerCache.has(mapKey)) {
-    const formId = selectedForm.value?.id
-    if (formId == null) return null
-    const defaults = kind === 'normal' && colCount === 2
-      ? [0.3, 0.7]
-      : Array.from({ length: colCount }, () => 1 / colCount)
-    resizerCache.set(mapKey, useColumnResize(formId, mapKey, defaults))
+    const tableKindRef = computed(() => mapKey)
+    const defaultsFactory = buildResizerDefaultsFactory(kind, colCount, groupIndex)
+    resizerCache.set(mapKey, useColumnResize(formIdRef, tableKindRef, defaultsFactory))
   }
   return resizerCache.get(mapKey)
 }
@@ -1156,21 +1190,25 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
               <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
                 <div class="wp-main">
                   <template v-for="(g, gi) in renderGroups" :key="gi">
-                    <table v-if="g.type === 'unified'" class="unified-table">
-                      <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
-                        <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
-                          <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
-                        </tr>
-                        <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
-                          <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
-                        </tr>
-                        <template v-else-if="seg.type === 'inline_block'">
-                          <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                          <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr>
+                    <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
+                      <table class="unified-table">
+                        <colgroup v-if="getResizer('unified', g.colCount, gi)"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                          <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
+                            <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
+                            <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
+                          </tr>
+                          <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
+                            <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                          </tr>
+                          <template v-else-if="seg.type === 'inline_block'">
+                            <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                            <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr>
+                          </template>
                         </template>
-                      </template>
-                    </table>
+                      </table>
+                      <template v-if="getResizer('unified', g.colCount, gi)"><div v-for="bi in getResizer('unified', g.colCount, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi).snapGuideX + 'px' }"></div></template>
+                    </div>
                     <div v-else-if="g.type === 'normal'" class="col-resize-host">
                       <table>
                         <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
@@ -1232,13 +1270,17 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                         <div :class="['wp-body', { 'wp-body--with-notes': designerHasPreviewNotes }]">
                           <div class="wp-main">
                             <template v-for="(g, gi) in designerRenderGroups" :key="gi">
-                              <table v-if="g.type === 'unified'" class="unified-table">
-                                <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
-                                  <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
-                                  <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
-                                  <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
-                                </template>
-                              </table>
+                              <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
+                                <table class="unified-table">
+                                  <colgroup v-if="getResizer('unified', g.colCount, gi)"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
+                                    <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
+                                    <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
+                                    <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
+                                  </template>
+                                </table>
+                                <template v-if="getResizer('unified', g.colCount, gi)"><div v-for="bi in getResizer('unified', g.colCount, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi).snapGuideX + 'px' }"></div></template>
+                              </div>
                               <div v-else-if="g.type === 'normal'" class="col-resize-host">
                                 <table>
                                   <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>

@@ -30,6 +30,9 @@
               <template v-for="(g, gi) in previewRenderGroups" :key="gi">
                 <!-- unified 类型：统一表格布局 -->
                 <table v-if="g.type === 'unified'" class="unified-table">
+                  <colgroup>
+                    <col v-for="(f, i) in getColumnFractions(g, gi)" :key="i" :style="{ width: (f * 100) + '%' }" />
+                  </colgroup>
                   <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                     <tr v-if="seg.type === 'regular_field'">
                       <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
@@ -46,6 +49,9 @@
                 </table>
                 <!-- normal 类型：普通表格布局 -->
                 <table v-else-if="g.type === 'normal'" class="normal-table">
+                  <colgroup>
+                    <col v-for="(f, i) in getColumnFractions(g, gi)" :key="i" :style="{ width: (f * 100) + '%' }" />
+                  </colgroup>
                   <template v-for="ff in g.fields" :key="ff.id">
                     <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
@@ -54,6 +60,9 @@
                 </table>
                 <!-- inline 类型：横向表格 -->
                 <table v-else class="inline-table">
+                  <colgroup>
+                    <col v-for="(f, i) in getColumnFractions(g, gi)" :key="i" :style="{ width: (f * 100) + '%' }" />
+                  </colgroup>
                   <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                   <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell"></td></tr>
                 </table>
@@ -115,7 +124,15 @@ import {
   getFormFieldPreviewStyle,
   normalizePreviewHexColor,
 } from '../composables/formFieldPresentation'
-import { renderCtrlHtml, normalizeDefaultValue, isDefaultValueSupported, planInlineColumnFractions, toHtml } from '../composables/useCRFRenderer'
+import {
+  renderCtrlHtml,
+  normalizeDefaultValue,
+  isDefaultValueSupported,
+  planInlineColumnFractions,
+  planNormalColumnFractions,
+  planUnifiedColumnFractions,
+  toHtml,
+} from '../composables/useCRFRenderer'
 import { api } from '../composables/useApi'
 
 const props = defineProps({
@@ -168,6 +185,51 @@ function getInlineRows(fields) {
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? '')))
+}
+
+// 只读读取设计器持久化的列宽比例；格式不合法或与当前列数不匹配时返回 null
+// 注意：本组件仅消费比例，不写回 localStorage
+function readSharedRatios(formId, tableKind, expectedLength) {
+  if (formId == null || tableKind == null) return null
+  try {
+    const raw = localStorage.getItem(`crf:designer:col-widths:${formId}:${tableKind}`)
+    if (!raw) return null
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr) || arr.length !== expectedLength) return null
+    if (!arr.every(r => Number.isFinite(r) && r >= 0.1 && r <= 0.9)) return null
+    const sum = arr.reduce((a, b) => a + b, 0)
+    if (Math.abs(sum - 1) > 1e-3) return null
+    return arr
+  } catch {
+    return null
+  }
+}
+
+// 计算预览表格的列宽比例：优先设计器保存值，否则回退内容驱动 planner 结果
+function getColumnFractions(g, groupIndex) {
+  if (g.type === 'unified') {
+    const colCount = g.colCount
+    const segments = buildFormDesignerUnifiedSegments(g.fields)
+    const shared = readSharedRatios(props.formId, `${groupIndex}-unified-${colCount}`, colCount)
+    if (shared) return shared
+    const plannerFractions = planUnifiedColumnFractions(segments, colCount)
+    return plannerFractions.length === colCount
+      ? plannerFractions
+      : Array.from({ length: colCount }, () => 1 / colCount)
+  }
+  if (g.type === 'normal') {
+    const shared = readSharedRatios(props.formId, `${groupIndex}-normal-2`, 2)
+    if (shared) return shared
+    const plannerFractions = planNormalColumnFractions(g.fields)
+    return plannerFractions.length === 2 ? plannerFractions : [0.5, 0.5]
+  }
+  const colCount = g.fields.length
+  const shared = readSharedRatios(props.formId, `${groupIndex}-inline-${colCount}`, colCount)
+  if (shared) return shared
+  const plannerFractions = planInlineColumnFractions(g.fields)
+  return plannerFractions.length === colCount
+    ? plannerFractions
+    : Array.from({ length: colCount }, () => 1 / colCount)
 }
 
 // Task 3.3: 单元格渲染
@@ -363,6 +425,7 @@ async function handleImport() {
 
 .designer-preview-wrap table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid var(--color-border);
   margin-bottom: 8px;
@@ -376,7 +439,6 @@ async function handleImport() {
 }
 
 .wp-label {
-  width: 30%;
   border-right: 1px solid var(--color-border);
   font-weight: 600;
 }
