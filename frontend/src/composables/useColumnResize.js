@@ -1,4 +1,4 @@
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, isRef } from 'vue'
 
 // 吸附锚点（容器宽比例）与阈值（像素）
 const SNAP_ANCHORS = [0.25, 1 / 3, 0.5, 2 / 3, 0.75]
@@ -24,7 +24,7 @@ function readRatios(key, n) {
 function resolveValue(source) {
   if (source == null) return source
   if (typeof source === 'function') return source()
-  if (typeof source === 'object' && 'value' in source) return source.value
+  if (isRef(source)) return source.value
   return source
 }
 
@@ -33,40 +33,59 @@ function buildKey(formId, tableKind) {
   return `crf:designer:col-widths:${formId}:${tableKind}`
 }
 
-function evenRatios(n) {
-  return Array.from({ length: n }, () => 1 / n)
-}
-
 /**
  * 表格列宽可调 composable。
+ *
  * @param {string|number|import('vue').Ref|Function} formIdRef 表单 id，支持 ref / getter / 原值
  * @param {string|import('vue').Ref|Function} tableKindRef 表格类型（如 'normal' / `inline-${N}`）
- * @param {number[]} initialRatios 默认列宽比例（总和必须为 1）
+ * @param {number[]|(() => number[])|import('vue').Ref<number[]>} defaultsSource
+ *   默认列宽比例来源。支持：
+ *   - 静态数组：`[0.3, 0.7]`（向后兼容）
+ *   - 工厂函数：`() => planNormalColumnFractions(group.fields)`（内容驱动）
+ *   - Ref / ComputedRef：`computed(() => planInlineColumnFractions(fields))`
+ *   每次 rehydrate / resetToEven 都会重新求值，保证内容变化时默认值跟随更新。
+ * @returns {{
+ *   colRatios: import('vue').Ref<number[]>,
+ *   onResizeStart: Function,
+ *   snapGuideX: import('vue').Ref<number|null>,
+ *   resetToEven: Function,
+ * }}
  */
-export function useColumnResize(formIdRef, tableKindRef, initialRatios) {
-  const n = initialRatios.length
-  const defaults = [...initialRatios]
+export function useColumnResize(formIdRef, tableKindRef, defaultsSource) {
+  const resolveDefaults = () => {
+    let raw
+    if (typeof defaultsSource === 'function') {
+      raw = defaultsSource()
+    } else if (isRef(defaultsSource)) {
+      raw = defaultsSource.value
+    } else {
+      raw = defaultsSource
+    }
+    return Array.isArray(raw) ? [...raw] : []
+  }
 
   const getKey = () => buildKey(resolveValue(formIdRef), resolveValue(tableKindRef))
 
   const colRatios = ref((() => {
+    const defs = resolveDefaults()
     const k = getKey()
-    return (k ? readRatios(k, n) : null) ?? [...defaults]
+    const loaded = k ? readRatios(k, defs.length) : null
+    return loaded ?? defs
   })())
   const snapGuideX = ref(null)
 
-  // 切换 form / tableKind 时重读持久化值
+  // 切换 form / tableKind / defaultsSource 时重读持久化值。
+  // 注意：formIdRef / tableKindRef 可能是 ref / getter / 原值，统一通过 resolveValue
+  // 取值后再 watch，确保 getter 形态也能触发 rehydrate。
   const rehydrate = () => {
+    const defs = resolveDefaults()
     const k = getKey()
-    const loaded = k ? readRatios(k, n) : null
-    colRatios.value = loaded ?? [...defaults]
+    const loaded = k ? readRatios(k, defs.length) : null
+    colRatios.value = loaded ?? defs
   }
-  if (formIdRef && typeof formIdRef === 'object' && 'value' in formIdRef) {
-    watch(formIdRef, rehydrate)
-  }
-  if (tableKindRef && typeof tableKindRef === 'object' && 'value' in tableKindRef) {
-    watch(tableKindRef, rehydrate)
-  }
+  watch(() => resolveValue(formIdRef), rehydrate)
+  watch(() => resolveValue(tableKindRef), rehydrate)
+  if (isRef(defaultsSource)) watch(defaultsSource, rehydrate)
 
   let dragState = null
 
@@ -145,11 +164,11 @@ export function useColumnResize(formIdRef, tableKindRef, initialRatios) {
   }
 
   function resetToEven() {
-    colRatios.value = evenRatios(n)
     const k = getKey()
     if (k) {
       try { localStorage.removeItem(k) } catch { /* ignore */ }
     }
+    colRatios.value = resolveDefaults()
   }
 
   return reactive({ colRatios, onResizeStart, snapGuideX, resetToEven })

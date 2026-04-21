@@ -133,6 +133,8 @@ from src.services.width_planning import (
 
     plan_unified_table_width,
 
+    plan_normal_table_width,
+
 )
 
 
@@ -1708,9 +1710,13 @@ class ExportService:
 
         table.autofit = False
 
-        table.columns[0].width = Cm(7.2)
+        # 内容驱动列宽：与前端 planNormalColumnFractions / 横向/统一表格语义一致。
+        # available_cm=14.66 对齐原硬编码 Cm(7.2)+Cm(7.4)=14.6cm 的页面预算。
+        normal_widths = plan_normal_table_width(fields or [], available_cm=14.66)
 
-        table.columns[1].width = Cm(7.4)
+        table.columns[0].width = Cm(normal_widths[0])
+
+        table.columns[1].width = Cm(normal_widths[1])
 
         self._apply_grid_table_style(table)
 
@@ -1736,7 +1742,7 @@ class ExportService:
 
             else:
 
-                self._add_field_row(table, row_idx, form_field)
+                self._add_field_row(table, row_idx, form_field, normal_widths)
 
 
 
@@ -1812,7 +1818,7 @@ class ExportService:
 
 
 
-    def _add_field_row(self, table, row_idx: int, form_field):
+    def _add_field_row(self, table, row_idx: int, form_field, widths):
 
         """添加普通字段行。"""
 
@@ -1830,9 +1836,9 @@ class ExportService:
 
         right_cell = row.cells[1]
 
-        left_cell.width = Cm(7.2)
+        left_cell.width = Cm(widths[0])
 
-        right_cell.width = Cm(7.4)
+        right_cell.width = Cm(widths[1])
 
 
 
