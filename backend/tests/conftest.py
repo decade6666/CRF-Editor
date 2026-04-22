@@ -29,7 +29,7 @@ from src.models import Base
 # 测试用配置：只固定有效 secret_key，其余字段走默认值。
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
-    admin=AdminConfig(username="admin"),
+    admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
 )
 
 

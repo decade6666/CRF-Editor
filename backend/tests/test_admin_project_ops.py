@@ -5,7 +5,7 @@ from unittest.mock import patch
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as
+from helpers import auth_headers, login_as, seed_user
 from src.config import get_config
 from src.models.project import Project
 from src.models.user import User
@@ -104,7 +104,7 @@ def test_batch_move_rejects_unknown_target_user_with_zero_changes(client, engine
 
 def test_batch_move_rejects_missing_or_deleted_project_with_zero_changes(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == 'admin'))
@@ -135,7 +135,7 @@ def test_batch_move_rejects_missing_or_deleted_project_with_zero_changes(client,
 
 def test_batch_copy_uses_savepoint_isolation_and_returns_consistent_results(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == 'admin'))
@@ -186,7 +186,7 @@ def test_batch_copy_uses_savepoint_isolation_and_returns_consistent_results(clie
 
 def test_recycle_bin_returns_deleted_projects_with_owner_fields(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
@@ -208,7 +208,7 @@ def test_recycle_bin_returns_deleted_projects_with_owner_fields(client, engine):
 
 def test_restore_renames_on_conflict_and_appends_to_owner_tail(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
@@ -239,7 +239,7 @@ def test_restore_renames_on_conflict_and_appends_to_owner_tail(client, engine):
 
 def test_restore_keeps_full_project_graph_intact(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
@@ -268,8 +268,8 @@ def test_restore_keeps_full_project_graph_intact(client, engine):
 
 def test_batch_move_appends_projects_to_target_owner_tail_order(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'source_user'})
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'source_user')
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         source_user = session.scalar(select(User).where(User.username == 'source_user'))
@@ -299,7 +299,7 @@ def test_batch_move_appends_projects_to_target_owner_tail_order(client, engine):
 
 def test_hard_delete_removes_project_logo_file(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
@@ -324,7 +324,7 @@ def test_hard_delete_removes_project_logo_file(client, engine):
 
 def test_hard_delete_only_accepts_recycled_projects_and_physically_removes_that_graph(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))

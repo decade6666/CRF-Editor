@@ -1,6 +1,7 @@
 """数据库 Session 管理"""
 
-import os
+import logging
+from typing import Optional
 
 from sqlalchemy import create_engine, event, text, inspect
 
@@ -33,9 +34,13 @@ _FORM_FIELD_REQUIRED_SOURCE_COLUMNS = frozenset({
 
 
 
-from src.config import get_config
+from src.config import get_config, is_production_env
 
 from src.models import Base
+from src.services.auth_service import hash_password
+
+
+logger = logging.getLogger("src.database")
 
 
 
@@ -506,12 +511,6 @@ def _migrate_user_hashed_password_nullable(engine):
 
     """将 user.hashed_password 列改为 nullable。SQLite 不支持 ALTER COLUMN，需重建表。"""
 
-    import logging
-
-
-
-    logger = logging.getLogger("src.database")
-
     insp = inspect(engine)
 
     if not insp.has_table("user"):
@@ -538,27 +537,37 @@ def _migrate_user_hashed_password_nullable(engine):
 
     with engine.begin() as conn:
 
+        has_auth_version = "auth_version" in cols
+
         conn.execute(text(
             'CREATE TABLE "user_new" ('
             'id INTEGER PRIMARY KEY, '
             'username VARCHAR(100) NOT NULL, '
             'hashed_password VARCHAR(255), '
             'is_admin INTEGER DEFAULT 0 NOT NULL, '
+            'auth_version INTEGER DEFAULT 0 NOT NULL, '
             'created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
         ))
 
-        if has_is_admin:
+        if has_is_admin and has_auth_version:
 
             conn.execute(text(
-                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, created_at) '
-                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), created_at FROM "user"'
+                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), COALESCE(auth_version, 0), created_at FROM "user"'
+            ))
+
+        elif has_is_admin:
+
+            conn.execute(text(
+                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), 0, created_at FROM "user"'
             ))
 
         else:
 
             conn.execute(text(
-                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, created_at) '
-                'SELECT id, username, hashed_password, 0, created_at FROM "user"'
+                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                'SELECT id, username, hashed_password, 0, 0, created_at FROM "user"'
             ))
 
         conn.execute(text('DROP TABLE "user"'))
@@ -572,9 +581,9 @@ def _migrate_user_hashed_password_nullable(engine):
 
 
 
-def _heal_reserved_admin_account(engine):
+def _migrate_add_user_auth_version(engine):
 
-    """启动时同步保留管理员账号的 is_admin 语义，并在 production 空库时初始化。"""
+    """给 user 表补上 auth_version 列。"""
 
     insp = inspect(engine)
 
@@ -582,11 +591,42 @@ def _heal_reserved_admin_account(engine):
 
         return
 
-    admin_username = get_config().admin.username.strip()
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("user")]
+
+        if "auth_version" not in cols:
+
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN auth_version INTEGER DEFAULT 0 NOT NULL'))
+
+
+def _has_usable_password_hash(value: Optional[str]) -> bool:
+
+    if not value:
+
+        return False
+
+    return value.startswith("$pbkdf2-sha256$")
+
+
+def _heal_reserved_admin_account(engine):
+
+    """同步保留管理员账号语义，并在 production 中确保始终存在可用管理员。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("user"):
+
+        return
+
+    config = get_config()
+    admin_username = config.admin.username.strip()
 
     if not admin_username:
 
         return
+
+    bootstrap_password = config.admin.bootstrap_password.strip()
 
     with engine.begin() as conn:
 
@@ -599,16 +639,73 @@ def _heal_reserved_admin_account(engine):
             {"username": admin_username},
         )
 
-        if os.environ.get("CRF_ENV", "").strip().lower() == "production":
+        reserved_admin = conn.execute(
+            text(
+                'SELECT id, username, hashed_password, COALESCE(auth_version, 0) '
+                'FROM "user" '
+                'WHERE TRIM(username) = :username '
+                'ORDER BY id '
+                'LIMIT 1'
+            ),
+            {"username": admin_username},
+        ).fetchone()
 
+        if reserved_admin is None:
+            if not is_production_env():
+                return
+            if not bootstrap_password:
+                raise RuntimeError("production 环境缺少 admin.bootstrap_password，无法初始化保留管理员账号")
             conn.execute(
                 text(
-                    'INSERT INTO "user" (username, hashed_password, is_admin) '
-                    'SELECT :username, NULL, 1 '
-                    'WHERE NOT EXISTS (SELECT 1 FROM "user")'
+                    'INSERT INTO "user" (username, hashed_password, is_admin, auth_version) '
+                    'VALUES (:username, :hashed_password, 1, 1)'
+                ),
+                {
+                    "username": admin_username,
+                    "hashed_password": hash_password(bootstrap_password),
+                },
+            )
+            return
+
+        user_id, current_username, hashed_password, auth_version = reserved_admin
+        exact_reserved_admin_id = conn.execute(
+            text(
+                'SELECT id FROM "user" '
+                'WHERE username = :username '
+                'ORDER BY id '
+                'LIMIT 1'
+            ),
+            {"username": admin_username},
+        ).scalar()
+
+        updates = {}
+        if current_username != admin_username and exact_reserved_admin_id in (None, user_id):
+            updates["username"] = admin_username
+        if is_production_env() and not _has_usable_password_hash(hashed_password):
+            if not bootstrap_password:
+                raise RuntimeError("production 环境缺少 admin.bootstrap_password，无法修复保留管理员账号")
+            updates["hashed_password"] = hash_password(bootstrap_password)
+            updates["auth_version"] = int(auth_version) + 1
+
+        if updates:
+            assignments = ", ".join(f'{key} = :{key}' for key in updates)
+            conn.execute(
+                text(f'UPDATE "user" SET {assignments}, is_admin = 1 WHERE id = :id'),
+                {**updates, "id": user_id},
+            )
+
+        if is_production_env():
+            usable_reserved_admin = conn.execute(
+                text(
+                    'SELECT hashed_password FROM "user" '
+                    'WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) = 1 '
+                    'ORDER BY id '
+                    'LIMIT 1'
                 ),
                 {"username": admin_username},
-            )
+            ).scalar()
+            if not _has_usable_password_hash(usable_reserved_admin):
+                raise RuntimeError("production 环境未找到可用的保留管理员账号")
 
 
 
@@ -868,6 +965,8 @@ def init_db():
     _migrate_project_soft_delete_and_ordering(engine)
 
     _migrate_user_hashed_password_nullable(engine)
+
+    _migrate_add_user_auth_version(engine)
 
     _ensure_form_field_rowid_compatibility(engine)
 

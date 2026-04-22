@@ -8,7 +8,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ### Key Features
 
-- **Project and Access Management**: Create and manage clinical research projects with login, admin user management, and project isolation
+- **Project and Access Management**: Create and manage clinical research projects with account-password login, admin user management, project isolation, and a dedicated admin workspace
 - **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values
@@ -120,6 +120,9 @@ server:
   port: 8888
 auth:
   access_token_expire_minutes: 60
+admin:
+  username: admin
+  bootstrap_password: change-this-before-production
 ```
 
 For public deployment, prefer the `CRF_*` environment variables listed in the root `.env.example`, especially:
@@ -127,6 +130,7 @@ For public deployment, prefer the `CRF_*` environment variables listed in the ro
 - `CRF_ENV=production`
 - `CRF_AUTH_SECRET_KEY=<long random secret>`
 - `CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES=60`
+- `CRF_ADMIN_BOOTSTRAP_PASSWORD=<reserved admin bootstrap password for production>`
 
 In production mode, the backend now applies the following default hardening:
 
@@ -158,7 +162,9 @@ After starting, open `http://localhost:8888` in your browser to access the web i
 When `CRF_ENV=production` is set:
 
 - `/docs`, `/redoc`, and `/openapi.json` return 404
-- `POST /api/auth/enter` and the database / Word import endpoints can return a unified 429 JSON response: `{"detail":"操作过于频繁，请稍后重试"}`, with `Retry-After`
+- the canonical login endpoint is `POST /api/auth/login`
+- if no usable reserved admin exists, startup repairs or creates it from `CRF_ADMIN_BOOTSTRAP_PASSWORD`; startup fails fast when that value is missing
+- the login endpoint and the database / Word import endpoints can return a unified 429 JSON response: `{"detail":"操作过于频繁，请稍后重试"}`, with `Retry-After`
 
 **Option 2: Development Mode** (hot reload, run frontend and backend separately)
 
@@ -185,15 +191,23 @@ python app_launcher.py
 
 The desktop entry launches the local backend, opens the browser automatically, and keeps a tray icon running.
 
+### Login and Admin Migration Notes
+
+- Authentication now uses the existing `username` + password pair through `POST /api/auth/login`.
+- Legacy accounts without a password receive a migration hint in development; production returns a generic unauthorized response.
+- After an administrator logs in, the app lands on a dedicated admin workspace and does not render the normal project list or CRF editing shell.
+- Administrators use that workspace to set initial passwords for new users and reset passwords for legacy accounts during migration.
+
 ### Basic Workflow
 
-1. **Create Project**: Create a new clinical research project in the project management interface
-2. **Define Visits**: Add visit nodes and set visit sequences
-3. **Design Forms**: Create CRF forms in the form designer and maintain design notes
-4. **Add Fields**: Select from the field library or create new fields, then configure instance-level display properties
-5. **Associate Forms**: Link forms to the corresponding visit nodes and preview layouts from the visits page
-6. **Import Data**: Run template import, project database import, or Word compare-based import when needed
-7. **Export Results**: Export the project as a Word document or database template
+1. **Admin bootstrap (first production startup)**: ensure `CRF_ADMIN_BOOTSTRAP_PASSWORD` is configured and audit the reserved admin account immediately after go-live
+2. **Create Project**: Create a new clinical research project in the normal project workspace
+3. **Define Visits**: Add visit nodes and set visit sequences
+4. **Design Forms**: Create CRF forms in the form designer and maintain design notes
+5. **Add Fields**: Select from the field library or create new fields, then configure instance-level display properties
+6. **Associate Forms**: Link forms to the corresponding visit nodes and preview layouts from the visits page
+7. **Import Data**: Run template import, project database import, or Word compare-based import when needed
+8. **Export Results**: Export the project as a Word document or database template
 
 ### Word Document Export Format
 
@@ -206,8 +220,8 @@ The exported Word document contains:
 
 ## Deployment Security Notes
 
-- On the first production startup with an empty database, the app automatically creates the reserved admin account. This is an explicitly accepted residual risk in the current design.
-- After go-live, audit that account immediately and confirm it is only reachable in controlled conditions.
+- On the first production startup, or whenever the reserved admin account is unusable, the app creates or repairs that account from `CRF_ADMIN_BOOTSTRAP_PASSWORD`; provide that value only in a controlled environment and rotate/reset it immediately after takeover.
+- After go-live, audit the reserved admin account immediately and confirm that access to it remains constrained to controlled conditions.
 - Rotate the historical repository `auth.secret_key` before deployment, and inject the new secret only through `CRF_AUTH_SECRET_KEY`.
 - If you move to multi-instance deployment, replace the current single-node in-memory rate limiter with a shared-store limiter.
 

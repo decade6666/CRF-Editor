@@ -9,16 +9,24 @@ from helpers import auth_headers, login_as, seed_user
 from src.config import AdminConfig, AppConfig, AuthConfig, DatabaseConfig
 from src.models.project import Project
 from src.models.user import User
+from src.services.auth_service import hash_password
 
 
-def _run_init_db_for_test(db_path, monkeypatch, *, env=None, admin_username="admin"):
+def _run_init_db_for_test(
+    db_path,
+    monkeypatch,
+    *,
+    env=None,
+    admin_username="admin",
+    bootstrap_password="bootstrap-pass-123",
+):
     """在独立 SQLite 文件上执行 init_db，便于验证迁移与启动自愈。"""
     import src.database as database_module
 
     test_config = AppConfig(
         database=DatabaseConfig(path=str(db_path)),
         auth=AuthConfig(secret_key="test-secret-key-for-testing"),
-        admin=AdminConfig(username=admin_username),
+        admin=AdminConfig(username=admin_username, bootstrap_password=bootstrap_password),
     )
     previous_engine = database_module._engine
     database_module._engine = None
@@ -49,7 +57,7 @@ def test_create_user_requires_admin(client, engine):
     token = login_as(client, "bob")
     resp = client.post(
         "/api/admin/users",
-        json={"username": "newguy"},
+        json={"username": "newguy", "password": "test-pass-123"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 403
@@ -134,7 +142,7 @@ def test_create_user_success(client, engine):
     token = login_as(client, "admin")
     resp = client.post(
         "/api/admin/users",
-        json={"username": "newuser"},
+        json={"username": "newuser", "password": "newuser-pass-123"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 201
@@ -142,18 +150,34 @@ def test_create_user_success(client, engine):
     assert data["username"] == "newuser"
     assert "id" in data
 
+    with Session(engine) as session:
+        user = session.scalar(select(User).where(User.username == "newuser"))
+        assert user is not None
+        assert user.hashed_password is not None
+
+
+def test_create_user_rejects_invalid_password(client, engine):
+    token = login_as(client, "admin")
+    resp = client.post(
+        "/api/admin/users",
+        json={"username": "newuser2", "password": "123"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
+    assert "密码长度不能少于" in resp.json()["detail"]
+
 
 def test_create_user_duplicate(client, engine):
     """重复用户名应返回 409。"""
     token = login_as(client, "admin")
     client.post(
         "/api/admin/users",
-        json={"username": "dupuser"},
+        json={"username": "dupuser", "password": "dupuser-pass-123"},
         headers=auth_headers(token),
     )
     resp = client.post(
         "/api/admin/users",
-        json={"username": "dupuser"},
+        json={"username": "dupuser", "password": "dupuser-pass-123"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 409
@@ -164,7 +188,7 @@ def test_create_user_empty_name(client, engine):
     token = login_as(client, "admin")
     resp = client.post(
         "/api/admin/users",
-        json={"username": "  "},
+        json={"username": "  ", "password": "test-pass-123"},
         headers=auth_headers(token),
     )
     assert resp.status_code in (400, 409)
@@ -174,7 +198,7 @@ def test_create_user_rejects_reserved_admin_username(client, engine):
     token = login_as(client, "admin")
     resp = client.post(
         "/api/admin/users",
-        json={"username": "admin"},
+        json={"username": "admin", "password": "test-pass-123"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 400
@@ -182,9 +206,12 @@ def test_create_user_rejects_reserved_admin_username(client, engine):
 
 
 def test_reserved_admin_username_cannot_be_auto_created_by_login(client, engine):
-    resp = client.post("/api/auth/enter", json={"username": "admin"})
-    assert resp.status_code == 403, resp.text
-    assert "启动时初始化" in resp.json()["detail"]
+    resp = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "test-pass-123"},
+    )
+    assert resp.status_code == 401, resp.text
+    assert resp.json()["detail"] == "用户名或密码错误"
 
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == "admin"))
@@ -195,9 +222,18 @@ def test_reserved_admin_username_cannot_be_auto_created_by_login(client, engine)
 def test_reserved_admin_login_accepts_legacy_whitespace_username_after_heal(client, engine):
     with Session(engine) as session:
         with session.begin():
-            session.add(User(username=" admin ", hashed_password=None, is_admin=True))
+            session.add(
+                User(
+                    username=" admin ",
+                    hashed_password=hash_password("admin-pass-123"),
+                    is_admin=True,
+                )
+            )
 
-    resp = client.post("/api/auth/enter", json={"username": "admin"})
+    resp = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "admin-pass-123"},
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["access_token"]
 
@@ -209,7 +245,7 @@ def test_rename_user_success(client, engine):
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "rename_me"},
+        json={"username": "rename_me", "password": "rename-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -228,12 +264,12 @@ def test_rename_user_conflict(client, engine):
     token = login_as(client, "admin")
     client.post(
         "/api/admin/users",
-        json={"username": "existing"},
+        json={"username": "existing", "password": "existing-pass-123"},
         headers=auth_headers(token),
     )
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "to_rename"},
+        json={"username": "to_rename", "password": "rename-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -260,7 +296,7 @@ def test_rename_user_to_reserved_admin_username_is_rejected(client, engine):
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "rename_target"},
+        json={"username": "rename_target", "password": "rename-target-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -311,14 +347,52 @@ def test_old_token_stays_invalid_after_rename_and_recreate_username(
     old_token_resp = client.get("/api/projects", headers=auth_headers(old_token))
     assert old_token_resp.status_code == 401
 
+    seed_user(client, "bob", password="bob-new-pass-123")
     recreate_resp = client.post(
-        "/api/auth/enter",
-        json={"username": "bob"},
+        "/api/auth/login",
+        json={"username": "bob", "password": "bob-new-pass-123"},
     )
     assert recreate_resp.status_code == 200
 
     reused_token_resp = client.get("/api/projects", headers=auth_headers(old_token))
     assert reused_token_resp.status_code == 401
+
+
+def test_list_users_includes_has_password(client, engine):
+    admin_token = login_as(client, "admin")
+    seed_user(client, "with_password", password="with-password-123")
+    seed_user(client, "without_password", password=None)
+
+    response = client.get("/api/admin/users", headers=auth_headers(admin_token))
+    assert response.status_code == 200, response.text
+    users = {user["username"]: user for user in response.json()}
+    assert users["with_password"]["has_password"] is True
+    assert users["without_password"]["has_password"] is False
+
+
+def test_admin_can_reset_user_password_and_invalidate_old_token(client, engine):
+    admin_token = login_as(client, "admin")
+    old_token = login_as(client, "reset_me", password="old-pass-123")
+
+    with Session(engine) as session:
+        user = session.scalar(select(User).where(User.username == "reset_me"))
+        user_id = user.id
+
+    reset_resp = client.put(
+        f"/api/admin/users/{user_id}/password",
+        json={"password": "new-pass-123"},
+        headers=auth_headers(admin_token),
+    )
+    assert reset_resp.status_code == 204, reset_resp.text
+
+    old_token_resp = client.get("/api/projects", headers=auth_headers(old_token))
+    assert old_token_resp.status_code == 401
+
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"username": "reset_me", "password": "new-pass-123"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
 
 
 # ── Delete User ───────────────────────────────────────────────
@@ -328,7 +402,7 @@ def test_delete_user_success(client, engine):
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "del_me"},
+        json={"username": "del_me", "password": "delete-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -344,7 +418,7 @@ def test_delete_user_with_projects(client, engine):
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "has_projects"},
+        json={"username": "has_projects", "password": "has-projects-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -367,7 +441,7 @@ def test_deleted_projects_do_not_inflate_count_when_active_projects_exist(client
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "mixed_project_user"},
+        json={"username": "mixed_project_user", "password": "mixed-project-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -407,7 +481,7 @@ def test_deleted_projects_do_not_block_user_count_or_deletion(client, engine):
     token = login_as(client, "admin")
     create_resp = client.post(
         "/api/admin/users",
-        json={"username": "deleted_only_user"},
+        json={"username": "deleted_only_user", "password": "deleted-only-pass-123"},
         headers=auth_headers(token),
     )
     uid = create_resp.json()["id"]
@@ -464,7 +538,7 @@ def test_reserved_admin_user_cannot_be_deleted(client, engine):
 
 def test_admin_can_list_active_projects_for_specific_user(client, engine):
     admin_token = login_as(client, "admin")
-    client.post("/api/auth/enter", json={"username": "target_user"})
+    seed_user(client, "target_user")
 
     with Session(engine) as session:
         with session.begin():
@@ -489,7 +563,7 @@ def test_admin_can_list_active_projects_for_specific_user(client, engine):
 
 def test_non_admin_cannot_list_other_users_projects(client, engine):
     owner_token = login_as(client, "owner_user")
-    client.post("/api/auth/enter", json={"username": "other_user"})
+    seed_user(client, "other_user")
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == "owner_user"))
@@ -578,9 +652,13 @@ def test_init_db_bootstraps_reserved_admin_once_in_production(tmp_path, monkeypa
 
     conn = sqlite3.connect(str(db_path))
     rows = conn.execute(
-        'SELECT username, is_admin FROM user ORDER BY id'
+        'SELECT username, is_admin, hashed_password, auth_version FROM user ORDER BY id'
     ).fetchall()
-    assert rows == [("admin", 1)]
+    assert len(rows) == 1
+    assert rows[0][0] == "admin"
+    assert rows[0][1] == 1
+    assert rows[0][2].startswith("$pbkdf2-sha256$")
+    assert rows[0][3] == 1
     conn.close()
 
     _run_init_db_for_test(db_path, monkeypatch, env="production")
@@ -594,15 +672,15 @@ def test_init_db_bootstraps_reserved_admin_once_in_production(tmp_path, monkeypa
 
 
 
-def test_init_db_does_not_bootstrap_reserved_admin_when_production_db_is_not_empty(tmp_path, monkeypatch):
+def test_init_db_repairs_reserved_admin_when_production_db_is_not_empty(tmp_path, monkeypatch):
     db_path = tmp_path / "production-non-empty.db"
 
     _run_init_db_for_test(db_path, monkeypatch)
 
     conn = sqlite3.connect(str(db_path))
     conn.execute(
-        'INSERT INTO user (username, hashed_password, is_admin) VALUES (?, ?, ?)',
-        ("alice", None, 0),
+        'INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)',
+        ("alice", None, 0, 0),
     )
     conn.commit()
     conn.close()
@@ -611,7 +689,24 @@ def test_init_db_does_not_bootstrap_reserved_admin_when_production_db_is_not_emp
 
     conn = sqlite3.connect(str(db_path))
     rows = conn.execute(
-        'SELECT username, is_admin FROM user ORDER BY id'
+        'SELECT username, is_admin, hashed_password FROM user ORDER BY id'
     ).fetchall()
-    assert rows == [("alice", 0)]
+    assert len(rows) == 2
+    assert rows[0] == ("alice", 0, None)
+    assert rows[1][0] == "admin"
+    assert rows[1][1] == 1
+    assert rows[1][2].startswith("$pbkdf2-sha256$")
     conn.close()
+
+
+
+def test_init_db_fails_fast_without_bootstrap_password_in_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "production-missing-bootstrap.db"
+
+    with pytest.raises(RuntimeError, match="bootstrap_password"):
+        _run_init_db_for_test(
+            db_path,
+            monkeypatch,
+            env="production",
+            bootstrap_password="",
+        )
