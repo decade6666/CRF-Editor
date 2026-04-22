@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 from docx import Document
 import pytest
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from main import app
+from src.config import AdminConfig, AppConfig, AuthConfig
 from src.database import get_read_session, get_session
 from src.models import Base
 from src.models.project import Project
@@ -20,6 +22,12 @@ from src.services.export_service import (
     export_user_projects_database,
 )
 from tests.helpers import auth_headers, login_as
+
+
+_TEST_CONFIG = AppConfig(
+    auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+    admin=AdminConfig(username="admin"),
+)
 
 
 @pytest.fixture
@@ -60,8 +68,11 @@ def client(engine) -> TestClient:
 
     app.dependency_overrides[get_session] = _override
     app.dependency_overrides[get_read_session] = _override
-    with TestClient(app, raise_server_exceptions=False) as test_client:
-        yield test_client
+    with patch("main.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG):
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            yield test_client
     app.dependency_overrides.clear()
 
 

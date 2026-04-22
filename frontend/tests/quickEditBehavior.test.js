@@ -285,6 +285,7 @@ test('api helpers preserve HTTP status on thrown errors', () => {
   const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8')
   assert.match(apiSource, /function _createHttpError\(message, status\) \{[\s\S]*error\.status = status/)
   assert.match(apiSource, /throw _createHttpError\('登录已过期，请重新登录', r\.status\)/)
+  assert.match(apiSource, /if \(r\.status === 429\) \{[\s\S]*throw _createHttpError\(detail \|\| '操作过于频繁，请稍后重试', r\.status\)/)
   assert.match(apiSource, /if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)/)
 })
 
