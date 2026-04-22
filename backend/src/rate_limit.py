@@ -64,14 +64,14 @@ def enforce_rate_limit(bucket: str, rule: RateLimitRule) -> None:
     limiter.check(bucket, rule)
 
 
-AUTH_ENTER_RULE = RateLimitRule(limit=5, window_seconds=60)
+AUTH_LOGIN_RULE = RateLimitRule(limit=5, window_seconds=60)
 IMPORT_RULE = RateLimitRule(limit=3, window_seconds=60)
 
 
-def limit_auth_enter(request: Request, username: str) -> None:
+def limit_auth_login(request: Request, username: str) -> None:
     client_ip = get_client_ip(request)
-    bucket = f"auth-enter:{username.strip()}:{client_ip}"
-    enforce_rate_limit(bucket, AUTH_ENTER_RULE)
+    bucket = f"auth-login:{username.strip()}:{client_ip}"
+    enforce_rate_limit(bucket, AUTH_LOGIN_RULE)
 
 
 def limit_import_action(request: Request, user_id: Optional[int], scope: str) -> None:

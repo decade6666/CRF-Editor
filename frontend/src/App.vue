@@ -18,7 +18,6 @@ import { useOrderableList } from './composables/useOrderableList'
 
 // 登录状态
 const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
-const showAdmin = ref(false)
 
 function getEmptyUser() {
   return { username: '', is_admin: false }
@@ -33,7 +32,6 @@ function resetSessionState() {
   api.clearAllCache()
   localStorage.removeItem('crf_token')
   isLoggedIn.value = false
-  showAdmin.value = false
   showSettings.value = false
   projects.value = []
   selectedProject.value = null
@@ -41,10 +39,15 @@ function resetSessionState() {
   currentUser.value = getEmptyUser()
 }
 
-function onLoginSuccess() {
+async function onLoginSuccess() {
   isLoggedIn.value = true
-  loadProjects()
-  loadMe()
+  await loadMe()
+  if (isAdmin.value) {
+    selectedProject.value = null
+    projects.value = []
+    return
+  }
+  await loadProjects()
 }
 
 function logout() {
@@ -83,6 +86,11 @@ const copyingProjectId = ref(null)
 const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder')
 
 async function loadProjects() {
+  if (isAdmin.value) {
+    projects.value = []
+    selectedProject.value = null
+    return
+  }
   projects.value = await api.get('/api/projects')
 }
 
@@ -93,8 +101,11 @@ async function onProjectDragEnd() {
     (err) => ElMessage.error(err.message)
   )
 }
-onMounted(() => {
-  if (isLoggedIn.value) { loadProjects(); loadMe() }
+onMounted(async () => {
+  if (isLoggedIn.value) {
+    await loadMe()
+    if (!isAdmin.value) await loadProjects()
+  }
   window.addEventListener('crf:auth-expired', handleAuthExpired)
 })
 
@@ -637,6 +648,21 @@ function startResize(e) {
 
 <template>
   <LoginView v-if="!isLoggedIn" @login-success="onLoginSuccess" />
+  <template v-else-if="isAdmin">
+    <div class="header">
+      <div class="header-left">
+        <h1>CRF编辑器</h1>
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
+        <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+          <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
+        </el-button>
+      </div>
+      <div class="header-right" />
+    </div>
+    <div class="admin-shell">
+      <AdminView @logout="logout" />
+    </div>
+  </template>
   <template v-else>
   <!-- 头部 -->
   <div class="header">
@@ -649,9 +675,6 @@ function startResize(e) {
       <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
         <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
-      </el-button>
-      <el-button v-if="isAdmin" class="header-icon-btn" text circle @click="showAdmin = true" title="管理" aria-label="管理">
-        <el-icon aria-hidden="true"><UserFilled /></el-icon>
       </el-button>
     </div>
     <div class="header-right">
@@ -954,10 +977,6 @@ function startResize(e) {
     @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
   />
 
-  <!-- 管理员弹窗 -->
-  <el-dialog v-model="showAdmin" title="管理" width="800px" :close-on-click-modal="false" top="5vh">
-    <AdminView @logout="logout" />
-  </el-dialog>
   </template>
 </template>
 

@@ -22,6 +22,7 @@ _ENV_OVERRIDE_MAP = {
     "CRF_TEMPLATE_PATH": ("template", "template_path"),
     "CRF_AUTH_SECRET_KEY": ("auth", "secret_key"),
     "CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES": ("auth", "access_token_expire_minutes"),
+    "CRF_ADMIN_BOOTSTRAP_PASSWORD": ("admin", "bootstrap_password"),
 }
 
 # 配置文件迁移至项目根目录，统一配置入口
@@ -134,6 +135,7 @@ class AuthConfig(BaseModel):
 
 class AdminConfig(BaseModel):
     username: str = "admin"
+    bootstrap_password: str = ""
 
 
 class AppConfig(BaseModel):
