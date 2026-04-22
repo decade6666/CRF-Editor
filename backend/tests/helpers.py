@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from src.database import get_session
 from src.models.user import User
+from src.services.auth_service import hash_password, verify_password
 from src.services.user_admin_service import is_reserved_admin_username
 
 
@@ -31,34 +32,55 @@ def _override_session(client: TestClient):
             pass
 
 
-def seed_user(client: TestClient, username: str, is_admin: bool = False) -> Optional[int]:
-    """确保测试库中存在指定用户；必要时同步 is_admin。"""
+def seed_user(
+    client: TestClient,
+    username: str,
+    is_admin: bool = False,
+    password: Optional[str] = "test-pass-123",
+) -> Optional[int]:
+    """确保测试库中存在指定用户；必要时同步 is_admin 与密码。"""
     normalized = username.strip()
     with _override_session(client) as session:
         if session is None:
             return None
 
         user = session.scalar(select(User).where(User.username == normalized))
+        hashed_password = hash_password(password) if password is not None else None
         if not user:
             user = User(
                 username=normalized,
-                hashed_password=None,
+                hashed_password=hashed_password,
                 is_admin=is_admin,
             )
             session.add(user)
             session.flush()
-        elif is_admin and not user.is_admin:
-            user.is_admin = True
-            session.flush()
+        else:
+            updated = False
+            if is_admin and not user.is_admin:
+                user.is_admin = True
+                updated = True
+            if password is None:
+                if user.hashed_password is not None:
+                    user.hashed_password = None
+                    user.auth_version += 1
+                    updated = True
+            elif not verify_password(password, user.hashed_password or ""):
+                user.hashed_password = hashed_password
+                user.auth_version += 1
+                updated = True
+            if updated:
+                session.flush()
         return user.id
 
 
-def login_as(client: TestClient, username: str) -> str:
+def login_as(client: TestClient, username: str, password: str = "test-pass-123") -> str:
     """登录指定用户名，返回 access_token。"""
     normalized = username.strip()
     if is_reserved_admin_username(normalized):
-        seed_user(client, normalized, is_admin=True)
-    response = client.post("/api/auth/enter", json={"username": username})
+        seed_user(client, normalized, is_admin=True, password=password)
+    else:
+        seed_user(client, normalized, password=password)
+    response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
 

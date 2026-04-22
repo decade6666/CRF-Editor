@@ -1,6 +1,4 @@
 """用户管理服务（管理员专用）"""
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import List
 
@@ -10,6 +8,10 @@ from sqlalchemy.orm import Session
 from src.config import get_config
 from src.models.project import Project
 from src.models.user import User
+from src.services.auth_service import (
+    has_usable_password_hash,
+    hash_password,
+)
 
 
 @dataclass
@@ -17,6 +19,7 @@ class UserInfo:
     id: int
     username: str
     project_count: int
+    has_password: bool
 
 
 def get_reserved_admin_username() -> str:
@@ -39,6 +42,7 @@ class UserAdminService:
             select(
                 User.id,
                 User.username,
+                User.hashed_password,
                 func.count(Project.id).label("project_count"),
             )
             .outerjoin(
@@ -50,13 +54,18 @@ class UserAdminService:
         )
         rows = session.execute(stmt).all()
         return [
-            UserInfo(id=row[0], username=row[1], project_count=row[2])
+            UserInfo(
+                id=row[0],
+                username=row[1],
+                has_password=has_usable_password_hash(row[2]),
+                project_count=row[3],
+            )
             for row in rows
         ]
 
     @staticmethod
-    def create_user(session: Session, username: str) -> User:
-        """创建用户（无密码）。"""
+    def create_user(session: Session, username: str, password: str) -> User:
+        """创建用户并设置初始密码。"""
         username = username.strip()
         if not username:
             raise ValueError("用户名不能为空")
@@ -65,7 +74,11 @@ class UserAdminService:
         existing = session.scalar(select(User).where(User.username == username))
         if existing:
             raise ValueError("用户名已存在")
-        user = User(username=username, hashed_password=None, is_admin=False)
+        user = User(
+            username=username,
+            hashed_password=hash_password(password),
+            is_admin=False,
+        )
         session.add(user)
         session.flush()
         return user
@@ -91,6 +104,17 @@ class UserAdminService:
         if conflict:
             raise ValueError("用户名已存在")
         user.username = new_username
+        session.flush()
+        return user
+
+    @staticmethod
+    def reset_password(session: Session, user_id: int, password: str) -> User:
+        """重置指定用户密码，并使旧 token 立即失效。"""
+        user = session.get(User, user_id)
+        if not user:
+            raise ValueError("用户不存在")
+        user.hashed_password = hash_password(password)
+        user.auth_version += 1
         session.flush()
         return user
 

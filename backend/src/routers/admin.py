@@ -262,10 +262,15 @@ def batch_move_projects(
 
 class UserCreateRequest(BaseModel):
     username: str
+    password: str
 
 
 class UserRenameRequest(BaseModel):
     username: str
+
+
+class UserPasswordResetRequest(BaseModel):
+    password: str
 
 
 class UserResponse(BaseModel):
@@ -279,6 +284,7 @@ class UserListItem(BaseModel):
     id: int
     username: str
     project_count: int
+    has_password: bool
 
 
 @router.get("/admin/users", response_model=List[UserListItem])
@@ -289,7 +295,12 @@ def list_users(
     """列出所有用户及其项目数。"""
     users = UserAdminService.list_users(session)
     return [
-        UserListItem(id=u.id, username=u.username, project_count=u.project_count)
+        UserListItem(
+            id=u.id,
+            username=u.username,
+            project_count=u.project_count,
+            has_password=u.has_password,
+        )
         for u in users
     ]
 
@@ -302,7 +313,7 @@ def create_user(
 ):
     """新增用户。"""
     try:
-        user = UserAdminService.create_user(session, data.username)
+        user = UserAdminService.create_user(session, data.username, data.password)
         return user
     except ValueError as e:
         status = 409 if "已存在" in str(e) else 400
@@ -323,6 +334,20 @@ def rename_user(
     except ValueError as e:
         status = 409 if "已存在" in str(e) else 400
         raise HTTPException(status, str(e))
+
+
+@router.put("/admin/users/{user_id}/password", status_code=204)
+def reset_user_password(
+    user_id: int,
+    data: UserPasswordResetRequest,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """重置用户密码。"""
+    try:
+        UserAdminService.reset_password(session, user_id, data.password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.delete("/admin/users/{user_id}", status_code=204)

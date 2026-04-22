@@ -24,6 +24,8 @@ def get_current_user(
     user = session.get(User, identity.user_id)
     if not user or user.username != identity.username:
         raise HTTPException(status_code=401, detail="未授权")
+    if user.auth_version != identity.auth_version:
+        raise HTTPException(status_code=401, detail="未授权")
     return user
 
 

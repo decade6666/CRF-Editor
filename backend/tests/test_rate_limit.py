@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as
+from helpers import auth_headers, login_as, seed_user
 from src.models.project import Project
 from src.models.user import User
 from src.rate_limit import InMemoryRateLimiter, RateLimitRule, limiter
@@ -35,22 +35,24 @@ def test_in_memory_rate_limiter_recovers_after_window() -> None:
         local_limiter.check("bucket", rule)
 
 
-def test_auth_enter_rate_limit_returns_429_with_retry_after_in_production(client, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auth_login_rate_limit_returns_429_with_retry_after_in_production(client, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CRF_ENV", "production")
+    seed_user(client, "alice", password="test-pass-123")
 
     for _ in range(5):
-        resp = client.post("/api/auth/enter", json={"username": "alice"})
+        resp = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass-123"})
         assert resp.status_code == 200, resp.text
 
-    blocked = client.post("/api/auth/enter", json={"username": "alice"})
+    blocked = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass-123"})
     assert blocked.status_code == 429, blocked.text
     assert blocked.json()["detail"] == "操作过于频繁，请稍后重试"
     assert int(blocked.headers["retry-after"]) >= 1
 
 
-def test_auth_enter_rate_limit_is_disabled_outside_production(client) -> None:
+def test_auth_login_rate_limit_is_disabled_outside_production(client) -> None:
+    seed_user(client, "bob", password="test-pass-123")
     for _ in range(6):
-        resp = client.post("/api/auth/enter", json={"username": "bob"})
+        resp = client.post("/api/auth/login", json={"username": "bob", "password": "test-pass-123"})
         assert resp.status_code == 200, resp.text
 
 
