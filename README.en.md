@@ -118,7 +118,24 @@ storage:
 server:
   host: 0.0.0.0
   port: 8888
+auth:
+  access_token_expire_minutes: 60
 ```
+
+For public deployment, prefer the `CRF_*` environment variables listed in the root `.env.example`, especially:
+
+- `CRF_ENV=production`
+- `CRF_AUTH_SECRET_KEY=<long random secret>`
+- `CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES=60`
+
+In production mode, the backend now applies the following default hardening:
+
+- `CRF_AUTH_SECRET_KEY` is mandatory; the YAML secret is no longer a production fallback
+- `/docs`, `/redoc`, and `/openapi.json` are disabled
+- baseline security headers are added to responses
+- login and high-cost import endpoints are protected by a single-node in-memory rate limiter
+- project logos reject SVG/XML on upload and block historical unsafe logo reads
+- `template_path` must stay inside the allowlisted directories and end with `.db`
 
 ## Usage
 
@@ -138,6 +155,11 @@ python main.py
 
 After starting, open `http://localhost:8888` in your browser to access the web interface.
 
+When `CRF_ENV=production` is set:
+
+- `/docs`, `/redoc`, and `/openapi.json` return 404
+- `POST /api/auth/enter` and the database / Word import endpoints can return a unified 429 JSON response: `{"detail":"操作过于频繁，请稍后重试"}`, with `Retry-After`
+
 **Option 2: Development Mode** (hot reload, run frontend and backend separately)
 
 ```bash
@@ -152,7 +174,7 @@ npm run dev
 
 Access the frontend at `http://localhost:5173`. API requests are automatically proxied to `http://127.0.0.1:8888`.
 
-API documentation is available at `http://localhost:8888/docs`.
+API documentation is available at `http://localhost:8888/docs` in development mode; it is disabled in production.
 
 **Option 3: Desktop Entry** (for packaged PyInstaller distribution)
 
@@ -181,6 +203,13 @@ The exported Word document contains:
 - **Table of Contents**: Auto-generated document TOC
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
+
+## Deployment Security Notes
+
+- On the first production startup with an empty database, the app automatically creates the reserved admin account. This is an explicitly accepted residual risk in the current design.
+- After go-live, audit that account immediately and confirm it is only reachable in controlled conditions.
+- Rotate the historical repository `auth.secret_key` before deployment, and inject the new secret only through `CRF_AUTH_SECRET_KEY`.
+- If you move to multi-instance deployment, replace the current single-node in-memory rate limiter with a shared-store limiter.
 
 ## Testing
 

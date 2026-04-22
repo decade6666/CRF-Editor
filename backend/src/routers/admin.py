@@ -35,10 +35,9 @@ class MeResponse(BaseModel):
 @router.get("/auth/me", response_model=MeResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     """返回当前用户信息及管理员标识。"""
-    admin_username = get_config().admin.username.strip()
     return MeResponse(
         username=current_user.username,
-        is_admin=current_user.username.strip() == admin_username,
+        is_admin=current_user.is_admin,
     )
 
 
@@ -306,7 +305,8 @@ def create_user(
         user = UserAdminService.create_user(session, data.username)
         return user
     except ValueError as e:
-        raise HTTPException(409, str(e))
+        status = 409 if "已存在" in str(e) else 400
+        raise HTTPException(status, str(e))
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserResponse)

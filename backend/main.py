@@ -1,11 +1,13 @@
 """FastAPI 应用入口"""
 
 import logging
+import re
 
 import os
 
 from pathlib import Path
 from contextlib import asynccontextmanager
+from urllib.parse import unquote
 
 from fastapi import FastAPI, Request
 
@@ -17,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 
-from src.config import get_config
+from src.config import get_config, is_production_env
 
 from src.database import init_db
 
@@ -31,6 +33,14 @@ from src.services.docx_screenshot_service import DocxScreenshotService
 
 from src.utils import is_safe_path
 
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
+}
 
 
 # 配置应用日志：uvicorn 只管自己的 logger，src.* 的日志需要单独挂 handler
@@ -59,16 +69,31 @@ def _setup_app_logging():
 
 
 
+def _validate_app_config() -> None:
+
+    config = get_config()
+    if is_production_env():
+        if not os.environ.get("CRF_AUTH_SECRET_KEY", "").strip():
+            raise RuntimeError("production 环境必须通过 CRF_AUTH_SECRET_KEY 提供 auth.secret_key")
+        return
+    if not config.auth.secret_key:
+        raise RuntimeError("config.yaml 缺少 auth.secret_key")
+
+
+
+def _build_fastapi_kwargs() -> dict:
+
+    if is_production_env():
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
     _setup_app_logging()
 
     config = get_config()
-
-    if not config.auth.secret_key:
-
-        raise RuntimeError("config.yaml 缺少 auth.secret_key")
 
     Path(config.upload_path).mkdir(parents=True, exist_ok=True)
 
@@ -99,7 +124,8 @@ async def lifespan(app: FastAPI):
             logger.warning("清理截图缓存失败: %s", e)
 
 
-app = FastAPI(title="CRF编辑器", lifespan=lifespan)
+_validate_app_config()
+app = FastAPI(title="CRF编辑器", lifespan=lifespan, **_build_fastapi_kwargs())
 
 
 
@@ -135,6 +161,66 @@ _static_dir = os.environ.get("CRF_STATIC_DIR", str(Path(__file__).resolve().pare
 
 _assets_dir = Path(_static_dir) / "assets"
 
+_WINDOWS_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _iter_asset_path_variants(filepath: str):
+
+    """遍历原始路径及其有限次 URL 解码结果，用于拒绝危险输入。"""
+
+    current = filepath
+
+    seen = set()
+
+    for _ in range(3):
+
+        if current in seen:
+
+            break
+
+        seen.add(current)
+
+        yield current
+
+        decoded = unquote(current)
+
+        if decoded == current:
+
+            break
+
+        current = decoded
+
+
+def _validate_asset_raw_path(filepath: str):
+
+    """在拼接到 assets 根目录前，先拒绝绝对路径、点段、反斜杠和编码绕过。"""
+
+    if not filepath:
+
+        return False, "资源路径不能为空"
+
+    for candidate in _iter_asset_path_variants(filepath):
+
+        if candidate.startswith(("/", "\\")):
+
+            return False, "资源路径不合法"
+
+        if "\\" in candidate:
+
+            return False, "资源路径不合法"
+
+        if _WINDOWS_DRIVE_PREFIX_RE.match(candidate):
+
+            return False, "资源路径不合法"
+
+        parts = candidate.split("/")
+
+        if any(part in ("", ".", "..") for part in parts):
+
+            return False, "资源路径不合法"
+
+    return True, ""
+
 
 
 
@@ -151,13 +237,15 @@ async def serve_asset(filepath: str):
 
     # 防止路径穿越攻击
 
-    safe, err = is_safe_path(filepath)
+    safe, err = _validate_asset_raw_path(filepath)
+    if not safe:
+        return Response(status_code=400, content=err)
+    asset_path = Path(os.path.normpath(_assets_dir / filepath)).resolve()
+    safe, err = is_safe_path(str(asset_path), allowed_dirs=[str(_assets_dir)])
 
     if not safe:
 
         return Response(status_code=400, content=err)
-
-    asset_path = _assets_dir / filepath
 
     if not asset_path.is_file():
 
@@ -175,6 +263,23 @@ async def serve_asset(filepath: str):
 
 
 
+
+
+def _apply_security_headers(response: Response) -> Response:
+
+    for header, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        response = JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
+    return _apply_security_headers(response)
 
 
 @app.exception_handler(RequestValidationError)
@@ -447,4 +552,3 @@ if __name__ == "__main__":
         log_config=log_config,
 
     )
-
