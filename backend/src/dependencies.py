@@ -2,10 +2,8 @@
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.config import get_config
 from src.database import get_session
 from src.models.user import User
 from src.services.auth_service import decode_token
@@ -32,9 +30,8 @@ def get_current_user(
 def require_admin(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """校验当前用户为管理员（用户名与 config.admin.username 一致），不满足则 403。"""
-    admin_username = get_config().admin.username.strip()
-    if current_user.username.strip() != admin_username:
+    """校验当前用户为管理员，不满足则 403。"""
+    if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return current_user
 

@@ -62,7 +62,12 @@ async function uploadLogo(e) {
     fetchLogo(props.project.id)
     ElMessage.success('Logo上传成功')
   } else {
-    ElMessage.error('上传失败')
+    let detail = '未知错误'
+    try {
+      const body = await r.json()
+      if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+    } catch {}
+    ElMessage.error('上传失败: ' + detail)
   }
 }
 </script>
@@ -89,7 +94,7 @@ async function uploadLogo(e) {
           <el-button size="small" @click="logoInput.click()">{{ project.company_logo_path ? '更换Logo' : '上传Logo' }}</el-button>
           <span v-if="project.company_logo_path" style="font-size:12px;color:var(--color-success)">✓ 已上传</span>
         </div>
-        <input ref="logoInput" type="file" accept="image/*" style="display:none" @change="uploadLogo">
+        <input ref="logoInput" type="file" accept=".jpg,.jpeg,.png,.gif,.bmp,.webp" style="display:none" @change="uploadLogo">
       </div>
     </el-form-item>
     <el-form-item><el-button type="primary" @click="save">保存</el-button></el-form-item>

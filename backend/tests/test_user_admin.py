@@ -1,11 +1,39 @@
 """用户管理集成测试（Phase 5）"""
+import sqlite3
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as
+from helpers import auth_headers, login_as, seed_user
+from src.config import AdminConfig, AppConfig, AuthConfig, DatabaseConfig
 from src.models.project import Project
 from src.models.user import User
+
+
+def _run_init_db_for_test(db_path, monkeypatch, *, env=None, admin_username="admin"):
+    """在独立 SQLite 文件上执行 init_db，便于验证迁移与启动自愈。"""
+    import src.database as database_module
+
+    test_config = AppConfig(
+        database=DatabaseConfig(path=str(db_path)),
+        auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+        admin=AdminConfig(username=admin_username),
+    )
+    previous_engine = database_module._engine
+    database_module._engine = None
+    monkeypatch.setattr(database_module, "get_config", lambda: test_config)
+    if env is None:
+        monkeypatch.delenv("CRF_ENV", raising=False)
+    else:
+        monkeypatch.setenv("CRF_ENV", env)
+    try:
+        database_module.init_db()
+    finally:
+        current_engine = database_module._engine
+        if current_engine is not None:
+            current_engine.dispose()
+        database_module._engine = previous_engine
 
 
 # ── Admin Gate ────────────────────────────────────────────────
@@ -81,6 +109,24 @@ def test_list_users_project_count(client, engine):
     assert admin_info["project_count"] >= 1
 
 
+def test_auth_me_and_admin_guard_use_is_admin_flag(client, engine):
+    """/api/auth/me 与管理员门禁都应依赖 user.is_admin。"""
+    seed_user(client, "ops_root", is_admin=True)
+    admin_token = login_as(client, "ops_root")
+    user_token = login_as(client, "bob")
+
+    admin_me = client.get("/api/auth/me", headers=auth_headers(admin_token))
+    assert admin_me.status_code == 200, admin_me.text
+    assert admin_me.json() == {"username": "ops_root", "is_admin": True}
+
+    user_me = client.get("/api/auth/me", headers=auth_headers(user_token))
+    assert user_me.status_code == 200, user_me.text
+    assert user_me.json() == {"username": "bob", "is_admin": False}
+
+    admin_resp = client.get("/api/admin/users", headers=auth_headers(admin_token))
+    assert admin_resp.status_code == 200, admin_resp.text
+
+
 # ── Create User ───────────────────────────────────────────────
 
 
@@ -122,6 +168,38 @@ def test_create_user_empty_name(client, engine):
         headers=auth_headers(token),
     )
     assert resp.status_code in (400, 409)
+
+
+def test_create_user_rejects_reserved_admin_username(client, engine):
+    token = login_as(client, "admin")
+    resp = client.post(
+        "/api/admin/users",
+        json={"username": "admin"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
+    assert "保留管理员账号" in resp.json()["detail"]
+
+
+def test_reserved_admin_username_cannot_be_auto_created_by_login(client, engine):
+    resp = client.post("/api/auth/enter", json={"username": "admin"})
+    assert resp.status_code == 403, resp.text
+    assert "启动时初始化" in resp.json()["detail"]
+
+    with Session(engine) as session:
+        admin_user = session.scalar(select(User).where(User.username == "admin"))
+        assert admin_user is None
+
+
+
+def test_reserved_admin_login_accepts_legacy_whitespace_username_after_heal(client, engine):
+    with Session(engine) as session:
+        with session.begin():
+            session.add(User(username=" admin ", hashed_password=None, is_admin=True))
+
+    resp = client.post("/api/auth/enter", json={"username": "admin"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["access_token"]
 
 
 # ── Rename User ───────────────────────────────────────────────
@@ -176,6 +254,40 @@ def test_rename_nonexistent_user(client, engine):
         headers=auth_headers(token),
     )
     assert resp.status_code == 400
+
+
+def test_rename_user_to_reserved_admin_username_is_rejected(client, engine):
+    token = login_as(client, "admin")
+    create_resp = client.post(
+        "/api/admin/users",
+        json={"username": "rename_target"},
+        headers=auth_headers(token),
+    )
+    uid = create_resp.json()["id"]
+
+    resp = client.patch(
+        f"/api/admin/users/{uid}",
+        json={"username": "admin"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
+    assert "保留管理员账号" in resp.json()["detail"]
+
+
+def test_reserved_admin_user_cannot_be_renamed(client, engine):
+    token = login_as(client, "admin")
+
+    with Session(engine) as session:
+        admin_user = session.scalar(select(User).where(User.username == "admin"))
+        admin_id = admin_user.id
+
+    resp = client.patch(
+        f"/api/admin/users/{admin_id}",
+        json={"username": "admin_renamed"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
+    assert "保留管理员账号" in resp.json()["detail"]
 
 
 def test_old_token_stays_invalid_after_rename_and_recreate_username(
@@ -335,6 +447,21 @@ def test_delete_nonexistent_user(client, engine):
     assert resp.status_code == 400
 
 
+def test_reserved_admin_user_cannot_be_deleted(client, engine):
+    token = login_as(client, "admin")
+
+    with Session(engine) as session:
+        admin_user = session.scalar(select(User).where(User.username == "admin"))
+        admin_id = admin_user.id
+
+    resp = client.delete(
+        f"/api/admin/users/{admin_id}",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
+    assert "保留管理员账号" in resp.json()["detail"]
+
+
 def test_admin_can_list_active_projects_for_specific_user(client, engine):
     admin_token = login_as(client, "admin")
     client.post("/api/auth/enter", json={"username": "target_user"})
@@ -387,3 +514,104 @@ def test_non_admin_cannot_list_other_users_projects(client, engine):
         headers=auth_headers(owner_token),
     )
     assert own_resp.status_code == 200, own_resp.text
+
+
+def test_init_db_migrates_is_admin_and_heals_reserved_admin(tmp_path, monkeypatch):
+    db_path = tmp_path / "legacy-user.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE user (
+            id INTEGER PRIMARY KEY,
+            username VARCHAR(100) NOT NULL UNIQUE,
+            hashed_password VARCHAR(255) NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        'INSERT INTO user (username, hashed_password) VALUES (?, ?)',
+        ("admin", "legacy-secret"),
+    )
+    conn.execute(
+        'INSERT INTO user (username, hashed_password) VALUES (?, ?)',
+        ("alice", "legacy-secret"),
+    )
+    conn.commit()
+    conn.close()
+
+    _run_init_db_for_test(db_path, monkeypatch)
+
+    conn = sqlite3.connect(str(db_path))
+    columns = {
+        row[1]: row for row in conn.execute("PRAGMA table_info(user)").fetchall()
+    }
+    assert "is_admin" in columns
+    assert columns["is_admin"][3] == 1
+    assert "0" in str(columns["is_admin"][4])
+    rows = conn.execute(
+        'SELECT username, is_admin FROM user ORDER BY id'
+    ).fetchall()
+    assert rows == [("admin", 1), ("alice", 0)]
+    conn.close()
+
+    _run_init_db_for_test(db_path, monkeypatch)
+
+    conn = sqlite3.connect(str(db_path))
+    admin_rows = conn.execute(
+        'SELECT COUNT(*) FROM user WHERE username = ?',
+        ("admin",),
+    ).fetchone()[0]
+    admin_flag = conn.execute(
+        'SELECT is_admin FROM user WHERE username = ?',
+        ("admin",),
+    ).fetchone()[0]
+    assert admin_rows == 1
+    assert admin_flag == 1
+    conn.close()
+
+
+def test_init_db_bootstraps_reserved_admin_once_in_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "production-bootstrap.db"
+
+    _run_init_db_for_test(db_path, monkeypatch, env="production")
+
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        'SELECT username, is_admin FROM user ORDER BY id'
+    ).fetchall()
+    assert rows == [("admin", 1)]
+    conn.close()
+
+    _run_init_db_for_test(db_path, monkeypatch, env="production")
+
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        'SELECT username, is_admin FROM user ORDER BY id'
+    ).fetchall()
+    assert rows == [("admin", 1)]
+    conn.close()
+
+
+
+def test_init_db_does_not_bootstrap_reserved_admin_when_production_db_is_not_empty(tmp_path, monkeypatch):
+    db_path = tmp_path / "production-non-empty.db"
+
+    _run_init_db_for_test(db_path, monkeypatch)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        'INSERT INTO user (username, hashed_password, is_admin) VALUES (?, ?, ?)',
+        ("alice", None, 0),
+    )
+    conn.commit()
+    conn.close()
+
+    _run_init_db_for_test(db_path, monkeypatch, env="production")
+
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute(
+        'SELECT username, is_admin FROM user ORDER BY id'
+    ).fetchall()
+    assert rows == [("alice", 0)]
+    conn.close()

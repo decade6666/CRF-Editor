@@ -1,5 +1,7 @@
 """数据库 Session 管理"""
 
+import os
+
 from sqlalchemy import create_engine, event, text, inspect
 
 from sqlalchemy.orm import Session
@@ -479,6 +481,27 @@ def _migrate_add_project_screening_number_format(engine):
 
 
 
+def _migrate_add_user_is_admin(engine):
+
+    """给 user 表补上 is_admin 列。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("user"):
+
+        return
+
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("user")]
+
+        if "is_admin" not in cols:
+
+            conn.execute(text('ALTER TABLE "user" ADD COLUMN is_admin INTEGER DEFAULT 0 NOT NULL'))
+
+
+
+
 def _migrate_user_hashed_password_nullable(engine):
 
     """将 user.hashed_password 列改为 nullable。SQLite 不支持 ALTER COLUMN，需重建表。"""
@@ -511,11 +534,32 @@ def _migrate_user_hashed_password_nullable(engine):
 
     logger.info("迁移 user.hashed_password 为 nullable...")
 
+    has_is_admin = "is_admin" in cols
+
     with engine.begin() as conn:
 
-        conn.execute(text('CREATE TABLE "user_new" (id INTEGER PRIMARY KEY, username VARCHAR(100) NOT NULL, hashed_password VARCHAR(255), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'))
+        conn.execute(text(
+            'CREATE TABLE "user_new" ('
+            'id INTEGER PRIMARY KEY, '
+            'username VARCHAR(100) NOT NULL, '
+            'hashed_password VARCHAR(255), '
+            'is_admin INTEGER DEFAULT 0 NOT NULL, '
+            'created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+        ))
 
-        conn.execute(text('INSERT INTO "user_new" (id, username, hashed_password, created_at) SELECT id, username, hashed_password, created_at FROM "user"'))
+        if has_is_admin:
+
+            conn.execute(text(
+                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, created_at) '
+                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), created_at FROM "user"'
+            ))
+
+        else:
+
+            conn.execute(text(
+                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, created_at) '
+                'SELECT id, username, hashed_password, 0, created_at FROM "user"'
+            ))
 
         conn.execute(text('DROP TABLE "user"'))
 
@@ -526,6 +570,45 @@ def _migrate_user_hashed_password_nullable(engine):
     logger.info("user.hashed_password 迁移完成")
 
 
+
+
+def _heal_reserved_admin_account(engine):
+
+    """启动时同步保留管理员账号的 is_admin 语义，并在 production 空库时初始化。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("user"):
+
+        return
+
+    admin_username = get_config().admin.username.strip()
+
+    if not admin_username:
+
+        return
+
+    with engine.begin() as conn:
+
+        conn.execute(
+            text(
+                'UPDATE "user" '
+                'SET is_admin = 1 '
+                'WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) != 1'
+            ),
+            {"username": admin_username},
+        )
+
+        if os.environ.get("CRF_ENV", "").strip().lower() == "production":
+
+            conn.execute(
+                text(
+                    'INSERT INTO "user" (username, hashed_password, is_admin) '
+                    'SELECT :username, NULL, 1 '
+                    'WHERE NOT EXISTS (SELECT 1 FROM "user")'
+                ),
+                {"username": admin_username},
+            )
 
 
 
@@ -780,11 +863,15 @@ def init_db():
 
     _migrate_add_project_screening_number_format(engine)
 
+    _migrate_add_user_is_admin(engine)
+
     _migrate_project_soft_delete_and_ordering(engine)
 
     _migrate_user_hashed_password_nullable(engine)
 
     _ensure_form_field_rowid_compatibility(engine)
+
+    _heal_reserved_admin_account(engine)
 
     _warn_orphan_projects(engine)
 
@@ -813,4 +900,3 @@ def get_read_session():
     with Session(get_engine()) as session:
 
         yield session
-

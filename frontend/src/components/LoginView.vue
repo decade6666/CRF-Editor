@@ -21,7 +21,7 @@ async function handleLogin() {
     })
     if (!r.ok) {
       const err = await r.json().catch(() => ({}))
-      ElMessage.error(err.detail || '登录失败，请重试')
+      ElMessage.error(err.detail || (r.status === 429 ? '操作过于频繁，请稍后重试' : '登录失败，请重试'))
       return
     }
     const { access_token } = await r.json()

@@ -1,6 +1,6 @@
 """Projects Router"""
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -9,6 +9,7 @@ import shutil
 from src.database import get_session
 from src.config import get_config
 from src.dependencies import get_current_user, require_admin
+from src.rate_limit import limit_import_action
 from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
@@ -24,6 +25,8 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
+_LOGO_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/webp"]
+_LOGO_BLOCKED_EXTENSIONS = {".svg", ".xml"}
 
 
 # Task 4.4: 项目导入自定义异常（确保事务回滚 + 稳定 JSON 响应）
@@ -78,10 +81,12 @@ async def _save_upload_to_temp(file: UploadFile) -> Path:
 
 @router.post("/import/project-db")
 async def import_project_db(
+    request: Request,
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    limit_import_action(request, current_user.id,"project-db-import")
     """导入单项目 .db 文件。"""
     import sqlite3
     tmp_path = await _save_upload_to_temp(file)
@@ -106,11 +111,13 @@ async def import_project_db(
 
 @router.post("/import/database-merge")
 async def import_database_merge(
+    request: Request,
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """整库合并导入。"""
+    limit_import_action(request, current_user.id, "database-merge-import")
     import sqlite3
     tmp_path = await _save_upload_to_temp(file)
     try:
@@ -140,11 +147,13 @@ async def import_database_merge(
 
 @router.post("/import/auto")
 async def import_auto(
+    request: Request,
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """统一导入入口：自动检测 db 文件类型（单项目/多项目），调用对应服务。"""
+    limit_import_action(request, current_user.id, "auto-import")
     import sqlite3
     tmp_path = await _save_upload_to_temp(file)
     try:
@@ -277,6 +286,13 @@ def copy_project(
     return cloned_project
 
 
+def _resolve_logo_path(upload_dir: Path, logo_name: str) -> Path:
+    raw_path = Path(logo_name)
+    if raw_path.is_absolute() or raw_path.name != logo_name or ".." in raw_path.parts:
+        raise HTTPException(400, "Logo 文件不安全: 非法路径")
+    return upload_dir / logo_name
+
+
 @router.get("/{project_id}/logo")
 def get_logo(
     project_id: int,
@@ -284,6 +300,8 @@ def get_logo(
     current_user: User = Depends(get_current_user),
 ):
     from fastapi.responses import FileResponse as FR
+    from src.utils import is_safe_file_upload
+
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
@@ -291,9 +309,23 @@ def get_logo(
         raise HTTPException(403, "无权访问此项目")
     if not project.company_logo_path:
         raise HTTPException(404, "无Logo")
-    logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
+
+    upload_dir = Path(get_config().upload_path) / "logos"
+    logo_path = _resolve_logo_path(upload_dir, project.company_logo_path)
+    if logo_path.suffix.lower() in _LOGO_BLOCKED_EXTENSIONS:
+        raise HTTPException(400, "Logo 文件不安全: 不允许 SVG/XML 图片，请重新上传位图")
     if not logo_path.exists():
         raise HTTPException(404, "文件不存在")
+
+    file_content = logo_path.read_bytes()
+    is_valid, error_msg, _ = is_safe_file_upload(
+        filename=logo_path.name,
+        content=file_content,
+        allowed_mime_types=_LOGO_ALLOWED_TYPES,
+        max_size_mb=5,
+    )
+    if not is_valid:
+        raise HTTPException(400, f"Logo 文件不安全: {error_msg}，请重新上传位图")
     return FR(str(logo_path))
 
 
@@ -334,38 +366,29 @@ def upload_logo(
     if project.owner_id != current_user.id:
         raise HTTPException(403, "无权访问此项目")
 
-    # 读取文件内容（前8KB足够魔数检测，避免内存溢出）
-    file_content = file.file.read(8192)
-    file.file.seek(0)  # 重置指针，后续还要读完整内容
+    file_content = file.file.read()
 
-    # 文件安全校验
-    allowed_types = ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/webp", "image/svg+xml"]
-    is_valid, error_msg = is_safe_file_upload(
-        filename=file.filename,
+    is_valid, error_msg, detected_ext = is_safe_file_upload(
+        filename=file.filename or "logo",
         content=file_content,
-        allowed_mime_types=allowed_types,
+        allowed_mime_types=_LOGO_ALLOWED_TYPES,
         max_size_mb=5,
     )
     if not is_valid:
         raise HTTPException(status_code=400, detail=f"文件不安全: {error_msg}")
 
-    # 使用UUID生成安全文件名，保留扩展名
-    _, ext = file.filename.rsplit(".", 1) if "." in file.filename else ("", "jpg")
-    safe_filename = f"{uuid.uuid4().hex}.{ext.lower()}"
+    safe_filename = f"{uuid.uuid4().hex}.{detected_ext}"
 
     upload_dir = Path(get_config().upload_path) / "logos"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # 删除旧logo（如果存在）
     if project.company_logo_path:
-        old_logo = upload_dir / project.company_logo_path
+        old_logo = _resolve_logo_path(upload_dir, project.company_logo_path)
         if old_logo.exists():
             old_logo.unlink()
 
-    # 保存新文件
-    file.file.seek(0)  # 确保从头读取
     with open(upload_dir / safe_filename, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(file_content)
 
     project.company_logo_path = safe_filename
     repo.update(project)

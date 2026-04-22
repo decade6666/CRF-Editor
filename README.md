@@ -126,7 +126,24 @@ storage:
 server:
   host: 0.0.0.0
   port: 8888
+auth:
+  access_token_expire_minutes: 60
 ```
+
+公网部署建议优先使用根目录 `.env.example` 中列出的 `CRF_*` 环境变量，尤其是：
+
+- `CRF_ENV=production`
+- `CRF_AUTH_SECRET_KEY=<随机长密钥>`
+- `CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES=60`
+
+生产模式下有以下默认安全收敛：
+
+- 必须通过 `CRF_AUTH_SECRET_KEY` 提供密钥，`config.yaml` 中的 secret 不再作为生产兜底
+- `/docs`、`/redoc`、`/openapi.json` 默认关闭
+- 响应统一附带基础安全头
+- 登录与高成本导入接口启用单机内存限流
+- 项目 Logo 禁止 SVG/XML，历史危险 Logo 读取也会被拒绝
+- `template_path` 必须位于白名单目录内，且文件后缀必须为 `.db`
 
 ## 使用说明
 
@@ -146,6 +163,11 @@ python main.py
 
 服务启动后访问 `http://localhost:8888` 打开 Web 界面。
 
+如果设置了 `CRF_ENV=production`：
+
+- 访问 `/docs`、`/redoc`、`/openapi.json` 会返回 404
+- 登录接口 `POST /api/auth/enter` 与数据库 / Word 导入接口会返回统一 429 JSON：`{"detail":"操作过于频繁，请稍后重试"}`，并附带 `Retry-After`
+
 **方式二：开发模式**（前后端分别启动，热更新）
 
 ```bash
@@ -160,7 +182,7 @@ npm run dev
 
 前端开发服务器启动后访问 `http://localhost:5173`，API 请求自动代理到后端 `http://127.0.0.1:8888`。
 
-API 文档见 `http://localhost:8888/docs`。
+开发模式下 API 文档见 `http://localhost:8888/docs`；生产模式默认关闭。
 
 **方式三：桌面打包入口**（适用于 PyInstaller 发行包）
 
@@ -189,6 +211,13 @@ python app_launcher.py
 - **目录**：自动生成的文档目录
 - **表单访视分布图**：矩阵表格显示表单与访视的关联关系
 - **表单内容**：详细的表单字段定义和控件
+
+## 上线安全注意事项
+
+- 生产环境首次空库启动时，系统会自动创建保留管理员账号；这是本项目当前接受的残余风险。
+- 上线后应立即审计该账号是否存在、是否仅在受控环境可访问，并尽快完成管理员账号核查。
+- 部署前应轮换仓库中的历史 `auth.secret_key`，并只通过 `CRF_AUTH_SECRET_KEY` 注入新密钥。
+- 若升级为多实例部署，当前单机内存限流不再足够，需要替换为共享存储限流方案。
 
 ## 测试
 

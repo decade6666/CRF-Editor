@@ -74,6 +74,10 @@ test('login view restores and persists the last username', () => {
   assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/)
 })
 
+test('login view surfaces 429 detail without breaking generic login failures', () => {
+  assert.match(loginSource, /ElMessage\.error\(err\.detail \|\| \(r\.status === 429 \? '操作过于频繁，请稍后重试' : '登录失败，请重试'\)\)/)
+})
+
 test('admin dialog delegates logout through the shared app logout flow', () => {
   assert.match(appSource, /<AdminView @logout="logout" \/>/)
 })

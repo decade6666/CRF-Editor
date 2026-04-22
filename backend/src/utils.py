@@ -59,11 +59,14 @@ def is_safe_url(url: str) -> tuple[bool, str]:
 
 def is_safe_path(path: str, allowed_dirs: list[str] = None) -> tuple[bool, str]:
     """
-    校验路径是否安全（防止路径穿越）
+    校验路径是否安全。
+
+    未提供白名单时，保留基础路径穿越拦截；
+    提供白名单时，校验解析后路径是否位于允许目录内。
 
     Args:
         path: 待校验路径
-        allowed_dirs: 允许的目录列表（绝对路径）
+        allowed_dirs: 允许的目录列表（绝对路径或可解析路径）
 
     Returns:
         (is_safe, error_message)
@@ -72,22 +75,22 @@ def is_safe_path(path: str, allowed_dirs: list[str] = None) -> tuple[bool, str]:
         return False, "路径不能为空"
 
     try:
-        real_path = Path(path).resolve()
-
-        # 检查路径穿越
-        if ".." in Path(path).parts:
+        raw_path = Path(path)
+        if not allowed_dirs and ".." in raw_path.parts:
             return False, "路径不能包含 .."
 
-        # 如果指定了白名单，检查是否在允许的目录内
+        real_path = Path(path).resolve()
         if allowed_dirs:
+            import os
             for allowed_dir in allowed_dirs:
                 allowed_real = Path(allowed_dir).resolve()
                 try:
-                    real_path.relative_to(allowed_real)
-                    return True, ""
-                except ValueError:
+                    # 使用 commonpath 确保 real_path 确实在 allowed_real 下
+                    if os.path.commonpath([str(real_path), str(allowed_real)]) == str(allowed_real):
+                        return True, ""
+                except (ValueError, OSError):
                     continue
-            return False, f"路径必须在允许的目录内: {', '.join(allowed_dirs)}"
+            return False, f"路径必须在允许的目录内: {', '.join(str(item) for item in allowed_dirs)}"
 
         return True, ""
     except Exception as e:
@@ -117,59 +120,53 @@ def is_safe_file_upload(
     content: bytes,
     allowed_mime_types: list[str],
     max_size_mb: int = 5,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
     """
-    校验上传文件是否安全
+    校验上传文件是否安全，并返回检测得到的保存扩展名。
 
     Args:
         filename: 原始文件名
-        content: 文件内容（前8KB足够检测魔数）
+        content: 完整文件内容
         allowed_mime_types: 允许的MIME类型列表
         max_size_mb: 最大文件大小(MB)
 
     Returns:
-        (is_safe, error_message)
+        (is_safe, error_message, detected_extension)
     """
     if not filename:
-        return False, "文件名不能为空"
+        return False, "文件名不能为空", ""
 
-    # 检查文件扩展名
-    _, ext = filename.lower().rsplit(".", 1) if "." in filename else ("", "")
-    if ext not in ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"]:
-        return False, f"不支持的文件扩展名: .{ext}"
-
-    # 检查文件大小
     size_mb = len(content) / (1024 * 1024)
     if size_mb > max_size_mb:
-        return False, f"文件过大({size_mb:.2f}MB),最大允许{max_size_mb}MB"
+        return False, f"文件过大({size_mb:.2f}MB),最大允许{max_size_mb}MB", ""
 
-    # 魔数检测（前8字节）
-    magic_signatures = {
-        b"\xff\xd8\xff": ["image/jpeg"],  # JPEG
-        b"\x89PNG\r\n\x1a\n": ["image/png"],  # PNG
-        b"GIF87a": ["image/gif"],  # GIF87a
-        b"GIF89a": ["image/gif"],  # GIF89a
-        b"BM": ["image/bmp"],  # BMP
-        b"RIFF": ["image/webp"],  # WebP (需进一步检查)
-        b"<svg": ["image/svg+xml"],  # SVG
-        b"<?xml": ["image/svg+xml"],  # SVG with XML declaration
-    }
+    text_prefix = content[:512].lstrip(b"\xef\xbb\xbf\r\n\t ")
+    lowered_prefix = text_prefix.lower()
+    if lowered_prefix.startswith(b"<svg") or lowered_prefix.startswith(b"<?xml"):
+        return False, "不允许 SVG/XML 图片", ""
 
-    detected_mime = None
-    for magic, mime_list in magic_signatures.items():
-        if content.startswith(magic):
-            detected_mime = mime_list[0]
-            # WebP需额外验证WEBP标识
-            if magic == b"RIFF" and len(content) >= 12:
-                if content[8:12] != b"WEBP":
-                    continue
-            break
+    detected_mime = ""
+    detected_ext = ""
+    if content.startswith(b"\xff\xd8\xff"):
+        detected_mime = "image/jpeg"
+        detected_ext = "jpg"
+    elif content.startswith(b"\x89PNG\r\n\x1a\n"):
+        detected_mime = "image/png"
+        detected_ext = "png"
+    elif content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+        detected_mime = "image/gif"
+        detected_ext = "gif"
+    elif content.startswith(b"BM"):
+        detected_mime = "image/bmp"
+        detected_ext = "bmp"
+    elif content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP":
+        detected_mime = "image/webp"
+        detected_ext = "webp"
 
     if not detected_mime:
-        return False, "无法识别文件类型（魔数检测失败）"
+        return False, "无法识别文件类型（魔数检测失败）", ""
 
-    # 检查MIME类型是否在白名单内
     if detected_mime not in allowed_mime_types:
-        return False, f"不允许的文件类型: {detected_mime}"
+        return False, f"不允许的文件类型: {detected_mime}", ""
 
-    return True, ""
+    return True, "", detected_ext

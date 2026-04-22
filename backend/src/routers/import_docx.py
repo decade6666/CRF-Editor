@@ -6,7 +6,7 @@ from typing import List, Optional
 
 
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from fastapi.responses import FileResponse
 
@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from src.database import get_session
 
 from src.dependencies import get_current_user, require_admin, verify_form_owner, verify_project_owner
+from src.rate_limit import limit_import_action
 
 from src.models.project import Project
 
@@ -192,6 +193,8 @@ async def preview_docx_import(
 
     project_id: int,
 
+    request: Request,
+
     file: UploadFile = File(...),
 
     session: Session = Depends(get_session),
@@ -201,6 +204,8 @@ async def preview_docx_import(
 ):
 
     """上传Word文档并预览解析出的表单列表"""
+
+    limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
 
     verify_project_owner(project_id, current_user, session)
 
@@ -410,6 +415,8 @@ def execute_docx_import(
 
     project_id: int,
 
+    request: Request,
+
     payload: DocxExecuteRequest,
 
     session: Session = Depends(get_session),
@@ -419,6 +426,8 @@ def execute_docx_import(
 ):
 
     """执行导入：将选中的表单写入数据库"""
+
+    limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
 
     verify_project_owner(project_id, current_user, session)
 

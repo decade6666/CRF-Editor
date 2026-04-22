@@ -61,7 +61,7 @@ def test_no_token_returns_401(client: TestClient):
 def test_create_access_token_uses_configured_expire_minutes() -> None:
     configured_auth = AuthConfig(
         secret_key="test-secret-key-for-testing",
-        access_token_expire_minutes=8640,
+        access_token_expire_minutes=60,
     )
     configured_config = AppConfig(auth=configured_auth)
 
@@ -75,7 +75,7 @@ def test_create_access_token_uses_configured_expire_minutes() -> None:
         configured_auth.secret_key,
         algorithms=[configured_auth.algorithm],
     )
-    expected_min = int((issued_before + timedelta(minutes=8640)).timestamp()) - 1
-    expected_max = int((issued_after + timedelta(minutes=8640)).timestamp()) + 1
+    expected_min = int((issued_before + timedelta(minutes=60)).timestamp()) - 1
+    expected_max = int((issued_after + timedelta(minutes=60)).timestamp()) + 1
 
     assert expected_min <= payload["exp"] <= expected_max
