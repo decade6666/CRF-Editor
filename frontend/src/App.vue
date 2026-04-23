@@ -193,13 +193,61 @@ async function copyProject(p) {
 
 const exportWordLoading = ref(false)
 
+/**
+ * 收集项目中所有表单的列宽覆盖配置。
+ * 遍历 localStorage 中的 crf:designer:col-widths:* 键，提取每个表单的 normal/inline/unified 配置。
+ * @param {Array} forms - 表单列表，每个表单需要有 id 属性
+ * @returns {Object} 列宽覆盖配置，格式：{ "form_id": { "normal": [...], "inline": [...], "unified": [...] } }
+ */
+function collectColumnWidthOverrides(forms) {
+  const overrides = {}
+  if (!forms || !forms.length) return overrides
+
+  for (const form of forms) {
+    const formId = form.id
+    if (formId == null) continue
+
+    const formOverrides = {}
+
+    // 检查三种表格类型
+    const tableKinds = ['normal', 'inline', 'unified']
+    for (const kind of tableKinds) {
+      const key = `crf:designer:col-widths:${formId}:${kind}`
+      try {
+        const raw = localStorage.getItem(key)
+        if (!raw) continue
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
+          formOverrides[kind] = arr
+        }
+      } catch {
+        // 忽略解析错误
+      }
+    }
+
+    if (Object.keys(formOverrides).length > 0) {
+      overrides[String(formId)] = formOverrides
+    }
+  }
+
+  return overrides
+}
+
 async function exportWord() {
   if (!selectedProject.value || exportWordLoading.value) return
   exportWordLoading.value = true
   try {
+    // 收集列宽覆盖配置
+    const forms = formDesignerTabRef.value?.getForms?.() || []
+    const columnWidthOverrides = collectColumnWidthOverrides(forms)
+
     const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: {
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ column_width_overrides: columnWidthOverrides }),
     })
     if (!response.ok) {
       const err = await response.json().catch(() => ({}))

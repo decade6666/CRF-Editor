@@ -303,7 +303,7 @@ test('property editor blocks reset when flush fails on dialog close and project 
 
 test('app blocks project switch until form designer can leave', () => {
   assert.match(formDesignerSource, /async function canLeaveProject\(\) \{[\s\S]*return flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)/)
-  assert.match(formDesignerSource, /defineExpose\(\{ canLeaveProject \}\)/)
+  assert.match(formDesignerSource, /defineExpose\(\{ canLeaveProject, getForms:/)
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
   assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(activeTab\.value === 'designer' && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
   assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
