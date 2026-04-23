@@ -1148,7 +1148,7 @@ async function canLeaveProject() {
   return flushFieldPropSaveBeforeReset({ preserveEditor: true })
 }
 
-defineExpose({ canLeaveProject })
+defineExpose({ canLeaveProject, getForms: () => forms.value })
 
 function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value = true }
 </script>
