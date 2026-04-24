@@ -463,6 +463,45 @@ const designerLandscapeMode = computed(() => forceLandscape.value || designerRen
 const formIdRef = computed(() => selectedForm.value?.id)
 const resizerCache = new Map()
 watch(() => selectedForm.value?.id, () => { resizerCache.clear() })
+
+/**
+ * 构建规范的 table_instance_id。
+ * 格式：kind:fieldIds=<ordered-field-ids>
+ * 示例：normal:fieldIds=1,2,3 / inline:fieldIds=4,5 / unified:fieldIds=6,7,8,9
+ * 该标识符稳定于字段排序变化（groupIndex 不稳定），保证持久化一致性。
+ */
+function buildTableInstanceId(kind, fields) {
+  const fieldIds = (fields || []).map(f => f.id).filter(id => id != null).join(',')
+  return `${kind}:fieldIds=${fieldIds}`
+}
+
+/**
+ * 旧键格式正则：匹配 <groupIndex>-<kind>-<colCount> 格式
+ * 用于迁移到新格式。
+ */
+const LEGACY_TABLE_KIND_RE = /^(\d+)-(normal|inline|unified)-(\d+)$/
+
+/**
+ * 检测并迁移旧格式的 localStorage 键。
+ * 在首次访问新格式键时，若发现旧格式键存在，则迁移后删除旧键。
+ * @param {string} formId 表单 ID
+ * @param {string} newTableInstanceId 新格式 table_instance_id
+ * @param {string} legacyMapKey 旧格式 mapKey（groupIndex-kind-colCount）
+ */
+function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
+  if (!formId || !newTableInstanceId || !legacyMapKey) return
+  const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`
+  const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`
+  try {
+    const legacyValue = localStorage.getItem(legacyKey)
+    if (legacyValue != null && localStorage.getItem(newKey) == null) {
+      localStorage.setItem(newKey, legacyValue)
+    }
+    if (legacyValue != null) {
+      localStorage.removeItem(legacyKey)
+    }
+  } catch { /* ignore localStorage errors */ }
+}
 function resolveGroupAt(groupIndex) {
   return renderGroups.value[groupIndex] ?? designerRenderGroups.value[groupIndex] ?? null
 }
@@ -498,9 +537,19 @@ function buildResizerDefaultsFactory(kind, colCount, groupIndex) {
 }
 function getResizer(kind, colCount, groupIndex) {
   if (selectedForm.value?.id == null) return null
-  const mapKey = `${groupIndex}-${kind}-${colCount}`
+  const group = resolveGroupAt(groupIndex)
+  // 新格式：使用稳定的 fieldIds 作为标识符
+  const tableInstanceId = buildTableInstanceId(kind, group?.fields || [])
+  // 旧格式（用于迁移）：保留 groupIndex-kind-colCount 格式
+  const legacyMapKey = `${groupIndex}-${kind}-${colCount}`
+  // 缓存键使用新的 tableInstanceId
+  const mapKey = tableInstanceId
+
   if (!resizerCache.has(mapKey)) {
-    const tableKindRef = computed(() => mapKey)
+    // 迁移旧键（首次访问时）
+    migrateLegacyKeyIfNeeded(selectedForm.value.id, tableInstanceId, legacyMapKey)
+
+    const tableKindRef = computed(() => tableInstanceId)
     const defaultsFactory = buildResizerDefaultsFactory(kind, colCount, groupIndex)
     resizerCache.set(mapKey, useColumnResize(formIdRef, tableKindRef, defaultsFactory))
   }
@@ -510,6 +559,80 @@ function cumRatio(ratios, boundaryIdx) {
   let sum = 0
   for (let i = 0; i <= boundaryIdx; i += 1) sum += ratios[i]
   return sum
+}
+
+/**
+ * 重置当前表单的所有列宽配置。
+ * 清除 localStorage 中该表单的所有列宽键，并重置所有 resizer 状态。
+ */
+function resetColumnWidths() {
+  const formId = selectedForm.value?.id
+  if (formId == null) return
+
+  // 清除 localStorage 中该表单的所有列宽键
+  const keyPrefix = `crf:designer:col-widths:${formId}:`
+  const keysToRemove = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith(keyPrefix)) {
+      keysToRemove.push(key)
+    }
+  }
+  for (const key of keysToRemove) {
+    localStorage.removeItem(key)
+  }
+
+  // 重置所有 resizer 到默认值
+  for (const resizer of resizerCache.values()) {
+    if (resizer && typeof resizer.resetToEven === 'function') {
+      resizer.resetToEven()
+    }
+  }
+
+  // 清空缓存，下次访问时会重新创建
+  resizerCache.clear()
+
+  ElMessage.success('列宽已重置')
+}
+
+/**
+ * 批量重置所选表单的列宽配置。
+ */
+async function batchResetColumnWidths() {
+  if (!selForms.value.length) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确认重置选中的 ${selForms.value.length} 个表单的列宽配置？`,
+      '重置列宽',
+      { type: 'warning' }
+    )
+
+    const formIds = selForms.value.map(f => f.id)
+    for (const formId of formIds) {
+      // 清除 localStorage 中该表单的所有列宽键
+      const keyPrefix = `crf:designer:col-widths:${formId}:`
+      const keysToRemove = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith(keyPrefix)) {
+          keysToRemove.push(key)
+        }
+      }
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key)
+      }
+    }
+
+    // 如果当前表单在所选表单中，重置 resizerCache
+    if (selectedForm.value && formIds.includes(selectedForm.value.id)) {
+      resizerCache.clear()
+    }
+
+    ElMessage.success(`已重置 ${formIds.length} 个表单的列宽`)
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
 }
 
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240)
@@ -1159,6 +1282,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <div style="margin-bottom:12px;display:flex;gap:8px">
         <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
+        <el-button size="small" :disabled="!selForms.length" @click="selForms.length > 1 ? batchResetColumnWidths() : resetColumnWidths()">重置列宽</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
       <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => selForms = r" style="width:100%" height="100%">

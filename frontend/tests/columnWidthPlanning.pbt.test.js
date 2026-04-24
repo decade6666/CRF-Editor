@@ -105,18 +105,23 @@ test('10.5 P5 extending fields[i].label does not decrease its weight', () => {
 })
 
 // ─── 10.6 P6 unified per-slot-max 单调性 ─────────────────────────────────
-test('10.6 P6 unified: 新增 inline_block 不减少任何 slot 输出比例的相对权重', () => {
+test('10.6 P6 unified: 新增 inline_block 或 regular_field 不减少任何 slot 输出比例的相对权重', () => {
   fc.assert(
     fc.property(
       fc.tuple(
         fc.array(arbNonEmptyFields, { minLength: 1, maxLength: 4 }),
         fc.integer({ min: 2, max: 6 }),
         arbNonEmptyFields,
+        fc.boolean(),
       ),
-      ([baseSegFields, columnCount, extraFields]) => {
+      ([baseSegFields, columnCount, extraFields, isRegular]) => {
         const baseSegments = baseSegFields.map((fields) => ({ type: 'inline_block', fields }))
         const baseWeights = computeUnifiedSlotWeights(baseSegments, columnCount)
-        const augmented = baseSegments.concat([{ type: 'inline_block', fields: extraFields }])
+        // 新增 segment 可能是 inline_block 或 regular_field
+        const newSegment = isRegular
+          ? { type: 'regular_field', fields: extraFields.slice(0, 1) }
+          : { type: 'inline_block', fields: extraFields }
+        const augmented = baseSegments.concat([newSegment])
         const augWeights = computeUnifiedSlotWeights(augmented, columnCount)
         // 新增 segment 后每个 slot 权重 >= 原值
         return augWeights.every((w, i) => w >= baseWeights[i] - 1e-9)
@@ -126,13 +131,27 @@ test('10.6 P6 unified: 新增 inline_block 不减少任何 slot 输出比例的�
 })
 
 function computeUnifiedSlotWeights(segments, columnCount) {
+  const WEIGHT_ASCII = 1
+  const minWeight = WEIGHT_ASCII * 4
   const slot = new Array(columnCount).fill(0)
   for (const seg of segments) {
-    if (!seg || seg.type !== 'inline_block') continue
-    const demands = buildInlineColumnDemands(seg.fields || [])
-    const limit = Math.min(demands.length, columnCount)
-    for (let i = 0; i < limit; i += 1) {
-      slot[i] = Math.max(slot[i], demands[i].weight)
+    if (!seg) continue
+    if (seg.type === 'inline_block') {
+      const demands = buildInlineColumnDemands(seg.fields || [])
+      const limit = Math.min(demands.length, columnCount)
+      for (let i = 0; i < limit; i += 1) {
+        slot[i] = Math.max(slot[i], demands[i].weight)
+      }
+    } else if (seg.type === 'regular_field' && seg.fields?.length && columnCount >= 2) {
+      const field = seg.fields[0]
+      if (field) {
+        const labelText = field.label_override || field.field_definition?.label || ''
+        const labelWeight = computeTextWeight(labelText)
+        const demands = buildInlineColumnDemands([field])
+        const controlWeight = demands.length > 0 ? demands[0].weight : minWeight
+        slot[0] = Math.max(slot[0], labelWeight)
+        slot[1] = Math.max(slot[1], controlWeight)
+      }
     }
   }
   return slot
