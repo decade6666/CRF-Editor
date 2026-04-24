@@ -502,20 +502,15 @@ function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
     }
   } catch { /* ignore localStorage errors */ }
 }
-function resolveGroupAt(groupIndex) {
-  return renderGroups.value[groupIndex] ?? designerRenderGroups.value[groupIndex] ?? null
-}
-function buildResizerDefaultsFactory(kind, colCount, groupIndex) {
+function buildResizerDefaultsFactory(kind, colCount, group) {
   if (kind === 'normal') {
     return () => {
-      const group = resolveGroupAt(groupIndex)
       const fractions = planNormalColumnFractions(group?.fields || [])
       return fractions.length === 2 ? fractions : [0.5, 0.5]
     }
   }
   if (kind === 'inline') {
     return () => {
-      const group = resolveGroupAt(groupIndex)
       const fractions = planInlineColumnFractions(group?.fields || [])
       return fractions.length === colCount
         ? fractions
@@ -524,7 +519,6 @@ function buildResizerDefaultsFactory(kind, colCount, groupIndex) {
   }
   if (kind === 'unified') {
     return () => {
-      const group = resolveGroupAt(groupIndex)
       const unifiedColCount = group?.colCount || colCount
       const segments = buildFormDesignerUnifiedSegments(group?.fields || [])
       const fractions = planUnifiedColumnFractions(segments, unifiedColCount)
@@ -535,22 +529,17 @@ function buildResizerDefaultsFactory(kind, colCount, groupIndex) {
   }
   return () => Array.from({ length: colCount }, () => 1 / colCount)
 }
-function getResizer(kind, colCount, groupIndex) {
-  if (selectedForm.value?.id == null) return null
-  const group = resolveGroupAt(groupIndex)
-  // 新格式：使用稳定的 fieldIds 作为标识符
-  const tableInstanceId = buildTableInstanceId(kind, group?.fields || [])
-  // 旧格式（用于迁移）：保留 groupIndex-kind-colCount 格式
+function getResizer(kind, colCount, groupIndex, group, scope = 'main') {
+  if (selectedForm.value?.id == null || !group) return null
+  const tableInstanceId = buildTableInstanceId(kind, group.fields || [])
   const legacyMapKey = `${groupIndex}-${kind}-${colCount}`
-  // 缓存键使用新的 tableInstanceId
-  const mapKey = tableInstanceId
+  const mapKey = `${scope}:${kind}:${colCount}:${tableInstanceId}`
 
   if (!resizerCache.has(mapKey)) {
-    // 迁移旧键（首次访问时）
     migrateLegacyKeyIfNeeded(selectedForm.value.id, tableInstanceId, legacyMapKey)
 
     const tableKindRef = computed(() => tableInstanceId)
-    const defaultsFactory = buildResizerDefaultsFactory(kind, colCount, groupIndex)
+    const defaultsFactory = buildResizerDefaultsFactory(kind, colCount, group)
     resizerCache.set(mapKey, useColumnResize(formIdRef, tableKindRef, defaultsFactory))
   }
   return resizerCache.get(mapKey)
@@ -1241,7 +1230,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                   <template v-for="(g, gi) in renderGroups" :key="gi">
                     <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
                       <table class="unified-table">
-                        <colgroup v-if="getResizer('unified', g.colCount, gi)"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'main')"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                         <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                           <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
                             <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
@@ -1256,26 +1245,26 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                           </template>
                         </template>
                       </table>
-                      <template v-if="getResizer('unified', g.colCount, gi)"><div v-for="bi in getResizer('unified', g.colCount, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi).snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('unified', g.colCount, gi, g, 'main')"><div v-for="bi in getResizer('unified', g.colCount, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi, g, 'main').snapGuideX + 'px' }"></div></template>
                     </div>
                     <div v-else-if="g.type === 'normal'" class="col-resize-host">
                       <table>
-                        <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <colgroup v-if="getResizer('normal', 2, gi, g, 'main')"><col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                         <template v-for="ff in g.fields" :key="ff.id">
                           <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                           <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
                           <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                         </template>
                       </table>
-                      <template v-if="getResizer('normal', 2, gi)"><div v-for="bi in getResizer('normal', 2, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi).snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('normal', 2, gi, g, 'main')"><div v-for="bi in getResizer('normal', 2, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'main').snapGuideX + 'px' }"></div></template>
                     </div>
                     <div v-else class="col-resize-host inline-host">
                       <table class="inline-table">
-                        <colgroup v-if="getResizer('inline', g.fields.length, gi)"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'main')"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                         <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                         <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(getFormFieldPreviewStyle(g.fields[ci]))" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
                       </table>
-                      <template v-if="getResizer('inline', g.fields.length, gi)"><div v-for="bi in getResizer('inline', g.fields.length, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi).snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('inline', g.fields.length, gi, g, 'main')"><div v-for="bi in getResizer('inline', g.fields.length, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX + 'px' }"></div></template>
                     </div>
                   </template>
                 </div>
@@ -1321,29 +1310,29 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                             <template v-for="(g, gi) in designerRenderGroups" :key="gi">
                               <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
                                 <table class="unified-table">
-                                  <colgroup v-if="getResizer('unified', g.colCount, gi)"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                                   <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                                     <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
                                     <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
                                     <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
                                   </template>
                                 </table>
-                                <template v-if="getResizer('unified', g.colCount, gi)"><div v-for="bi in getResizer('unified', g.colCount, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi).snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('unified', g.colCount, gi, g, 'designer')"><div v-for="bi in getResizer('unified', g.colCount, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
                               </div>
                               <div v-else-if="g.type === 'normal'" class="col-resize-host">
                                 <table>
-                                  <colgroup v-if="getResizer('normal', 2, gi)"><col v-for="(r, ci) in getResizer('normal', 2, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <colgroup v-if="getResizer('normal', 2, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                                   <template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template>
                                 </table>
-                                <template v-if="getResizer('normal', 2, gi)"><div v-for="bi in getResizer('normal', 2, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi).snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('normal', 2, gi, g, 'designer')"><div v-for="bi in getResizer('normal', 2, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
                               </div>
                               <div v-else class="col-resize-host inline-host">
                                 <table class="inline-table">
-                                  <colgroup v-if="getResizer('inline', g.fields.length, gi)"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi).colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
                                   <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                                   <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
                                 </table>
-                                <template v-if="getResizer('inline', g.fields.length, gi)"><div v-for="bi in getResizer('inline', g.fields.length, gi).colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi).colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi).onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi).snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi).snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"><div v-for="bi in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
                               </div>
                             </template>
                           </div>
