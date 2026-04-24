@@ -71,10 +71,6 @@ export function buildFormDesignerRenderGroups(fields) {
   }
   maxBlockWidth = Math.max(maxBlockWidth, currentWidth)
 
-  if (hasRegular && maxBlockWidth > 4) {
-    return [{ type: 'unified', fields, colCount: maxBlockWidth }]
-  }
-
   const groups = []
   let index = 0
   while (index < fields.length) {

@@ -121,7 +121,7 @@ from src.repositories.project_repository import ProjectRepository
 
 from src.schemas.project import normalize_screening_number_format
 
-from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, extract_default_lines
+from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, build_field_control_weight, extract_default_lines
 
 from src.services.width_planning import (
 
@@ -149,7 +149,7 @@ class LayoutDecision:
 
 
 
-    mode: str  # "legacy" | "unified_landscape"
+    mode: str  # "legacy" | "mixed_landscape" | "unified_landscape"
 
     column_count: int  # N 列数（仅 unified 有意义）
 
@@ -929,7 +929,49 @@ class ExportService:
 
 
 
-            if layout.mode == "unified_landscape":
+            if layout.mode == "mixed_landscape":
+
+                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
+
+                for run in heading_para.runs:
+
+                    self._set_run_font(run)
+
+                groups = self._group_form_fields(form_fields)
+
+                if groups == [[]]:
+
+                    groups = []
+
+                for group in groups:
+
+                    if not group:
+
+                        continue
+
+                    first_field = group[0]
+
+                    if first_field.inline_mark == 1:
+
+                        self._add_inline_table(doc, group, True, form_id=form.id)
+
+                    else:
+
+                        self._build_form_table(doc, group, form_id=form.id)
+
+                if not groups:
+
+                    self._build_form_table(doc, [], form_id=form.id)
+
+                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+                if not is_last_form:
+
+                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            elif layout.mode == "unified_landscape":
 
                 # 统一横向布局路径
 
@@ -1151,9 +1193,7 @@ class ExportService:
 
             N = max_block_width
 
-            label_span = max(1, min(N - 1, round(N * 0.4)))
-
-            return LayoutDecision("unified_landscape", N, label_span, N - label_span)
+            return LayoutDecision("mixed_landscape", N, 0, 0)
 
 
 
@@ -1294,6 +1334,7 @@ class ExportService:
         # 收集 inline block 的内容用于宽度规划（使用语义需求）
         segment_data = []
         all_block_demands = []
+        regular_field_demands = []
         # 收集所有字段用于构建 table_instance_id
         all_fields = []
         for segment in segments:
@@ -1304,6 +1345,15 @@ class ExportService:
                 all_block_demands.append(build_inline_column_demands(segment.fields))
                 all_fields.extend(segment.fields)
             elif segment.type == "regular_field" and segment.fields:
+                form_field = segment.fields[0]
+                field_def = getattr(form_field, "field_definition", None)
+                label = getattr(form_field, "label_override", None) or (
+                    getattr(field_def, "label", None) if field_def else None
+                ) or ""
+                regular_field_demands.append({
+                    "label_weight": compute_text_weight(label),
+                    "control_weight": build_field_control_weight(form_field),
+                })
                 all_fields.extend(segment.fields)
 
         # 检查是否有列宽覆盖配置 - 使用 table_instance_id
@@ -1318,8 +1368,12 @@ class ExportService:
         else:
             # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
             col_widths = plan_unified_table_width(
-                segment_data, 23.36, column_count=N, block_demands=all_block_demands
-            ) if segment_data else None
+                segment_data,
+                23.36,
+                column_count=N,
+                block_demands=all_block_demands,
+                regular_field_demands=regular_field_demands,
+            ) if segment_data or regular_field_demands else None
 
         if col_widths and len(col_widths) == N:
             # 应用规划的列宽

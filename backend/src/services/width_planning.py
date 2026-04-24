@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, TypedDict
 
 
 # 字符权重常量
@@ -46,6 +46,11 @@ class WidthPlan:
     demands: List[ColumnDemand]
     normalized_fractions: List[float]  # 归一化后的列比例
     fallback_applied: bool              # 是否应用了缩放回退
+
+
+class RegularFieldDemand(TypedDict):
+    label_weight: float
+    control_weight: float
 
 
 def compute_char_weight(char: str) -> float:
@@ -244,6 +249,7 @@ def plan_unified_table_width(
     available_cm: float = 23.36,
     column_count: int | None = None,
     block_demands: List[List[Tuple[str, float]]] | None = None,
+    regular_field_demands: List[RegularFieldDemand] | None = None,
 ) -> List[float]:
     """为 unified 横向表规划列宽（厘米单位）。
 
@@ -256,6 +262,7 @@ def plan_unified_table_width(
         column_count: unified 表的物理列数（若提供则用于归一化）
         block_demands: 可选的预计算语义需求列表，每个元素对应一个 inline block
                       的 [(label, weight)] 列表。若提供则优先使用。
+        regular_field_demands: 可选的普通字段 label/control 语义权重。
 
     Returns:
         每列宽度列表（厘米），长度等于 column_count 或最大 block 列数
@@ -276,6 +283,18 @@ def plan_unified_table_width(
     # 按列槽位取最大：每个 slot 收集所有 block 的需求，取 max
     slot_weights = [0.0] * N
 
+    def _regular_spans() -> tuple[int, int]:
+        label_span = max(1, min(N - 1, round(N * 0.4)))
+        return label_span, N - label_span
+
+    def _apply_spanned_weight(start: int, span: int, weight: float) -> None:
+        if weight <= 0 or span <= 0:
+            return
+        end = min(N, start + span)
+        per_slot_weight = weight / (end - start)
+        for slot_idx in range(start, end):
+            slot_weights[slot_idx] = max(slot_weights[slot_idx], per_slot_weight)
+
     if block_demands:
         # 使用预计算的语义需求
         for demands_list in block_demands:
@@ -290,15 +309,20 @@ def plan_unified_table_width(
                 for i, d in enumerate(demands):
                     if i < N:
                         slot_weights[i] = max(slot_weights[i], d.intrinsic_weight)
-            elif seg_type == "regular_field" and headers and len(headers) >= 2 and N >= 2:
-                # regular_field: headers=[label, control]
-                # label 列取文本权重
-                label_weight = compute_text_weight(headers[0] or "")
-                slot_weights[0] = max(slot_weights[0], label_weight)
-                # control 列通过 build_column_demands 获取（含 choice/fill-line）
+
+    if regular_field_demands and N >= 2:
+        label_span, value_span = _regular_spans()
+        for demand in regular_field_demands:
+            _apply_spanned_weight(0, label_span, demand["label_weight"])
+            _apply_spanned_weight(label_span, value_span, demand["control_weight"])
+    elif not block_demands and N >= 2:
+        for seg_type, headers, rows in segments:
+            if seg_type == "regular_field" and headers and len(headers) >= 2:
+                label_span, value_span = _regular_spans()
+                _apply_spanned_weight(0, label_span, compute_text_weight(headers[0] or ""))
                 control_demands = build_column_demands(headers[1:], rows)
                 if control_demands:
-                    slot_weights[1] = max(slot_weights[1], control_demands[0].intrinsic_weight)
+                    _apply_spanned_weight(label_span, value_span, control_demands[0].intrinsic_weight)
 
     # 构建聚合后的列需求
     aggregated_demands = [
@@ -324,8 +348,8 @@ def build_normal_table_demands(fields) -> List[ColumnDemand]:
     与前端 `buildNormalColumnDemands` 保持对等语义：
       1. 剔除结构字段（field_type ∈ STRUCTURAL_FIELD_TYPES 或 is_log_row）
       2. label 列：对所有有效字段 label 文本权重取 max
-      3. control 列：对每个字段调用 `build_inline_column_demands([ff])[0][1]`
-         获取控件语义权重（含 choice atom / fill-line / 默认值等），聚合 max
+      3. control 列：对每个字段调用 `build_field_control_weight(ff)`
+         获取控件语义权重（含 choice atom / fill-line / 日期占位符 / 默认值等），聚合 max
       4. 两列均应用 `max(weight, WEIGHT_ASCII * 4)` 最小保护
 
     Args:
@@ -352,10 +376,8 @@ def build_normal_table_demands(fields) -> List[ColumnDemand]:
             ColumnDemand(column_key="control", intrinsic_weight=min_weight, min_weight=min_weight),
         ]
 
-    # 延迟导入打破与 field_rendering.py 的循环依赖：
-    # field_rendering.py 顶层 import width_planning 的常量与工具；
-    # 仅在存在有效字段时才需要 build_inline_column_demands 的 choice/fill-line 语义。
-    from src.services.field_rendering import build_inline_column_demands
+    # 延迟导入打破与 field_rendering.py 的循环依赖。
+    from src.services.field_rendering import build_field_control_weight
 
     label_weight = 0.0
     control_weight = 0.0
@@ -366,9 +388,7 @@ def build_normal_table_demands(fields) -> List[ColumnDemand]:
         ) or ""
         label_weight = max(label_weight, compute_text_weight(label_text))
 
-        inline = build_inline_column_demands([ff])
-        if inline:
-            control_weight = max(control_weight, inline[0][1])
+        control_weight = max(control_weight, build_field_control_weight(ff))
 
     return [
         ColumnDemand(
