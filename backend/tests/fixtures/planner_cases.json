@@ -258,6 +258,61 @@
         0.5909090909090909,
         0.4090909090909091
       ]
+    },
+    {
+      "name": "unified_mixed_inline_and_regular",
+      "kind": "unified",
+      "columnCount": 2,
+      "description": "inline_block + regular_field 混合布局：regular_field label/control 分别贡献 slot 0/1（control 使用 buildInlineColumnDemands 结果）",
+      "segments": [
+        {
+          "type": "inline_block",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "姓名",
+                "options": null
+              }
+            },
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "联系方式",
+                "options": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "regular_field",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "诊断结果详细描述",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.5,
+        0.5
+      ]
     }
   ]
 }

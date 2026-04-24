@@ -290,6 +290,15 @@ def plan_unified_table_width(
                 for i, d in enumerate(demands):
                     if i < N:
                         slot_weights[i] = max(slot_weights[i], d.intrinsic_weight)
+            elif seg_type == "regular_field" and headers and len(headers) >= 2 and N >= 2:
+                # regular_field: headers=[label, control]
+                # label 列取文本权重
+                label_weight = compute_text_weight(headers[0] or "")
+                slot_weights[0] = max(slot_weights[0], label_weight)
+                # control 列通过 build_column_demands 获取（含 choice/fill-line）
+                control_demands = build_column_demands(headers[1:], rows)
+                if control_demands:
+                    slot_weights[1] = max(slot_weights[1], control_demands[0].intrinsic_weight)
 
     # 构建聚合后的列需求
     aggregated_demands = [

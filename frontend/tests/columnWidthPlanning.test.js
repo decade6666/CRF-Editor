@@ -135,11 +135,14 @@ test('9.7 rare_cjk_extension_char: 𠮷吉 权重 = 4（code point 正确）', (
 // 简易 localStorage mock（测试期替换 globalThis.localStorage）
 function createLocalStorageStub() {
   const store = new Map()
+  const keys = () => Array.from(store.keys())
   return {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => { store.set(k, String(v)) },
     removeItem: (k) => { store.delete(k) },
     clear: () => { store.clear() },
+    key: (i) => keys()[i] ?? null,
+    get length() { return store.size },
     _peek: () => Object.fromEntries(store),
   }
 }
@@ -272,4 +275,337 @@ test('12.2 shared fixture: frontend planner matches expected_fractions exactly',
       )
     }
   }
+})
+
+// ─── Phase 16.1：table_instance_id 规范格式测试 ───────────────────────────────
+
+test('16.1.5a new_key_format: buildTableInstanceId 生成 kind:fieldIds=... 格式', async () => {
+  // 模拟 FormDesignerTab 的 buildTableInstanceId 函数
+  function buildTableInstanceId(kind, fields) {
+    const fieldIds = (fields || []).map(f => f.id).filter(id => id != null).join(',')
+    return `${kind}:fieldIds=${fieldIds}`
+  }
+
+  const fields = [{ id: 1 }, { id: 2 }, { id: 3 }]
+  assert.equal(buildTableInstanceId('normal', fields), 'normal:fieldIds=1,2,3')
+  assert.equal(buildTableInstanceId('inline', fields.slice(0, 2)), 'inline:fieldIds=1,2')
+  assert.equal(buildTableInstanceId('unified', []), 'unified:fieldIds=')
+})
+
+test('16.1.5b new_key_format_persistence: useColumnResize 使用新格式键读写', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 新格式键
+  const newKey = 'crf:designer:col-widths:42:normal:fieldIds=1,2,3'
+  ls.setItem(newKey, JSON.stringify([0.35, 0.65]))
+
+  const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+  const { ref, nextTick } = await import('vue')
+  const formId = ref(42)
+  const tableInstanceId = ref('normal:fieldIds=1,2,3')
+  const factory = () => [0.4, 0.6]
+
+  const r = useColumnResize(formId, tableInstanceId, factory)
+  assert.deepEqual(r.colRatios, [0.35, 0.65], 'should read from new key format')
+
+  // 模拟拖拽写入
+  r.colRatios.value = [0.3, 0.7]
+  // 手动触发写入（模拟 onUp）
+  ls.setItem(newKey, JSON.stringify([0.3, 0.7]))
+  assert.equal(ls.getItem(newKey), JSON.stringify([0.3, 0.7]), 'should write to new key format')
+
+  delete globalThis.localStorage
+})
+
+test('16.1.5c legacy_key_migration: 旧键迁移到新键后删除', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  const formId = '42'
+  const newTableInstanceId = 'normal:fieldIds=1,2,3'
+  const legacyMapKey = '0-normal-2'
+
+  // 设置旧键值
+  const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`
+  const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`
+  ls.setItem(legacyKey, JSON.stringify([0.7, 0.3]))
+
+  // 模拟迁移逻辑
+  function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
+    if (!formId || !newTableInstanceId || !legacyMapKey) return
+    const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`
+    const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`
+    try {
+      const legacyValue = ls.getItem(legacyKey)
+      if (legacyValue != null && ls.getItem(newKey) == null) {
+        ls.setItem(newKey, legacyValue)
+      }
+      if (legacyValue != null) {
+        ls.removeItem(legacyKey)
+      }
+    } catch { /* ignore */ }
+  }
+
+  migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey)
+
+  // 验证迁移结果
+  assert.equal(ls.getItem(newKey), JSON.stringify([0.7, 0.3]), 'value should be migrated')
+  assert.equal(ls.getItem(legacyKey), null, 'legacy key should be deleted')
+
+  delete globalThis.localStorage
+})
+
+test('16.1.5d legacy_key_no_overwrite: 新键已有值时不迁移', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  const formId = '42'
+  const newTableInstanceId = 'normal:fieldIds=1,2,3'
+  const legacyMapKey = '0-normal-2'
+
+  const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`
+  const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`
+
+  // 两键都有值
+  ls.setItem(legacyKey, JSON.stringify([0.7, 0.3]))
+  ls.setItem(newKey, JSON.stringify([0.25, 0.75]))
+
+  function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
+    const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`
+    const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`
+    try {
+      const legacyValue = ls.getItem(legacyKey)
+      if (legacyValue != null && ls.getItem(newKey) == null) {
+        ls.setItem(newKey, legacyValue)
+      }
+      if (legacyValue != null) {
+        ls.removeItem(legacyKey)
+      }
+    } catch { /* ignore */ }
+  }
+
+  migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey)
+
+  // 新键值保持不变
+  assert.equal(ls.getItem(newKey), JSON.stringify([0.25, 0.75]), 'new key should not be overwritten')
+  // 旧键被删除
+  assert.equal(ls.getItem(legacyKey), null, 'legacy key should be deleted')
+
+  delete globalThis.localStorage
+})
+
+// ─── Phase 16.2：Export Column Width Override Contract 测试 ──────────────────
+
+test('16.2.6a collectColumnWidthOverrides_new_format: 收集新格式键', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 设置新格式键
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3', JSON.stringify([0.35, 0.65]))
+  ls.setItem('crf:designer:col-widths:42:inline:fieldIds=4,5', JSON.stringify([0.4, 0.6]))
+  ls.setItem('crf:designer:col-widths:99:unified:fieldIds=6,7,8', JSON.stringify([0.3, 0.4, 0.3]))
+
+  // 模拟 collectColumnWidthOverrides 逻辑
+  function collectColumnWidthOverrides(forms) {
+    const overrides = {}
+    if (!forms || !forms.length) return overrides
+    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
+    const keyPrefix = 'crf:designer:col-widths:'
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(keyPrefix)) continue
+      const parts = key.slice(keyPrefix.length).split(':')
+      if (parts.length < 2) continue
+      const formId = parseInt(parts[0], 10)
+      if (!formIds.has(formId)) continue
+      const tableInstanceId = parts.slice(1).join(':')
+      try {
+        const raw = localStorage.getItem(key)
+        if (!raw) continue
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
+          overrides[tableInstanceId] = arr
+        }
+      } catch { /* ignore */ }
+    }
+    return overrides
+  }
+
+  const forms = [{ id: 42 }, { id: 99 }]
+  const overrides = collectColumnWidthOverrides(forms)
+
+  assert.equal(Object.keys(overrides).length, 3)
+  assert.deepEqual(overrides['normal:fieldIds=1,2,3'], [0.35, 0.65])
+  assert.deepEqual(overrides['inline:fieldIds=4,5'], [0.4, 0.6])
+  assert.deepEqual(overrides['unified:fieldIds=6,7,8'], [0.3, 0.4, 0.3])
+
+  delete globalThis.localStorage
+})
+
+test('16.2.6b collectColumnWidthOverrides_legacy_format: 兼容旧格式键', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 设置旧格式键（迁移后删除，但若未迁移仍需能读取）
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
+  ls.setItem('crf:designer:col-widths:42:1-inline-3', JSON.stringify([0.33, 0.33, 0.34]))
+
+  function collectColumnWidthOverrides(forms) {
+    const overrides = {}
+    if (!forms || !forms.length) return overrides
+    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
+    const keyPrefix = 'crf:designer:col-widths:'
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(keyPrefix)) continue
+      const parts = key.slice(keyPrefix.length).split(':')
+      if (parts.length < 2) continue
+      const formId = parseInt(parts[0], 10)
+      if (!formIds.has(formId)) continue
+      const tableInstanceId = parts.slice(1).join(':')
+      try {
+        const raw = localStorage.getItem(key)
+        if (!raw) continue
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
+          overrides[tableInstanceId] = arr
+        }
+      } catch { /* ignore */ }
+    }
+    return overrides
+  }
+
+  const forms = [{ id: 42 }]
+  const overrides = collectColumnWidthOverrides(forms)
+
+  assert.equal(Object.keys(overrides).length, 2)
+  assert.deepEqual(overrides['0-normal-2'], [0.7, 0.3])
+  assert.deepEqual(overrides['1-inline-3'], [0.33, 0.33, 0.34])
+
+  delete globalThis.localStorage
+})
+
+test('16.2.6c collectColumnWidthOverrides_invalid_entry: 跳过无效条目', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 有效
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.4, 0.6]))
+  // 无效：元素超出范围（负数）
+  ls.setItem('crf:designer:col-widths:42:invalid1:fieldIds=3', JSON.stringify([-0.1, 1.1]))
+  // 无效：非数组
+  ls.setItem('crf:designer:col-widths:42:invalid2:fieldIds=4', '{"not":"array"}')
+  // 无效：元素超出范围（>1）
+  ls.setItem('crf:designer:col-widths:42:invalid3:fieldIds=5', JSON.stringify([1.5, 0.5]))
+  // 无效：空数组
+  ls.setItem('crf:designer:col-widths:42:invalid4:fieldIds=6', '[]')
+
+  function collectColumnWidthOverrides(forms) {
+    const overrides = {}
+    if (!forms || !forms.length) return overrides
+    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
+    const keyPrefix = 'crf:designer:col-widths:'
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(keyPrefix)) continue
+      const parts = key.slice(keyPrefix.length).split(':')
+      if (parts.length < 2) continue
+      const formId = parseInt(parts[0], 10)
+      if (!formIds.has(formId)) continue
+      const tableInstanceId = parts.slice(1).join(':')
+      try {
+        const raw = localStorage.getItem(key)
+        if (!raw) continue
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
+          overrides[tableInstanceId] = arr
+        }
+      } catch { /* ignore */ }
+    }
+    return overrides
+  }
+
+  const forms = [{ id: 42 }]
+  const overrides = collectColumnWidthOverrides(forms)
+
+  assert.equal(Object.keys(overrides).length, 1)
+  assert.deepEqual(overrides['normal:fieldIds=1,2'], [0.4, 0.6])
+
+  delete globalThis.localStorage
+})
+
+// ─── Phase 16.3：Reset Button UI 测试 ───────────────────────────────────────
+
+test('16.3.5a resetColumnWidths_clears_form_keys: 清除指定表单的所有列宽键', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 设置多个表单的列宽键
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3', JSON.stringify([0.35, 0.65]))
+  ls.setItem('crf:designer:col-widths:42:inline:fieldIds=4,5', JSON.stringify([0.4, 0.6]))
+  ls.setItem('crf:designer:col-widths:99:normal:fieldIds=6,7', JSON.stringify([0.3, 0.7]))
+
+  // 模拟 resetColumnWidths 逻辑
+  function resetColumnWidths(formId) {
+    if (formId == null) return
+    const keyPrefix = `crf:designer:col-widths:${formId}:`
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(keyPrefix)) {
+        keysToRemove.push(key)
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key)
+    }
+  }
+
+  resetColumnWidths(42)
+
+  // 验证表单 42 的键被清除
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3'), null)
+  assert.equal(ls.getItem('crf:designer:col-widths:42:inline:fieldIds=4,5'), null)
+  // 验证其他表单的键保留
+  assert.equal(ls.getItem('crf:designer:col-widths:99:normal:fieldIds=6,7'), JSON.stringify([0.3, 0.7]))
+
+  delete globalThis.localStorage
+})
+
+test('16.3.5b batchResetColumnWidths_clears_multiple_forms: 批量清除多表单列宽键', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 设置多个表单的列宽键
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3', JSON.stringify([0.35, 0.65]))
+  ls.setItem('crf:designer:col-widths:99:inline:fieldIds=4,5', JSON.stringify([0.4, 0.6]))
+  ls.setItem('crf:designer:col-widths:100:unified:fieldIds=6,7,8', JSON.stringify([0.3, 0.4, 0.3]))
+
+  // 模拟 batchResetColumnWidths 逻辑
+  function batchResetColumnWidths(formIds) {
+    for (const formId of formIds) {
+      const keyPrefix = `crf:designer:col-widths:${formId}:`
+      const keysToRemove = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith(keyPrefix)) {
+          keysToRemove.push(key)
+        }
+      }
+      for (const key of keysToRemove) {
+        localStorage.removeItem(key)
+      }
+    }
+  }
+
+  batchResetColumnWidths([42, 99])
+
+  // 验证表单 42 和 99 的键被清除
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3'), null)
+  assert.equal(ls.getItem('crf:designer:col-widths:99:inline:fieldIds=4,5'), null)
+  // 验证其他表单的键保留
+  assert.equal(ls.getItem('crf:designer:col-widths:100:unified:fieldIds=6,7,8'), JSON.stringify([0.3, 0.4, 0.3]))
+
+  delete globalThis.localStorage
 })

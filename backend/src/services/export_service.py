@@ -1033,7 +1033,7 @@ class ExportService:
         self._set_run_font(names_run, size=Pt(10.5))
 
     def _get_column_width_override(self, form_id, table_kind: str, col_count: int):
-        """获取指定表单和表格类型的列宽覆盖配置。
+        """获取指定表单和表格类型的列宽覆盖配置（旧格式兼容）。
 
         Args:
             form_id: 表单 ID（None 时返回 None）
@@ -1058,6 +1058,49 @@ class ExportService:
         if not all(isinstance(v, (int, float)) and 0.0 <= v <= 1.0 for v in overrides):
             return None
         return overrides
+
+    def _get_column_width_override_by_instance_id(
+        self, table_instance_id: str, col_count: int, form_id=None, table_kind: str = None
+    ):
+        """根据 table_instance_id 获取列宽覆盖配置。
+
+        Args:
+            table_instance_id: 表实例标识符，格式 "kind:fieldIds=..." 或 legacy "groupIndex-kind-colCount"
+            col_count: 列数，用于验证覆盖配置长度
+            form_id: 表单 ID（用于 legacy 格式兼容）
+            table_kind: 表格类型（用于 legacy 格式兼容）
+
+        Returns:
+            List[float] 或 None：列宽 fraction 数组，长度应等于 col_count
+        """
+        if not self._column_width_overrides:
+            return None
+
+        # 新格式：直接用 table_instance_id 查询
+        if table_instance_id in self._column_width_overrides:
+            overrides = self._column_width_overrides[table_instance_id]
+            if isinstance(overrides, list) and len(overrides) == col_count:
+                if all(isinstance(v, (int, float)) and 0.0 <= v <= 1.0 for v in overrides):
+                    return overrides
+
+        # Legacy 格式兼容：fallback 到旧方法
+        if form_id is not None and table_kind is not None:
+            return self._get_column_width_override(form_id, table_kind, col_count)
+
+        return None
+
+    def _build_table_instance_id(self, table_kind: str, fields) -> str:
+        """根据表格类型和字段列表构建 table_instance_id。
+
+        Args:
+            table_kind: 表格类型 ("normal", "inline", "unified")
+            fields: 字段列表，每个字段需要有 id 属性
+
+        Returns:
+            table_instance_id: 格式 "kind:fieldIds=<ordered-field-ids>"
+        """
+        field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, 'id') and f.id is not None]
+        return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
     def _classify_form_layout(self, form_fields) -> LayoutDecision:
         """判断表单是否需要走统一横向布局（unified landscape）。
@@ -1251,15 +1294,23 @@ class ExportService:
         # 收集 inline block 的内容用于宽度规划（使用语义需求）
         segment_data = []
         all_block_demands = []
+        # 收集所有字段用于构建 table_instance_id
+        all_fields = []
         for segment in segments:
             if segment.type == "inline_block" and segment.fields:
                 headers, row_values, _ = build_inline_table_model(segment.fields)
                 segment_data.append(("inline_block", headers, row_values))
                 # 使用包含 choice/fill-line/unit 语义的需求
                 all_block_demands.append(build_inline_column_demands(segment.fields))
+                all_fields.extend(segment.fields)
+            elif segment.type == "regular_field" and segment.fields:
+                all_fields.extend(segment.fields)
 
-        # 检查是否有列宽覆盖配置
-        overrides = self._get_column_width_override(form_id, "unified", N)
+        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("unified", all_fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, N, form_id=form_id, table_kind="unified"
+        )
         if overrides:
             # 直接使用覆盖的 fraction 转换为 cm
             total_cm = 23.36
@@ -1727,8 +1778,11 @@ class ExportService:
         # available_cm=14.66 对齐原硬编码 Cm(7.2)+Cm(7.4)=14.6cm 的页面预算。
         normal_widths = plan_normal_table_width(fields or [], available_cm=14.66)
 
-        # 应用列宽覆盖（如果有）
-        overrides = self._get_column_width_override(form_id, "normal", 2)
+        # 应用列宽覆盖（如果有）- 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("normal", fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, 2, form_id=form_id, table_kind="normal"
+        )
         if overrides:
             total_cm = 14.66
             normal_widths = [overrides[i] * total_cm for i in range(2)]
@@ -1978,8 +2032,11 @@ class ExportService:
         # 使用内容驱动的宽度规划替代等宽分配
         avail_cm = 23.36 if is_wide else 14.66
 
-        # 检查是否有列宽覆盖配置
-        overrides = self._get_column_width_override(form_id, "inline", len(marked_fields))
+        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("inline", marked_fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, len(marked_fields), form_id=form_id, table_kind="inline"
+        )
         if overrides:
             # 直接使用覆盖的 fraction 转换为 cm
             col_widths = [overrides[i] * avail_cm for i in range(len(marked_fields))]

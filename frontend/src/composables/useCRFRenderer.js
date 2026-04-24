@@ -257,11 +257,23 @@ export function planUnifiedColumnFractions(segments, columnCount) {
   const slotWeights = new Array(columnCount).fill(0)
 
   for (const segment of segments || []) {
-    if (!segment || segment.type !== 'inline_block') continue
-    const demands = buildInlineColumnDemands(segment.fields || [])
-    const limit = Math.min(demands.length, columnCount)
-    for (let i = 0; i < limit; i += 1) {
-      slotWeights[i] = Math.max(slotWeights[i], demands[i].weight)
+    if (!segment) continue
+    if (segment.type === 'inline_block') {
+      const demands = buildInlineColumnDemands(segment.fields || [])
+      const limit = Math.min(demands.length, columnCount)
+      for (let i = 0; i < limit; i += 1) {
+        slotWeights[i] = Math.max(slotWeights[i], demands[i].weight)
+      }
+    } else if (segment.type === 'regular_field' && segment.fields?.length) {
+      const field = segment.fields[0]
+      if (field && columnCount >= 2) {
+        const labelText = field.label_override || field.field_definition?.label || ''
+        const labelWeight = computeTextWeight(labelText)
+        const demands = buildInlineColumnDemands([field])
+        const controlWeight = demands.length > 0 ? demands[0].weight : minWeight
+        slotWeights[0] = Math.max(slotWeights[0], labelWeight)
+        slotWeights[1] = Math.max(slotWeights[1], controlWeight)
+      }
     }
   }
 
