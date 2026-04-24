@@ -22,20 +22,52 @@ test('AdminView keeps batch project actions inside user management actions', () 
   assert.match(adminViewSource, /@selection-change="onProjectSelectionChange"/)
 })
 
-test('admin entry still mounts a single AdminView dialog without tab dead links', () => {
-  assert.match(appSource, /@click="showAdmin = true"/)
-  assert.match(appSource, /<AdminView @logout="logout" \/>/)
-  assert.equal(adminViewSource.includes('activeTab'), false)
-  assert.equal(adminViewSource.includes('name="recycle"'), false)
-  assert.equal(adminViewSource.includes('label="项目回收站" name="recycle"'), false)
+test('AdminView highlights admin users and restricts admin-only actions', () => {
+  assert.match(adminViewSource, /row\.is_admin/)
+  assert.match(adminViewSource, /管理员/)
+  assert.match(adminViewSource, /v-if="row\.is_admin"/)
+
+  const renameButtonTag = adminViewSource.match(/<el-button[^>]*@click="openRenameUser\(row\)"[^>]*>/)?.[0]
+  const resetPasswordButtonTag = adminViewSource.match(/<el-button[^>]*@click="openResetPassword\(row\)"[^>]*>/)?.[0]
+
+  assert.ok(renameButtonTag)
+  assert.ok(resetPasswordButtonTag)
+  assert.equal(/v-if=|v-show=/.test(renameButtonTag), false)
+  assert.equal(/v-if=|v-show=/.test(resetPasswordButtonTag), false)
+
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchMove\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchCopy\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchDelete\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="deleteUser\(row\)"/)
+  assert.match(adminViewSource, /@click="deleteUser\(row\)"[^\n>]*:disabled="row\.project_count > 0"/)
+})
+
+test('admin shell mounts AdminView directly without normal workspace content', () => {
+  assert.match(appSource, /<template v-else-if="isAdmin">/)
+  assert.match(appSource, /<div class="admin-shell">[\s\S]*<AdminView @logout="logout" \/>/)
+  assert.doesNotMatch(appSource, /showAdmin = true/)
+  assert.doesNotMatch(appSource, /<el-dialog v-model="showAdmin"/)
 })
 
 test('AdminView uses /api/admin routes for admin API calls', () => {
   assert.match(adminViewSource, /const adminApiBase = '\/api\/admin'/)
-  assert.equal(/api\.(?:get|post|patch|del)\((`|'|")\/admin\//.test(adminViewSource), false)
+  assert.equal(/api\.(?:get|post|patch|put|del)\((`|'|")\/admin\//.test(adminViewSource), false)
 
-  const adminApiBaseCalls = [...adminViewSource.matchAll(/api\.(?:get|post|patch|del)\(`\$\{adminApiBase\}\//g)]
-  assert.ok(adminApiBaseCalls.length >= 8)
+  const adminApiBaseCalls = [...adminViewSource.matchAll(/api\.(?:get|post|patch|put|del)\(`\$\{adminApiBase\}\//g)]
+  assert.ok(adminApiBaseCalls.length >= 9)
+})
+
+test('AdminView shows password state column and password reset entry', () => {
+  assert.match(adminViewSource, /label="密码状态"/)
+  assert.match(adminViewSource, /row\.has_password \? '已设密码' : '未设密码'/)
+  assert.match(adminViewSource, /@click="openResetPassword\(row\)"/)
+  assert.match(adminViewSource, /api\.put\(`\$\{adminApiBase\}\/users\/\$\{passwordForm\.id\}\/password`/)
+})
+
+test('AdminView requires password when creating a user', () => {
+  assert.match(adminViewSource, /label="初始密码"/)
+  assert.match(adminViewSource, /if \(!userForm\.id && !userForm\.password\)/)
+  assert.match(adminViewSource, /password: userForm\.password/)
 })
 
 test('App.vue shows copy button without hover condition', () => {

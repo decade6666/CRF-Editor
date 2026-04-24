@@ -1,6 +1,9 @@
 <template>
   <div class="crf-form-wrap">
     <table class="crf-table">
+      <colgroup>
+        <col v-for="(f, i) in columnFractions" :key="i" :style="{ width: (f * 100) + '%' }" />
+      </colgroup>
       <tbody>
         <tr
           v-for="field in displayFields"
@@ -55,7 +58,12 @@
 
 <script setup>
 import { computed } from 'vue'
-import { isDefaultValueSupported, normalizeDefaultValue, renderCtrlHtml } from '../composables/useCRFRenderer'
+import {
+  isDefaultValueSupported,
+  normalizeDefaultValue,
+  renderCtrlHtml,
+  planNormalColumnFractions,
+} from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
 import { getFormFieldPreviewStyle, getFormFieldDisplayLabel } from '../composables/formFieldPresentation'
 
@@ -63,6 +71,8 @@ const props = defineProps({
   fields: { type: Array, default: () => [] },
   aiSuggestions: { type: Array, default: () => [] },
   viewMode: { type: String, default: 'direct' }, // 'direct' | 'ai'
+  // 可选：宿主组件传入 formId 后，优先读取设计器保存的列宽
+  formId: { type: [Number, String], default: null },
 })
 
 defineEmits(['field-click'])
@@ -93,9 +103,21 @@ function getRowStyle(field) {
   return getFormFieldPreviewStyle(field, '')
 }
 
-// Task 3.3: 使用 formFieldPresentation.js 的标签函数
-function getDisplayLabel(field) {
-  return getFormFieldDisplayLabel(field, '')
+// 只读读取设计器持久化列宽；格式不合法或与当前列数不匹配时返回 null
+function readSharedRatios(formId, tableKind, expectedLength) {
+  if (formId == null || tableKind == null) return null
+  try {
+    const raw = localStorage.getItem(`crf:designer:col-widths:${formId}:${tableKind}`)
+    if (!raw) return null
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr) || arr.length !== expectedLength) return null
+    if (!arr.every(r => Number.isFinite(r) && r >= 0.1 && r <= 0.9)) return null
+    const sum = arr.reduce((a, b) => a + b, 0)
+    if (Math.abs(sum - 1) > 1e-3) return null
+    return arr
+  } catch {
+    return null
+  }
 }
 
 const displayFields = computed(() => {
@@ -114,6 +136,16 @@ const displayFields = computed(() => {
   // direct 模式：原始字段
   return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
 })
+
+// 计算 normal 表两列比例：优先设计器保存值，否则回退 planner
+// 注意：designer 使用 `${groupIndex}-normal-2` 作为 tableKind，但 SimulatedCRFForm 无分组概念，
+// 仅尝试 `0-normal-2`（多数表单第一组即 normal 表）；命中失败即自然降级 planner。
+const columnFractions = computed(() => {
+  const shared = readSharedRatios(props.formId, '0-normal-2', 2)
+  if (shared) return shared
+  const fractions = planNormalColumnFractions(displayFields.value)
+  return fractions.length === 2 ? fractions : [0.5, 0.5]
+})
 </script>
 
 <style scoped>
@@ -125,9 +157,10 @@ const displayFields = computed(() => {
   color: #1a1a1a;
 }
 
-/* 主表格：模拟 CRF 纸质表格 */
+/* 主表格：模拟 CRF 纸质表格；table-layout:fixed 让 <colgroup> 宽度生效 */
 .crf-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid #d4d4d4;
 }
@@ -163,9 +196,8 @@ const displayFields = computed(() => {
   color: #666;
 }
 
-/* 标签列 */
+/* 标签列（宽度由 <colgroup> 决定，不再硬编码） */
 .crf-label-cell {
-  width: 30%;
   padding: 6px 10px;
   border-right: 1px solid #d4d4d4;
   vertical-align: top;

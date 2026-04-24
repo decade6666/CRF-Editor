@@ -1,0 +1,352 @@
+{
+  "schemaVersion": 1,
+  "description": "Shared planner fixtures used by both frontend (useCRFRenderer) and backend (width_planning) tests. Each case specifies an input field sequence and the normalized expected fractions computed by the canonical frontend planner; backend implementations must match within 1e-6 after normalization.",
+  "generator": "frontend/scripts/generatePlannerFixtures.mjs",
+  "cases": [
+    {
+      "name": "normal_short_label_fill_line",
+      "kind": "normal",
+      "description": "单字段 [标签/文本] → [0.4, 0.6]",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "标签",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "name": "normal_long_cjk_label",
+      "kind": "normal",
+      "description": "10 字中文 label + 短文本控件 → label 列主导",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "一二三四五六七八九十",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.7692307692307693,
+        0.23076923076923078
+      ]
+    },
+    {
+      "name": "normal_mixed_with_structural",
+      "kind": "normal",
+      "description": "混合含标签/log 行 → 结构字段被剔除",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "标签",
+            "label": "章节标题"
+          }
+        },
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "姓名",
+            "options": null
+          }
+        },
+        {
+          "label_override": "以下为log行",
+          "is_log_row": 1,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "以下为log行"
+          }
+        },
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "电话号码",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.5714285714285714,
+        0.42857142857142855
+      ]
+    },
+    {
+      "name": "normal_rare_cjk_extension",
+      "kind": "normal",
+      "description": "扩展 B 汉字 𠮷 → 权重 = 2 并保留",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "𠮷吉"
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "name": "inline_choice_trailing_underscore",
+      "kind": "inline",
+      "description": "单选 + trailing_underscore → atom 权重含 FILL_LINE_WEIGHT",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 1,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "单选",
+            "label": "性别",
+            "options": [
+              {
+                "decode": "男",
+                "trailingUnderscore": true,
+                "order_index": 0
+              },
+              {
+                "decode": "女",
+                "trailingUnderscore": true,
+                "order_index": 0
+              },
+              {
+                "decode": "其他",
+                "trailingUnderscore": true,
+                "order_index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "expected_fractions": [
+        1
+      ]
+    },
+    {
+      "name": "inline_multiline_default_value",
+      "kind": "inline",
+      "description": "多行默认值 → 取最长行权重",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 1,
+          "default_value": "a\nlongest line here\nshort",
+          "field_definition": {
+            "field_type": "文本",
+            "label": "备注",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        1
+      ]
+    },
+    {
+      "name": "inline_missing_field_definition",
+      "kind": "inline",
+      "description": "field_definition 缺失 → FILL_LINE_WEIGHT 兜底，不抛异常",
+      "fields": [
+        {
+          "label_override": null,
+          "field_definition": null
+        }
+      ],
+      "expected_fractions": [
+        1
+      ]
+    },
+    {
+      "name": "unified_two_blocks_per_slot_max",
+      "kind": "unified",
+      "columnCount": 2,
+      "description": "两个 inline_block 对同 slot 取最大权重",
+      "segments": [
+        {
+          "type": "inline_block",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "A",
+                "options": null
+              }
+            },
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "超长的标签文字内容",
+                "options": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "inline_block",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "超长的第一列更长一些更长啊",
+                "options": null
+              }
+            },
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "B",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.5909090909090909,
+        0.4090909090909091
+      ]
+    },
+    {
+      "name": "unified_mixed_inline_and_regular",
+      "kind": "unified",
+      "columnCount": 2,
+      "description": "inline_block + regular_field 混合布局：regular_field label/control 按实际 colspan 分摊到 label/value 物理列",
+      "segments": [
+        {
+          "type": "inline_block",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "姓名",
+                "options": null
+              }
+            },
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "联系方式",
+                "options": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "regular_field",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "文本",
+                "label": "诊断结果详细描述",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.6666666666666666,
+        0.3333333333333333
+      ]
+    },
+    {
+      "name": "unified_regular_date_control_weight_spans_value_columns",
+      "kind": "unified",
+      "columnCount": 7,
+      "description": "regular_field 日期控件：label 权重分摊到前 3 列，日期占位符权重分摊到后 4 列",
+      "segments": [
+        {
+          "type": "regular_field",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "日期",
+                "label": "测量日期",
+                "date_format": "yyyy-MM-dd",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.08888888888888889,
+        0.08888888888888889,
+        0.08888888888888889,
+        0.18333333333333332,
+        0.18333333333333332,
+        0.18333333333333332,
+        0.18333333333333332
+      ]
+    }
+  ]
+}

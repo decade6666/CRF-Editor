@@ -3,8 +3,9 @@ import logging
 import os
 import tempfile
 from datetime import date
+from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -31,8 +32,15 @@ def export_word(
     project_id: int,
     session: Session = Depends(get_read_session),
     current_user: User = Depends(get_current_user),
+    column_width_overrides: Optional[Dict] = Body(default=None, embed=True),
 ):
-    """生成 Word 文档并直接返回文件流"""
+    """生成 Word 文档并直接返回文件流
+
+    Args:
+        column_width_overrides: 可选的列宽覆盖配置，格式：
+            { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
+            其中每个数组元素表示该列占总宽度的比例（0.0~1.0）
+    """
     verify_project_owner(project_id, current_user, session)
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
@@ -44,7 +52,7 @@ def export_word(
 
     try:
         service = ExportService(session)
-        ok = service.export_project_to_word(project_id, tmp_path)
+        ok = service.export_project_to_word(project_id, tmp_path, column_width_overrides=column_width_overrides)
         if not ok:
             os.unlink(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")

@@ -74,6 +74,22 @@ test('login view restores and persists the last username', () => {
   assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/)
 })
 
-test('admin dialog delegates logout through the shared app logout flow', () => {
-  assert.match(appSource, /<AdminView @logout="logout" \/>/)
+test('login view uses account password login and preserves username memory', () => {
+  assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/)
+  assert.match(loginSource, /const password = ref\(''\)/)
+  assert.match(loginSource, /fetch\('\/api\/auth\/login'/)
+  assert.match(loginSource, /body: JSON\.stringify\(\{[\s\S]*username: username\.value\.trim\(\),[\s\S]*password: password\.value/s)
+  assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/)
+})
+
+test('login view distinguishes development migration hints from generic auth failures', () => {
+  assert.match(loginSource, /const isDevelopment = import\.meta\.env\.DEV/)
+  assert.match(loginSource, /if \(status === 401\) \{[\s\S]*return isDevelopment && detail \? detail : '用户名或密码错误'/)
+  assert.match(loginSource, /if \(status === 429\) \{[\s\S]*return detail \|\| '操作过于频繁，请稍后重试'/)
+})
+
+test('admin workspace mounts before normal project shell content', () => {
+  assert.match(appSource, /async function onLoginSuccess\(\) \{[\s\S]*await loadMe\(\)[\s\S]*if \(isAdmin\.value\) \{[\s\S]*projects\.value = \[\]/)
+  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*await loadMe\(\)[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)/)
+  assert.match(appSource, /<template v-else-if="isAdmin">/)
 })

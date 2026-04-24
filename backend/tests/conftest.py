@@ -29,7 +29,7 @@ from src.models import Base
 # 测试用配置：只固定有效 secret_key，其余字段走默认值。
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
-    admin=AdminConfig(username="admin"),
+    admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
 )
 
 
@@ -65,7 +65,7 @@ def client(engine):
     with patch("main.get_config", return_value=_TEST_CONFIG), \
          patch("src.database.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.dependencies.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
          patch("main.init_db"):
         with TestClient(app, raise_server_exceptions=False) as c:

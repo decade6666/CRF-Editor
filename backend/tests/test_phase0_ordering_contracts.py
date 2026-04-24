@@ -1,4 +1,5 @@
 """Phase 0 排序真值与模板导入契约测试。"""
+from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +31,7 @@ from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.routers import settings as settings_router
+from src.services import import_service as import_service_module
 from src.services.export_service import ExportService
 
 
@@ -64,7 +66,7 @@ def client(engine):
     with patch("main.get_config", return_value=_TEST_CONFIG), \
          patch("src.database.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.dependencies.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
          patch("main.init_db"):
         with TestClient(app, raise_server_exceptions=False) as c:
@@ -227,6 +229,7 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
 
         result = SimpleNamespace(
             db_path=db_path,
+            allowed_template_path=db_path,
             source_project_id=project.id,
             form_id=form.id,
             form_field_ids=[form_field.id for form_field in form_fields],
@@ -247,11 +250,16 @@ def test_import_template_preview_exposes_form_field_id_and_source_project_id(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     resp = client.get(
         f"/api/projects/{target_project_id}/import-template/form-fields?form_id={template_db_path.form_id}",
@@ -275,11 +283,16 @@ def test_field_level_import_preserves_source_relative_order(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     selected_field_ids = [template_db_path.form_field_ids[2], template_db_path.form_field_ids[0]]
 
@@ -544,11 +557,16 @@ def test_field_level_import_rejects_duplicate_field_ids(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     duplicate_id = template_db_path.form_field_ids[0]
     resp = client.post(
@@ -574,11 +592,16 @@ def test_field_level_import_rejects_out_of_scope_field_ids(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     resp = client.post(
         f"/api/projects/{target_project_id}/import-template/execute",
@@ -602,11 +625,16 @@ def test_field_level_import_includes_dependency_closure(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     selected_field_ids = [template_db_path.form_field_ids[0], template_db_path.form_field_ids[1]]
     resp = client.post(
@@ -675,11 +703,16 @@ def test_field_level_import_no_orphan_references(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     resp = client.post(
         f"/api/projects/{target_project_id}/import-template/execute",
@@ -722,11 +755,16 @@ def test_import_then_reorder_then_export_consistent_order(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     resp = client.post(
         f"/api/projects/{target_project_id}/import-template/execute",

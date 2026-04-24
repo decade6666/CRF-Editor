@@ -45,6 +45,10 @@ async function _checkStatus(r) {
     _handle401()
     throw _createHttpError('登录已过期，请重新登录', r.status)
   }
+  if (r.status === 429) {
+    const detail = await _parseError(r)
+    throw _createHttpError(detail || '操作过于频繁，请稍后重试', r.status)
+  }
   if (!r.ok) throw _createHttpError(await _parseError(r), r.status)
 }
 
@@ -141,7 +145,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return _safeJsonParse(r)
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async patch(url, data) {
     const r = await fetch(url, {
@@ -151,7 +155,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return _safeJsonParse(r)
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async del(url) {
     const r = await fetch(url, { method: 'DELETE', headers: _getAuthHeaders() })

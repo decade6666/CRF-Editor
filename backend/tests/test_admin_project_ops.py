@@ -1,11 +1,12 @@
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as
+from helpers import auth_headers, login_as, seed_user
+from src.config import get_config
 from src.models.project import Project
 from src.models.user import User
 from src.models.form import Form
@@ -44,7 +45,7 @@ def test_batch_delete_rejects_missing_or_deleted_project_with_zero_changes(clien
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == 'admin'))
         active = _create_owned_project(session, admin_user.id, '活跃项目', order_index=1)
-        deleted = _create_owned_project(session, admin_user.id, '已删除项目', order_index=2, deleted_at=datetime.now(UTC))
+        deleted = _create_owned_project(session, admin_user.id, '已删除项目', order_index=2, deleted_at=datetime.now(timezone.utc))
         session.commit()
         before = {
             project.id: project.deleted_at
@@ -103,13 +104,13 @@ def test_batch_move_rejects_unknown_target_user_with_zero_changes(client, engine
 
 def test_batch_move_rejects_missing_or_deleted_project_with_zero_changes(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == 'admin'))
         target_user = session.scalar(select(User).where(User.username == 'target_user'))
         active = _create_owned_project(session, admin_user.id, '活跃项目', order_index=1)
-        deleted = _create_owned_project(session, admin_user.id, '已删除项目', order_index=2, deleted_at=datetime.now(UTC))
+        deleted = _create_owned_project(session, admin_user.id, '已删除项目', order_index=2, deleted_at=datetime.now(timezone.utc))
         session.commit()
         target_user_id = target_user.id
         before = {
@@ -134,7 +135,7 @@ def test_batch_move_rejects_missing_or_deleted_project_with_zero_changes(client,
 
 def test_batch_copy_uses_savepoint_isolation_and_returns_consistent_results(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == 'admin'))
@@ -185,12 +186,12 @@ def test_batch_copy_uses_savepoint_isolation_and_returns_consistent_results(clie
 
 def test_recycle_bin_returns_deleted_projects_with_owner_fields(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
         _create_owned_project(session, owner.id, '活跃项目', order_index=1)
-        deleted = _create_owned_project(session, owner.id, '回收站项目', order_index=2, deleted_at=datetime.now(UTC), screening_number_format='SCR-RECYCLE')
+        deleted = _create_owned_project(session, owner.id, '回收站项目', order_index=2, deleted_at=datetime.now(timezone.utc), screening_number_format='SCR-RECYCLE')
         session.commit()
         deleted_id = deleted.id
         owner_id = owner.id
@@ -207,13 +208,13 @@ def test_recycle_bin_returns_deleted_projects_with_owner_fields(client, engine):
 
 def test_restore_renames_on_conflict_and_appends_to_owner_tail(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
         _create_owned_project(session, owner.id, '项目A', order_index=1)
         _create_owned_project(session, owner.id, '项目B', order_index=2)
-        restored = _create_project_graph(session, owner.id, '项目A', order_index=3, deleted_at=datetime.now(UTC))
+        restored = _create_project_graph(session, owner.id, '项目A', order_index=3, deleted_at=datetime.now(timezone.utc))
         session.commit()
         owner_id = owner.id
         restored_id = restored.id
@@ -238,11 +239,11 @@ def test_restore_renames_on_conflict_and_appends_to_owner_tail(client, engine):
 
 def test_restore_keeps_full_project_graph_intact(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
-        project = _create_project_graph(session, owner.id, '待恢复项目', order_index=1, deleted_at=datetime.now(UTC))
+        project = _create_project_graph(session, owner.id, '待恢复项目', order_index=1, deleted_at=datetime.now(timezone.utc))
         session.commit()
         project_id = project.id
 
@@ -267,8 +268,8 @@ def test_restore_keeps_full_project_graph_intact(client, engine):
 
 def test_batch_move_appends_projects_to_target_owner_tail_order(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'source_user'})
-    client.post('/api/auth/enter', json={'username': 'target_user'})
+    seed_user(client, 'source_user')
+    seed_user(client, 'target_user')
 
     with Session(engine) as session:
         source_user = session.scalar(select(User).where(User.username == 'source_user'))
@@ -298,16 +299,16 @@ def test_batch_move_appends_projects_to_target_owner_tail_order(client, engine):
 
 def test_hard_delete_removes_project_logo_file(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
-        deleted = _create_project_graph(session, owner.id, '带Logo项目', order_index=1, deleted_at=datetime.now(UTC))
+        deleted = _create_project_graph(session, owner.id, '带Logo项目', order_index=1, deleted_at=datetime.now(timezone.utc))
         deleted.company_logo_path = 'deleted-logo.png'
         session.commit()
         deleted_id = deleted.id
 
-    logo_dir = Path('D:/Documents/GitHub/CRF-Editor/uploads/logos')
+    logo_dir = Path(get_config().upload_path) / 'logos'
     logo_dir.mkdir(parents=True, exist_ok=True)
     logo_path = logo_dir / 'deleted-logo.png'
     logo_path.write_bytes(b'fake-logo')
@@ -323,12 +324,12 @@ def test_hard_delete_removes_project_logo_file(client, engine):
 
 def test_hard_delete_only_accepts_recycled_projects_and_physically_removes_that_graph(client, engine):
     admin_token = login_as(client, 'admin')
-    client.post('/api/auth/enter', json={'username': 'owner_user'})
+    seed_user(client, 'owner_user')
 
     with Session(engine) as session:
         owner = session.scalar(select(User).where(User.username == 'owner_user'))
         active = _create_project_graph(session, owner.id, '活跃项目', order_index=1)
-        deleted = _create_project_graph(session, owner.id, '已删除项目', order_index=2, deleted_at=datetime.now(UTC))
+        deleted = _create_project_graph(session, owner.id, '已删除项目', order_index=2, deleted_at=datetime.now(timezone.utc))
         session.commit()
         active_id = active.id
         deleted_id = deleted.id

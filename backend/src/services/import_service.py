@@ -1,7 +1,6 @@
 """模板导入服务 - 从外部 .db 文件导入表单到当前项目"""
 from __future__ import annotations
 
-
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, TypedDict
@@ -11,6 +10,7 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 
+from src.config import get_config
 from src.models import Base
 from src.models.project import Project
 from src.models.form import Form
@@ -18,7 +18,7 @@ from src.models.form_field import FormField
 from src.models.field_definition import FieldDefinition
 from src.models.codelist import CodeList, CodeListOption
 from src.models.unit import Unit
-from src.utils import generate_code
+from src.utils import generate_code, is_safe_path
 from src.services.order_service import OrderService
 
 
@@ -37,6 +37,32 @@ class ImportService:
 
     def __init__(self, session: Session):
         self.session = session
+
+    @staticmethod
+    def _get_allowed_template_dirs() -> List[str]:
+        cfg = get_config()
+        db_parent = Path(cfg.db_path).resolve().parent
+        upload_dir = Path(cfg.upload_path).resolve()
+        return [str(db_parent), str(upload_dir)]
+
+    @staticmethod
+    def _validate_runtime_template_path(template_path: str) -> str:
+        """校验模板路径安全性，相对路径基于 config.yaml 所在目录解析。"""
+        cfg = get_config()
+        # 使用配置模块的路径解析逻辑：相对路径基于 config.yaml 目录
+        from src.config import _CONFIG_DIR, _resolve_path
+        resolved_path = Path(_resolve_path(template_path, _CONFIG_DIR)).resolve()
+
+        if resolved_path.suffix.lower() != ".db":
+            raise ValueError(f"模板文件必须是 .db 格式: {template_path}")
+
+        is_valid, error_msg = is_safe_path(
+            str(resolved_path),
+            allowed_dirs=ImportService._get_allowed_template_dirs(),
+        )
+        if not is_valid:
+            raise ValueError(f"模板路径不安全: {error_msg}")
+        return str(resolved_path)
 
 
     # ------------------------------------------------------------------
@@ -77,14 +103,10 @@ class ImportService:
         不使用 SQLite URI 模式，因为 SQLAlchemy URL 解析器会破坏中文路径。
         改用 creator 回调直接传原始路径给 sqlite3，再通过事件钩子设置只读。
         """
-        path = Path(template_path)
+        db_path = ImportService._validate_runtime_template_path(template_path)
+        path = Path(db_path)
         if not path.exists():
             raise FileNotFoundError(f"模板文件不存在: {template_path}")
-        if path.suffix.lower() != ".db":
-            raise ValueError(f"模板文件必须是 .db 格式: {template_path}")
-
-
-        db_path = str(path.resolve())
 
         # Task 3.4: 检查兼容性，不兼容模板返回稳定错误（只读访问，不修改源库）
         ImportService._check_template_compatibility(db_path)

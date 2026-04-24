@@ -6,18 +6,27 @@
 - P5. 排序稳定性不变式
 - P6. 幂等性不变式
 """
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from src.services.field_rendering import build_inline_column_demands, build_field_control_weight
 from src.services.width_planning import (
-    compute_char_weight,
-    compute_text_weight,
-    compute_choice_atom_weight,
+    WEIGHT_ASCII,
+    WEIGHT_CHINESE,
     build_column_demands,
-    plan_width,
+    build_normal_table_demands,
+    compute_char_weight,
+    compute_choice_atom_weight,
+    compute_text_weight,
     plan_inline_table_width,
+    plan_normal_table_width,
     plan_unified_table_width,
+    plan_width,
     ColumnDemand,
     WidthPlan,
 )
@@ -293,6 +302,19 @@ class TestPlanUnifiedTableWidth:
         assert len(widths) == 2
         assert widths[1] > widths[0]
 
+    def test_regular_field_demands_are_distributed_across_value_span(self):
+        """regular_field 的 control 权重按 value colspan 分摊到物理列。"""
+        widths = plan_unified_table_width(
+            [],
+            23.36,
+            column_count=7,
+            regular_field_demands=[{"label_weight": 8.0, "control_weight": 24.0}],
+        )
+        total = sum(widths)
+        fractions = [w / total for w in widths]
+        assert all(abs(fractions[i] - (1 / 9)) < 1e-9 for i in range(3))
+        assert all(abs(fractions[i] - (1 / 6)) < 1e-9 for i in range(3, 7))
+
     def test_semantic_demands_for_inline(self):
         """plan_inline_table_width 接受 semantic_demands 参数"""
         headers = ["短", "短"]
@@ -370,3 +392,219 @@ def test_pbt_proportion_preserved(label1, label2):
         assert widths[0] >= widths[1], f"权重 {w1} > {w2}，但宽度 {widths[0]} < {widths[1]}"
     elif w2 > w1:
         assert widths[1] >= widths[0], f"权重 {w2} > {w1}，但宽度 {widths[1]} < {widths[0]}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 11：normal 表内容驱动规划 + CJK 扩展区字符权重
+# ---------------------------------------------------------------------------
+
+
+def _stub_from_dict(data: dict):
+    """将 fixture JSON 中的字段字典转为类 FormField 的 SimpleNamespace 结构。
+
+    兼容两种形态：运行态平铺 / designer 侧 `field_definition` 包装。
+    `field_rendering.build_inline_column_demands` 读取的属性集合：
+      - label_override
+      - is_log_row
+      - inline_mark
+      - default_value
+      - field_definition.{ field_type, label, codelist.options, options }
+    """
+    if data is None:
+        return None
+    fd_raw = data.get("field_definition")
+    field_definition = None
+    if fd_raw is not None:
+        options = fd_raw.get("options")
+        codelist = None
+        if options:
+            codelist = SimpleNamespace(
+                options=[
+                    SimpleNamespace(
+                        decode=o.get("decode"),
+                        trailing_underscore=1 if o.get("trailingUnderscore") else 0,
+                        order_index=o.get("order_index", 0),
+                        id=idx,
+                    )
+                    for idx, o in enumerate(options)
+                ]
+            )
+        field_definition = SimpleNamespace(
+            field_type=fd_raw.get("field_type"),
+            label=fd_raw.get("label"),
+            codelist=codelist,
+            options=None,  # 后端走 codelist.options 路径
+            date_format=fd_raw.get("date_format"),
+            integer_digits=fd_raw.get("integer_digits"),
+            decimal_digits=fd_raw.get("decimal_digits"),
+        )
+    return SimpleNamespace(
+        label_override=data.get("label_override"),
+        is_log_row=data.get("is_log_row", 0),
+        inline_mark=data.get("inline_mark", 0),
+        default_value=data.get("default_value"),
+        field_definition=field_definition,
+    )
+
+
+class TestBuildNormalTableDemands:
+    """Phase 11 task 11.1-11.3：build_normal_table_demands 语义契约。"""
+
+    def test_returns_two_demands(self):
+        """11.1 任意非空输入返回恰好 2 个 ColumnDemand。"""
+        fields = [_stub_from_dict({
+            "field_definition": {"field_type": "文本", "label": "姓名"},
+        })]
+        demands = build_normal_table_demands(fields)
+        assert len(demands) == 2
+        assert demands[0].column_key == "label"
+        assert demands[1].column_key == "control"
+
+    def test_excludes_structural_fields(self):
+        """11.2 标签 / 日志行 / is_log_row 字段不参与聚合。"""
+        # 仅结构字段 → 退回最小保护
+        only_structural = [
+            _stub_from_dict({"field_definition": {"field_type": "标签", "label": "章节"}}),
+            _stub_from_dict({
+                "is_log_row": 1,
+                "field_definition": {"field_type": "文本", "label": "log"},
+            }),
+            _stub_from_dict({"field_definition": {"field_type": "日志行", "label": "日志"}}),
+        ]
+        demands = build_normal_table_demands(only_structural)
+        min_w = WEIGHT_ASCII * 4
+        assert demands[0].intrinsic_weight == min_w
+        assert demands[1].intrinsic_weight == min_w
+
+        # 混合：结构字段被剔除，只有非结构字段贡献权重
+        mixed = only_structural + [_stub_from_dict({
+            "field_definition": {"field_type": "文本", "label": "这是一个较长的中文标签"},
+        })]
+        demands_mixed = build_normal_table_demands(mixed)
+        assert demands_mixed[0].intrinsic_weight > min_w
+
+    def test_applies_min_protection(self):
+        """11.3 空 label / 极短 label → 权重不低于 WEIGHT_ASCII * 4。"""
+        empty_fields = [_stub_from_dict({
+            "field_definition": {"field_type": "文本", "label": ""},
+        })]
+        demands = build_normal_table_demands(empty_fields)
+        assert demands[0].intrinsic_weight >= WEIGHT_ASCII * 4
+        assert demands[1].intrinsic_weight >= WEIGHT_ASCII * 4
+
+
+class TestPlanUnifiedTableWidthFixtures:
+    """跨栈 fixture 中 unified 用例的后端归一化校验。"""
+
+    def test_matches_frontend_unified_fixtures(self):
+        fixture_path = Path(__file__).parent / "fixtures" / "planner_cases.json"
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        unified_cases = [c for c in data["cases"] if c["kind"] == "unified"]
+        assert len(unified_cases) >= 3, "至少需要 3 个 unified fixture 用例"
+
+        for case in unified_cases:
+            segments = []
+            block_demands = []
+            regular_field_demands = []
+            for segment in case["segments"]:
+                fields = [_stub_from_dict(d) for d in segment.get("fields", [])]
+                if segment["type"] == "inline_block":
+                    headers = [f.label_override or f.field_definition.label or "" for f in fields]
+                    segments.append(("inline_block", headers, [[None for _ in fields]]))
+                    block_demands.append(build_inline_column_demands(fields))
+                elif segment["type"] == "regular_field" and fields:
+                    field = fields[0]
+                    label = field.label_override or field.field_definition.label or ""
+                    regular_field_demands.append({
+                        "label_weight": compute_text_weight(label),
+                        "control_weight": build_field_control_weight(field),
+                    })
+
+            widths = plan_unified_table_width(
+                segments,
+                available_cm=23.36,
+                column_count=case["columnCount"],
+                block_demands=block_demands,
+                regular_field_demands=regular_field_demands,
+            )
+            total = sum(widths) or 1.0
+            actual = [w / total for w in widths]
+            for i, (a, e) in enumerate(zip(actual, case["expected_fractions"])):
+                assert abs(a - e) < 1e-6, f"{case['name']} col{i}: backend={a} frontend={e}"
+
+
+class TestPlanNormalTableWidth:
+    """Phase 11 task 11.4-11.5：plan_normal_table_width 预算与跨栈一致性。"""
+
+    def test_sum_equals_available_cm(self):
+        """11.4 返回宽度之和 = available_cm（误差 ≤ 1e-6）。"""
+        fields = [
+            _stub_from_dict({"field_definition": {"field_type": "文本", "label": "姓名"}}),
+            _stub_from_dict({"field_definition": {"field_type": "数值", "label": "年龄"}}),
+        ]
+        for cm in (14.66, 20.0, 5.0):
+            widths = plan_normal_table_width(fields, available_cm=cm)
+            assert abs(sum(widths) - cm) < 1e-6, f"sum(widths)={sum(widths)} cm={cm}"
+
+    def test_empty_fields_equal_distribution(self):
+        """11.4 (附加) 空输入 → [available_cm/2, available_cm/2]。"""
+        widths = plan_normal_table_width([], available_cm=14.66)
+        assert abs(widths[0] - 7.33) < 1e-9
+        assert abs(widths[1] - 7.33) < 1e-9
+
+    def test_matches_frontend_fractions(self):
+        """11.5 跨栈 fixture 验证：后端归一化结果与前端一致（≤ 1e-6）。"""
+        fixture_path = (
+            Path(__file__).parent / "fixtures" / "planner_cases.json"
+        )
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        normal_cases = [c for c in data["cases"] if c["kind"] == "normal"]
+        assert len(normal_cases) >= 2, "至少需要 2 个 normal fixture 用例"
+
+        for case in normal_cases:
+            fields = [_stub_from_dict(d) for d in case["fields"]]
+            expected = case["expected_fractions"]
+            widths = plan_normal_table_width(fields, available_cm=14.66)
+            # 归一化后比较
+            total = sum(widths) or 1.0
+            actual = [w / total for w in widths]
+            for i, (a, e) in enumerate(zip(actual, expected)):
+                assert abs(a - e) < 1e-6, (
+                    f"{case['name']} col{i}: backend={a} frontend={e}"
+                )
+
+
+class TestCjkExtensionRanges:
+    """Phase 11 task 11.6-11.8：CJK 扩展区码点权重对齐。"""
+
+    def test_compute_char_weight_extension_b(self):
+        """11.6 扩展 B 区字符（𠮷 U+20BB7）权重 = 2。"""
+        assert compute_char_weight("𠮷") == WEIGHT_CHINESE
+        # 另取扩展 B 起点和终点
+        assert compute_char_weight(chr(0x20000)) == WEIGHT_CHINESE
+        assert compute_char_weight(chr(0x2A6DF)) == WEIGHT_CHINESE
+
+    @pytest.mark.parametrize(
+        "code_point",
+        [
+            0x2A700, 0x2A800, 0x2A900, 0x2AA00, 0x2AB00,  # 扩展 C
+            0x2B740, 0x2B800,                              # 扩展 D
+            0x2B820, 0x2C000, 0x2C500, 0x2CEAF,            # 扩展 E
+            0x2CEB0, 0x2D000, 0x2E000, 0x2EBEF,            # 扩展 F
+            0x2EBF0, 0x2ED00, 0x2EE5F,                     # 扩展 I
+            0x30000, 0x31000, 0x3134F,                     # 扩展 G
+        ],
+    )
+    def test_compute_char_weight_extensions_c_through_h(self, code_point):
+        """11.7 扩展 C / D / E / F / G / I 区间抽样权重 = 2。"""
+        assert compute_char_weight(chr(code_point)) == WEIGHT_CHINESE, (
+            f"U+{code_point:05X} 应为 CJK 权重 2"
+        )
+
+    @pytest.mark.parametrize(
+        "code_point",
+        [0x2F800, 0x2F900, 0x2FA00, 0x2FA1F, 0xF900, 0xFA00, 0xFAFF],
+    )
+    def test_compute_char_weight_compatibility_supplement(self, code_point):
+        """11.8 兼容汉字 + 兼容补充权重 = 2。"""
+        assert compute_char_weight(chr(code_point)) == WEIGHT_CHINESE
