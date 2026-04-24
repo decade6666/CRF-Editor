@@ -51,8 +51,8 @@ test('header keeps template import and word export only', () => {
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {
   assert.match(appSource, /<el-tabs class="main-content-tabs" v-model="activeTab"/)
   assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/)
-  assert.match(appSource, /<el-divider\s*\/>\s*<div class="settings-transfer-actions">/)
-  const actionsSection = appSource.match(/<div class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || ''
+  assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/)
+  const actionsSection = appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || ''
   assert.match(actionsSection, /导出所有项目/)
   assert.match(actionsSection, /导出当前项目/)
   assert.match(actionsSection, /:loading="importProjectLoading"[\s\S]*导入项目/s)
@@ -63,8 +63,33 @@ test('settings dialog moves import word below project import and keeps scoped la
   assert.match(appSource, /\.main-content-tabs[\s\S]*padding-left:\s*20px/)
 })
 
+test('settings dialog shows self password button only for ordinary users', () => {
+  assert.match(appSource, /<div class="settings-current-user-row">[\s\S]*<span>\{\{ currentUser\.username \|\| '未登录' \}\}<\/span>[\s\S]*<el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/)
+  assert.doesNotMatch(appSource, /<el-button v-if="isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/)
+})
+
+test('self password dialog includes three fields and submits backend contract only', () => {
+  assert.match(appSource, /<el-dialog[\s\S]*v-model="showSelfPasswordDialog"[\s\S]*title="修改密码"/)
+  assert.match(appSource, /<el-form-item label="当前密码">[\s\S]*v-model="selfPasswordForm\.current_password"/)
+  assert.match(appSource, /<el-form-item label="新密码">[\s\S]*v-model="selfPasswordForm\.new_password"/)
+  assert.match(appSource, /<el-form-item label="确认新密码">[\s\S]*v-model="selfPasswordForm\.confirm_new_password"/)
+  assert.match(appSource, /if \(selfPasswordForm\.new_password !== selfPasswordForm\.confirm_new_password\) \{[\s\S]*ElMessage\.error\('新密码与确认新密码不一致'\)[\s\S]*return/)
+  const submitSection = appSource.match(/async function submitSelfPasswordChange\(\) \{([\s\S]*?)\n\}/)?.[1] || ''
+  const requestPayload = submitSection.match(/await api\.put\('\/api\/auth\/me\/password', \{([\s\S]*?)\}\)/)?.[1] || ''
+  assert.match(requestPayload, /current_password: selfPasswordForm\.current_password/)
+  assert.match(requestPayload, /new_password: selfPasswordForm\.new_password/)
+  assert.doesNotMatch(requestPayload, /confirm_new_password/)
+})
+
+test('self password success shows message then clears session flow', () => {
+  assert.match(appSource, /ElMessage\.success\('密码修改成功，请重新登录'\)[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
+  assert.match(appSource, /catch \(e\) \{[\s\S]*if \(e\.status !== 401\) ElMessage\.error\(e\.message\)/)
+  assert.match(appSource, /function closeSelfPasswordDialog\(\) \{[\s\S]*showSelfPasswordDialog\.value = false[\s\S]*resetSelfPasswordForm\(\)/)
+})
+
 test('app remembers username on logout and auth expiry', () => {
   assert.match(appSource, /localStorage\.setItem\('crf_last_username', normalized\)/)
+  assert.match(appSource, /function resetSessionState\(\) \{[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*showSettings\.value = false[\s\S]*currentUser\.value = getEmptyUser\(\)/)
   assert.match(appSource, /function logout\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
   assert.match(appSource, /function handleAuthExpired\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
 })
