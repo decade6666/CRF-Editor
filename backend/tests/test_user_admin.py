@@ -370,6 +370,23 @@ def test_list_users_includes_has_password(client, engine):
     assert users["without_password"]["has_password"] is False
 
 
+def test_list_users_marks_damaged_hash_as_no_password(client, engine):
+    admin_token = login_as(client, "admin")
+    seed_user(client, "damaged_hash_user", password="good-pass-123")
+
+    with Session(engine) as session:
+        with session.begin():
+            user = session.scalar(
+                select(User).where(User.username == "damaged_hash_user")
+            )
+            user.hashed_password = "$pbkdf2-sha256$bad"
+
+    response = client.get("/api/admin/users", headers=auth_headers(admin_token))
+    assert response.status_code == 200, response.text
+    users = {user["username"]: user for user in response.json()}
+    assert users["damaged_hash_user"]["has_password"] is False
+
+
 def test_admin_can_reset_user_password_and_invalidate_old_token(client, engine):
     admin_token = login_as(client, "admin")
     old_token = login_as(client, "reset_me", password="old-pass-123")
@@ -698,6 +715,33 @@ def test_init_db_repairs_reserved_admin_when_production_db_is_not_empty(tmp_path
     assert rows[1][2].startswith("$pbkdf2-sha256$")
     conn.close()
 
+
+
+def test_init_db_repairs_damaged_reserved_admin_hash_in_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "production-damaged-admin.db"
+
+    _run_init_db_for_test(db_path, monkeypatch)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        'INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)',
+        ("admin", "$pbkdf2-sha256$bad", 1, 7),
+    )
+    conn.commit()
+    conn.close()
+
+    _run_init_db_for_test(db_path, monkeypatch, env="production")
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        'SELECT hashed_password, auth_version FROM user WHERE username = ?',
+        ("admin",),
+    ).fetchone()
+    assert row is not None
+    assert row[0].startswith("$pbkdf2-sha256$")
+    assert row[0] != "$pbkdf2-sha256$bad"
+    assert row[1] == 8
+    conn.close()
 
 
 def test_init_db_fails_fast_without_bootstrap_password_in_production(tmp_path, monkeypatch):

@@ -4,9 +4,12 @@ from unittest.mock import patch
 
 import jwt
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from helpers import auth_headers, seed_user
 from src.config import AppConfig, AuthConfig
+from src.models.user import User
 from src.services.auth_service import create_access_token
 
 _TEST_CONFIG = AppConfig(auth=AuthConfig(secret_key="test-secret-key-for-testing"))
@@ -70,6 +73,26 @@ def test_login_hides_migration_hint_for_legacy_user_in_production(client: TestCl
 
     assert response.status_code == 401
     assert response.json()["detail"] == "用户名或密码错误"
+
+
+def test_login_returns_migration_hint_for_damaged_hash_in_development(
+    client: TestClient, engine
+):
+    seed_user(client, "damaged_user", password="good-pass-123")
+    with Session(engine) as session:
+        with session.begin():
+            user = session.scalar(
+                select(User).where(User.username == "damaged_user")
+            )
+            user.hashed_password = "$pbkdf2-sha256$bad"
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "damaged_user", "password": "good-pass-123"},
+    )
+
+    assert response.status_code == 401, response.text
+    assert "联系管理员" in response.json()["detail"]
 
 
 def test_legacy_token_without_version_claim_is_rejected(client: TestClient):
