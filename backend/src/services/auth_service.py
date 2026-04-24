@@ -8,6 +8,7 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 
 from src.config import get_config
+from src.models.user import User
 
 _PASSWORD_CONTEXT = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 _MIN_PASSWORD_LENGTH = 8
@@ -55,6 +56,17 @@ def verify_password(password: str, hashed: Optional[str]) -> bool:
         return _PASSWORD_CONTEXT.verify(password, hashed)
     except (UnknownHashError, ValueError):
         return False
+
+
+def change_own_password(user: User, current_password: str, new_password: str) -> None:
+    """修改当前普通用户自己的密码，并使旧 token 立即失效。"""
+    if not verify_password(current_password, user.hashed_password):
+        raise ValueError("当前密码错误")
+    if new_password == current_password:
+        raise ValueError("新密码不能与当前密码相同")
+    validate_password_policy(new_password)
+    user.hashed_password = hash_password(new_password)
+    user.auth_version += 1
 
 
 def create_access_token(user_id: int, username: str, auth_version: int) -> str:
