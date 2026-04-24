@@ -10,7 +10,11 @@ from src.config import is_production_env
 from src.database import get_session
 from src.models.user import User
 from src.rate_limit import limit_auth_login
-from src.services.auth_service import create_access_token, verify_password
+from src.services.auth_service import (
+    create_access_token,
+    has_usable_password_hash,
+    verify_password,
+)
 from src.services.user_admin_service import is_reserved_admin_username
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,7 +46,7 @@ class TokenResponse(BaseModel):
 
 
 def _build_login_error(user: Optional[User]) -> HTTPException:
-    if user and user.hashed_password is None and not is_production_env():
+    if user and not has_usable_password_hash(user.hashed_password) and not is_production_env():
         return HTTPException(
             status_code=401,
             detail="该账号尚未设置密码，请联系管理员完成迁移",
@@ -61,7 +65,7 @@ async def login(request: Request, data: LoginRequest, session: Session = Depends
             .where(func.trim(User.username) == data.username)
             .order_by(User.id)
         )
-    if not user or user.hashed_password is None:
+    if not user or not has_usable_password_hash(user.hashed_password):
         raise _build_login_error(user)
     if not verify_password(data.password, user.hashed_password):
         raise _build_login_error(None)
