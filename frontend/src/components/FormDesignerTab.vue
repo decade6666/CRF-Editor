@@ -561,80 +561,6 @@ function cumRatio(ratios, boundaryIdx) {
   return sum
 }
 
-/**
- * 重置当前表单的所有列宽配置。
- * 清除 localStorage 中该表单的所有列宽键，并重置所有 resizer 状态。
- */
-function resetColumnWidths() {
-  const formId = selectedForm.value?.id
-  if (formId == null) return
-
-  // 清除 localStorage 中该表单的所有列宽键
-  const keyPrefix = `crf:designer:col-widths:${formId}:`
-  const keysToRemove = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key && key.startsWith(keyPrefix)) {
-      keysToRemove.push(key)
-    }
-  }
-  for (const key of keysToRemove) {
-    localStorage.removeItem(key)
-  }
-
-  // 重置所有 resizer 到默认值
-  for (const resizer of resizerCache.values()) {
-    if (resizer && typeof resizer.resetToEven === 'function') {
-      resizer.resetToEven()
-    }
-  }
-
-  // 清空缓存，下次访问时会重新创建
-  resizerCache.clear()
-
-  ElMessage.success('列宽已重置')
-}
-
-/**
- * 批量重置所选表单的列宽配置。
- */
-async function batchResetColumnWidths() {
-  if (!selForms.value.length) return
-
-  try {
-    await ElMessageBox.confirm(
-      `确认重置选中的 ${selForms.value.length} 个表单的列宽配置？`,
-      '重置列宽',
-      { type: 'warning' }
-    )
-
-    const formIds = selForms.value.map(f => f.id)
-    for (const formId of formIds) {
-      // 清除 localStorage 中该表单的所有列宽键
-      const keyPrefix = `crf:designer:col-widths:${formId}:`
-      const keysToRemove = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith(keyPrefix)) {
-          keysToRemove.push(key)
-        }
-      }
-      for (const key of keysToRemove) {
-        localStorage.removeItem(key)
-      }
-    }
-
-    // 如果当前表单在所选表单中，重置 resizerCache
-    if (selectedForm.value && formIds.includes(selectedForm.value.id)) {
-      resizerCache.clear()
-    }
-
-    ElMessage.success(`已重置 ${formIds.length} 个表单的列宽`)
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error(e.message)
-  }
-}
-
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240)
 const isLibResizing = ref(false)
 watch(libraryWidth, v => localStorage.setItem('crf_libraryWidth', v))
@@ -1282,7 +1208,6 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <div style="margin-bottom:12px;display:flex;gap:8px">
         <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
-        <el-button size="small" :disabled="!selForms.length" @click="selForms.length > 1 ? batchResetColumnWidths() : resetColumnWidths()">重置列宽</el-button>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
       </div>
       <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => selForms = r" style="width:100%" height="100%">
@@ -1862,7 +1787,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
   bottom: 0;
   left: 4px;
   width: 2px;
-  background: color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
+  background: transparent;
   pointer-events: none;
   transition: background 0.15s;
 }

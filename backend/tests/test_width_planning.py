@@ -14,6 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from src.services.field_rendering import build_inline_column_demands, build_field_control_weight
 from src.services.width_planning import (
     WEIGHT_ASCII,
     WEIGHT_CHINESE,
@@ -301,6 +302,19 @@ class TestPlanUnifiedTableWidth:
         assert len(widths) == 2
         assert widths[1] > widths[0]
 
+    def test_regular_field_demands_are_distributed_across_value_span(self):
+        """regular_field 的 control 权重按 value colspan 分摊到物理列。"""
+        widths = plan_unified_table_width(
+            [],
+            23.36,
+            column_count=7,
+            regular_field_demands=[{"label_weight": 8.0, "control_weight": 24.0}],
+        )
+        total = sum(widths)
+        fractions = [w / total for w in widths]
+        assert all(abs(fractions[i] - (1 / 9)) < 1e-9 for i in range(3))
+        assert all(abs(fractions[i] - (1 / 6)) < 1e-9 for i in range(3, 7))
+
     def test_semantic_demands_for_inline(self):
         """plan_inline_table_width 接受 semantic_demands 参数"""
         headers = ["短", "短"]
@@ -420,6 +434,9 @@ def _stub_from_dict(data: dict):
             label=fd_raw.get("label"),
             codelist=codelist,
             options=None,  # 后端走 codelist.options 路径
+            date_format=fd_raw.get("date_format"),
+            integer_digits=fd_raw.get("integer_digits"),
+            decimal_digits=fd_raw.get("decimal_digits"),
         )
     return SimpleNamespace(
         label_override=data.get("label_override"),
@@ -474,6 +491,46 @@ class TestBuildNormalTableDemands:
         demands = build_normal_table_demands(empty_fields)
         assert demands[0].intrinsic_weight >= WEIGHT_ASCII * 4
         assert demands[1].intrinsic_weight >= WEIGHT_ASCII * 4
+
+
+class TestPlanUnifiedTableWidthFixtures:
+    """跨栈 fixture 中 unified 用例的后端归一化校验。"""
+
+    def test_matches_frontend_unified_fixtures(self):
+        fixture_path = Path(__file__).parent / "fixtures" / "planner_cases.json"
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        unified_cases = [c for c in data["cases"] if c["kind"] == "unified"]
+        assert len(unified_cases) >= 3, "至少需要 3 个 unified fixture 用例"
+
+        for case in unified_cases:
+            segments = []
+            block_demands = []
+            regular_field_demands = []
+            for segment in case["segments"]:
+                fields = [_stub_from_dict(d) for d in segment.get("fields", [])]
+                if segment["type"] == "inline_block":
+                    headers = [f.label_override or f.field_definition.label or "" for f in fields]
+                    segments.append(("inline_block", headers, [[None for _ in fields]]))
+                    block_demands.append(build_inline_column_demands(fields))
+                elif segment["type"] == "regular_field" and fields:
+                    field = fields[0]
+                    label = field.label_override or field.field_definition.label or ""
+                    regular_field_demands.append({
+                        "label_weight": compute_text_weight(label),
+                        "control_weight": build_field_control_weight(field),
+                    })
+
+            widths = plan_unified_table_width(
+                segments,
+                available_cm=23.36,
+                column_count=case["columnCount"],
+                block_demands=block_demands,
+                regular_field_demands=regular_field_demands,
+            )
+            total = sum(widths) or 1.0
+            actual = [w / total for w in widths]
+            for i, (a, e) in enumerate(zip(actual, case["expected_fractions"])):
+                assert abs(a - e) < 1e-6, f"{case['name']} col{i}: backend={a} frontend={e}"
 
 
 class TestPlanNormalTableWidth:

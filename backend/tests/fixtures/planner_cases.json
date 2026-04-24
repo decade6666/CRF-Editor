@@ -28,7 +28,7 @@
     {
       "name": "normal_long_cjk_label",
       "kind": "normal",
-      "description": "10 字中文 label → label 与 control 同步上行，平分",
+      "description": "10 字中文 label + 短文本控件 → label 列主导",
       "fields": [
         {
           "label_override": null,
@@ -43,8 +43,8 @@
         }
       ],
       "expected_fractions": [
-        0.5,
-        0.5
+        0.7692307692307693,
+        0.23076923076923078
       ]
     },
     {
@@ -96,8 +96,8 @@
         }
       ],
       "expected_fractions": [
-        0.5,
-        0.5
+        0.5714285714285714,
+        0.42857142857142855
       ]
     },
     {
@@ -263,7 +263,7 @@
       "name": "unified_mixed_inline_and_regular",
       "kind": "unified",
       "columnCount": 2,
-      "description": "inline_block + regular_field 混合布局：regular_field label/control 分别贡献 slot 0/1（control 使用 buildInlineColumnDemands 结果）",
+      "description": "inline_block + regular_field 混合布局：regular_field label/control 按实际 colspan 分摊到 label/value 物理列",
       "segments": [
         {
           "type": "inline_block",
@@ -310,8 +310,42 @@
         }
       ],
       "expected_fractions": [
-        0.5,
-        0.5
+        0.6666666666666666,
+        0.3333333333333333
+      ]
+    },
+    {
+      "name": "unified_regular_date_control_weight_spans_value_columns",
+      "kind": "unified",
+      "columnCount": 7,
+      "description": "regular_field 日期控件：label 权重分摊到前 3 列，日期占位符权重分摊到后 4 列",
+      "segments": [
+        {
+          "type": "regular_field",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "日期",
+                "label": "测量日期",
+                "date_format": "yyyy-MM-dd",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.08888888888888889,
+        0.08888888888888889,
+        0.08888888888888889,
+        0.18333333333333332,
+        0.18333333333333332,
+        0.18333333333333332,
+        0.18333333333333332
       ]
     }
   ]

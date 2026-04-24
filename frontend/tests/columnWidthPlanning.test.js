@@ -15,6 +15,7 @@ import {
   computeChoiceAtomWeight,
   buildInlineColumnDemands,
   buildNormalColumnDemands,
+  computeFieldControlWeight,
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
@@ -37,10 +38,7 @@ test('9.1 normal_short_label_fill_line: 单字段 [标签/文本] 得到 [0.4, 0
   assert.ok(Math.abs(fractions[1] - 0.6) < 1e-9, `controlFraction=${fractions[1]}`)
 })
 
-test('9.2 normal_long_cjk_label_short_control: 10 个中文 label → label 至少与 control 平分', () => {
-  // 设计契约：control_weight = max(label_text, FILL_LINE_WEIGHT, 选项 atom, 默认值行)
-  // 因此当 label 超过 FILL_LINE_WEIGHT 时，control 与 label 同步上行，二者并列。
-  // 反之短 label 时 control 由 FILL_LINE_WEIGHT 兜底，label 落入更小占比。
+test('9.2 normal_long_cjk_label_short_control: 10 个中文 label → label 列主导短文本控件', () => {
   const longLabel = '一二三四五六七八九十'
   const longFractions = planNormalColumnFractions([
     { field_definition: { field_type: '文本', label: longLabel } },
@@ -49,7 +47,7 @@ test('9.2 normal_long_cjk_label_short_control: 10 个中文 label → label 至�
     { field_definition: { field_type: '文本', label: '名' } },
   ])
   assert.ok(longFractions[0] >= shortFractions[0], 'long label should weakly dominate short label')
-  assert.ok(Math.abs(longFractions[0] - 0.5) < 1e-9, `long label tied at 0.5, got ${longFractions[0]}`)
+  assert.ok(Math.abs(longFractions[0] - 0.7692307692307693) < 1e-9, `long label should dominate, got ${longFractions[0]}`)
   assert.ok(shortFractions[0] < 0.5, `short label below 0.5, got ${shortFractions[0]}`)
 })
 
@@ -84,6 +82,30 @@ test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {
   const expected = computeTextWeight('longest line here')
   assert.ok(demands[0].weight >= expected, `w=${demands[0].weight} expected>=${expected}`)
   assert.ok(demands[0].weight >= computeTextWeight('short'))
+})
+
+test('9.4b control_weight_dates_use_visible_placeholder_width: 日期控件按占位符宽度估算', () => {
+  const field = {
+    field_definition: { field_type: '日期', label: '测量日期', date_format: 'yyyy-MM-dd' },
+  }
+  const controlWeight = computeFieldControlWeight(field)
+  const labelWeight = computeTextWeight('测量日期')
+  assert.ok(controlWeight > labelWeight, `controlWeight=${controlWeight} labelWeight=${labelWeight}`)
+})
+
+test('9.4c unified_regular_field_distributes_control_weight_across_value_span', () => {
+  const segments = [
+    {
+      type: 'regular_field',
+      fields: [
+        { field_definition: { field_type: '日期', label: '测量日期', date_format: 'yyyy-MM-dd' } },
+      ],
+    },
+  ]
+  const fractions = planUnifiedColumnFractions(segments, 7)
+  assert.equal(fractions.length, 7)
+  assert.ok(fractions[0] < 0.25, `label slot should not dominate: ${fractions[0]}`)
+  assert.ok(fractions.slice(3).every(v => v > fractions[0]), `value slots should receive more control width: ${fractions}`)
 })
 
 test('9.5 unified_two_blocks_per_slot_max: 两个 inline_block 对同 slot 取 max', () => {

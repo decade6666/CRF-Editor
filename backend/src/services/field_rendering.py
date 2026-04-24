@@ -11,6 +11,12 @@ from src.services.width_planning import (
     FILL_LINE_WEIGHT,
 )
 
+CONTROL_PLACEHOLDER_WEIGHTS = {
+    "日期": compute_text_weight("|__|__|__|__|年|__|__|月|__|__|日"),
+    "日期时间": compute_text_weight("|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分"),
+    "时间": compute_text_weight("|__|__|时|__|__|分"),
+}
+
 
 NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
 
@@ -108,6 +114,31 @@ def build_inline_table_model(
     return headers, rows, field_defs
 
 
+def build_field_control_weight(form_field) -> float:
+    field_def = getattr(form_field, "field_definition", None)
+    if not field_def:
+        return FILL_LINE_WEIGHT
+
+    default_lines = extract_default_lines(form_field)
+    if default_lines:
+        return max(
+            max(compute_text_weight(line) for line in default_lines),
+            FILL_LINE_WEIGHT,
+        )
+
+    field_type = getattr(field_def, "field_type", None)
+    if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
+        option_data = _get_option_data_for_width(field_def)
+        if not option_data:
+            return FILL_LINE_WEIGHT
+        return max(
+            max(compute_choice_atom_weight(opt_label, has_trailing) for opt_label, has_trailing in option_data),
+            FILL_LINE_WEIGHT,
+        )
+
+    return max(CONTROL_PLACEHOLDER_WEIGHTS.get(field_type, FILL_LINE_WEIGHT), FILL_LINE_WEIGHT)
+
+
 def build_inline_column_demands(
     marked_fields,
 ) -> List[Tuple[str, float]]:
@@ -133,31 +164,7 @@ def build_inline_column_demands(
 
         # 标签权重
         label = form_field.label_override or field_def.label or ""
-        weight = compute_text_weight(label)
-
-        # 默认值权重
-        default_lines = extract_default_lines(form_field)
-        if default_lines:
-            for line in default_lines:
-                weight = max(weight, compute_text_weight(line))
-        else:
-            # 控件占位符权重
-            field_type = getattr(field_def, "field_type", None)
-            if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
-                # choice 字段：计算所有选项的权重
-                option_data = _get_option_data_for_width(field_def)
-                if option_data:
-                    # 取最大选项权重
-                    max_opt_weight = max(
-                        compute_choice_atom_weight(opt_label, has_trailing)
-                        for opt_label, has_trailing in option_data
-                    )
-                    weight = max(weight, max_opt_weight)
-                else:
-                    weight = max(weight, FILL_LINE_WEIGHT)
-            else:
-                # 其他控件：使用默认填写线权重
-                weight = max(weight, FILL_LINE_WEIGHT)
+        weight = max(compute_text_weight(label), build_field_control_weight(form_field))
 
         demands.append((label, weight))
 

@@ -78,6 +78,22 @@ test('preview groups switch to inline when inline_mark changes', () => {
   assert.deepEqual(groups[1].fields.map(getFormFieldDisplayLabel), ['快捷编辑标签', '同组字段'])
 })
 
+test('mixed wide inline and regular fields keep separate width groups', () => {
+  const groups = buildFormDesignerRenderGroups([
+    createField({ id: 1, order_index: 1, inline_mark: 0, label_override: '普通字段' }),
+    ...Array.from({ length: 5 }, (_, idx) => createField({
+      id: idx + 2,
+      order_index: idx + 2,
+      inline_mark: 1,
+      label_override: `表格字段${idx + 1}`,
+    })),
+    createField({ id: 7, order_index: 7, inline_mark: 0, label_override: '尾部字段' }),
+  ])
+
+  assert.deepEqual(groups.map(group => group.type), ['normal', 'inline', 'normal'])
+  assert.equal(groups[1].fields.length, 5)
+})
+
 test('export segments keep updated quick edit fields in order', () => {
   const segments = buildFormDesignerUnifiedSegments([
     createField({ id: 2, order_index: 2, inline_mark: 1, label_override: '快捷编辑标签', bg_color: 'FFEEDD', text_color: '112233' }),

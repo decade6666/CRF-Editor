@@ -11,6 +11,7 @@ import fc from 'fast-check'
 import {
   computeTextWeight,
   buildInlineColumnDemands,
+  computeFieldControlWeight,
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
@@ -145,16 +146,28 @@ function computeUnifiedSlotWeights(segments, columnCount) {
     } else if (seg.type === 'regular_field' && seg.fields?.length && columnCount >= 2) {
       const field = seg.fields[0]
       if (field) {
+        const { labelSpan, valueSpan } = computeRegularFieldSpans(columnCount)
         const labelText = field.label_override || field.field_definition?.label || ''
-        const labelWeight = computeTextWeight(labelText)
-        const demands = buildInlineColumnDemands([field])
-        const controlWeight = demands.length > 0 ? demands[0].weight : minWeight
-        slot[0] = Math.max(slot[0], labelWeight)
-        slot[1] = Math.max(slot[1], controlWeight)
+        applySpannedWeight(slot, 0, labelSpan, computeTextWeight(labelText))
+        applySpannedWeight(slot, labelSpan, valueSpan, computeFieldControlWeight(field))
       }
     }
   }
   return slot
+}
+
+function computeRegularFieldSpans(columnCount) {
+  const labelSpan = Math.max(1, Math.min(columnCount - 1, Math.round(columnCount * 0.4)))
+  return { labelSpan, valueSpan: columnCount - labelSpan }
+}
+
+function applySpannedWeight(slot, start, span, weight) {
+  if (!Number.isFinite(weight) || weight <= 0 || span <= 0) return
+  const end = Math.min(slot.length, start + span)
+  const perSlotWeight = weight / (end - start)
+  for (let i = start; i < end; i += 1) {
+    slot[i] = Math.max(slot[i], perSlotWeight)
+  }
 }
 
 // ─── 10.7 P7 CJK 扩展区码点权重 = 2 ─────────────────────────────────────
