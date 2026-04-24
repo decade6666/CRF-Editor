@@ -35,15 +35,25 @@ def hash_password(password: str) -> str:
 def has_usable_password_hash(hashed: Optional[str]) -> bool:
     if not hashed:
         return False
-    return _PASSWORD_CONTEXT.identify(hashed) is not None
+    try:
+        handler = _PASSWORD_CONTEXT.identify(hashed, resolve=True)
+    except ValueError:
+        return False
+    if handler is None:
+        return False
+    try:
+        handler.from_string(hashed)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
-def verify_password(password: str, hashed: str) -> bool:
-    if not hashed:
+def verify_password(password: str, hashed: Optional[str]) -> bool:
+    if not has_usable_password_hash(hashed):
         return False
     try:
         return _PASSWORD_CONTEXT.verify(password, hashed)
-    except UnknownHashError:
+    except (UnknownHashError, ValueError):
         return False
 
 

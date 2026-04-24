@@ -37,7 +37,7 @@ _FORM_FIELD_REQUIRED_SOURCE_COLUMNS = frozenset({
 from src.config import get_config, is_production_env
 
 from src.models import Base
-from src.services.auth_service import hash_password
+from src.services.auth_service import has_usable_password_hash, hash_password
 
 
 logger = logging.getLogger("src.database")
@@ -600,15 +600,6 @@ def _migrate_add_user_auth_version(engine):
             conn.execute(text('ALTER TABLE "user" ADD COLUMN auth_version INTEGER DEFAULT 0 NOT NULL'))
 
 
-def _has_usable_password_hash(value: Optional[str]) -> bool:
-
-    if not value:
-
-        return False
-
-    return value.startswith("$pbkdf2-sha256$")
-
-
 def _heal_reserved_admin_account(engine):
 
     """同步保留管理员账号语义，并在 production 中确保始终存在可用管理员。"""
@@ -681,7 +672,7 @@ def _heal_reserved_admin_account(engine):
         updates = {}
         if current_username != admin_username and exact_reserved_admin_id in (None, user_id):
             updates["username"] = admin_username
-        if is_production_env() and not _has_usable_password_hash(hashed_password):
+        if is_production_env() and not has_usable_password_hash(hashed_password):
             if not bootstrap_password:
                 raise RuntimeError("production 环境缺少 admin.bootstrap_password，无法修复保留管理员账号")
             updates["hashed_password"] = hash_password(bootstrap_password)
@@ -704,7 +695,7 @@ def _heal_reserved_admin_account(engine):
                 ),
                 {"username": admin_username},
             ).scalar()
-            if not _has_usable_password_hash(usable_reserved_admin):
+            if not has_usable_password_hash(usable_reserved_admin):
                 raise RuntimeError("production 环境未找到可用的保留管理员账号")
 
 
