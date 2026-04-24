@@ -1,4 +1,5 @@
 """导出服务"""
+from __future__ import annotations
 
 from dataclasses import dataclass
 
@@ -120,7 +121,7 @@ from src.repositories.project_repository import ProjectRepository
 
 from src.schemas.project import normalize_screening_number_format
 
-from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, extract_default_lines
+from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, build_field_control_weight, extract_default_lines
 
 from src.services.width_planning import (
 
@@ -131,6 +132,8 @@ from src.services.width_planning import (
     plan_inline_table_width,
 
     plan_unified_table_width,
+
+    plan_normal_table_width,
 
 )
 
@@ -146,7 +149,7 @@ class LayoutDecision:
 
 
 
-    mode: str  # "legacy" | "unified_landscape"
+    mode: str  # "legacy" | "mixed_landscape" | "unified_landscape"
 
     column_count: int  # N 列数（仅 unified 有意义）
 
@@ -196,9 +199,22 @@ class ExportService:
 
 
 
-    def export_project_to_word(self, project_id: int, output_path: str) -> bool:
+    def export_project_to_word(
+        self,
+        project_id: int,
+        output_path: str,
+        column_width_overrides: Optional[Dict] = None,
+    ) -> bool:
 
-        """导出项目到 Word 文档"""
+        """导出项目到 Word 文档
+
+        Args:
+            project_id: 项目 ID
+            output_path: 输出文件路径
+            column_width_overrides: 列宽覆盖参数，格式：
+                { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
+                fraction 值为 0.0~1.0，表示该列占总宽度的比例
+        """
 
         try:
 
@@ -210,10 +226,10 @@ class ExportService:
 
                 return False
 
-
+            # 存储列宽覆盖供后续使用
+            self._column_width_overrides = column_width_overrides or {}
 
             # 创建 Word 文档
-
             doc = Document()
 
 
@@ -879,7 +895,7 @@ class ExportService:
 
         if not project.forms:
 
-            self._build_form_table(doc, [])
+            self._build_form_table(doc, [], form_id=None)
 
             return
 
@@ -913,7 +929,49 @@ class ExportService:
 
 
 
-            if layout.mode == "unified_landscape":
+            if layout.mode == "mixed_landscape":
+
+                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
+
+                for run in heading_para.runs:
+
+                    self._set_run_font(run)
+
+                groups = self._group_form_fields(form_fields)
+
+                if groups == [[]]:
+
+                    groups = []
+
+                for group in groups:
+
+                    if not group:
+
+                        continue
+
+                    first_field = group[0]
+
+                    if first_field.inline_mark == 1:
+
+                        self._add_inline_table(doc, group, True, form_id=form.id)
+
+                    else:
+
+                        self._build_form_table(doc, group, form_id=form.id)
+
+                if not groups:
+
+                    self._build_form_table(doc, [], form_id=form.id)
+
+                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+                if not is_last_form:
+
+                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            elif layout.mode == "unified_landscape":
 
                 # 统一横向布局路径
 
@@ -927,7 +985,7 @@ class ExportService:
 
                 segments = self._build_unified_segments(form_fields)
 
-                self._build_unified_table(doc, segments, layout)
+                self._build_unified_table(doc, segments, layout, form_id=form.id)
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -977,7 +1035,7 @@ class ExportService:
 
 
 
-                        self._add_inline_table(doc, group, is_wide)
+                        self._add_inline_table(doc, group, is_wide, form_id=form.id)
 
 
 
@@ -989,13 +1047,12 @@ class ExportService:
 
 
 
-                    self._build_form_table(doc, group)
+                    self._build_form_table(doc, group, form_id=form.id)
 
 
 
                 if not groups:
-
-                    self._build_form_table(doc, [])
+                    self._build_form_table(doc, [], form_id=form.id)
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -1009,20 +1066,85 @@ class ExportService:
 
     def _add_applicable_visits_paragraph(self, doc: Document, visits):
         """在表单末尾追加"适用访视：<name>、..."段落。"""
-
         if not visits:
             return
-
         para = doc.add_paragraph(style='ApplicableVisits')
         prefix_run = para.add_run('适用访视：')
         self._set_run_font(prefix_run, size=Pt(10.5), bold=True)
         names_run = para.add_run('、'.join(visit.name for visit in visits))
         self._set_run_font(names_run, size=Pt(10.5))
 
+    def _get_column_width_override(self, form_id, table_kind: str, col_count: int):
+        """获取指定表单和表格类型的列宽覆盖配置（旧格式兼容）。
 
+        Args:
+            form_id: 表单 ID（None 时返回 None）
+            table_kind: 表格类型 ("normal", "inline", "unified")
+            col_count: 列数，用于验证覆盖配置长度
+
+        Returns:
+            List[float] 或 None：列宽 fraction 数组，长度应等于 col_count
+        """
+        if form_id is None:
+            return None
+        form_key = str(form_id)
+        if form_key not in self._column_width_overrides:
+            return None
+        form_overrides = self._column_width_overrides[form_key]
+        if table_kind not in form_overrides:
+            return None
+        overrides = form_overrides[table_kind]
+        if not isinstance(overrides, list) or len(overrides) != col_count:
+            return None
+        # 校验每个元素是否为数值且在 0.0~1.0 范围内
+        if not all(isinstance(v, (int, float)) and 0.0 <= v <= 1.0 for v in overrides):
+            return None
+        return overrides
+
+    def _get_column_width_override_by_instance_id(
+        self, table_instance_id: str, col_count: int, form_id=None, table_kind: str = None
+    ):
+        """根据 table_instance_id 获取列宽覆盖配置。
+
+        Args:
+            table_instance_id: 表实例标识符，格式 "kind:fieldIds=..." 或 legacy "groupIndex-kind-colCount"
+            col_count: 列数，用于验证覆盖配置长度
+            form_id: 表单 ID（用于 legacy 格式兼容）
+            table_kind: 表格类型（用于 legacy 格式兼容）
+
+        Returns:
+            List[float] 或 None：列宽 fraction 数组，长度应等于 col_count
+        """
+        if not self._column_width_overrides:
+            return None
+
+        # 新格式：直接用 table_instance_id 查询
+        if table_instance_id in self._column_width_overrides:
+            overrides = self._column_width_overrides[table_instance_id]
+            if isinstance(overrides, list) and len(overrides) == col_count:
+                if all(isinstance(v, (int, float)) and 0.0 <= v <= 1.0 for v in overrides):
+                    return overrides
+
+        # Legacy 格式兼容：fallback 到旧方法
+        if form_id is not None and table_kind is not None:
+            return self._get_column_width_override(form_id, table_kind, col_count)
+
+        return None
+
+    def _build_table_instance_id(self, table_kind: str, fields) -> str:
+        """根据表格类型和字段列表构建 table_instance_id。
+
+        Args:
+            table_kind: 表格类型 ("normal", "inline", "unified")
+            fields: 字段列表，每个字段需要有 id 属性
+
+        Returns:
+            table_instance_id: 格式 "kind:fieldIds=<ordered-field-ids>"
+        """
+        field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, 'id') and f.id is not None]
+        return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
     def _classify_form_layout(self, form_fields) -> LayoutDecision:
-
         """判断表单是否需要走统一横向布局（unified landscape）。
 
 
@@ -1071,9 +1193,7 @@ class ExportService:
 
             N = max_block_width
 
-            label_span = max(1, min(N - 1, round(N * 0.4)))
-
-            return LayoutDecision("unified_landscape", N, label_span, N - label_span)
+            return LayoutDecision("mixed_landscape", N, 0, 0)
 
 
 
@@ -1201,69 +1321,70 @@ class ExportService:
 
 
 
-    def _build_unified_table(self, doc: Document, segments, layout: LayoutDecision):
+    def _build_unified_table(self, doc: Document, segments, layout: LayoutDecision, form_id=None):
+        """创建 unified landscape 表格并按片段顺序渲染。
 
-        """创建 unified landscape 表格并按片段顺序渲染。"""
-
+        Args:
+            form_id: 表单 ID，用于获取列宽覆盖配置
+        """
         N = layout.column_count
-
         table = doc.add_table(rows=1, cols=N)
-
         table.autofit = False
 
-
-
         # 收集 inline block 的内容用于宽度规划（使用语义需求）
-
         segment_data = []
-
         all_block_demands = []
-
+        regular_field_demands = []
+        # 收集所有字段用于构建 table_instance_id
+        all_fields = []
         for segment in segments:
-
             if segment.type == "inline_block" and segment.fields:
-
                 headers, row_values, _ = build_inline_table_model(segment.fields)
-
                 segment_data.append(("inline_block", headers, row_values))
-
                 # 使用包含 choice/fill-line/unit 语义的需求
-
                 all_block_demands.append(build_inline_column_demands(segment.fields))
+                all_fields.extend(segment.fields)
+            elif segment.type == "regular_field" and segment.fields:
+                form_field = segment.fields[0]
+                field_def = getattr(form_field, "field_definition", None)
+                label = getattr(form_field, "label_override", None) or (
+                    getattr(field_def, "label", None) if field_def else None
+                ) or ""
+                regular_field_demands.append({
+                    "label_weight": compute_text_weight(label),
+                    "control_weight": build_field_control_weight(form_field),
+                })
+                all_fields.extend(segment.fields)
 
-
-
-        # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
-
-        col_widths = plan_unified_table_width(
-
-            segment_data, 23.36, column_count=N, block_demands=all_block_demands
-
-        ) if segment_data else None
-
-
+        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("unified", all_fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, N, form_id=form_id, table_kind="unified"
+        )
+        if overrides:
+            # 直接使用覆盖的 fraction 转换为 cm
+            total_cm = 23.36
+            col_widths = [overrides[i] * total_cm for i in range(N)]
+        else:
+            # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
+            col_widths = plan_unified_table_width(
+                segment_data,
+                23.36,
+                column_count=N,
+                block_demands=all_block_demands,
+                regular_field_demands=regular_field_demands,
+            ) if segment_data or regular_field_demands else None
 
         if col_widths and len(col_widths) == N:
-
             # 应用规划的列宽
-
             for col_idx, col in enumerate(table.columns):
-
                 col.width = Cm(col_widths[col_idx])
-
         else:
-
             # 回退到等宽分配
-
             avail = Cm(23.36)
-
             col_w = int(avail / N)
-
             for col in table.columns:
-
                 col.width = col_w
-
-
 
         table._tbl.remove(table.rows[0]._tr)
 
@@ -1697,20 +1818,31 @@ class ExportService:
 
 
 
-    def _build_form_table(self, doc: Document, fields):
+    def _build_form_table(self, doc: Document, fields, form_id=None):
+        """将一组普通字段渲染为单张表格。
 
-        """将一组普通字段渲染为单张表格。"""
-
+        Args:
+            form_id: 表单 ID，用于获取列宽覆盖配置
+        """
         row_count = len(fields) if fields else 1
-
         table = doc.add_table(rows=row_count, cols=2)
-
         table.autofit = False
 
-        table.columns[0].width = Cm(7.2)
+        # 内容驱动列宽：与前端 planNormalColumnFractions / 横向/统一表格语义一致。
+        # available_cm=14.66 对齐原硬编码 Cm(7.2)+Cm(7.4)=14.6cm 的页面预算。
+        normal_widths = plan_normal_table_width(fields or [], available_cm=14.66)
 
-        table.columns[1].width = Cm(7.4)
+        # 应用列宽覆盖（如果有）- 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("normal", fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, 2, form_id=form_id, table_kind="normal"
+        )
+        if overrides:
+            total_cm = 14.66
+            normal_widths = [overrides[i] * total_cm for i in range(2)]
 
+        table.columns[0].width = Cm(normal_widths[0])
+        table.columns[1].width = Cm(normal_widths[1])
         self._apply_grid_table_style(table)
 
 
@@ -1735,7 +1867,7 @@ class ExportService:
 
             else:
 
-                self._add_field_row(table, row_idx, form_field)
+                self._add_field_row(table, row_idx, form_field, normal_widths)
 
 
 
@@ -1811,7 +1943,7 @@ class ExportService:
 
 
 
-    def _add_field_row(self, table, row_idx: int, form_field):
+    def _add_field_row(self, table, row_idx: int, form_field, widths):
 
         """添加普通字段行。"""
 
@@ -1829,9 +1961,9 @@ class ExportService:
 
         right_cell = row.cells[1]
 
-        left_cell.width = Cm(7.2)
+        left_cell.width = Cm(widths[0])
 
-        right_cell.width = Cm(7.4)
+        right_cell.width = Cm(widths[1])
 
 
 
@@ -1935,54 +2067,44 @@ class ExportService:
 
 
 
-    def _add_inline_table(self, doc: Document, marked_fields, is_wide=False):
+    def _add_inline_table(self, doc: Document, marked_fields, is_wide=False, form_id=None):
+        """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划
 
-        """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划"""
-
+        Args:
+            form_id: 表单 ID，用于获取列宽覆盖配置
+        """
         if not marked_fields:
-
             return
 
-
-
         # 使用共享模块构建表格数据模型
-
         headers, row_values, field_defs = build_inline_table_model(marked_fields)
 
-
-
         # 创建表格：1+max_rows行，N列
-
         table = doc.add_table(rows=1 + len(row_values), cols=len(marked_fields))
-
         self._apply_grid_table_style(table)
 
-
-
         # 使用内容驱动的宽度规划替代等宽分配
-
         avail_cm = 23.36 if is_wide else 14.66
 
-        # 构建包含 choice/fill-line/unit 等语义的列需求
-
-        semantic_demands = build_inline_column_demands(marked_fields)
-
-        col_widths = plan_inline_table_width(headers, row_values, avail_cm, semantic_demands=semantic_demands)
-
-
+        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
+        table_instance_id = self._build_table_instance_id("inline", marked_fields)
+        overrides = self._get_column_width_override_by_instance_id(
+            table_instance_id, len(marked_fields), form_id=form_id, table_kind="inline"
+        )
+        if overrides:
+            # 直接使用覆盖的 fraction 转换为 cm
+            col_widths = [overrides[i] * avail_cm for i in range(len(marked_fields))]
+        else:
+            # 构建包含 choice/fill-line/unit 等语义的列需求
+            semantic_demands = build_inline_column_demands(marked_fields)
+            col_widths = plan_inline_table_width(headers, row_values, avail_cm, semantic_demands=semantic_demands)
 
         # 应用列宽
-
         for col_idx, col in enumerate(table.columns):
-
             if col_idx < len(col_widths):
-
                 col.width = Cm(col_widths[col_idx])
-
             else:
-
                 # 回退到等宽分配
-
                 col.width = int(Cm(avail_cm) / len(marked_fields))
 
 

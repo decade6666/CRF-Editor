@@ -4,6 +4,8 @@
 - 清空单位时显式提交 unit_id: null 能持久化为空
 - 相关列表接口返回 trailing_underscore，支持导入后预览语义
 """
+from __future__ import annotations
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from helpers import auth_headers, login_as
 from src.models import Base
 from src.models.project import Project
+from src.services import import_service as import_service_module
 from src.models.form import Form
 from src.models.field_definition import FieldDefinition
 from src.models.form_field import FormField
@@ -125,7 +128,7 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         session.commit()
 
     engine.dispose()
-    return SimpleNamespace(db_path=db_path, form_id=form.id)
+    return SimpleNamespace(db_path=db_path, allowed_template_path=db_path, form_id=form.id)
 
 
 @pytest.fixture
@@ -304,11 +307,16 @@ def test_import_template_preview_response_includes_trailing_underscore(
 ) -> None:
     from src.routers import import_template as import_template_router
 
+    template_service_config = SimpleNamespace(
+        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
+        upload_path=str(template_db_path.db_path.parent / "uploads"),
+    )
     monkeypatch.setattr(
         import_template_router,
         "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.db_path)),
+        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
     )
+    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
 
     preview_resp = client.get(
         f"/api/projects/{project_id}/import-template/form-fields?form_id={template_db_path.form_id}",

@@ -1,27 +1,30 @@
-"""认证接口集成测试
-
-验证 /enter 端点契约：
-- 首次进入创建用户并返回 token
-- 再次进入同一用户名返回 token（幂等）
-- 空用户名返回 422
-- 无 token 访问受保护接口返回 401
-"""
+"""认证接口集成测试。"""
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import jwt
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from helpers import auth_headers, seed_user
 from src.config import AppConfig, AuthConfig
+from src.models.user import User
 from src.services.auth_service import create_access_token
 
 _TEST_CONFIG = AppConfig(auth=AuthConfig(secret_key="test-secret-key-for-testing"))
 
 
-def test_enter_creates_user_and_returns_token(client: TestClient):
-    r = client.post("/api/auth/enter", json={"username": "alice"})
-    assert r.status_code == 200
-    data = r.json()
+def test_login_returns_token_for_valid_credentials(client: TestClient):
+    seed_user(client, "alice", password="alice-pass-123")
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": "alice-pass-123"},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
 
@@ -32,42 +35,98 @@ def test_enter_creates_user_and_returns_token(client: TestClient):
     )
     assert payload["sub"] == "1"
     assert payload["username"] == "alice"
+    assert payload["ver"] == 0
 
 
-def test_enter_is_idempotent(client: TestClient):
-    r1 = client.post("/api/auth/enter", json={"username": "bob"})
-    assert r1.status_code == 200
-    token1 = r1.json()["access_token"]
+def test_login_rejects_wrong_password(client: TestClient):
+    seed_user(client, "alice", password="alice-pass-123")
 
-    r2 = client.post("/api/auth/enter", json={"username": "bob"})
-    assert r2.status_code == 200
-    token2 = r2.json()["access_token"]
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": "wrong-pass-123"},
+    )
 
-    # 两次进入同一用户名，都成功返回 token
-    assert token1
-    assert token2
+    assert response.status_code == 401
+    assert response.json()["detail"] == "用户名或密码错误"
 
 
-def test_enter_empty_username_returns_422(client: TestClient):
-    r = client.post("/api/auth/enter", json={"username": "   "})
-    assert r.status_code == 422
+def test_login_returns_migration_hint_for_legacy_user_in_development(client: TestClient):
+    seed_user(client, "legacy_user", password=None)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "legacy_user", "password": "any-pass-123"},
+    )
+
+    assert response.status_code == 401
+    assert "联系管理员" in response.json()["detail"]
+
+
+def test_login_hides_migration_hint_for_legacy_user_in_production(client: TestClient, monkeypatch):
+    monkeypatch.setenv("CRF_ENV", "production")
+    seed_user(client, "legacy_user", password=None)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "legacy_user", "password": "any-pass-123"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "用户名或密码错误"
+
+
+def test_login_returns_migration_hint_for_damaged_hash_in_development(
+    client: TestClient, engine
+):
+    seed_user(client, "damaged_user", password="good-pass-123")
+    with Session(engine) as session:
+        with session.begin():
+            user = session.scalar(
+                select(User).where(User.username == "damaged_user")
+            )
+            user.hashed_password = "$pbkdf2-sha256$bad"
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": "damaged_user", "password": "good-pass-123"},
+    )
+
+    assert response.status_code == 401, response.text
+    assert "联系管理员" in response.json()["detail"]
+
+
+def test_legacy_token_without_version_claim_is_rejected(client: TestClient):
+    seed_user(client, "alice", password="alice-pass-123")
+    legacy_token = jwt.encode(
+        {
+            "sub": "1",
+            "username": "alice",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
+        },
+        _TEST_CONFIG.auth.secret_key,
+        algorithm=_TEST_CONFIG.auth.algorithm,
+    )
+
+    response = client.get("/api/projects", headers=auth_headers(legacy_token))
+
+    assert response.status_code == 401
 
 
 def test_no_token_returns_401(client: TestClient):
-    r = client.get("/api/projects")
-    assert r.status_code == 401
+    response = client.get("/api/projects")
+    assert response.status_code == 401
 
 
 def test_create_access_token_uses_configured_expire_minutes() -> None:
     configured_auth = AuthConfig(
         secret_key="test-secret-key-for-testing",
-        access_token_expire_minutes=8640,
+        access_token_expire_minutes=60,
     )
     configured_config = AppConfig(auth=configured_auth)
 
     issued_before = datetime.now(timezone.utc)
     with patch("src.services.auth_service.get_config", return_value=configured_config):
-        token = create_access_token(user_id=7, username="carol")
+        token = create_access_token(user_id=7, username="carol", auth_version=3)
     issued_after = datetime.now(timezone.utc)
 
     payload = jwt.decode(
@@ -75,7 +134,10 @@ def test_create_access_token_uses_configured_expire_minutes() -> None:
         configured_auth.secret_key,
         algorithms=[configured_auth.algorithm],
     )
-    expected_min = int((issued_before + timedelta(minutes=8640)).timestamp()) - 1
-    expected_max = int((issued_after + timedelta(minutes=8640)).timestamp()) + 1
+    expected_min = int((issued_before + timedelta(minutes=60)).timestamp()) - 1
+    expected_max = int((issued_after + timedelta(minutes=60)).timestamp()) + 1
 
+    assert payload["sub"] == "7"
+    assert payload["username"] == "carol"
+    assert payload["ver"] == 3
     assert expected_min <= payload["exp"] <= expected_max

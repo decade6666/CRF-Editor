@@ -16,3 +16,10 @@ test('ProjectInfoTab exposes screening number format under protocol number with 
   assert.match(projectInfoSource, /const data = \{ \.\.\.form \}/)
   assert.match(projectInfoSource, /if \(!screeningNumberFormatTouched\.value && !props\.project\.screening_number_format && data\.screening_number_format === DEFAULT_SCREENING_NUMBER_FORMAT\) \{[\s\S]*data\.screening_number_format = null/)
 })
+
+test('ProjectInfoTab restricts logo uploads to bitmap formats and shows backend error detail', () => {
+  assert.match(projectInfoSource, /accept="\.jpg,\.jpeg,\.png,\.gif,\.bmp,\.webp"/)
+  assert.match(projectInfoSource, /let detail = '未知错误'/)
+  assert.match(projectInfoSource, /if \(typeof body\?\.detail === 'string' && body\.detail\) detail = body\.detail/)
+  assert.match(projectInfoSource, /ElMessage\.error\('上传失败: ' \+ detail\)/)
+})

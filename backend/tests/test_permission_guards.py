@@ -1,4 +1,5 @@
 """关键路由权限门禁测试。"""
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -106,12 +107,16 @@ def test_settings_endpoints_require_login(client: TestClient) -> None:
     assert client.post("/api/settings/ai/test", json={}).status_code == 401
 
 
-def test_authenticated_admin_can_read_settings(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_authenticated_admin_can_read_settings(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     token = login_as(client, "admin")
     from src.routers import settings as settings_router
 
+    template_dir = tmp_path / "database"
+    template_dir.mkdir(parents=True, exist_ok=True)
+    template_path = template_dir / "library.db"
+    template_path.write_bytes(b"")
     fake_config = SimpleNamespace(
-        template_path="D:/templates/library.db",
+        template_path=str(template_path),
         ai_config=SimpleNamespace(
             enabled=False,
             api_url="",
@@ -126,7 +131,7 @@ def test_authenticated_admin_can_read_settings(client: TestClient, monkeypatch: 
     resp = client.get("/api/settings", headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
     payload = resp.json()
-    assert payload["template_path"] == "D:/templates/library.db"
+    assert payload["template_path"] == str(template_path)
     assert payload["ai_api_key"].endswith("-key")
     assert payload["ai_api_key"] != "secret-key"
 
@@ -146,6 +151,96 @@ def test_non_admin_cannot_access_global_settings_or_full_export(client: TestClie
     assert client.put("/api/settings", json=payload, headers=auth_headers(token)).status_code == 403
     assert client.post("/api/settings/ai/test", json={}, headers=auth_headers(token)).status_code == 403
     assert client.get("/api/export/database", headers=auth_headers(token)).status_code == 403
+
+
+
+def test_admin_update_settings_rejects_template_path_outside_allowlist(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    token = login_as(client, "admin")
+    from src.routers import settings as settings_router
+
+    db_dir = tmp_path / "database"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    outside_template = outside_dir / "library.db"
+    outside_template.write_bytes(b"SQLite format 3\x00")
+
+    fake_config = SimpleNamespace(
+        db_path=str(db_dir / "crf_editor.db"),
+        upload_path=str(upload_dir),
+        ai_config=SimpleNamespace(
+            enabled=False,
+            api_url="",
+            api_key="secret-key",
+            model="",
+            api_format="",
+            timeout=30,
+        ),
+    )
+    monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
+
+    resp = client.put(
+        "/api/settings",
+        json={
+            "template_path": str(outside_template),
+            "ai_enabled": False,
+            "ai_api_url": "",
+            "ai_api_key": "",
+            "ai_model": "",
+            "ai_api_format": "",
+        },
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "允许的目录内" in resp.json()["detail"]
+
+
+
+def test_admin_update_settings_accepts_db_file_inside_db_parent(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    token = login_as(client, "admin")
+    from src.routers import settings as settings_router
+
+    db_dir = tmp_path / "database"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    template_path = db_dir / "library.db"
+    template_path.write_bytes(b"SQLite format 3\x00")
+
+    fake_config = SimpleNamespace(
+        db_path=str(db_dir / "crf_editor.db"),
+        upload_path=str(upload_dir),
+        ai_config=SimpleNamespace(
+            enabled=False,
+            api_url="",
+            api_key="secret-key",
+            model="",
+            api_format="",
+            timeout=30,
+        ),
+    )
+    monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
+    monkeypatch.setattr(settings_router, "update_config", lambda updates: SimpleNamespace(
+        template_path=updates["template"]["template_path"],
+        ai_config=fake_config.ai_config,
+    ))
+
+    resp = client.put(
+        "/api/settings",
+        json={
+            "template_path": str(template_path),
+            "ai_enabled": False,
+            "ai_api_url": "",
+            "ai_api_key": "",
+            "ai_model": "",
+            "ai_api_format": "",
+        },
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["template_path"] == str(template_path)
 
 
 
@@ -366,12 +461,79 @@ def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine
     png_bytes = b"\x89PNG\r\n\x1a\nrest-of-png"
     resp = client.post(
         f"/api/projects/{owned_form_graph.project_id}/logo",
-        files={"file": ("logo.png", png_bytes, "image/png")},
+        files={"file": ("logo.fake", png_bytes, "image/png")},
         headers=auth_headers(owned_form_graph.alice_token),
     )
     assert resp.status_code == 200, resp.text
     payload = resp.json()
     assert payload["company_logo_path"].endswith(".png")
+
+
+
+def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.routers import projects as projects_router
+
+    fake_config = SimpleNamespace(upload_path=str(tmp_path))
+    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+
+    svg_bytes = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
+    resp = client.post(
+        f"/api/projects/{owned_form_graph.project_id}/logo",
+        files={"file": ("logo.png", svg_bytes, "image/png")},
+        headers=auth_headers(owned_form_graph.alice_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "SVG/XML" in resp.json()["detail"]
+
+
+
+def test_get_logo_rejects_historical_svg_file(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.routers import projects as projects_router
+
+    fake_config = SimpleNamespace(upload_path=str(tmp_path))
+    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+
+    logos_dir = tmp_path / "logos"
+    logos_dir.mkdir(parents=True, exist_ok=True)
+    (logos_dir / "legacy-logo.svg").write_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'></svg>")
+
+    with Session(engine) as session:
+        project = session.get(Project, owned_form_graph.project_id)
+        assert project is not None
+        project.company_logo_path = "legacy-logo.svg"
+        session.commit()
+
+    resp = client.get(
+        f"/api/projects/{owned_form_graph.project_id}/logo",
+        headers=auth_headers(owned_form_graph.alice_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "重新上传位图" in resp.json()["detail"]
+
+
+
+def test_get_logo_rejects_non_bitmap_content_under_safe_extension(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.routers import projects as projects_router
+
+    fake_config = SimpleNamespace(upload_path=str(tmp_path))
+    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+
+    logos_dir = tmp_path / "logos"
+    logos_dir.mkdir(parents=True, exist_ok=True)
+    (logos_dir / "legacy-logo.png").write_bytes(b"<?xml version='1.0'?><svg></svg>")
+
+    with Session(engine) as session:
+        project = session.get(Project, owned_form_graph.project_id)
+        assert project is not None
+        project.company_logo_path = "legacy-logo.png"
+        session.commit()
+
+    resp = client.get(
+        f"/api/projects/{owned_form_graph.project_id}/logo",
+        headers=auth_headers(owned_form_graph.alice_token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "SVG/XML" in resp.json()["detail"]
 
 
 def test_batch_reference_endpoints_do_not_leak_cross_project_data(client: TestClient, engine, owned_form_graph) -> None:

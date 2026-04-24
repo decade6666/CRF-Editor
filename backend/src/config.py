@@ -1,4 +1,6 @@
 """配置加载模块"""
+from __future__ import annotations
+
 import logging
 import os
 import tempfile
@@ -7,9 +9,21 @@ from pathlib import Path
 from functools import lru_cache
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
+
+_ENV_DEFAULT = "development"
+_ENV_OVERRIDE_MAP = {
+    "CRF_DATABASE_PATH": ("database", "path"),
+    "CRF_STORAGE_UPLOAD_PATH": ("storage", "upload_path"),
+    "CRF_SERVER_HOST": ("server", "host"),
+    "CRF_SERVER_PORT": ("server", "port"),
+    "CRF_TEMPLATE_PATH": ("template", "template_path"),
+    "CRF_AUTH_SECRET_KEY": ("auth", "secret_key"),
+    "CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES": ("auth", "access_token_expire_minutes"),
+    "CRF_ADMIN_BOOTSTRAP_PASSWORD": ("admin", "bootstrap_password"),
+}
 
 # 配置文件迁移至项目根目录，统一配置入口
 CONFIG_FILE = Path(__file__).resolve().parents[2] / "config.yaml"
@@ -37,6 +51,45 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             result[key] = val
     return result
+
+
+def _set_nested_value(target: dict, path: tuple, value) -> None:
+    current = target
+    for key in path[:-1]:
+        current = current.setdefault(key, {})
+    current[path[-1]] = value
+
+
+
+def _coerce_env_value(name: str, raw: str):
+    if name in {"CRF_SERVER_PORT", "CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES"}:
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise ValueError(f"环境变量 {name} 必须是整数") from exc
+    return raw
+
+
+
+def _build_env_overrides() -> dict:
+    overrides = {}
+    for name, path in _ENV_OVERRIDE_MAP.items():
+        raw = os.environ.get(name)
+        if raw is None or raw == "":
+            continue
+        _set_nested_value(overrides, path, _coerce_env_value(name, raw))
+    return overrides
+
+
+
+def get_runtime_env() -> str:
+    raw = os.environ.get("CRF_ENV", "").strip().lower()
+    return raw or _ENV_DEFAULT
+
+
+
+def is_production_env() -> bool:
+    return get_runtime_env() == "production"
 
 
 class DatabaseConfig(BaseModel):
@@ -70,9 +123,19 @@ class AuthConfig(BaseModel):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    @field_validator("access_token_expire_minutes")
+    @classmethod
+    def validate_access_token_expire_minutes(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("auth.access_token_expire_minutes 必须大于 0")
+        if value > 60:
+            raise ValueError("auth.access_token_expire_minutes 不能超过 60 分钟")
+        return value
+
 
 class AdminConfig(BaseModel):
     username: str = "admin"
+    bootstrap_password: str = ""
 
 
 class AppConfig(BaseModel):
@@ -116,11 +179,12 @@ def load_config(path: Path | None = None) -> AppConfig:
                 data = yaml.safe_load(f) or {}
         except yaml.YAMLError as exc:
             raise ValueError(f"配置文件格式错误（{config_file}）: {exc}") from exc
+        merged = _deep_merge(data, _build_env_overrides())
         try:
-            return AppConfig(**data)
+            return AppConfig(**merged)
         except ValidationError as exc:
             raise ValueError(f"配置文件内容不符合预期格式（{config_file}）: {exc}") from exc
-    return AppConfig()
+    return AppConfig(**_build_env_overrides())
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
@@ -176,7 +240,7 @@ def update_config(updates: dict, path: Path | None = None) -> AppConfig:
                 pass
             raise
         get_config.cache_clear()
-    return get_config()
+    return load_config(config_file)
 
 
 @lru_cache(maxsize=1)

@@ -18,7 +18,6 @@ import { useOrderableList } from './composables/useOrderableList'
 
 // 登录状态
 const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
-const showAdmin = ref(false)
 
 function getEmptyUser() {
   return { username: '', is_admin: false }
@@ -33,7 +32,6 @@ function resetSessionState() {
   api.clearAllCache()
   localStorage.removeItem('crf_token')
   isLoggedIn.value = false
-  showAdmin.value = false
   showSettings.value = false
   projects.value = []
   selectedProject.value = null
@@ -41,10 +39,15 @@ function resetSessionState() {
   currentUser.value = getEmptyUser()
 }
 
-function onLoginSuccess() {
+async function onLoginSuccess() {
   isLoggedIn.value = true
-  loadProjects()
-  loadMe()
+  await loadMe()
+  if (isAdmin.value) {
+    selectedProject.value = null
+    projects.value = []
+    return
+  }
+  await loadProjects()
 }
 
 function logout() {
@@ -83,6 +86,11 @@ const copyingProjectId = ref(null)
 const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder')
 
 async function loadProjects() {
+  if (isAdmin.value) {
+    projects.value = []
+    selectedProject.value = null
+    return
+  }
   projects.value = await api.get('/api/projects')
 }
 
@@ -93,8 +101,11 @@ async function onProjectDragEnd() {
     (err) => ElMessage.error(err.message)
   )
 }
-onMounted(() => {
-  if (isLoggedIn.value) { loadProjects(); loadMe() }
+onMounted(async () => {
+  if (isLoggedIn.value) {
+    await loadMe()
+    if (!isAdmin.value) await loadProjects()
+  }
   window.addEventListener('crf:auth-expired', handleAuthExpired)
 })
 
@@ -182,13 +193,64 @@ async function copyProject(p) {
 
 const exportWordLoading = ref(false)
 
+/**
+ * 收集项目中所有表单的列宽覆盖配置。
+ * 遍历 localStorage 中的 crf:designer:col-widths:* 键，提取 table_instance_id 及其列宽配置。
+ * @param {Array} forms - 表单列表，每个表单需要有 id 属性
+ * @returns {Object} 列宽覆盖配置，格式：{ "table_instance_id": [...], ... }
+ *   table_instance_id 格式：kind:fieldIds=<ordered-field-ids> 或 legacy: groupIndex-kind-colCount
+ */
+function collectColumnWidthOverrides(forms) {
+  const overrides = {}
+  if (!forms || !forms.length) return overrides
+
+  const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
+
+  // 遍历 localStorage 中所有相关键
+  const keyPrefix = 'crf:designer:col-widths:'
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key || !key.startsWith(keyPrefix)) continue
+
+    // 解析键格式：crf:designer:col-widths:<form_id>:<table_instance_id>
+    const parts = key.slice(keyPrefix.length).split(':')
+    if (parts.length < 2) continue
+
+    const formId = parseInt(parts[0], 10)
+    if (!formIds.has(formId)) continue
+
+    const tableInstanceId = parts.slice(1).join(':')
+
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
+        overrides[tableInstanceId] = arr
+      }
+    } catch {
+      // 忽略解析错误
+    }
+  }
+
+  return overrides
+}
+
 async function exportWord() {
   if (!selectedProject.value || exportWordLoading.value) return
   exportWordLoading.value = true
   try {
+    // 收集列宽覆盖配置
+    const forms = formDesignerTabRef.value?.getForms?.() || []
+    const columnWidthOverrides = collectColumnWidthOverrides(forms)
+
     const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: {
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ column_width_overrides: columnWidthOverrides }),
     })
     if (!response.ok) {
       const err = await response.json().catch(() => ({}))
@@ -637,6 +699,20 @@ function startResize(e) {
 
 <template>
   <LoginView v-if="!isLoggedIn" @login-success="onLoginSuccess" />
+  <template v-else-if="isAdmin">
+    <div class="header">
+      <div class="header-left">
+        <h1>CRF编辑器</h1>
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
+        <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+          <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
+        </el-button>
+      </div>
+    </div>
+    <div class="admin-shell">
+      <AdminView @logout="logout" />
+    </div>
+  </template>
   <template v-else>
   <!-- 头部 -->
   <div class="header">
@@ -649,9 +725,6 @@ function startResize(e) {
       <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
       <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
         <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
-      </el-button>
-      <el-button v-if="isAdmin" class="header-icon-btn" text circle @click="showAdmin = true" title="管理" aria-label="管理">
-        <el-icon aria-hidden="true"><UserFilled /></el-icon>
       </el-button>
     </div>
     <div class="header-right">
@@ -744,79 +817,6 @@ function startResize(e) {
     <template #footer>
       <el-button @click="showCreateProject = false">取消</el-button>
       <el-button type="primary" @click="createProject">确定</el-button>
-    </template>
-  </el-dialog>
-
-  <!-- 设置弹窗 -->
-  <el-dialog v-model="showSettings" title="设置" width="560px" :close-on-click-modal="false">
-    <el-form label-width="100px">
-      <el-divider>账号与界面</el-divider>
-      <el-form-item label="当前用户">
-        <span>{{ currentUser.username || '未登录' }}</span>
-      </el-form-item>
-      <el-form-item label="编辑模式">
-        <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
-        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span>
-      </el-form-item>
-      <el-form-item label="主题模式">
-        <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
-      </el-form-item>
-
-      <el-divider />
-      <div class="settings-transfer-actions">
-        <el-button @click="exportFullDatabase">导出所有项目</el-button>
-        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-        <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
-        <el-button :disabled="!selectedProject" @click="openImportWordDialog">导入Word</el-button>
-      </div>
-
-      <template v-if="isAdmin">
-        <el-divider>全局设置</el-divider>
-        <el-form-item label="模板路径">
-          <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
-        </el-form-item>
-        <el-divider>AI 复核配置</el-divider>
-        <el-form-item label="启用AI复核">
-          <el-switch v-model="settingsForm.ai_enabled" />
-        </el-form-item>
-        <el-form-item label="API URL">
-          <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
-            :disabled="!settingsForm.ai_enabled" clearable />
-        </el-form-item>
-        <el-form-item label="API Key">
-          <el-input v-model="settingsForm.ai_api_key" type="password" show-password
-            :disabled="!settingsForm.ai_enabled" clearable />
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
-            :disabled="!settingsForm.ai_enabled" clearable />
-        </el-form-item>
-        <el-form-item v-if="settingsForm.ai_enabled">
-          <el-button :loading="aiTestLoading" @click="testAiConnection"
-            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
-            测试连接
-          </el-button>
-          <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
-            <span v-if="aiTestResult.ok" style="color:var(--color-success)">
-              连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
-            </span>
-            <span v-else style="color:var(--color-danger)">
-              连接失败: {{ aiTestResult.error }}
-            </span>
-          </span>
-        </el-form-item>
-      </template>
-
-      <input ref="importProjectInput" type="file" accept=".db" style="display:none" @change="handleImportProject" />
-    </el-form>
-    <template #footer>
-      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-        <el-button type="danger" plain @click="logout">退出登录</el-button>
-        <div style="display:flex;gap:8px">
-          <el-button @click="showSettings = false">关闭</el-button>
-          <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
-        </div>
-      </div>
     </template>
   </el-dialog>
 
@@ -954,11 +954,80 @@ function startResize(e) {
     @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
   />
 
-  <!-- 管理员弹窗 -->
-  <el-dialog v-model="showAdmin" title="管理" width="800px" :close-on-click-modal="false" top="5vh">
-    <AdminView @logout="logout" />
-  </el-dialog>
   </template>
+
+  <!-- 设置弹窗（全局可用） -->
+  <el-dialog v-model="showSettings" title="设置" width="560px" :close-on-click-modal="false">
+    <el-form label-width="100px">
+      <el-divider>账号与界面</el-divider>
+      <el-form-item label="当前用户">
+        <span>{{ currentUser.username || '未登录' }}</span>
+      </el-form-item>
+      <el-form-item v-if="!isAdmin" label="编辑模式">
+        <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
+        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span>
+      </el-form-item>
+      <el-form-item label="主题模式">
+        <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
+      </el-form-item>
+
+      <el-divider v-if="!isAdmin" />
+      <div v-if="!isAdmin" class="settings-transfer-actions">
+        <el-button @click="exportFullDatabase">导出所有项目</el-button>
+        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
+        <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
+        <el-button :disabled="!selectedProject" @click="openImportWordDialog">导入Word</el-button>
+      </div>
+
+      <template v-if="isAdmin">
+        <el-divider>全局设置</el-divider>
+        <el-form-item label="模板路径">
+          <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+        </el-form-item>
+        <el-divider>AI 复核配置</el-divider>
+        <el-form-item label="启用AI复核">
+          <el-switch v-model="settingsForm.ai_enabled" />
+        </el-form-item>
+        <el-form-item label="API URL">
+          <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="settingsForm.ai_api_key" type="password" show-password
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item label="模型">
+          <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
+            :disabled="!settingsForm.ai_enabled" clearable />
+        </el-form-item>
+        <el-form-item v-if="settingsForm.ai_enabled">
+          <el-button :loading="aiTestLoading" @click="testAiConnection"
+            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
+            测试连接
+          </el-button>
+          <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
+            <span v-if="aiTestResult.ok" style="color:var(--color-success)">
+              连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+            </span>
+            <span v-else style="color:var(--color-danger)">
+              连接失败: {{ aiTestResult.error }}
+            </span>
+          </span>
+        </el-form-item>
+      </template>
+
+      <input ref="importProjectInput" type="file" accept=".db" style="display:none" @change="handleImportProject" />
+    </el-form>
+    <template #footer>
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <el-button type="danger" plain @click="logout">退出登录</el-button>
+        <div style="display:flex;gap:8px">
+          <el-button @click="showSettings = false">关闭</el-button>
+          <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
+        </div>
+      </div>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
