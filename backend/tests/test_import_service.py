@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from unittest.mock import patch
 
 from src.models import Base
 from src.models.field_definition import FieldDefinition
@@ -17,6 +22,18 @@ from src.services.docx_import_service import DocxImportService
 from src.services.export_service import ExportService
 from src.services.field_rendering import build_inline_table_model, extract_default_lines
 from src.services.import_service import ImportService
+
+
+@pytest.fixture(autouse=True)
+def import_service_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    fake_config = SimpleNamespace(
+        db_path=str(tmp_path / "crf_editor.db"),
+        upload_path=str(upload_dir),
+    )
+    monkeypatch.setattr("src.services.import_service.get_config", lambda: fake_config)
+    return fake_config
 
 
 @pytest.fixture
@@ -234,6 +251,36 @@ def test_get_template_form_fields_returns_structured_option_metadata(
         {"code": "1", "decode": "男", "trailing_underscore": 1},
         {"code": "2", "decode": "女", "trailing_underscore": 0},
     ]
+
+
+
+def test_open_template_session_rejects_template_path_outside_allowlist(tmp_path: Path, session: Session) -> None:
+    outside_template = tmp_path / "outside.db"
+    outside_template.write_bytes(b"SQLite format 3\x00")
+    cfg = type("Cfg", (), {
+        "db_path": str(tmp_path / "database" / "crf_editor.db"),
+        "upload_path": str(tmp_path / "uploads"),
+    })()
+
+    with patch("src.services.import_service.get_config", return_value=cfg):
+        with pytest.raises(ValueError, match="模板路径不安全"):
+            ImportService._open_template_session(str(outside_template))
+
+
+
+def test_open_template_session_allows_template_path_inside_upload_dir(tmp_path: Path, session: Session) -> None:
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    template_path, form_id = build_template_db(upload_dir, with_unit=True)
+    cfg = type("Cfg", (), {
+        "db_path": str(tmp_path / "database" / "crf_editor.db"),
+        "upload_path": str(upload_dir),
+    })()
+
+    with patch("src.services.import_service.get_config", return_value=cfg):
+        fields = ImportService(session).get_template_form_fields(str(template_path), form_id)
+
+    assert len(fields) == 1
 
 
 def test_update_inline_mark_preserves_default_value_when_disabling(session: Session) -> None:

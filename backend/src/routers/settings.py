@@ -1,6 +1,7 @@
 """Settings Router - 全局配置读写"""
 
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 
 
@@ -22,6 +23,37 @@ from src.utils import is_safe_url, is_safe_path, mask_secret
 router = APIRouter(tags=["settings"])
 
 
+
+def _get_allowed_template_dirs(cfg) -> List[str]:
+
+    db_parent = Path(cfg.db_path).resolve().parent
+    upload_dir = Path(cfg.upload_path).resolve()
+    return [str(db_parent), str(upload_dir)]
+
+
+
+def _validate_template_path(raw_path: str, cfg) -> str:
+
+    if not raw_path:
+        raise HTTPException(status_code=400, detail="模板路径不安全: 路径不能为空")
+
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        config_dir = Path(cfg.db_path).resolve().parent.parent
+        candidate = config_dir / raw_path
+    resolved_path = candidate.resolve()
+
+    if resolved_path.suffix.lower() != ".db":
+        raise HTTPException(status_code=400, detail="模板路径不安全: 模板文件必须是 .db 格式")
+
+    is_valid, error_msg = is_safe_path(
+        str(resolved_path),
+        allowed_dirs=_get_allowed_template_dirs(cfg),
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"模板路径不安全: {error_msg}")
+
+    return str(resolved_path)
 
 
 
@@ -127,15 +159,8 @@ def update_settings(payload: SettingsUpdateRequest, current_user: User = Depends
 
     """更新配置并写入 config.yaml"""
 
-    # 路径安全校验
-
-    is_valid, error_msg = is_safe_path(payload.template_path)
-
-    if not is_valid:
-
-        raise HTTPException(status_code=400, detail=f"模板路径不安全: {error_msg}")
-
-
+    cfg = get_config()
+    safe_template_path = _validate_template_path(payload.template_path, cfg)
 
     # URL 安全校验（如果启用 AI）
 
@@ -149,7 +174,7 @@ def update_settings(payload: SettingsUpdateRequest, current_user: User = Depends
 
 
 
-    current_ai = get_config().ai_config
+    current_ai = cfg.ai_config
     masked_current_key = mask_secret(current_ai.api_key)
 
     ai_updates: dict = {
@@ -175,7 +200,7 @@ def update_settings(payload: SettingsUpdateRequest, current_user: User = Depends
 
     cfg = update_config({
 
-        "template": {"template_path": payload.template_path},
+        "template": {"template_path": safe_template_path},
 
         "ai": ai_updates,
 

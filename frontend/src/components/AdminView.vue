@@ -35,34 +35,69 @@ async function loadRecycleBin() {
 }
 
 const showUserEdit = ref(false)
-const userForm = reactive({ id: null, username: '' })
+const showResetPassword = ref(false)
+const userForm = reactive({ id: null, username: '', password: '' })
+const passwordForm = reactive({ id: null, username: '', password: '' })
 
 function openAddUser() {
   userForm.id = null
   userForm.username = ''
+  userForm.password = ''
   showUserEdit.value = true
 }
 
 function openRenameUser(user) {
   userForm.id = user.id
   userForm.username = user.username
+  userForm.password = ''
   showUserEdit.value = true
+}
+
+function openResetPassword(user) {
+  passwordForm.id = user.id
+  passwordForm.username = user.username
+  passwordForm.password = ''
+  showResetPassword.value = true
 }
 
 async function saveUser() {
   if (!userForm.username) return
+  if (!userForm.id && !userForm.password) {
+    ElMessage.error('请输入初始密码')
+    return
+  }
   try {
     if (userForm.id) {
       await api.patch(`${adminApiBase}/users/${userForm.id}`, { username: userForm.username })
       ElMessage.success('修改成功')
     } else {
-      await api.post(`${adminApiBase}/users`, { username: userForm.username })
+      await api.post(`${adminApiBase}/users`, {
+        username: userForm.username,
+        password: userForm.password,
+      })
       ElMessage.success('添加成功')
     }
     showUserEdit.value = false
     await loadUsers()
   } catch (e) {
     ElMessage.error('操作失败: ' + e.message)
+  }
+}
+
+async function submitPasswordReset() {
+  if (!passwordForm.password) {
+    ElMessage.error('请输入新密码')
+    return
+  }
+  try {
+    await api.put(`${adminApiBase}/users/${passwordForm.id}/password`, {
+      password: passwordForm.password,
+    })
+    ElMessage.success('密码重置成功')
+    showResetPassword.value = false
+    await loadUsers()
+  } catch (e) {
+    ElMessage.error('密码重置失败: ' + e.message)
   }
 }
 
@@ -240,15 +275,30 @@ onMounted(() => {
 
     <el-table :data="users" v-loading="loadingUsers" border stripe>
       <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column prop="username" label="用户名" />
+      <el-table-column label="用户名">
+        <template #default="{ row }">
+          <div class="user-name-cell">
+            <span>{{ row.username }}</span>
+            <el-tag v-if="row.is_admin" size="small" type="danger">管理员</el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="密码状态" width="120">
+        <template #default="{ row }">
+          <el-tag :type="row.has_password ? 'success' : 'warning'">
+            {{ row.has_password ? '已设密码' : '未设密码' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="project_count" label="项目数" width="100" />
-      <el-table-column label="操作" width="460">
+      <el-table-column label="操作" width="540">
         <template #default="{ row }">
           <el-button size="small" @click="openRenameUser(row)">改名</el-button>
-          <el-button size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
-          <el-button size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
-          <el-button size="small" type="warning" plain @click="openBatchDelete(row)">批量删除</el-button>
-          <el-button size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
+          <el-button size="small" type="primary" @click="openResetPassword(row)">重置密码</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="warning" plain @click="openBatchDelete(row)">批量删除</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -258,10 +308,28 @@ onMounted(() => {
         <el-form-item label="用户名">
           <el-input v-model="userForm.username" />
         </el-form-item>
+        <el-form-item v-if="!userForm.id" label="初始密码">
+          <el-input v-model="userForm.password" type="password" show-password />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showUserEdit = false">取消</el-button>
         <el-button type="primary" @click="saveUser">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showResetPassword" title="重置密码" width="400px" append-to-body>
+      <el-form label-width="80px">
+        <el-form-item label="用户名">
+          <el-input :model-value="passwordForm.username" disabled />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.password" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showResetPassword = false">取消</el-button>
+        <el-button type="primary" @click="submitPasswordReset">确定</el-button>
       </template>
     </el-dialog>
 
@@ -352,6 +420,11 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.user-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .tab-header {
   display: flex;

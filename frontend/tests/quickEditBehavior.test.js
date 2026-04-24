@@ -285,6 +285,7 @@ test('api helpers preserve HTTP status on thrown errors', () => {
   const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8')
   assert.match(apiSource, /function _createHttpError\(message, status\) \{[\s\S]*error\.status = status/)
   assert.match(apiSource, /throw _createHttpError\('登录已过期，请重新登录', r\.status\)/)
+  assert.match(apiSource, /if \(r\.status === 429\) \{[\s\S]*throw _createHttpError\(detail \|\| '操作过于频繁，请稍后重试', r\.status\)/)
   assert.match(apiSource, /if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)/)
 })
 
@@ -302,7 +303,7 @@ test('property editor blocks reset when flush fails on dialog close and project 
 
 test('app blocks project switch until form designer can leave', () => {
   assert.match(formDesignerSource, /async function canLeaveProject\(\) \{[\s\S]*return flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)/)
-  assert.match(formDesignerSource, /defineExpose\(\{ canLeaveProject \}\)/)
+  assert.match(formDesignerSource, /defineExpose\(\{ canLeaveProject, getForms:/)
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
   assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(activeTab\.value === 'designer' && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
   assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
