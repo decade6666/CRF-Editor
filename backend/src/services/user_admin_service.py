@@ -20,6 +20,7 @@ class UserInfo:
     username: str
     project_count: int
     has_password: bool
+    is_admin: bool
 
 
 def get_reserved_admin_username() -> str:
@@ -43,6 +44,7 @@ class UserAdminService:
                 User.id,
                 User.username,
                 User.hashed_password,
+                User.is_admin,
                 func.count(Project.id).label("project_count"),
             )
             .outerjoin(
@@ -58,7 +60,8 @@ class UserAdminService:
                 id=row[0],
                 username=row[1],
                 has_password=has_usable_password_hash(row[2]),
-                project_count=row[3],
+                is_admin=row[3],
+                project_count=row[4],
             )
             for row in rows
         ]

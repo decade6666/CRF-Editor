@@ -275,7 +275,14 @@ onMounted(() => {
 
     <el-table :data="users" v-loading="loadingUsers" border stripe>
       <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column prop="username" label="用户名" />
+      <el-table-column label="用户名">
+        <template #default="{ row }">
+          <div class="user-name-cell">
+            <span>{{ row.username }}</span>
+            <el-tag v-if="row.is_admin" size="small" type="danger">管理员</el-tag>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="密码状态" width="120">
         <template #default="{ row }">
           <el-tag :type="row.has_password ? 'success' : 'warning'">
@@ -288,10 +295,10 @@ onMounted(() => {
         <template #default="{ row }">
           <el-button size="small" @click="openRenameUser(row)">改名</el-button>
           <el-button size="small" type="primary" @click="openResetPassword(row)">重置密码</el-button>
-          <el-button size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
-          <el-button size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
-          <el-button size="small" type="warning" plain @click="openBatchDelete(row)">批量删除</el-button>
-          <el-button size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="primary" plain @click="openBatchMove(row)">批量迁移</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="success" plain @click="openBatchCopy(row)">批量复制</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="warning" plain @click="openBatchDelete(row)">批量删除</el-button>
+          <el-button v-if="!row.is_admin" size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -413,6 +420,11 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.user-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .tab-header {
   display: flex;
