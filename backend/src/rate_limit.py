@@ -68,9 +68,19 @@ AUTH_LOGIN_RULE = RateLimitRule(limit=5, window_seconds=60)
 IMPORT_RULE = RateLimitRule(limit=3, window_seconds=60)
 
 
+def _auth_bucket(scope: str, username: str, client_ip: str) -> str:
+    return f"{scope}:{username.strip()}:{client_ip}"
+
+
 def limit_auth_login(request: Request, username: str) -> None:
     client_ip = get_client_ip(request)
-    bucket = f"auth-login:{username.strip()}:{client_ip}"
+    bucket = _auth_bucket("auth-login", username, client_ip)
+    enforce_rate_limit(bucket, AUTH_LOGIN_RULE)
+
+
+def limit_self_password_change(request: Request, username: str) -> None:
+    client_ip = get_client_ip(request)
+    bucket = _auth_bucket("self-password-change", username, client_ip)
     enforce_rate_limit(bucket, AUTH_LOGIN_RULE)
 
 
