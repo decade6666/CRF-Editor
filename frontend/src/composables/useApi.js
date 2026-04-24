@@ -145,7 +145,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return _safeJsonParse(r)
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async patch(url, data) {
     const r = await fetch(url, {
@@ -155,7 +155,7 @@ export const api = {
     })
     await _checkStatus(r)
     _autoInvalidate(url)
-    return _safeJsonParse(r)
+    return r.status === 204 ? null : _safeJsonParse(r)
   },
   async del(url) {
     const r = await fetch(url, { method: 'DELETE', headers: _getAuthHeaders() })

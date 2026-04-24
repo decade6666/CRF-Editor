@@ -92,40 +92,53 @@ export function buildInlineColumnDemands(fields) {
 
   return fields.map(ff => {
     if (!ff) return { label: '', weight: FILL_LINE_WEIGHT }
-    // 兼容两种字段形状：designer 侧包装于 field_definition，运行态扁平在 ff 上
     const fd = ff.field_definition
     const fieldType = fd ? fd.field_type : ff.field_type
-    const rawOptions = fd ? (fd.options || fd.codelist?.options || []) : (ff.options || [])
     const label = ff.label_override || (fd ? fd.label : ff.label) || ''
 
     if (!fieldType && !label) {
       return { label: '', weight: FILL_LINE_WEIGHT }
     }
 
-    let weight = computeTextWeight(label)
-
-    const defaultValue = ff.default_value
-    if (defaultValue && isDefaultValueSupported(fieldType, Boolean(ff.inline_mark))) {
-      const lines = normalizeDefaultValue(defaultValue).split('\n')
-      for (const line of lines) {
-        weight = Math.max(weight, computeTextWeight(line))
-      }
-    } else if (isChoiceField(fieldType)) {
-      const options = normalizeChoiceOptions(rawOptions)
-      if (options.length > 0) {
-        const maxOptWeight = Math.max(
-          ...options.map(opt => computeChoiceAtomWeight(opt.text, opt.trailingUnderscore))
-        )
-        weight = Math.max(weight, maxOptWeight)
-      } else {
-        weight = Math.max(weight, FILL_LINE_WEIGHT)
-      }
-    } else {
-      weight = Math.max(weight, FILL_LINE_WEIGHT)
+    return {
+      label,
+      weight: Math.max(computeTextWeight(label), computeFieldControlWeight(ff)),
     }
-
-    return { label, weight }
   })
+}
+
+export function computeFieldControlWeight(ff) {
+  if (!ff) return FILL_LINE_WEIGHT
+  const fd = ff.field_definition
+  const fieldType = fd ? fd.field_type : ff.field_type
+  const rawOptions = fd ? (fd.options || fd.codelist?.options || []) : (ff.options || [])
+  const defaultValue = ff.default_value
+
+  if (defaultValue && isDefaultValueSupported(fieldType, Boolean(ff.inline_mark))) {
+    const lines = normalizeDefaultValue(defaultValue).split('\n')
+    return Math.max(...lines.map(line => computeTextWeight(line)), FILL_LINE_WEIGHT)
+  }
+
+  if (isChoiceField(fieldType)) {
+    const options = normalizeChoiceOptions(rawOptions)
+    if (!options.length) return FILL_LINE_WEIGHT
+    return Math.max(
+      ...options.map(opt => computeChoiceAtomWeight(opt.text, opt.trailingUnderscore)),
+      FILL_LINE_WEIGHT,
+    )
+  }
+
+  const rendererField = fd
+    ? {
+        field_type: fieldType,
+        options: rawOptions,
+        unit_symbol: fd.unit_symbol || fd.unit?.symbol || ff.unit_symbol,
+        integer_digits: fd.integer_digits,
+        decimal_digits: fd.decimal_digits,
+        date_format: fd.date_format,
+      }
+    : ff
+  return computeControlPlaceholderWeight(fieldType, rendererField)
 }
 
 /**
@@ -217,10 +230,7 @@ export function buildNormalColumnDemands(fields) {
     const labelText = ff?.label_override || (fd ? fd.label : ff?.label) || ''
     labelWeight = Math.max(labelWeight, computeTextWeight(labelText))
 
-    const inlineDemand = buildInlineColumnDemands([ff])[0]
-    if (inlineDemand) {
-      controlWeight = Math.max(controlWeight, inlineDemand.weight)
-    }
+    controlWeight = Math.max(controlWeight, computeFieldControlWeight(ff))
   }
 
   return [
@@ -243,10 +253,23 @@ export function planNormalColumnFractions(fields) {
   return [result[0], result[1]]
 }
 
+function computeRegularFieldSpans(columnCount) {
+  const labelSpan = Math.max(1, Math.min(columnCount - 1, Math.round(columnCount * 0.4)))
+  return { labelSpan, valueSpan: columnCount - labelSpan }
+}
+
+function applySpannedWeight(slotWeights, start, span, weight) {
+  if (!Number.isFinite(weight) || weight <= 0 || span <= 0) return
+  const end = Math.min(slotWeights.length, start + span)
+  const perSlotWeight = weight / (end - start)
+  for (let i = start; i < end; i += 1) {
+    slotWeights[i] = Math.max(slotWeights[i], perSlotWeight)
+  }
+}
+
 /**
  * 为 unified 表格规划列宽比例。
- * 仅 inline_block 类型 segment 参与；对每个 inline_block 计算每列的 inline 权重，
- * 然后按 per-slot-max 聚合；空 slot 使用 WEIGHT_ASCII * 4 最小保护。
+ * inline_block 按物理列 per-slot-max 聚合；regular_field 按实际合并单元格跨度分摊 label/control 权重。
  * @param {Array<{type: string, fields: Array}>} segments - unified 段落列表
  * @param {number} columnCount - 统一列数
  * @returns {Array<number>} 各列比例，长度等于 columnCount
@@ -267,12 +290,12 @@ export function planUnifiedColumnFractions(segments, columnCount) {
     } else if (segment.type === 'regular_field' && segment.fields?.length) {
       const field = segment.fields[0]
       if (field && columnCount >= 2) {
+        const { labelSpan, valueSpan } = computeRegularFieldSpans(columnCount)
         const labelText = field.label_override || field.field_definition?.label || ''
         const labelWeight = computeTextWeight(labelText)
-        const demands = buildInlineColumnDemands([field])
-        const controlWeight = demands.length > 0 ? demands[0].weight : minWeight
-        slotWeights[0] = Math.max(slotWeights[0], labelWeight)
-        slotWeights[1] = Math.max(slotWeights[1], controlWeight)
+        const controlWeight = computeFieldControlWeight(field)
+        applySpannedWeight(slotWeights, 0, labelSpan, labelWeight)
+        applySpannedWeight(slotWeights, labelSpan, valueSpan, controlWeight)
       }
     }
   }
@@ -341,6 +364,13 @@ export function isChoiceField(fieldType) {
 export function isDefaultValueSupported(fieldType, inlineMark = false) {
   if (inlineMark) return true
   return ['文本', '数值'].includes(fieldType)
+}
+
+function computeControlPlaceholderWeight(fieldType, field = {}) {
+  if (['数值', '日期', '日期时间', '时间'].includes(fieldType)) {
+    return Math.max(computeTextWeight(renderCtrl(field)), FILL_LINE_WEIGHT)
+  }
+  return FILL_LINE_WEIGHT
 }
 
 export function normalizeDefaultValue(defaultValue, singleLine = false) {

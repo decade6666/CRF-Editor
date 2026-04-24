@@ -47,8 +47,12 @@ class ImportService:
 
     @staticmethod
     def _validate_runtime_template_path(template_path: str) -> str:
-        path = Path(template_path)
-        resolved_path = path.resolve()
+        """校验模板路径安全性，相对路径基于 config.yaml 所在目录解析。"""
+        cfg = get_config()
+        # 使用配置模块的路径解析逻辑：相对路径基于 config.yaml 目录
+        from src.config import _CONFIG_DIR, _resolve_path
+        resolved_path = Path(_resolve_path(template_path, _CONFIG_DIR)).resolve()
+
         if resolved_path.suffix.lower() != ".db":
             raise ValueError(f"模板文件必须是 .db 格式: {template_path}")
 
