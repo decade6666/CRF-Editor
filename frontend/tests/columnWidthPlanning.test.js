@@ -169,6 +169,55 @@ function createLocalStorageStub() {
   }
 }
 
+function createWindowStub() {
+  const listeners = new Map()
+  return {
+    listeners,
+    window: {
+      addEventListener(type, listener) {
+        listeners.set(type, listener)
+      },
+      removeEventListener(type, listener) {
+        if (listeners.get(type) === listener) listeners.delete(type)
+      },
+    },
+  }
+}
+
+function createResizeHarness({ containerLeft, containerWidth, boundaryClientXs = [] }) {
+  const scopeRoot = {
+    querySelectorAll(selector) {
+      if (selector !== '.resizer-handle') return []
+      return [activeHandle, ...otherHandles]
+    },
+  }
+  const host = {
+    getBoundingClientRect() {
+      return { left: containerLeft, width: containerWidth }
+    },
+    closest(selector) {
+      if (selector === '.wp-main') return scopeRoot
+      return null
+    },
+  }
+  const activeHandle = {
+    closest(selector) {
+      if (selector === '.col-resize-host') return host
+      return null
+    },
+    getBoundingClientRect() {
+      return { left: containerLeft, width: 10 }
+    },
+    setPointerCapture() {},
+  }
+  const otherHandles = boundaryClientXs.map((clientX) => ({
+    getBoundingClientRect() {
+      return { left: clientX - 5, width: 10 }
+    },
+  }))
+  return { activeHandle }
+}
+
 test('9.8 useColumnResize_localStorage_priority: 合法持久化值优先于 factory', async () => {
   const ls = createLocalStorageStub()
   globalThis.localStorage = ls
@@ -630,4 +679,58 @@ test('16.3.5b batchResetColumnWidths_clears_multiple_forms: 批量清除多表�
   assert.equal(ls.getItem('crf:designer:col-widths:100:unified:fieldIds=6,7,8'), JSON.stringify([0.3, 0.4, 0.3]))
 
   delete globalThis.localStorage
+})
+
+test('16.4.1 useColumnResize_snaps_to_cross_group_boundaries: 可吸附到同作用域其他表格边界', async () => {
+  const ls = createLocalStorageStub()
+  const { window, listeners } = createWindowStub()
+  globalThis.localStorage = ls
+  globalThis.window = window
+
+  try {
+    const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+    const { ref } = await import('vue')
+    const r = useColumnResize(ref(42), ref('normal:fieldIds=1,2'), () => [0.4, 0.6])
+    const { activeHandle } = createResizeHarness({
+      containerLeft: 100,
+      containerWidth: 200,
+      boundaryClientXs: [210],
+    })
+
+    r.onResizeStart(0, { preventDefault() {}, currentTarget: activeHandle, pointerId: 1 })
+    listeners.get('pointermove')({ clientX: 212 })
+
+    assert.ok(Math.abs(r.colRatios[0] - 0.55) < 1e-9)
+    assert.ok(Math.abs(r.snapGuideX - 110) < 1e-9)
+  } finally {
+    delete globalThis.localStorage
+    delete globalThis.window
+  }
+})
+
+test('16.4.2 useColumnResize_ignores_out_of_range_snap_candidates: 越界候选不会触发漂移 guide', async () => {
+  const ls = createLocalStorageStub()
+  const { window, listeners } = createWindowStub()
+  globalThis.localStorage = ls
+  globalThis.window = window
+
+  try {
+    const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+    const { ref } = await import('vue')
+    const r = useColumnResize(ref(42), ref('normal:fieldIds=1,2,3'), () => [0.45, 0.1, 0.45])
+    const { activeHandle } = createResizeHarness({
+      containerLeft: 0,
+      containerWidth: 200,
+      boundaryClientXs: [110],
+    })
+
+    r.onResizeStart(0, { preventDefault() {}, currentTarget: activeHandle, pointerId: 1 })
+    listeners.get('pointermove')({ clientX: 111 })
+
+    assert.ok(Math.abs(r.colRatios[0] - 0.45) < 1e-9)
+    assert.equal(r.snapGuideX, null)
+  } finally {
+    delete globalThis.localStorage
+    delete globalThis.window
+  }
 })

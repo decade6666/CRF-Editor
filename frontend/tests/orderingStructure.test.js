@@ -205,3 +205,12 @@ test('useSortableTable reloads after reorder to align with backend truth', () =>
   // reorder 后 reload 对齐后端真值
   assert.match(sortableSource, /if \(reloadFn\) await reloadFn/)
 })
+
+test('FormDesignerTab keeps main preview and designer preview resizers scoped separately', () => {
+  assert.match(formsSource, /function getResizer\(kind, colCount, groupIndex, group, scope = 'main'\)/)
+  assert.match(formsSource, /const mapKey = `\$\{scope\}:\$\{kind\}:\$\{colCount\}:\$\{tableInstanceId\}`/)
+  assert.match(formsSource, /getResizer\('normal', 2, gi, g, 'main'\)/)
+  assert.match(formsSource, /getResizer\('normal', 2, gi, g, 'designer'\)/)
+  assert.match(formsSource, /getResizer\('inline', g\.fields\.length, gi, g, 'main'\)/)
+  assert.match(formsSource, /getResizer\('inline', g\.fields\.length, gi, g, 'designer'\)/)
+})
