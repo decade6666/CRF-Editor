@@ -285,6 +285,7 @@ class UserListItem(BaseModel):
     username: str
     project_count: int
     has_password: bool
+    is_admin: bool
 
 
 @router.get("/admin/users", response_model=List[UserListItem])
@@ -300,6 +301,7 @@ def list_users(
             username=u.username,
             project_count=u.project_count,
             has_password=u.has_password,
+            is_admin=u.is_admin,
         )
         for u in users
     ]

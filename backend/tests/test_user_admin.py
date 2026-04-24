@@ -98,6 +98,31 @@ def test_list_users_returns_all(client, engine):
         assert "project_count" in u
 
 
+def test_list_users_includes_is_admin(client, engine):
+    """用户列表应返回真实管理员标识。"""
+    token = login_as(client, "admin")
+    login_as(client, "bob")
+
+    resp = client.get("/api/admin/users", headers=auth_headers(token))
+    assert resp.status_code == 200
+    users = {user["username"]: user for user in resp.json()}
+    assert users["admin"]["is_admin"] is True
+    assert users["bob"]["is_admin"] is False
+
+
+def test_list_users_marks_non_reserved_admin_username(client, engine):
+    """管理员判定应来自 is_admin，而不是保留用户名。"""
+    seed_user(client, "ops_root", is_admin=True)
+    token = login_as(client, "ops_root")
+    login_as(client, "bob")
+
+    resp = client.get("/api/admin/users", headers=auth_headers(token))
+    assert resp.status_code == 200
+    users = {user["username"]: user for user in resp.json()}
+    assert users["ops_root"]["is_admin"] is True
+    assert users["bob"]["is_admin"] is False
+
+
 def test_list_users_project_count(client, engine):
     """项目数应反映实际关联。"""
     token = login_as(client, "admin")

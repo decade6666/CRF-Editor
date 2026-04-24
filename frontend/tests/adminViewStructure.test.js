@@ -22,6 +22,26 @@ test('AdminView keeps batch project actions inside user management actions', () 
   assert.match(adminViewSource, /@selection-change="onProjectSelectionChange"/)
 })
 
+test('AdminView highlights admin users and restricts admin-only actions', () => {
+  assert.match(adminViewSource, /row\.is_admin/)
+  assert.match(adminViewSource, /管理员/)
+  assert.match(adminViewSource, /v-if="row\.is_admin"/)
+
+  const renameButtonTag = adminViewSource.match(/<el-button[^>]*@click="openRenameUser\(row\)"[^>]*>/)?.[0]
+  const resetPasswordButtonTag = adminViewSource.match(/<el-button[^>]*@click="openResetPassword\(row\)"[^>]*>/)?.[0]
+
+  assert.ok(renameButtonTag)
+  assert.ok(resetPasswordButtonTag)
+  assert.equal(/v-if=|v-show=/.test(renameButtonTag), false)
+  assert.equal(/v-if=|v-show=/.test(resetPasswordButtonTag), false)
+
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchMove\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchCopy\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchDelete\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="deleteUser\(row\)"/)
+  assert.match(adminViewSource, /@click="deleteUser\(row\)"[^\n>]*:disabled="row\.project_count > 0"/)
+})
+
 test('admin shell mounts AdminView directly without normal workspace content', () => {
   assert.match(appSource, /<template v-else-if="isAdmin">/)
   assert.match(appSource, /<div class="admin-shell">[\s\S]*<AdminView @logout="logout" \/>/)
