@@ -73,4 +73,7 @@ config.yaml
 /.agents
 AGENTS.md
 backend/.pytest-tmp/
+backend/.venv-linux/
+backend/.venv-linux.py38-broken/
+image/
 /.context
