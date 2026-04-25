@@ -66,6 +66,15 @@ CRF-Editor/
         └── README.md        # Static logo resource notes
 ```
 
+### AI Collaboration Context
+
+- Root context: `.claude/CLAUDE.md`
+- Backend module context: `backend/.claude/CLAUDE.md`
+- Frontend module context: `frontend/.claude/CLAUDE.md`
+- Structured index: `.claude/index.json`
+
+These documents support AI-assisted development by recording module boundaries, entry points, cross-stack contracts, testing strategy, and deployment security constraints. Update them when features, commands, or test entry points change.
+
 ## Installation
 
 ### Requirements

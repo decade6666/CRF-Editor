@@ -74,6 +74,15 @@ CRF-Editor/
         └── README.md        # 静态 Logo 资源说明
 ```
 
+### AI 协作上下文
+
+- 根级上下文：`.claude/CLAUDE.md`
+- 后端模块上下文：`backend/.claude/CLAUDE.md`
+- 前端模块上下文：`frontend/.claude/CLAUDE.md`
+- 结构化索引：`.claude/index.json`
+
+这些文档面向 AI 辅助开发，记录模块边界、入口、跨栈契约、测试策略与安全部署约束；功能、命令或测试入口变更时应同步更新。
+
 ## 安装教程
 
 ### 环境要求
