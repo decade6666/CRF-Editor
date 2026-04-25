@@ -7,12 +7,20 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, seed_user
+from helpers import auth_headers, login_as, seed_user
 from src.config import AppConfig, AuthConfig
 from src.models.user import User
-from src.services.auth_service import create_access_token
+from src.rate_limit import limiter
+from src.services.auth_service import create_access_token, verify_password
 
 _TEST_CONFIG = AppConfig(auth=AuthConfig(secret_key="test-secret-key-for-testing"))
+
+
+def _user_credentials(engine, username: str):
+    with Session(engine) as session:
+        user = session.scalar(select(User).where(User.username == username))
+        assert user is not None
+        return user.hashed_password, user.auth_version
 
 
 def test_login_returns_token_for_valid_credentials(client: TestClient):
@@ -141,3 +149,196 @@ def test_create_access_token_uses_configured_expire_minutes() -> None:
     assert payload["username"] == "carol"
     assert payload["ver"] == 3
     assert expected_min <= payload["exp"] <= expected_max
+
+
+def test_self_password_change_success_updates_password_and_auth_version(
+    client: TestClient, engine
+):
+    token = login_as(client, "alice", password="alice-pass-123")
+    _, before_version = _user_credentials(engine, "alice")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "alice-pass-123",
+            "new_password": "alice-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 204, response.text
+    assert response.content == b""
+    after_hash, after_version = _user_credentials(engine, "alice")
+    assert verify_password("alice-new-pass-456", after_hash)
+    assert after_version == before_version + 1
+
+
+def test_self_password_change_invalidates_old_jwt(client: TestClient):
+    token = login_as(client, "alice", password="alice-pass-123")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "alice-pass-123",
+            "new_password": "alice-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 204, response.text
+
+    old_token_response = client.get("/api/projects", headers=auth_headers(token))
+    assert old_token_response.status_code == 401
+
+
+def test_self_password_change_updates_login_password(client: TestClient):
+    token = login_as(client, "alice", password="alice-pass-123")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "alice-pass-123",
+            "new_password": "alice-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 204, response.text
+
+    old_login = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": "alice-pass-123"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        "/api/auth/login",
+        json={"username": "alice", "password": "alice-new-pass-456"},
+    )
+    assert new_login.status_code == 200, new_login.text
+    assert "access_token" in new_login.json()
+
+
+def test_self_password_change_wrong_current_password_keeps_database_unchanged(
+    client: TestClient, engine
+):
+    token = login_as(client, "alice", password="alice-pass-123")
+    before_hash, before_version = _user_credentials(engine, "alice")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "wrong-pass-123",
+            "new_password": "alice-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "当前密码错误"
+    assert _user_credentials(engine, "alice") == (before_hash, before_version)
+    still_valid = client.get("/api/projects", headers=auth_headers(token))
+    assert still_valid.status_code == 200, still_valid.text
+
+
+def test_self_password_change_policy_violation_keeps_database_unchanged(
+    client: TestClient, engine
+):
+    token = login_as(client, "alice", password="alice-pass-123")
+    before_hash, before_version = _user_credentials(engine, "alice")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={"current_password": "alice-pass-123", "new_password": "short"},
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "密码长度不能少于 8 个字符"
+    assert _user_credentials(engine, "alice") == (before_hash, before_version)
+
+
+def test_self_password_change_rejects_same_password(client: TestClient, engine):
+    token = login_as(client, "alice", password="alice-pass-123")
+    before_hash, before_version = _user_credentials(engine, "alice")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "alice-pass-123",
+            "new_password": "alice-pass-123",
+        },
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "新密码不能与当前密码相同"
+    assert _user_credentials(engine, "alice") == (before_hash, before_version)
+
+
+def test_self_password_change_rejects_admin(client: TestClient, engine):
+    token = login_as(client, "admin", password="admin-pass-123")
+    before_hash, before_version = _user_credentials(engine, "admin")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "admin-pass-123",
+            "new_password": "admin-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "管理员不能使用普通用户自助改密"
+    assert _user_credentials(engine, "admin") == (before_hash, before_version)
+
+
+def test_self_password_change_rejects_extra_fields(client: TestClient):
+    token = login_as(client, "alice", password="alice-pass-123")
+
+    response = client.put(
+        "/api/auth/me/password",
+        json={
+            "current_password": "alice-pass-123",
+            "new_password": "alice-new-pass-456",
+            "confirm_new_password": "alice-new-pass-456",
+        },
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 422
+
+
+def test_self_password_change_reuses_login_throttle_in_production(
+    client: TestClient, monkeypatch
+):
+    monkeypatch.delenv("CRF_ENV", raising=False)
+    token = login_as(client, "alice", password="alice-pass-123")
+    limiter.reset()
+    monkeypatch.setenv("CRF_ENV", "production")
+
+    try:
+        for _ in range(5):
+            response = client.put(
+                "/api/auth/me/password",
+                json={
+                    "current_password": "wrong-pass-123",
+                    "new_password": "alice-new-pass-456",
+                },
+                headers=auth_headers(token),
+            )
+            assert response.status_code == 400, response.text
+
+        blocked = client.put(
+            "/api/auth/me/password",
+            json={
+                "current_password": "wrong-pass-123",
+                "new_password": "alice-new-pass-456",
+            },
+            headers=auth_headers(token),
+        )
+
+        assert blocked.status_code == 429, blocked.text
+        assert blocked.json()["detail"] == "操作过于频繁，请稍后重试"
+        assert int(blocked.headers["retry-after"]) >= 1
+    finally:
+        limiter.reset()
