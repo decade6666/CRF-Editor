@@ -32,6 +32,7 @@ function resetSessionState() {
   api.clearAllCache()
   localStorage.removeItem('crf_token')
   isLoggedIn.value = false
+  closeSelfPasswordDialog()
   showSettings.value = false
   projects.value = []
   selectedProject.value = null
@@ -381,6 +382,52 @@ const settingsForm = reactive({
 })
 const aiTestLoading = ref(false)
 const aiTestResult = ref(null) // { ok, latency_ms, model, error }
+const showSelfPasswordDialog = ref(false)
+const selfPasswordSaving = ref(false)
+const selfPasswordForm = reactive({
+  current_password: '',
+  new_password: '',
+  confirm_new_password: '',
+})
+
+function resetSelfPasswordForm() {
+  selfPasswordForm.current_password = ''
+  selfPasswordForm.new_password = ''
+  selfPasswordForm.confirm_new_password = ''
+}
+
+function openSelfPasswordDialog() {
+  resetSelfPasswordForm()
+  showSelfPasswordDialog.value = true
+}
+
+function closeSelfPasswordDialog() {
+  showSelfPasswordDialog.value = false
+  selfPasswordSaving.value = false
+  resetSelfPasswordForm()
+}
+
+async function submitSelfPasswordChange() {
+  if (selfPasswordForm.new_password !== selfPasswordForm.confirm_new_password) {
+    ElMessage.error('新密码与确认新密码不一致')
+    return
+  }
+  selfPasswordSaving.value = true
+  try {
+    await api.put('/api/auth/me/password', {
+      current_password: selfPasswordForm.current_password,
+      new_password: selfPasswordForm.new_password,
+    })
+    ElMessage.success('密码修改成功，请重新登录')
+    closeSelfPasswordDialog()
+    rememberUsername()
+    resetSessionState()
+  } catch (e) {
+    if (e.status !== 401) ElMessage.error(e.message)
+  } finally {
+    selfPasswordSaving.value = false
+  }
+}
 
 function resetSettingsForm() {
   settingsForm.template_path = ''
@@ -394,6 +441,7 @@ function resetSettingsForm() {
 async function openSettings() {
   showSettings.value = true
   aiTestResult.value = null
+  closeSelfPasswordDialog()
   resetSettingsForm()
   if (!isAdmin.value) return
   try {
@@ -961,7 +1009,10 @@ function startResize(e) {
     <el-form label-width="100px">
       <el-divider>账号与界面</el-divider>
       <el-form-item label="当前用户">
-        <span>{{ currentUser.username || '未登录' }}</span>
+        <div class="settings-current-user-row">
+          <span>{{ currentUser.username || '未登录' }}</span>
+          <el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码</el-button>
+        </div>
       </el-form-item>
       <el-form-item v-if="!isAdmin" label="编辑模式">
         <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
@@ -1022,10 +1073,35 @@ function startResize(e) {
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
         <el-button type="danger" plain @click="logout">退出登录</el-button>
         <div style="display:flex;gap:8px">
-          <el-button @click="showSettings = false">关闭</el-button>
+          <el-button @click="closeSelfPasswordDialog(); showSettings = false">关闭</el-button>
           <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
         </div>
       </div>
+    </template>
+  </el-dialog>
+
+  <el-dialog
+    v-model="showSelfPasswordDialog"
+    title="修改密码"
+    width="420px"
+    append-to-body
+    :close-on-click-modal="false"
+    :before-close="closeSelfPasswordDialog"
+  >
+    <el-form label-width="100px">
+      <el-form-item label="当前密码">
+        <el-input v-model="selfPasswordForm.current_password" type="password" show-password autocomplete="current-password" />
+      </el-form-item>
+      <el-form-item label="新密码">
+        <el-input v-model="selfPasswordForm.new_password" type="password" show-password autocomplete="new-password" />
+      </el-form-item>
+      <el-form-item label="确认新密码">
+        <el-input v-model="selfPasswordForm.confirm_new_password" type="password" show-password autocomplete="new-password" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="closeSelfPasswordDialog" :disabled="selfPasswordSaving">取消</el-button>
+      <el-button type="primary" @click="submitSelfPasswordChange" :loading="selfPasswordSaving">确认修改</el-button>
     </template>
   </el-dialog>
 </template>
@@ -1092,6 +1168,14 @@ function startResize(e) {
   gap: 4px;
   align-items: center;
   margin-left: auto;
+}
+
+.settings-current-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 
 .settings-transfer-actions {
