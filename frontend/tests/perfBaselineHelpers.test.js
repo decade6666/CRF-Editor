@@ -9,6 +9,7 @@ const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/compone
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
 const perfSource = readFileSync(path.resolve(currentDir, '../src/composables/usePerfBaseline.js'), 'utf8')
 
+
 test('FormDesignerTab delays auxiliary datasets until designer opens', () => {
   assert.match(formDesignerSource, /const designerAuxiliaryLoaded = ref\(false\)/)
   assert.match(formDesignerSource, /const designerAuxiliaryLoading = ref\(false\)/)
@@ -20,15 +21,18 @@ test('FormDesignerTab delays auxiliary datasets until designer opens', () => {
   assert.match(formDesignerSource, /await ensureDesignerAuxiliaryDataLoaded\(\)/)
 })
 
+
 test('FormDesignerTab resets auxiliary loaded state on project switch', () => {
   assert.match(formDesignerSource, /designerAuxiliaryLoaded\.value = false/)
   assert.match(formDesignerSource, /designerAuxiliaryLoading\.value = false/)
   assert.match(formDesignerSource, /designerAuxiliaryLoadError\.value = ''/)
 })
 
+
 test('FormDesignerTab reports auxiliary loading failures without opening designer', () => {
   assert.match(formDesignerSource, /ElMessage\.error\(`设计器辅助数据加载失败：\$\{error\?\.message \|\| designerAuxiliaryLoadError\.value \|\| '未知错误'\}`\)/)
 })
+
 
 test('usePerfBaseline stays inert unless perf mode is enabled', () => {
   assert.match(perfSource, /function isPerfBaselineEnabled\(\)/)
@@ -37,11 +41,24 @@ test('usePerfBaseline stays inert unless perf mode is enabled', () => {
   assert.match(perfSource, /if \(!isPerfBaselineEnabled\(\)\) return null/)
 })
 
-test('usePerfBaseline exports sanitized project ids only in perf mode', () => {
-  assert.match(perfSource, /function sanitizeProjectId\(value\)/)
-  assert.match(perfSource, /normalized\.project_id = sanitizeProjectId\(normalized\.project_id\)/)
-  assert.match(perfSource, /window\[PERF_EXPORT_KEY\] = exportPerfEvents/)
+
+test('usePerfBaseline exports spec-shaped events with timestamp scenario and metrics', () => {
+  assert.match(perfSource, /timestamp: new Date\(\)\.toISOString\(\)/)
+  assert.match(perfSource, /scenario: /)
+  assert.match(perfSource, /metrics: /)
+  assert.doesNotMatch(perfSource, /timestamp_ms/)
+  assert.doesNotMatch(perfSource, /type: 'start'/)
+  assert.doesNotMatch(perfSource, /type: 'end'/)
 })
+
+
+test('usePerfBaseline sanitizes project form and field ids with session-local hash helper', () => {
+  assert.match(perfSource, /function sanitizeEntityId\(value\)/)
+  assert.match(perfSource, /normalized\.project_id = sanitizeEntityId\(normalized\.project_id\)/)
+  assert.match(perfSource, /normalized\.form_id = sanitizeEntityId\(normalized\.form_id\)/)
+  assert.match(perfSource, /normalized\.field_id = sanitizeEntityId\(normalized\.field_id\)/)
+})
+
 
 test('App and FormDesigner record required perf event names', () => {
   assert.match(appSource, /markPerfStart\('app_project_load'/)

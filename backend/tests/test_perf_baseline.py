@@ -93,6 +93,7 @@ def test_perf_request_summary_records_without_sql_parameters(client: TestClient,
     assert summary["sql_count"] >= 2
     assert summary["sql_total_ms"] >= 0
     assert summary["sql_max_ms"] >= 0
+    assert summary["sqlite_busy_wait_ms"] >= 0
     assert summary["phase_timings_ms"]["db_read_ms"] >= 0
     assert summary["forms_count"] == 1
     assert "PERF_SECRET_TOKEN_20260425" not in str(summary)

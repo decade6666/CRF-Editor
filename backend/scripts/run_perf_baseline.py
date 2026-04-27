@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -41,6 +42,7 @@ from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.models.codelist import CodeList
 from src.models.unit import Unit
+from src.services.docx_import_service import DocxImportService
 from tests.helpers import auth_headers, login_as
 
 CHANGE_NAME = "research-performance-constraints"
@@ -64,6 +66,15 @@ BACKEND_OUTPUTS = {
 }
 SCENARIO_WARMUP_COUNT = 1
 SCENARIO_MEASURED_COUNT = 5
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    name: str
+    path: str
+    payload: dict[str, Any] | list[int] | None
+    files: dict[str, tuple[str, bytes, str]] | None
+    expected_status: int
 
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
@@ -130,6 +141,8 @@ def _load_owner(engine, username: str) -> User:
 
 
 def _read_summary(record: dict[str, Any], scenario: str, mode: str, iteration: int, is_warmup: bool, fixture_counts: dict[str, int]) -> dict[str, Any]:
+    status_code = int(record.get("status_code") or 0)
+    status = "ok" if 200 <= status_code < 300 else "expected_error"
     return {
         "run_id": f"{scenario}-{mode}-{iteration}",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -140,11 +153,24 @@ def _read_summary(record: dict[str, Any], scenario: str, mode: str, iteration: i
         "scenario": scenario,
         "iteration": iteration,
         "is_warmup": is_warmup,
-        "status": "ok",
+        "status": status,
         "duration_ms": record["request_total_ms"],
         "metrics": record,
         "fixture_counts": fixture_counts,
     }
+
+
+
+def _should_record_iteration(*, is_warmup: bool) -> bool:
+    return not is_warmup
+
+
+
+def _validate_response_status(*, scenario_name: str, actual_status: int, expected_status: int, response_text: str) -> None:
+    if actual_status != expected_status:
+        raise RuntimeError(
+            f"scenario {scenario_name} failed: expected {expected_status}, got {actual_status} {response_text}"
+        )
 
 
 
@@ -157,19 +183,13 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _create_temp_docx_upload(path: Path) -> tuple[str, Path]:
-    temp_id = "perf-temp-id"
-    upload_dir = BACKEND_ROOT / "uploads" / "docx_temp"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    target = upload_dir / f"{temp_id}_{path.name}"
-    target.write_bytes(path.read_bytes())
-    return temp_id, target
+    temp_id, stored_path = DocxImportService.save_temp_file(path.read_bytes(), path.name)
+    return temp_id, Path(stored_path)
 
 
 
 def _cleanup_temp_docx(temp_id: str) -> None:
-    upload_dir = BACKEND_ROOT / "uploads" / "docx_temp"
-    for candidate in upload_dir.glob(f"{temp_id}_*.docx"):
-        candidate.unlink(missing_ok=True)
+    DocxImportService.cleanup_temp(temp_id)
 
 
 
@@ -207,7 +227,7 @@ def _build_scenarios(
     docx_bytes: bytes,
     import_db_bytes: bytes,
     merge_db_bytes: bytes,
-) -> list[tuple[str, str, dict[str, Any] | None, dict[str, tuple[str, bytes, str]] | None]]:
+) -> list[ScenarioSpec]:
     reversed_form_ids = list(reversed(ids["form_ids"]))
     reversed_visit_ids = list(reversed(ids["visit_ids"]))
     reversed_field_definition_ids = list(reversed(ids["field_definition_ids"]))
@@ -217,21 +237,21 @@ def _build_scenarios(
     reversed_unit_ids = list(reversed(ids["unit_ids"]))
     docx_payload = {"temp_id": temp_id, "form_indices": [0, 1, 2]}
     return [
-        ("docx_preview", f"/api/projects/{ids['project_id']}/import-docx/preview", None, {"file": ("perf.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}),
-        ("docx_execute", f"/api/projects/{ids['project_id']}/import-docx/execute", docx_payload, None),
-        ("word_export", f"/api/projects/{ids['project_id']}/export/word", None, None),
-        ("project_copy", f"/api/projects/{ids['project_id']}/copy", None, None),
-        ("project_db_import", "/api/projects/import/project-db", None, {"file": ("fixture.db", import_db_bytes, "application/octet-stream")}),
-        ("database_merge", "/api/projects/import/database-merge", None, {"file": ("fixture.db", merge_db_bytes, "application/octet-stream")}),
-        ("projects_reorder", "/api/projects/reorder", ids["form_ids"][:1] and [ids["project_id"]], None),
-        ("visits_reorder", f"/api/projects/{ids['project_id']}/visits/reorder", reversed_visit_ids, None),
-        ("forms_reorder", f"/api/projects/{ids['project_id']}/forms/reorder", reversed_form_ids, None),
-        ("field_definitions_reorder", f"/api/projects/{ids['project_id']}/field-definitions/reorder", reversed_field_definition_ids, None),
-        ("form_fields_reorder", f"/api/forms/{ids['form_id']}/fields/reorder", {"ordered_ids": reversed_form_field_ids}, None),
-        ("visit_forms_reorder", f"/api/visits/{ids['visit_id']}/forms/reorder", reversed_visit_form_form_ids, None),
-        ("codelists_reorder", f"/api/projects/{ids['project_id']}/codelists/reorder", reversed_codelist_ids, None),
-        ("codelist_options_reorder", f"/api/projects/{ids['project_id']}/codelists/{ids['codelist_id']}/options/reorder", list(range(1, 21)), None),
-        ("units_reorder", f"/api/projects/{ids['project_id']}/units/reorder", reversed_unit_ids, None),
+        ScenarioSpec("docx_preview", f"/api/projects/{ids['project_id']}/import-docx/preview", None, {"file": ("perf.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}, 200),
+        ScenarioSpec("word_export", f"/api/projects/{ids['project_id']}/export/word", None, None, 200),
+        ScenarioSpec("projects_reorder", "/api/projects/reorder", [ids["project_id"]], None, 204),
+        ScenarioSpec("visits_reorder", f"/api/projects/{ids['project_id']}/visits/reorder", reversed_visit_ids, None, 200),
+        ScenarioSpec("forms_reorder", f"/api/projects/{ids['project_id']}/forms/reorder", reversed_form_ids, None, 200),
+        ScenarioSpec("field_definitions_reorder", f"/api/projects/{ids['project_id']}/field-definitions/reorder", reversed_field_definition_ids, None, 200),
+        ScenarioSpec("form_fields_reorder", f"/api/forms/{ids['form_id']}/fields/reorder", {"ordered_ids": reversed_form_field_ids}, None, 204),
+        ScenarioSpec("visit_forms_reorder", f"/api/visits/{ids['visit_id']}/forms/reorder", reversed_visit_form_form_ids, None, 204),
+        ScenarioSpec("codelists_reorder", f"/api/projects/{ids['project_id']}/codelists/reorder", reversed_codelist_ids, None, 200),
+        ScenarioSpec("codelist_options_reorder", f"/api/projects/{ids['project_id']}/codelists/{ids['codelist_id']}/options/reorder", list(range(1, 21)), None, 200),
+        ScenarioSpec("units_reorder", f"/api/projects/{ids['project_id']}/units/reorder", reversed_unit_ids, None, 200),
+        ScenarioSpec("docx_execute", f"/api/projects/{ids['project_id']}/import-docx/execute", docx_payload, None, 200),
+        ScenarioSpec("project_copy", f"/api/projects/{ids['project_id']}/copy", None, None, 201),
+        ScenarioSpec("project_db_import", "/api/projects/import/project-db", None, {"file": ("fixture.db", import_db_bytes, "application/octet-stream")}, 200),
+        ScenarioSpec("database_merge", "/api/projects/import/database-merge", None, {"file": ("fixture.db", merge_db_bytes, "application/octet-stream")}, 200),
     ]
 
 
@@ -295,28 +315,39 @@ def run_backend_baseline(*, mode: str, fixture_name: str) -> Path:
                 with _patched_test_app(engine, collector) as client:
                     token = login_as(client, fixture.owner_username, fixture.owner_password)
                     scenarios = _build_scenarios(temp_id, ids, docx_bytes, import_db_bytes, merge_db_bytes)
-                    for scenario_name, path, payload, files in scenarios:
+                    for scenario in scenarios:
                         for iteration in range(1, SCENARIO_WARMUP_COUNT + SCENARIO_MEASURED_COUNT + 1):
                             is_warmup = iteration <= SCENARIO_WARMUP_COUNT
-                            if files is not None:
-                                response = client.post(path, files=files, headers=auth_headers(token))
-                            elif payload is None:
-                                response = client.post(path, headers=auth_headers(token))
+                            scenario_payload = scenario.payload
+                            if scenario.name == "docx_execute":
+                                temp_id, _ = _create_temp_docx_upload(fixture.upload_docx_path)
+                                scenario_payload = {"temp_id": temp_id, "form_indices": [0, 1, 2]}
+                            if scenario.files is not None:
+                                response = client.post(scenario.path, files=scenario.files, headers=auth_headers(token))
+                            elif scenario_payload is None:
+                                response = client.post(scenario.path, headers=auth_headers(token))
                             else:
-                                response = client.post(path, json=payload, headers=auth_headers(token))
-                            if response.status_code >= 500:
-                                raise RuntimeError(f"scenario {scenario_name} failed: {response.status_code} {response.text}")
-                            summary = collector.pop_last()
-                            rows.append(
-                                _read_summary(
-                                    summary,
-                                    scenario_name,
-                                    mode,
-                                    iteration,
-                                    is_warmup,
-                                    fixture.counts,
-                                )
+                                response = client.post(scenario.path, json=scenario_payload, headers=auth_headers(token))
+                            _validate_response_status(
+                                scenario_name=scenario.name,
+                                actual_status=response.status_code,
+                                expected_status=scenario.expected_status,
+                                response_text=response.text,
                             )
+                            summary = collector.pop_last()
+                            if _should_record_iteration(is_warmup=is_warmup):
+                                rows.append(
+                                    _read_summary(
+                                        summary,
+                                        scenario.name,
+                                        mode,
+                                        iteration,
+                                        is_warmup,
+                                        fixture.counts,
+                                    )
+                                )
+                            if scenario.name == "docx_execute" and isinstance(scenario_payload, dict):
+                                _cleanup_temp_docx(str(scenario_payload["temp_id"]))
                 _cleanup_temp_docx(temp_id)
             finally:
                 engine.dispose()

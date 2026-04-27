@@ -48,36 +48,31 @@ _IMPORT_ERROR_CODES = {
 }
 
 
-async def _save_upload_to_temp(file: UploadFile) -> Path:
-    """将上传文件保存到临时文件，返回路径。调用方负责删除。"""
+def _save_bytes_to_temp(filename: str, content: bytes) -> Path:
+    """将上传内容保存到临时文件，返回路径。调用方负责删除。"""
     import os
     import tempfile
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    total_size = 0
-    first_chunk = True
+    if not content[:16].startswith(b"SQLite format 3"):
+        raise HTTPException(400, "文件不是有效的 SQLite 数据库")
+    if len(content) > _MAX_IMPORT_SIZE:
+        raise HTTPException(
+            400,
+            f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
+        )
+    suffix = Path(filename or 'upload.db').suffix or '.db'
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                if first_chunk:
-                    first_chunk = False
-                    if not chunk[:16].startswith(b"SQLite format 3"):
-                        raise HTTPException(400, "文件不是有效的 SQLite 数据库")
-                total_size += len(chunk)
-                if total_size > _MAX_IMPORT_SIZE:
-                    raise HTTPException(
-                        400,
-                        f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
-                    )
-                f.write(chunk)
-        if first_chunk:
-            raise HTTPException(400, "文件不是有效的 SQLite 数据库")
+            f.write(content)
     except Exception:
         os.unlink(tmp_path)
         raise
     return Path(tmp_path)
+
+
+async def _save_upload_to_temp(file: UploadFile) -> Path:
+    content = await file.read()
+    return _save_bytes_to_temp(file.filename or 'upload.db', content)
 
 
 @router.post("/import/project-db")
@@ -92,13 +87,14 @@ async def import_project_db(
     """导入单项目 .db 文件。"""
     import sqlite3
     with perf_span("upload_read"):
-        tmp_path = await _save_upload_to_temp(file)
+        file_bytes = await file.read()
+    with perf_span("temp_file_write"):
+        tmp_path = await _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
     record_payload_size(tmp_path.stat().st_size)
     try:
-        with perf_span("temp_file_write"):
-            result = ProjectDbImportService.import_single_project(
-                str(tmp_path), current_user.id, session
-            )
+        result = ProjectDbImportService.import_single_project(
+            str(tmp_path), current_user.id, session
+        )
         record_counter("project_count", 1)
         return {"project_id": result.project_id, "project_name": result.project_name}
     except ValueError as e:
@@ -127,13 +123,14 @@ async def import_database_merge(
         limit_import_action(request, current_user.id, "database-merge-import")
     import sqlite3
     with perf_span("upload_read"):
-        tmp_path = await _save_upload_to_temp(file)
+        file_bytes = await file.read()
+    with perf_span("temp_file_write"):
+        tmp_path = await _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
     record_payload_size(tmp_path.stat().st_size)
     try:
-        with perf_span("temp_file_write"):
-            report = DatabaseMergeService.merge(
-                str(tmp_path), current_user.id, session
-            )
+        report = DatabaseMergeService.merge(
+            str(tmp_path), current_user.id, session
+        )
         record_counter("project_count", len(report.imported))
         return {
             "imported": [
@@ -166,7 +163,11 @@ async def import_auto(
     """统一导入入口：自动检测 db 文件类型（单项目/多项目），调用对应服务。"""
     limit_import_action(request, current_user.id, "auto-import")
     import sqlite3
-    tmp_path = await _save_upload_to_temp(file)
+    with perf_span("upload_read"):
+        file_bytes = await file.read()
+    with perf_span("temp_file_write"):
+        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
+    record_payload_size(tmp_path.stat().st_size)
     try:
         report = DatabaseMergeService.merge(
             str(tmp_path), current_user.id, session

@@ -6,134 +6,48 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import fc from 'fast-check'
+
+import {
+  asciiString,
+  boolean,
+  double,
+  forAll,
+  integer,
+  maybe,
+  repeat,
+  sample,
+  string,
+} from './testProperty.js'
 
 import {
   computeTextWeight,
   buildInlineColumnDemands,
   computeFieldControlWeight,
   planInlineColumnFractions,
-  planNormalColumnFractions,
   planUnifiedColumnFractions,
 } from '../src/composables/useCRFRenderer.js'
 
-// ─── 10.10：固定种子，CI 可重现 ─────────────────────────────────────────
-fc.configureGlobal({ seed: 424242, numRuns: 100 })
-
-// ─── 字段构造工具 ────────────────────────────────────────────────────────
+const SEED = 424242
+const RUNS = 100
 const fieldTypes = ['文本', '数值', '单选', '多选', '日期', '时间']
 
-const arbField = fc.record({
-  field_definition: fc.record({
-    field_type: fc.constantFrom(...fieldTypes),
-    label: fc.string({ minLength: 0, maxLength: 12 }),
-  }),
-  label_override: fc.option(fc.string({ minLength: 0, maxLength: 12 }), { nil: null }),
-  inline_mark: fc.constantFrom(0, 1),
-})
+function makeField(random) {
+  return {
+    field_definition: {
+      field_type: sample(fieldTypes, random),
+      label: string(random, 0, 12),
+    },
+    label_override: maybe(random, () => string(random, 0, 12), null),
+    inline_mark: sample([0, 1], random),
+  }
+}
 
-const arbFieldsArray = fc.array(arbField, { minLength: 0, maxLength: 50 })
-const arbNonEmptyFields = fc.array(arbField, { minLength: 1, maxLength: 50 })
-
-// ─── 10.1 P1 长度保持 ────────────────────────────────────────────────────
-test('10.1 P1 planInlineColumnFractions.length === fields.length', () => {
-  fc.assert(
-    fc.property(arbFieldsArray, (fields) => {
-      const out = planInlineColumnFractions(fields)
-      return out.length === fields.length
-    }),
-  )
-})
-
-// ─── 10.2 P2 归一化 ──────────────────────────────────────────────────────
-test('10.2 P2 sum(planInlineColumnFractions) ≈ 1 for non-empty', () => {
-  fc.assert(
-    fc.property(arbNonEmptyFields, (fields) => {
-      const out = planInlineColumnFractions(fields)
-      const total = out.reduce((a, b) => a + b, 0)
-      return Math.abs(total - 1) < 1e-9
-    }),
-  )
-})
-
-// ─── 10.3 P3 确定性 ──────────────────────────────────────────────────────
-test('10.3 P3 planInlineColumnFractions deterministic on identical input', () => {
-  fc.assert(
-    fc.property(arbFieldsArray, (fields) => {
-      const a = planInlineColumnFractions(fields)
-      const b = planInlineColumnFractions(fields)
-      return a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-12)
-    }),
-  )
-})
-
-// ─── 10.4 P4 等需求 → 等比例 ────────────────────────────────────────────
-test('10.4 P4 identical fields produce uniform fractions', () => {
-  fc.assert(
-    fc.property(
-      fc.tuple(arbField, fc.integer({ min: 1, max: 12 })),
-      ([proto, n]) => {
-        const fields = Array.from({ length: n }, () => proto)
-        const out = planInlineColumnFractions(fields)
-        const expected = 1 / n
-        return out.every((v) => Math.abs(v - expected) < 1e-9)
-      },
-    ),
-  )
-})
-
-// ─── 10.5 P5 单调性：拉长某字段 label 不会减少其权重 ───────────────────
-test('10.5 P5 extending fields[i].label does not decrease its weight', () => {
-  fc.assert(
-    fc.property(
-      fc.tuple(arbNonEmptyFields, fc.string({ minLength: 1, maxLength: 8 })),
-      ([fields, suffix]) => {
-        const i = 0
-        const orig = fields[i]
-        // 使用与实现一致的 truthy 回退语义（与 useCRFRenderer 内保持对等）
-        const effectiveLabel = orig.label_override || orig.field_definition?.label || ''
-        const wBefore = buildInlineColumnDemands([orig])[0].weight
-        // label_override 非空字符串才会被视为 truthy；用 effectiveLabel + suffix 确保严格更长
-        const lengthened = {
-          ...orig,
-          label_override: effectiveLabel + suffix,
-        }
-        const wAfter = buildInlineColumnDemands([lengthened])[0].weight
-        return wAfter >= wBefore
-      },
-    ),
-  )
-})
-
-// ─── 10.6 P6 unified per-slot-max 单调性 ─────────────────────────────────
-test('10.6 P6 unified: 新增 inline_block 或 regular_field 不减少任何 slot 输出比例的相对权重', () => {
-  fc.assert(
-    fc.property(
-      fc.tuple(
-        fc.array(arbNonEmptyFields, { minLength: 1, maxLength: 4 }),
-        fc.integer({ min: 2, max: 6 }),
-        arbNonEmptyFields,
-        fc.boolean(),
-      ),
-      ([baseSegFields, columnCount, extraFields, isRegular]) => {
-        const baseSegments = baseSegFields.map((fields) => ({ type: 'inline_block', fields }))
-        const baseWeights = computeUnifiedSlotWeights(baseSegments, columnCount)
-        // 新增 segment 可能是 inline_block 或 regular_field
-        const newSegment = isRegular
-          ? { type: 'regular_field', fields: extraFields.slice(0, 1) }
-          : { type: 'inline_block', fields: extraFields }
-        const augmented = baseSegments.concat([newSegment])
-        const augWeights = computeUnifiedSlotWeights(augmented, columnCount)
-        // 新增 segment 后每个 slot 权重 >= 原值
-        return augWeights.every((w, i) => w >= baseWeights[i] - 1e-9)
-      },
-    ),
-  )
-})
+function makeFieldsArray(random, minLength, maxLength) {
+  return repeat(integer(random, minLength, maxLength), () => makeField(random))
+}
 
 function computeUnifiedSlotWeights(segments, columnCount) {
   const WEIGHT_ASCII = 1
-  const minWeight = WEIGHT_ASCII * 4
   const slot = new Array(columnCount).fill(0)
   for (const seg of segments) {
     if (!seg) continue
@@ -153,7 +67,7 @@ function computeUnifiedSlotWeights(segments, columnCount) {
       }
     }
   }
-  return slot
+  return slot.map((weight) => Math.max(weight, WEIGHT_ASCII * 4))
 }
 
 function computeRegularFieldSpans(columnCount) {
@@ -170,12 +84,100 @@ function applySpannedWeight(slot, start, span, weight) {
   }
 }
 
-// ─── 10.7 P7 CJK 扩展区码点权重 = 2 ─────────────────────────────────────
-test('10.7 P7 CJK extension code points 全部 weight = WEIGHT_CHINESE(2)', () => {
-  // 关键 CJK 区段：基本区 4E00-9FFF、扩展 A 3400-4DBF、扩展 B 20000-2A6DF、
-  // 扩展 C 2A700-2B73F、扩展 D 2B740-2B81F、扩展 E 2B820-2CEAF、
-  // 扩展 F 2CEB0-2EBEF、扩展 G 30000-3134F、扩展 H 31350-323AF、
-  // 兼容汉字 F900-FAFF、兼容补充 2F800-2FA1F
+test('10.1 P1 planInlineColumnFractions.length === fields.length', async () => {
+  await forAll({
+    seed: SEED,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const fields = makeFieldsArray(random, 0, 50)
+      const out = planInlineColumnFractions(fields)
+      assert.equal(out.length, fields.length, `run=${run}`)
+    },
+  })
+})
+
+test('10.2 P2 sum(planInlineColumnFractions) ≈ 1 for non-empty', async () => {
+  await forAll({
+    seed: SEED + 1,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const fields = makeFieldsArray(random, 1, 50)
+      const total = planInlineColumnFractions(fields).reduce((a, b) => a + b, 0)
+      assert.ok(Math.abs(total - 1) < 1e-9, `run=${run} total=${total}`)
+    },
+  })
+})
+
+test('10.3 P3 planInlineColumnFractions deterministic on identical input', async () => {
+  await forAll({
+    seed: SEED + 2,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const fields = makeFieldsArray(random, 0, 50)
+      const a = planInlineColumnFractions(fields)
+      const b = planInlineColumnFractions(fields)
+      assert.equal(a.length, b.length, `run=${run}`)
+      assert.ok(a.every((v, i) => Math.abs(v - b[i]) < 1e-12), `run=${run}`)
+    },
+  })
+})
+
+test('10.4 P4 identical fields produce uniform fractions', async () => {
+  await forAll({
+    seed: SEED + 3,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const proto = makeField(random)
+      const count = integer(random, 1, 12)
+      const fields = Array.from({ length: count }, () => proto)
+      const out = planInlineColumnFractions(fields)
+      const expected = 1 / count
+      assert.ok(out.every((value) => Math.abs(value - expected) < 1e-9), `run=${run} count=${count}`)
+    },
+  })
+})
+
+test('10.5 P5 extending fields[i].label does not decrease its weight', async () => {
+  await forAll({
+    seed: SEED + 4,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const fields = makeFieldsArray(random, 1, 50)
+      const suffix = string(random, 1, 8)
+      const orig = fields[0]
+      const effectiveLabel = orig.label_override || orig.field_definition?.label || ''
+      const wBefore = buildInlineColumnDemands([orig])[0].weight
+      const lengthened = { ...orig, label_override: effectiveLabel + suffix }
+      const wAfter = buildInlineColumnDemands([lengthened])[0].weight
+      assert.ok(wAfter >= wBefore, `run=${run}`)
+    },
+  })
+})
+
+test('10.6 P6 unified: 新增 inline_block 或 regular_field 不减少任何 slot 输出比例的相对权重', async () => {
+  await forAll({
+    seed: SEED + 5,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const segmentCount = integer(random, 1, 4)
+      const baseSegments = Array.from({ length: segmentCount }, () => ({
+        type: 'inline_block',
+        fields: makeFieldsArray(random, 1, 50),
+      }))
+      const columnCount = integer(random, 2, 6)
+      const extraFields = makeFieldsArray(random, 1, 50)
+      const isRegular = boolean(random)
+      const baseWeights = computeUnifiedSlotWeights(baseSegments, columnCount)
+      const newSegment = isRegular
+        ? { type: 'regular_field', fields: extraFields.slice(0, 1) }
+        : { type: 'inline_block', fields: extraFields }
+      const augWeights = computeUnifiedSlotWeights(baseSegments.concat([newSegment]), columnCount)
+      assert.ok(augWeights.every((weight, index) => weight >= baseWeights[index] - 1e-9), `run=${run}`)
+    },
+  })
+})
+
+test('10.7 P7 CJK extension code points 全部 weight = WEIGHT_CHINESE(2)', async () => {
   const ranges = [
     [0x4e00, 0x9fff],
     [0x3400, 0x4dbf],
@@ -186,101 +188,89 @@ test('10.7 P7 CJK extension code points 全部 weight = WEIGHT_CHINESE(2)', () =
     [0xf900, 0xfaff],
     [0x2f800, 0x2fa1f],
   ]
-  fc.assert(
-    fc.property(
-      fc.integer({ min: 0, max: ranges.length - 1 }).chain((idx) => {
-        const [lo, hi] = ranges[idx]
-        return fc.integer({ min: lo, max: hi })
-      }),
-      (codePoint) => {
-        const ch = String.fromCodePoint(codePoint)
-        // 通过 computeTextWeight 间接验证 computeCharWeight：单字符 string → 权重 = 2
-        return computeTextWeight(ch) === 2
-      },
-    ),
-    { numRuns: 200 },
-  )
+  await forAll({
+    seed: SEED + 6,
+    runs: 200,
+    property: ({ random, run }) => {
+      const [lo, hi] = sample(ranges, random)
+      const codePoint = integer(random, lo, hi)
+      const ch = String.fromCodePoint(codePoint)
+      assert.equal(computeTextWeight(ch), 2, `run=${run} codePoint=${codePoint}`)
+    },
+  })
 })
 
-// ─── 10.8 P8 localStorage 优先级状态模型 ─────────────────────────────────
 test('10.8 P8 useColumnResize 状态模型：valid → use it；invalid → use plan(F)', async () => {
   const { useColumnResize } = await import('../src/composables/useColumnResize.js')
   const { ref } = await import('vue')
-
-  await fc.assert(
-    fc.asyncProperty(
-      // 任意合法 ratio 对（和为 1，元素均落在 [0.1, 0.9]）
-      fc.tuple(
-        fc.double({ min: 0.1, max: 0.9, noNaN: true }),
-        fc.double({ min: 0.4, max: 0.6, noNaN: true }),
-        fc.boolean(),
-      ),
-      async ([raw, factoryLeft, makeValid]) => {
-        const left = Math.max(0.1, Math.min(0.9, raw))
-        const stored = [left, 1 - left]
-        // 强制构造合法 / 非法持久化值
-        const persistRaw = makeValid ? JSON.stringify(stored) : '[0.95, 0.95]'
-        const factory = () => [factoryLeft, 1 - factoryLeft]
-
-        const store = new Map()
-        store.set('crf:designer:col-widths:1:normal', persistRaw)
-        globalThis.localStorage = {
-          getItem: (k) => (store.has(k) ? store.get(k) : null),
-          setItem: (k, v) => store.set(k, String(v)),
-          removeItem: (k) => store.delete(k),
+  await forAll({
+    seed: SEED + 7,
+    runs: 30,
+    property: async ({ random, run }) => {
+      const raw = double(random, 0.1, 0.9)
+      const factoryLeft = double(random, 0.4, 0.6)
+      const makeValid = boolean(random)
+      const left = Math.max(0.1, Math.min(0.9, raw))
+      const stored = [left, 1 - left]
+      const persistRaw = makeValid ? JSON.stringify(stored) : '[0.95, 0.95]'
+      const factory = () => [factoryLeft, 1 - factoryLeft]
+      const store = new Map()
+      store.set('crf:designer:col-widths:1:normal', persistRaw)
+      globalThis.localStorage = {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+      }
+      try {
+        const r = useColumnResize(ref(1), ref('normal'), factory)
+        if (makeValid) {
+          assert.ok(Math.abs(r.colRatios[0] - stored[0]) < 1e-9, `run=${run}`)
+        } else {
+          assert.ok(Math.abs(r.colRatios[0] - factory()[0]) < 1e-9, `run=${run}`)
         }
-        try {
-          const r = useColumnResize(ref(1), ref('normal'), factory)
-          if (makeValid) {
-            return Math.abs(r.colRatios[0] - stored[0]) < 1e-9
-          }
-          return Math.abs(r.colRatios[0] - factory()[0]) < 1e-9
-        } finally {
-          delete globalThis.localStorage
-        }
-      },
-    ),
-    { numRuns: 30 },
-  )
+      } finally {
+        delete globalThis.localStorage
+      }
+    },
+  })
 })
 
-// ─── 10.9 P9 resetToEven 幂等 ───────────────────────────────────────────
 test('10.9 P9 useColumnResize.resetToEven 幂等', async () => {
   const { useColumnResize } = await import('../src/composables/useColumnResize.js')
   const { ref } = await import('vue')
-
-  await fc.assert(
-    fc.asyncProperty(
-      fc.double({ min: 0.2, max: 0.8, noNaN: true }),
-      async (factoryLeft) => {
-        const factory = () => [factoryLeft, 1 - factoryLeft]
-        const store = new Map()
-        globalThis.localStorage = {
-          getItem: (k) => (store.has(k) ? store.get(k) : null),
-          setItem: (k, v) => store.set(k, String(v)),
-          removeItem: (k) => store.delete(k),
-        }
-        try {
-          const r = useColumnResize(ref(1), ref('normal'), factory)
-          r.resetToEven()
-          const first = [...r.colRatios]
-          r.resetToEven()
-          const second = [...r.colRatios]
-          return first.every((v, i) => Math.abs(v - second[i]) < 1e-9)
-        } finally {
-          delete globalThis.localStorage
-        }
-      },
-    ),
-    { numRuns: 20 },
-  )
+  await forAll({
+    seed: SEED + 8,
+    runs: 20,
+    property: async ({ random, run }) => {
+      const factoryLeft = double(random, 0.2, 0.8)
+      const factory = () => [factoryLeft, 1 - factoryLeft]
+      const store = new Map()
+      globalThis.localStorage = {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+      }
+      try {
+        const r = useColumnResize(ref(1), ref('normal'), factory)
+        r.resetToEven()
+        const first = [...r.colRatios]
+        r.resetToEven()
+        const second = [...r.colRatios]
+        assert.ok(first.every((value, index) => Math.abs(value - second[index]) < 1e-9), `run=${run}`)
+      } finally {
+        delete globalThis.localStorage
+      }
+    },
+  })
 })
 
-// ─── computeTextWeight 分布健康检查（辅助 10.7） ────────────────────────
-test('computeTextWeight: 任意 ASCII 字符串权重 = 字符数 × WEIGHT_ASCII(1)', () => {
-  fc.assert(
-    fc.property(fc.string({ minLength: 0, maxLength: 32 }).filter((s) => /^[\x20-\x7e]*$/.test(s)), (s) => {
-      return computeTextWeight(s) === s.length
-    }),
-  )
+test('computeTextWeight: 任意 ASCII 字符串权重 = 字符数 × WEIGHT_ASCII(1)', async () => {
+  await forAll({
+    seed: SEED + 9,
+    runs: RUNS,
+    property: ({ random, run }) => {
+      const value = asciiString(random, 0, 32)
+      assert.equal(computeTextWeight(value), value.length, `run=${run}`)
+    },
+  })
 })
