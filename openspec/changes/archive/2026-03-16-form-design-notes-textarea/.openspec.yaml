@@ -1,0 +1,10 @@
+schema: spec-driven
+created: 2026-03-16
+status: archived
+archived: 2026-03-16
+change_id: form-design-notes-textarea
+title: 表单设计备注文本框
+description: 在表单设计界面右侧属性面板底部，增加可 resize、自动保存的备注文本框
+artifacts:
+  - spec.md
+  - plan.md
