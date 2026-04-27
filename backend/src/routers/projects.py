@@ -15,6 +15,7 @@ from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from src.services.project_clone_service import ProjectCloneService
+from src.perf import perf_span, record_counter, record_payload_size
 
 from src.services.project_import_service import (
     DatabaseMergeService,
@@ -86,14 +87,19 @@ async def import_project_db(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    limit_import_action(request, current_user.id,"project-db-import")
+    with perf_span("rate_limit"):
+        limit_import_action(request, current_user.id,"project-db-import")
     """导入单项目 .db 文件。"""
     import sqlite3
-    tmp_path = await _save_upload_to_temp(file)
+    with perf_span("upload_read"):
+        tmp_path = await _save_upload_to_temp(file)
+    record_payload_size(tmp_path.stat().st_size)
     try:
-        result = ProjectDbImportService.import_single_project(
-            str(tmp_path), current_user.id, session
-        )
+        with perf_span("temp_file_write"):
+            result = ProjectDbImportService.import_single_project(
+                str(tmp_path), current_user.id, session
+            )
+        record_counter("project_count", 1)
         return {"project_id": result.project_id, "project_name": result.project_name}
     except ValueError as e:
         raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
@@ -117,13 +123,18 @@ async def import_database_merge(
     current_user: User = Depends(get_current_user),
 ):
     """整库合并导入。"""
-    limit_import_action(request, current_user.id, "database-merge-import")
+    with perf_span("rate_limit"):
+        limit_import_action(request, current_user.id, "database-merge-import")
     import sqlite3
-    tmp_path = await _save_upload_to_temp(file)
+    with perf_span("upload_read"):
+        tmp_path = await _save_upload_to_temp(file)
+    record_payload_size(tmp_path.stat().st_size)
     try:
-        report = DatabaseMergeService.merge(
-            str(tmp_path), current_user.id, session
-        )
+        with perf_span("temp_file_write"):
+            report = DatabaseMergeService.merge(
+                str(tmp_path), current_user.id, session
+            )
+        record_counter("project_count", len(report.imported))
         return {
             "imported": [
                 {"id": r.project_id, "name": r.project_name}
@@ -274,14 +285,16 @@ def copy_project(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    project = ProjectRepository(session).get_by_id(project_id)
-    if not project:
-        raise HTTPException(404, "项目不存在")
-    if project.owner_id != current_user.id:
-        raise HTTPException(403, "无权访问此项目")
+    with perf_span("auth_owner"):
+        project = ProjectRepository(session).get_by_id(project_id)
+        if not project:
+            raise HTTPException(404, "项目不存在")
+        if project.owner_id != current_user.id:
+            raise HTTPException(403, "无权访问此项目")
 
     cloned_project = ProjectCloneService.clone(project_id, current_user.id, session)
-    session.flush()
+    with perf_span("flush"):
+        session.flush()
     session.refresh(cloned_project)
     return cloned_project
 

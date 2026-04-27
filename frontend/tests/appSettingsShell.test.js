@@ -37,19 +37,19 @@ test('settings dialog uses inline prompt edit mode copy', () => {
   assert.match(appSource, /关闭时保留基础浏览与设计入口，开启后显示完整编辑能力/)
   assert.doesNotMatch(appSource, /开启后显示选项\/单位\/字段标签及表单编辑按钮/)
   assert.match(appSource, /const ADVANCED_EDIT_TABS = new Set\(\['codelists', 'units', 'fields'\]\)/)
-  assert.match(appSource, /watch\(editMode, v => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) activeTab\.value = 'info'/)
+  assert.match(appSource, /watch\(editMode, \(v\) => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) resetLazyTabs\('info'\)/)
 })
 
 test('header keeps template import and word export only', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || ''
   assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/)
-  assert.match(headerSection, /@click="exportWord">导出Word<\/el-button>/)
+  assert.match(headerSection, /@click="exportWord"[\s\S]*>导出Word<\/el-button\s*>/)
   assert.doesNotMatch(headerSection, /导入Word/)
   assert.match(appSource, /<el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板<\/el-button>/)
 })
 
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {
-  assert.match(appSource, /<el-tabs class="main-content-tabs" v-model="activeTab"/)
+  assert.match(appSource, /<el-tabs[\s\S]*class="main-content-tabs"[\s\S]*v-model="activeTab"/)
   assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/)
   assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/)
   const actionsSection = appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || ''

@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Tuple
 
 import html
 
+from src.perf import perf_span, record_counter
+
 
 
 logger = logging.getLogger(__name__)
@@ -220,23 +222,28 @@ class ExportService:
 
             # 一次性 eager load 完整关系树，消除导出链路上的 N+1 查询
 
-            project = self.project_repo.get_with_full_tree(project_id)
+            with perf_span("project_tree_load"):
+                project = self.project_repo.get_with_full_tree(project_id)
 
             if not project:
 
                 return False
 
+            forms_count = len(getattr(project, "forms", []) or [])
+            fields_count = sum(len(getattr(form, "form_fields", []) or []) for form in getattr(project, "forms", []) or [])
+            record_counter("forms_count", forms_count)
+            record_counter("fields_count", fields_count)
+
             # 存储列宽覆盖供后续使用
             self._column_width_overrides = column_width_overrides or {}
 
             # 创建 Word 文档
-            doc = Document()
+            with perf_span("docx_generate"):
+                doc = Document()
 
+                # 统一文档字体和样式
 
-
-            # 统一文档字体和样式
-
-            self._apply_document_style(doc)
+                self._apply_document_style(doc)
 
 
 
@@ -322,7 +329,8 @@ class ExportService:
 
             # 保存文档
 
-            doc.save(output_path)
+            with perf_span("file_response_prepare"):
+                doc.save(output_path)
 
             return True
 
