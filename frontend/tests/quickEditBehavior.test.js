@@ -41,9 +41,15 @@ test('quick edit dialog uses existing PUT endpoint for saving', () => {
 test('quick edit is limited to field instance properties only', () => {
   // 快捷编辑弹窗（quickEditDialogVisible）只显示实例级属性
   // 检查 quickEditProp 初始化只含实例级字段（不含 variable_name）
-  assert.match(formDesignerSource, /quickEditProp.*label.*bg_color.*text_color.*inline_mark/)
+  assert.match(
+    formDesignerSource,
+    /const quickEditProp = reactive\(\{[\s\S]*label:\s*''[\s\S]*field_type:\s*''[\s\S]*bg_color:\s*''[\s\S]*text_color:\s*''[\s\S]*inline_mark:\s*false[\s\S]*default_value:\s*''[\s\S]*\}\)/,
+  )
   const quickEditDialog = /<el-dialog v-model="showQuickEdit"[\s\S]*?<\/el-dialog>/.exec(formDesignerSource)?.[0] ?? ''
-  assert.match(quickEditDialog, /label="文字颜色"[\s\S]*class="color-option color-option-default"[\s\S]*quickEditProp\.text_color = null/)
+  assert.match(
+    quickEditDialog,
+    /label="文字颜色"[\s\S]*class="color-option color-option-default"[\s\S]*@click="quickEditProp\.text_color = null"/,
+  )
   // 快捷编辑表单不应包含 field_definition 级别的编辑控件
   const hasVariableNameEdit = /v-model="quickEditProp\.variable_name"/.test(quickEditDialog)
   const hasFieldTypeEditInQuickEdit = /<el-select[^>]*v-model="quickEditProp\.field_type"/s.test(quickEditDialog)
@@ -83,7 +89,10 @@ test('choice codelist row exposes icon actions with disable guard', () => {
 
 
 test('property editor restores type-specific controls', () => {
-  assert.match(formDesignerSource, /<el-form-item label="变量标签"><el-input v-model="editProp\.label" :type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/)
+  assert.match(
+    formDesignerSource,
+    /<el-form-item label="变量标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
+  )
   assert.match(formDesignerSource, /:autosize="editProp\.field_type === '标签' \? \{ minRows: 2, maxRows: 4 \} : undefined"/)
   assert.match(formDesignerSource, /v-model="editProp\.integer_digits"/)
   assert.match(formDesignerSource, /v-model="editProp\.decimal_digits"/)
@@ -94,7 +103,7 @@ test('property editor restores type-specific controls', () => {
   assert.match(formDesignerSource, /aria-label="新增单位"/)
   assert.match(formDesignerSource, /title="新增单位"/)
   assert.match(formDesignerSource, /:icon="Plus"/)
-  assert.match(formDesignerSource, /v-model="showQuickAddUnit" title="新增单位"/)
+  assert.match(formDesignerSource, /<el-dialog v-model="showQuickAddUnit" title="新增单位"/)
   assert.match(formDesignerSource, /@click="quickAddUnit"/)
   assert.match(formDesignerSource, /v-model="editProp\.default_value"/)
   assert.match(formDesignerSource, /label="文字颜色"/)
@@ -132,11 +141,20 @@ test('template preview selection style reuses shared color normalization', () =>
 test('property editor aligns bg default swatch with text default swatch and removes text black preset', () => {
   assert.match(formDesignerSource, /const BG_COLOR_OPTIONS = \[\s*\{ value: null, label: '默认' \}/)
   assert.doesNotMatch(formDesignerSource, /const TEXT_COLOR_OPTIONS = \[[\s\S]*\{ value: '000000', label: '黑色' \}/)
-  assert.match(formDesignerSource, /v-else-if="editProp\.field_type === '日志行'"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null; customBgColorInput = ''/)
-  assert.match(formDesignerSource, /v-else class="designer-editor-scroll"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null; customBgColorInput = ''/)
+  assert.match(
+    formDesignerSource,
+    /v-else-if="editProp\.field_type === '日志行'"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null[\s\S]*customBgColorInput = ''/,
+  )
+  assert.match(
+    formDesignerSource,
+    /v-else class="designer-editor-scroll"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null[\s\S]*customBgColorInput = ''/,
+  )
   assert.match(formDesignerSource, /label="底纹颜色"[\s\S]*v-for="opt in BG_COLOR_OPTIONS\.slice\(1\)"/)
   assert.match(formDesignerSource, /<el-form-item label="底纹颜色">[\s\S]*class="color-option color-option-default"[\s\S]*quickEditProp\.bg_color = null/)
-  assert.match(formDesignerSource, /label="文字颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.text_color = null; customTextColorInput = ''/)
+  assert.match(
+    formDesignerSource,
+    /label="文字颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.text_color = null[\s\S]*customTextColorInput = ''/,
+  )
   assert.match(formDesignerSource, /<el-form-item label="文字颜色">[\s\S]*class="color-option color-option-default"[\s\S]*quickEditProp\.text_color = null/)
   assert.match(formDesignerSource, /v-for="opt in TEXT_COLOR_OPTIONS"/)
   assert.doesNotMatch(formDesignerSource, /<el-form-item label="底纹">/)
@@ -144,10 +162,22 @@ test('property editor aligns bg default swatch with text default swatch and remo
 
 
 test('selectField keeps regular fields and log rows editable', () => {
-  assert.match(formDesignerSource, /field_type: '日志行', integer_digits: null, decimal_digits: null, date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0, bg_color: ff\.bg_color \|\| null, text_color: ff\.text_color \|\| null/)
-  assert.match(formDesignerSource, /field_type: fd\.field_type \|\| '文本', integer_digits: fd\.integer_digits, decimal_digits: fd\.decimal_digits, date_format: fd\.date_format, codelist_id: fd\.codelist_id, unit_id: fd\.unit_id \?\? null, default_value: ff\.default_value \|\| '', inline_mark: ff\.inline_mark \|\| 0, bg_color: ff\.bg_color \|\| null, text_color: ff\.text_color \|\| null/)
-  assert.match(formDesignerSource, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`, \{ label: snapshot\.label, variable_name: snapshot\.variable_name, field_type: snapshot\.field_type, integer_digits: snapshot\.integer_digits, decimal_digits: snapshot\.decimal_digits, date_format: snapshot\.date_format, codelist_id: snapshot\.codelist_id, unit_id: snapshot\.unit_id \?\? null \}\)/)
-  assert.match(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/colors`, \{ bg_color: snapshot\.bg_color, text_color: snapshot\.text_color \}\)/)
+  assert.match(
+    formDesignerSource,
+    /field_type: '日志行',[\s\S]*integer_digits: null,[\s\S]*decimal_digits: null,[\s\S]*date_format: null,[\s\S]*codelist_id: null,[\s\S]*unit_id: null,[\s\S]*default_value: '',[\s\S]*inline_mark: 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
+  )
+  assert.match(
+    formDesignerSource,
+    /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits,[\s\S]*decimal_digits: fd\.decimal_digits,[\s\S]*date_format: fd\.date_format,[\s\S]*codelist_id: fd\.codelist_id,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
+  )
+  assert.match(
+    formDesignerSource,
+    /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`,[\s\S]*label: snapshot\.label,[\s\S]*variable_name: snapshot\.variable_name,[\s\S]*field_type: snapshot\.field_type,[\s\S]*integer_digits: snapshot\.integer_digits,[\s\S]*decimal_digits: snapshot\.decimal_digits,[\s\S]*date_format: snapshot\.date_format,[\s\S]*codelist_id: snapshot\.codelist_id,[\s\S]*unit_id: snapshot\.unit_id \?\? null[\s\S]*\}\)/,
+  )
+  assert.match(
+    formDesignerSource,
+    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/colors`,[\s\S]*bg_color: snapshot\.bg_color,[\s\S]*text_color: snapshot\.text_color[\s\S]*\}\)/,
+  )
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /from '..\/composables\/formDesignerPropertyEditor'/)
   assert.match(formDesignerSource, /@input="applyCustomBgColor"/)
@@ -159,13 +189,16 @@ test('field list exposes inline toggle backed by patch endpoint', () => {
   assert.match(formDesignerSource, /function canToggleInline\(ff\)/)
   assert.match(formDesignerSource, /async function toggleInline\(ff\)/)
   assert.match(formDesignerSource, /await confirmFormChange\(\)/)
-  assert.match(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`, \{\s*inline_mark: ff\.inline_mark \? 0 : 1,\s*\}\)/)
+  assert.match(
+    formDesignerSource,
+    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`,[\s\S]*inline_mark: ff\.inline_mark \? 0 : 1[\s\S]*\}\)/,
+  )
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)/)
-  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id\) \{[\s\S]*?if \(refreshed\) editProp\.inline_mark = refreshed\.inline_mark \|\| 0/)
+  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id\) \{[\s\S]*if \(refreshed\) editProp\.inline_mark = refreshed\.inline_mark \|\| 0/)
   assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"/)
   assert.match(formDesignerSource, /content="横向表格标记"/)
   assert.match(formDesignerSource, /:aria-label="'切换 ' \+ getFormFieldDisplayLabel\(ff\) \+ ' 的横向表格标记'"/)
-  assert.match(formDesignerSource, />⊞<\/el-button>/)
+  assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"[\s\S]*>⊞<\/el-button\s*>/)
 })
 
 
@@ -175,7 +208,10 @@ test('inline toggle is hidden for label and log-row fields', () => {
 
 
 test('quick add codelist dialog template aligns with edit dialog', () => {
-  assert.match(formDesignerSource, /<el-dialog v-model="showQuickAddCodelist" title="新增选项" width="560px" :close-on-click-modal="false" :close-on-press-escape="false"/)
+  assert.match(
+    formDesignerSource,
+    /<el-dialog[\s\S]*v-model="showQuickAddCodelist"[\s\S]*title="新增选项"[\s\S]*width="560px"[\s\S]*:close-on-click-modal="false"[\s\S]*:close-on-press-escape="false"/,
+  )
   assert.match(formDesignerSource, /v-model="quickCodelistName"/)
   assert.match(formDesignerSource, /v-model="quickCodelistDescription"/)
   assert.match(formDesignerSource, /v-model="row.code"/)
@@ -191,11 +227,14 @@ test('quick add codelist dialog template aligns with edit dialog', () => {
 test('quick add codelist saves description and options in a single request', () => {
   assert.match(formDesignerSource, /quickCodelistDescription = ref\(''\)/)
   assert.match(formDesignerSource, /quickAddCodelistSaving = ref\(false\)/)
-  assert.match(formDesignerSource, /quickCodelistOpts\.value\.push\(\{ id: null, code: quickOptCode\.value\.trim\(\) \|\| `C\.\$\{n \+ 1\}`, decode: quickOptDecode\.value\.trim\(\), trailing_underscore: 0 \}\)/)
+  assert.match(
+    formDesignerSource,
+    /quickCodelistOpts\.value\.push\(\{[\s\S]*id: null,[\s\S]*code: quickOptCode\.value\.trim\(\) \|\| `C\.\$\{n \+ 1\}`[\s\S]*decode: quickOptDecode\.value\.trim\(\)[\s\S]*trailing_underscore: 0[\s\S]*\}\)/,
+  )
   assert.match(formDesignerSource, /quickAddCodelistSaving\.value = false/)
   assert.match(formDesignerSource, /quickCodelistDescription\.value = ''/)
   assert.match(formDesignerSource, /if \(quickAddCodelistSaving\.value\) return/)
-  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\(opt => !opt\.code \|\| !opt\.decode\)/)
+  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\([\s\S]*!opt\.code \|\| !opt\.decode\)/)
   assert.match(formDesignerSource, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists`, \{/)
   assert.match(formDesignerSource, /description: quickCodelistDescription\.value/)
   assert.match(formDesignerSource, /options: normalizedOptions\.map\(\(opt, index\) => \(\{/)
@@ -205,7 +244,10 @@ test('quick add codelist saves description and options in a single request', () 
 
 
 test('quick edit codelist dialog template is mounted', () => {
-  assert.match(formDesignerSource, /<el-dialog v-model="showQuickEditCodelist" title="编辑选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false"/)
+  assert.match(
+    formDesignerSource,
+    /<el-dialog[\s\S]*v-model="showQuickEditCodelist"[\s\S]*title="编辑选项字典"[\s\S]*width="560px"[\s\S]*:close-on-click-modal="false"[\s\S]*:close-on-press-escape="false"/,
+  )
   assert.match(formDesignerSource, /v-model="quickEditCodelistName"/)
   assert.match(formDesignerSource, /v-model="quickEditCodelistDescription"/)
   assert.match(formDesignerSource, /v-model="quickEditOptCode"/)
@@ -221,10 +263,10 @@ test('quick edit codelist save uses single snapshot request and preserves descri
   assert.match(formDesignerSource, /if \(quickEditCodelistSaving\.value\) return/)
   assert.match(formDesignerSource, /api\.get\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/references`\)/)
   assert.match(formDesignerSource, /修改将影响以下字段：[\s\S]*确认修改？/)
-  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\(opt => !opt\.code \|\| !opt\.decode\)/)
+  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\([\s\S]*!opt\.code \|\| !opt\.decode\)/)
   assert.match(formDesignerSource, /await api\.put\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/snapshot`, \{/)
   assert.match(formDesignerSource, /description: quickEditCodelistDescription\.value/)
-  assert.match(formDesignerSource, /options: normalizedOptions\.map\(opt => \(\{/)
+  assert.match(formDesignerSource, /options: normalizedOptions\.map\([\s\S]*opt[\s\S]*=>[\s\S]*\(\{/)
   assert.doesNotMatch(formDesignerSource, /for \(const id of originalIds\) if \(!currentIds\.has\(id\)\) await api\.del/)
   assert.doesNotMatch(formDesignerSource, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/options/)
   assert.match(formDesignerSource, /closeQuickEditCodelist\(\)/)
@@ -243,7 +285,10 @@ test('property editor auto saves without manual save buttons', () => {
   assert.match(formDesignerSource, /function resetFieldPropAutoSaveState\(\{ preserveEditor = false \} = \{\}\) \{[\s\S]*fieldPropSaveSession \+= 1[\s\S]*pendingFieldPropSnapshots = \[\]/)
   assert.match(formDesignerSource, /if \(!preserveEditor\) \{[\s\S]*selectedFieldId\.value = null[\s\S]*lastHydratedFieldPropDraftKey = ''/)
   assert.match(formDesignerSource, /const currentFieldPropDraftKey = computed\(\(\) => getFieldPropSnapshotKey\(\)\)/)
-  assert.match(formDesignerSource, /watch\(currentFieldPropDraftKey, \(draftKey\) => \{[\s\S]*fieldPropAutoSaveErrorShown = false[\s\S]*upsertPendingFieldPropSnapshot\(snapshot\)/)
+  assert.match(
+    formDesignerSource,
+    /watch\(currentFieldPropDraftKey,[\s\S]*draftKey[\s\S]*=> \{[\s\S]*fieldPropAutoSaveErrorShown = false[\s\S]*upsertPendingFieldPropSnapshot\(snapshot\)/,
+  )
   assert.match(formDesignerSource, /fieldPropSaveTimer = setTimeout\(\(\) => \{[\s\S]*void flushPendingFieldPropSave\(fieldPropSaveSession\)[\s\S]*\}, 400\)/)
   assert.doesNotMatch(formDesignerSource, /@click="saveFieldProp">保存<\/el-button>/)
 })
@@ -256,7 +301,10 @@ test('property editor hydration flushes pending autosave before switching fields
   assert.match(formDesignerSource, /projectId: fieldPropProjectId\.value/)
   assert.match(formDesignerSource, /lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey\(buildFieldPropSnapshot\(ff\.id\)\)/)
   assert.match(formDesignerSource, /const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey\(\) !== snapshotKey/)
-  assert.match(formDesignerSource, /const shouldRefillEditor = selectedFieldId\.value === snapshot\.fieldId && !hasPendingFieldPropSnapshot\(snapshot\.fieldId\)/)
+  assert.match(
+    formDesignerSource,
+    /const shouldRefillEditor =[\s\S]*selectedFieldId\.value === snapshot\.fieldId[\s\S]*!hasPendingFieldPropSnapshot\(snapshot\.fieldId\)/,
+  )
 })
 
 
@@ -276,7 +324,10 @@ test('property editor retries only retryable autosave errors', () => {
   assert.match(formDesignerSource, /if \(saveSucceeded && shouldRefillEditor\) \{[\s\S]*if \(updated\) selectField\(updated\)/)
   assert.match(formDesignerSource, /return !flushFailed/)
   assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('自动保存上下文已变更'\)/)
-  assert.match(formDesignerSource, /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\) throw new Error\('单选\/多选字段必须选择选项字典'\)/)
+  assert.match(
+    formDesignerSource,
+    /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\)[\s\S]*throw new Error\('单选\/多选字段必须选择选项字典'\)/,
+  )
   assert.doesNotMatch(formDesignerSource, /editProp\.default_value = normalizedDefaultValue/)
 })
 
@@ -295,8 +346,8 @@ test('property editor blocks reset when flush fails on dialog close and project 
   assert.match(formDesignerSource, /if \(flushResult === false\) return false/)
   assert.match(formDesignerSource, /if \(isSavingFieldProp\) \{[\s\S]*setTimeout\(check, 20\)/)
   assert.match(formDesignerSource, /if \(pendingFieldPropSnapshots\.length\) return false/)
-  assert.match(formDesignerSource, /watch\(\(\) => showDesigner\.value, async \(visible, previousVisible\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\)[\s\S]*if \(!resetSucceeded\) showDesigner\.value = true/)
-  assert.match(formDesignerSource, /watch\(\(\) => props\.projectId, async \(newProjectId, previousProjectId\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)[\s\S]*if \(!resetSucceeded\) \{[\s\S]*fieldPropProjectId\.value = previousProjectId/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => showDesigner\.value,[\s\S]*async \(visible, previousVisible\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\)[\s\S]*if \(!resetSucceeded\) showDesigner\.value = true/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*async \(newProjectId, previousProjectId\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)[\s\S]*if \(!resetSucceeded\) \{[\s\S]*fieldPropProjectId\.value = previousProjectId/)
   assert.match(formDesignerSource, /if \(!preserveEditor\) \{[\s\S]*selectedFieldId\.value = null/)
 })
 
@@ -316,7 +367,7 @@ test('form switch only lets latest field load commit', () => {
   assert.match(formDesignerSource, /if \(!formId\) \{[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*return/)
   assert.match(formDesignerSource, /const loadedFields = await api\.cachedGet\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /if \(sessionId !== formFieldsLoadSession \|\| selectedForm\.value\?\.id !== formId\) return/)
-  assert.match(formDesignerSource, /watch\(selectedForm, form => \{[\s\S]*void loadFormFields\(form\?\.id \?\? null\)[\s\S]*\}\)/)
+  assert.match(formDesignerSource, /watch\(selectedForm,[\s\S]*form[\s\S]*=> \{[\s\S]*void loadFormFields\(form\?\.id \?\? null\)[\s\S]*\}\)/)
 })
 
 
@@ -333,5 +384,5 @@ test('form switch flushes field autosave and clears stale field state before sel
 
 
 test('project switch invalidates pending form selection sessions', () => {
-  assert.match(formDesignerSource, /watch\(\(\) => props\.projectId, async \(newProjectId, previousProjectId\) => \{[\s\S]*invalidateFormSelectionSession\(\)/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*async \(newProjectId, previousProjectId\) => \{[\s\S]*invalidateFormSelectionSession\(\)/)
 })

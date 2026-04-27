@@ -26,6 +26,7 @@ from src.models.project import Project
 from src.models.user import User
 
 from src.services.docx_import_service import DocxImportService
+from src.perf import perf_span, record_counter, record_payload_size
 
 from src.services.ai_review_service import review_forms, VALID_FIELD_TYPES
 
@@ -205,9 +206,11 @@ async def preview_docx_import(
 
     """上传Word文档并预览解析出的表单列表"""
 
-    limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
+    with perf_span("rate_limit"):
+        limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
 
-    verify_project_owner(project_id, current_user, session)
+    with perf_span("auth_owner"):
+        verify_project_owner(project_id, current_user, session)
 
 
 
@@ -221,7 +224,9 @@ async def preview_docx_import(
 
     try:
 
-        content = await file.read()
+        with perf_span("upload_read"):
+            content = await file.read()
+        record_payload_size(len(content))
 
         temp_id, file_path = DocxImportService.save_temp_file(
 
@@ -280,6 +285,14 @@ async def preview_docx_import(
         ai_error = "AI复核服务异常"
 
 
+
+    forms_count = len(full_forms)
+    fields_count = sum(
+        len([field for field in form.get("fields", []) if field.get("type") != "log_row"])
+        for form in full_forms
+    )
+    record_counter("forms_count", forms_count)
+    record_counter("fields_count", fields_count)
 
     # 构建预览响应
 
@@ -397,7 +410,9 @@ async def preview_docx_import(
 
 
 
-    return DocxPreviewResponse(forms=preview_forms, temp_id=temp_id, ai_error=ai_error)
+    with perf_span("response_build"):
+        response = DocxPreviewResponse(forms=preview_forms, temp_id=temp_id, ai_error=ai_error)
+    return response
 
 
 
@@ -427,13 +442,16 @@ def execute_docx_import(
 
     """执行导入：将选中的表单写入数据库"""
 
-    limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
+    with perf_span("rate_limit"):
+        limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
 
-    verify_project_owner(project_id, current_user, session)
+    with perf_span("auth_owner"):
+        verify_project_owner(project_id, current_user, session)
 
 
 
-    file_path = DocxImportService.get_temp_path(payload.temp_id)
+    with perf_span("temp_lookup"):
+        file_path = DocxImportService.get_temp_path(payload.temp_id)
 
     if not file_path:
 
@@ -505,7 +523,8 @@ def execute_docx_import(
 
     finally:
 
-        DocxImportService.cleanup_temp(payload.temp_id)
+        with perf_span("cleanup"):
+            DocxImportService.cleanup_temp(payload.temp_id)
 
 
 
@@ -830,4 +849,3 @@ async def cleanup_screenshots(days: int = 7, current_user: User = Depends(requir
         freed_mb=round(result["freed_bytes"] / 1024 / 1024, 2),
 
     )
-
