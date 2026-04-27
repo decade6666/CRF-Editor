@@ -1,0 +1,225 @@
+{
+  "timestamp": "2026-04-27T05:45:45-07:00",
+  "version": "1.2.1",
+  "root_claude_md": ".claude/CLAUDE.md",
+  "modules": [
+    {
+      "name": "backend",
+      "path": "backend/",
+      "language": "Python",
+      "claude_md": "backend/.claude/CLAUDE.md",
+      "entry_files": [
+        "backend/main.py",
+        "backend/app_launcher.py"
+      ],
+      "api_routes": [
+        "backend/src/routers/auth.py",
+        "backend/src/routers/admin.py",
+        "backend/src/routers/projects.py",
+        "backend/src/routers/visits.py",
+        "backend/src/routers/forms.py",
+        "backend/src/routers/fields.py",
+        "backend/src/routers/codelists.py",
+        "backend/src/routers/units.py",
+        "backend/src/routers/export.py",
+        "backend/src/routers/settings.py",
+        "backend/src/routers/import_template.py",
+        "backend/src/routers/import_docx.py"
+      ],
+      "important_paths": [
+        "backend/src/config.py",
+        "backend/src/database.py",
+        "backend/src/dependencies.py",
+        "backend/src/models/",
+        "backend/src/schemas/",
+        "backend/src/repositories/",
+        "backend/src/services/auth_service.py",
+        "backend/src/services/user_admin_service.py",
+        "backend/src/services/import_service.py",
+        "backend/src/services/project_import_service.py",
+        "backend/src/services/export_service.py",
+        "backend/src/services/width_planning.py",
+        "backend/tests/"
+      ],
+      "tests": [
+        "backend/tests/test_auth.py",
+        "backend/tests/test_user_admin.py",
+        "backend/tests/test_permission_guards.py",
+        "backend/tests/test_isolation.py",
+        "backend/tests/test_subresource_isolation.py",
+        "backend/tests/test_import_service.py",
+        "backend/tests/test_project_import.py",
+        "backend/tests/test_export_service.py",
+        "backend/tests/test_width_planning.py",
+        "backend/tests/test_wal.py",
+        "backend/tests/test_rate_limit.py",
+        "backend/tests/test_app_security.py",
+        "backend/tests/test_perf_baseline.py",
+        "backend/tests/test_perf_harness.py",
+        "backend/tests/test_perf_contracts.py",
+        "backend/tests/test_perf_evidence_summary.py",
+        "backend/tests/test_perf_redaction.py",
+        "backend/tests/test_perf_reorder_spans.py",
+        "backend/tests/test_perf_busy_wait_metric.py",
+        "backend/tests/test_perf_fixture.py"
+      ],
+      "coverage": {
+        "estimated_files": 85,
+        "scanned_files": 74,
+        "percent": 87
+      },
+      "gaps": [
+        {
+          "type": "large_service_file",
+          "description": "export_service.py 与 docx_import_service.py 仍适合在后续导入导出专项中继续拆解复杂路径。"
+        }
+      ]
+    },
+    {
+      "name": "frontend",
+      "path": "frontend/",
+      "language": "JavaScript/Vue",
+      "claude_md": "frontend/.claude/CLAUDE.md",
+      "entry_files": [
+        "frontend/src/main.js",
+        "frontend/src/App.vue"
+      ],
+      "components": [
+        "frontend/src/components/AdminView.vue",
+        "frontend/src/components/LoginView.vue",
+        "frontend/src/components/ProjectInfoTab.vue",
+        "frontend/src/components/CodelistsTab.vue",
+        "frontend/src/components/UnitsTab.vue",
+        "frontend/src/components/FieldsTab.vue",
+        "frontend/src/components/FormDesignerTab.vue",
+        "frontend/src/components/VisitsTab.vue",
+        "frontend/src/components/SimulatedCRFForm.vue",
+        "frontend/src/components/TemplatePreviewDialog.vue",
+        "frontend/src/components/DocxCompareDialog.vue",
+        "frontend/src/components/DocxScreenshotPanel.vue"
+      ],
+      "composables": [
+        "frontend/src/composables/useApi.js",
+        "frontend/src/composables/useOrderableList.js",
+        "frontend/src/composables/useSortableTable.js",
+        "frontend/src/composables/useCRFRenderer.js",
+        "frontend/src/composables/useColumnResize.js",
+        "frontend/src/composables/formDesignerPropertyEditor.js",
+        "frontend/src/composables/formFieldPresentation.js",
+        "frontend/src/composables/exportDownloadState.js",
+        "frontend/src/composables/visitPreviewLandscape.js",
+        "frontend/src/composables/useLazyTabs.js",
+        "frontend/src/composables/usePerfBaseline.js"
+      ],
+      "config_files": [
+        "frontend/package.json",
+        "frontend/vite.config.js",
+        "frontend/eslint.config.js",
+        "frontend/.prettierrc.json"
+      ],
+      "tests": [
+        "frontend/tests/adminViewStructure.test.js",
+        "frontend/tests/appSettingsShell.test.js",
+        "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/columnWidthPlanning.pbt.test.js",
+        "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
+        "frontend/tests/formFieldPresentation.test.js",
+        "frontend/tests/exportDownloadState.test.js",
+        "frontend/tests/portDefaults.test.js",
+        "frontend/tests/browserPerfBaselineScript.test.js",
+        "frontend/tests/perfBaselineHelpers.test.js",
+        "frontend/tests/appTabLazyLoad.test.js"
+      ],
+      "coverage": {
+        "estimated_files": 52,
+        "scanned_files": 44,
+        "percent": 85
+      },
+      "gaps": [
+        {
+          "type": "no_browser_e2e",
+          "description": "未发现 Playwright / Cypress 等浏览器级 E2E 套件；当前以 node:test 源码级回归为主。"
+        }
+      ]
+    },
+    {
+      "name": "assets",
+      "path": "assets/",
+      "language": "static-assets",
+      "claude_md": null,
+      "important_paths": [
+        "assets/logos/README.md"
+      ],
+      "coverage": {
+        "estimated_files": 1,
+        "scanned_files": 1,
+        "percent": 100
+      },
+      "gaps": []
+    }
+  ],
+  "scan_summary": {
+    "estimated_total_files": 138,
+    "scanned_files": 119,
+    "coverage_percent": 86,
+    "ignored_patterns": [
+      "node_modules/**",
+      ".git/**",
+      "frontend/dist/**",
+      "build/**",
+      "__pycache__/**",
+      "*.lock",
+      "*.log",
+      "*.bin",
+      "*.pdf",
+      "*.png",
+      "*.jpg",
+      "*.jpeg",
+      "*.gif",
+      "*.mp4",
+      "*.zip",
+      "*.tar",
+      "*.gz",
+      ".venv/**",
+      "backend/uploads/**",
+      ".pytest_cache/**"
+    ],
+    "ignored_top_paths": [
+      {
+        "path": "frontend/node_modules/",
+        "reason": "dependency_tree"
+      },
+      {
+        "path": "frontend/dist/",
+        "reason": "generated_build_output"
+      },
+      {
+        "path": "backend/uploads/docx_temp/",
+        "reason": "runtime_temp_files"
+      },
+      {
+        "path": ".venv/",
+        "reason": "virtual_environment"
+      },
+      {
+        "path": "docs/",
+        "reason": "binary_docx_archive"
+      }
+    ],
+    "truncated": false,
+    "phase_reached": "D",
+    "next_steps": [
+      "如需更高可信度，可补扫 backend/src/services/export_service.py 与 docx_import_service.py 的复杂导入导出分支。",
+      "如需 UI 行为保障，可补充 Playwright / Cypress 浏览器级 E2E 套件。",
+      "性能基线测试套件已就绪，可在后续迭代中扩展场景覆盖。"
+    ]
+  },
+  "gap_summary": {
+    "backend": [
+      "large_service_file"
+    ],
+    "frontend": [
+      "no_browser_e2e"
+    ]
+  }
+}
