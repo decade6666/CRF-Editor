@@ -1,5 +1,3 @@
-import { ElMessage } from 'element-plus'
-
 // 解析后端错误响应
 // 兼容 FastAPI/Pydantic 的数组型 detail（422 Unprocessable Content）
 async function _parseError(r) {

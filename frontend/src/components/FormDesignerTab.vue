@@ -7,17 +7,12 @@ import { useSortableTable } from '../composables/useSortableTable'
 import { useColumnResize } from '../composables/useColumnResize'
 import { renderCtrl as renderCtrlBase, renderCtrlHtml, toHtml, isChoiceField, isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions, planNormalColumnFractions, planUnifiedColumnFractions } from '../composables/useCRFRenderer'
 import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
-import {
-  buildFormDesignerRenderGroups,
-  buildFormDesignerUnifiedSegments,
-  getFormFieldDisplayLabel,
-  getFormFieldPreviewStyle,
-  getFormFieldTextColorStyle,
-} from '../composables/formFieldPresentation'
+import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline'
+import { buildFormDesignerRenderGroups, buildFormDesignerUnifiedSegments, getFormFieldDisplayLabel, getFormFieldPreviewStyle, getFormFieldTextColorStyle } from '../composables/formFieldPresentation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
-const editMode = inject('editMode', ref(false))
+inject('editMode', ref(false))
 
 // 核心数据
 const forms = ref([])
@@ -32,7 +27,11 @@ const filteredForms = computed(() => {
   })
   if (!kw) return orderedForms
   return orderedForms.filter(item =>
-    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
+    Object.values(item).some(v =>
+      String(v ?? '')
+        .toLowerCase()
+        .includes(kw)
+    )
   )
 })
 const selectedForm = ref(null)
@@ -40,6 +39,9 @@ const fieldDefs = ref([])
 const formFields = ref([])
 const codelists = ref([])
 const units = ref([])
+const designerAuxiliaryLoaded = ref(false)
+const designerAuxiliaryLoading = ref(false)
+const designerAuxiliaryLoadError = ref('')
 const selectedIds = ref([])
 const showAddForm = ref(false)
 const showEditForm = ref(false)
@@ -60,7 +62,9 @@ function invalidateFormSelectionSession() {
 }
 
 // 数据加载
-async function loadForms() { forms.value = await api.cachedGet(`/api/projects/${props.projectId}/forms`) }
+async function loadForms() {
+  forms.value = await api.cachedGet(`/api/projects/${props.projectId}/forms`)
+}
 async function reloadForms() {
   const selectedFormId = selectedForm.value?.id ?? null
   api.invalidateCache(`/api/projects/${props.projectId}/forms`)
@@ -70,9 +74,15 @@ async function reloadForms() {
   selectedForm.value = forms.value.find(f => f.id === selectedFormId) || null
   if (!selectedForm.value) formFields.value = []
 }
-async function loadFieldDefs() { fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`) }
-async function loadCodelists() { codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`) }
-async function loadUnits() { units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`) }
+async function loadFieldDefs() {
+  fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`)
+}
+async function loadCodelists() {
+  codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`)
+}
+async function loadUnits() {
+  units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`)
+}
 
 function sortFormFieldsByOrder(fields) {
   return [...fields].sort((a, b) => {
@@ -100,27 +110,45 @@ watch(selectedForm, form => {
 
 // 刷新信号
 watch(refreshKey, () => {
-  loadForms(); loadFieldDefs(); loadCodelists(); loadUnits()
+  loadForms()
+  if (designerAuxiliaryLoaded.value) {
+    loadFieldDefs()
+    loadCodelists()
+    loadUnits()
+  }
   if (selectedForm.value) loadFormFields()
 })
 
 // 表单CRUD
 async function addForm() {
   try {
-    const created = await api.post(`/api/projects/${props.projectId}/forms`, { name: newFormName.value, code: newFormCode.value })
-    showAddForm.value = false; newFormName.value = ''; newFormCode.value = ''
+    const created = await api.post(`/api/projects/${props.projectId}/forms`, {
+      name: newFormName.value,
+      code: newFormCode.value
+    })
+    showAddForm.value = false
+    newFormName.value = ''
+    newFormCode.value = ''
     await loadForms()
     invalidateFormSelectionSession()
     selectedForm.value = forms.value.find(f => f.id === created.id) || created
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 async function delForm(f) {
   try {
     const refs = await api.get(`/api/forms/${f.id}/references`)
     if (refs.length) {
-      const msg = truncRefs(refs.map(r => r.visit_name), 5, '、')
-      await ElMessageBox.confirm(`删除表单 "${f.name}" 将同时从以下访视中移除：\n${msg}\n确认删除？`, '确认', { type: 'warning' })
+      const msg = truncRefs(
+        refs.map(r => r.visit_name),
+        5,
+        '、'
+      )
+      await ElMessageBox.confirm(`删除表单 "${f.name}" 将同时从以下访视中移除：\n${msg}\n确认删除？`, '确认', {
+        type: 'warning'
+      })
     } else {
       await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' })
     }
@@ -131,7 +159,9 @@ async function delForm(f) {
       formFields.value = []
     }
     reloadForms()
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
 }
 
 const selForms = ref([])
@@ -142,38 +172,63 @@ async function batchDelForms() {
     const allRefs = []
     for (const f of selForms.value) {
       const refs = refsMap[f.id] || []
-      if (refs.length) allRefs.push(`【${f.name}】：` + truncRefs(refs.map(r => r.visit_name), 3, '、'))
+      if (refs.length)
+        allRefs.push(
+          `【${f.name}】：` +
+            truncRefs(
+              refs.map(r => r.visit_name),
+              3,
+              '、'
+            )
+        )
     }
-    const msg = allRefs.length
-      ? `以下表单将同时从相关访视中移除：\n${allRefs.join('\n')}\n确认删除？`
-      : `确认删除选中的 ${selForms.value.length} 个表单？`
+    const msg = allRefs.length ? `以下表单将同时从相关访视中移除：\n${allRefs.join('\n')}\n确认删除？` : `确认删除选中的 ${selForms.value.length} 个表单？`
     await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids })
     invalidateFormSelectionSession()
-    selForms.value = []; selectedForm.value = null; formFields.value = []; reloadForms()
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+    selForms.value = []
+    selectedForm.value = null
+    formFields.value = []
+    reloadForms()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
 }
 
 async function copyForm(f) {
-  try { await api.post(`/api/forms/${f.id}/copy`, {}); reloadForms(); ElMessage.success('复制成功') }
-  catch (e) { ElMessage.error(e.message) }
+  try {
+    await api.post(`/api/forms/${f.id}/copy`, {})
+    reloadForms()
+    ElMessage.success('复制成功')
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 function openEditForm(f) {
-  editFormName.value = f.name; editFormCode.value = f.code || ''
-  editFormTarget.value = f; showEditForm.value = true
+  editFormName.value = f.name
+  editFormCode.value = f.code || ''
+  editFormTarget.value = f
+  showEditForm.value = true
 }
 
 async function updateForm() {
   try {
     const refs = await api.get(`/api/forms/${editFormTarget.value.id}/references`)
     if (refs.length) {
-      const msg = truncRefs(refs.map(r => r.visit_name), 5, '、')
+      const msg = truncRefs(
+        refs.map(r => r.visit_name),
+        5,
+        '、'
+      )
       await ElMessageBox.confirm(`修改将影响以下访视：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
     }
     await api.put(`/api/forms/${editFormTarget.value.id}`, { name: editFormName.value, code: editFormCode.value })
-    showEditForm.value = false; reloadForms()
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+    showEditForm.value = false
+    reloadForms()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
 }
 
 // 表单字段操作
@@ -181,15 +236,25 @@ async function confirmFormChange() {
   if (!selectedForm.value) return
   const refs = await api.get(`/api/forms/${selectedForm.value.id}/references`)
   if (refs.length) {
-    const msg = truncRefs(refs.map(r => r.visit_name), 5, '、')
-    await ElMessageBox.confirm(`当前表单被以下访视引用，修改将影响这些访视：\n${msg}\n确认继续？`, '影响提醒', { type: 'warning' })
+    const msg = truncRefs(
+      refs.map(r => r.visit_name),
+      5,
+      '、'
+    )
+    await ElMessageBox.confirm(`当前表单被以下访视引用，修改将影响这些访视：\n${msg}\n确认继续？`, '影响提醒', {
+      type: 'warning'
+    })
   }
 }
 
 async function addField(fd) {
   if (!selectedForm.value) return ElMessage.warning('请先选择表单')
-  try { await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id }); loadFormFields() }
-  catch (e) { ElMessage.error(e.message) }
+  try {
+    await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id })
+    loadFormFields()
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 async function removeField(ff) {
@@ -201,8 +266,9 @@ async function removeField(ff) {
     formFields.value = formFields.value.filter(f => f.id !== ff.id)
     api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
     loadFormFields()
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
-  finally {
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  } finally {
     const next = new Set(deletingFieldIds.value)
     next.delete(ff.id)
     deletingFieldIds.value = next
@@ -211,20 +277,40 @@ async function removeField(ff) {
 
 async function batchDelete() {
   if (!selectedIds.value.length) return
-  try { await confirmFormChange(); await api.post(`/api/forms/${selectedForm.value.id}/fields/batch-delete`, { ids: selectedIds.value }); selectedIds.value = []; loadFormFields() }
-  catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
+  try {
+    await confirmFormChange()
+    await api.post(`/api/forms/${selectedForm.value.id}/fields/batch-delete`, { ids: selectedIds.value })
+    selectedIds.value = []
+    loadFormFields()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
+  }
 }
 
 // 拖拽排序
-function onDragStart(ff) { dragSrcId.value = ff.id }
-function onDragOver(e, idx) { e.preventDefault(); dragOverIdx.value = idx }
-function onDragLeave() { dragOverIdx.value = null }
+function onDragStart(ff) {
+  dragSrcId.value = ff.id
+}
+function onDragOver(e, idx) {
+  e.preventDefault()
+  dragOverIdx.value = idx
+}
+function onDragLeave() {
+  dragOverIdx.value = null
+}
 function normalizeFormFieldOrder(fields) {
   return fields.map((field, index) => ({ ...field, order_index: index + 1 }))
 }
 
 async function onDrop(e, targetIdx) {
-  e.preventDefault(); dragOverIdx.value = null
+  e.preventDefault()
+  dragOverIdx.value = null
+  recordPerfEvent({
+    type: 'instant',
+    name: 'designer_reorder_field',
+    project_id: props.projectId,
+    form_id: selectedForm.value?.id ?? null
+  })
   const srcIdx = formFields.value.findIndex(f => f.id === dragSrcId.value)
   if (srcIdx === -1 || srcIdx === targetIdx) return
   try {
@@ -244,15 +330,21 @@ async function onDrop(e, targetIdx) {
 
 // 键盘排序与焦点
 const fieldItemRefs = ref({})
-onBeforeUpdate(() => { fieldItemRefs.value = {} })
+onBeforeUpdate(() => {
+  fieldItemRefs.value = {}
+})
 
 async function handleFieldKeydown(event, field, index) {
   const { key, ctrlKey } = event
   if (!['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(key)) return
   event.preventDefault()
-  if (key === 'Enter') { selectField(field); return }
+  if (key === 'Enter') {
+    selectField(field)
+    return
+  }
   if (key === ' ') {
-    const id = field.id, idx = selectedIds.value.indexOf(id)
+    const id = field.id,
+      idx = selectedIds.value.indexOf(id)
     if (idx > -1) selectedIds.value.splice(idx, 1)
     else selectedIds.value.push(id)
     return
@@ -265,7 +357,9 @@ async function handleFieldKeydown(event, field, index) {
       arr.splice(to, 0, item)
       const normalized = normalizeFormFieldOrder(arr)
       formFields.value = normalized
-      await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map(f => f.id) })
+      await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, {
+        ordered_ids: normalized.map(f => f.id)
+      })
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
       await loadFormFields()
       nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus())
@@ -278,7 +372,7 @@ async function handleFieldKeydown(event, field, index) {
     if (key === 'ArrowUp') await move(index, index - 1)
     else if (key === 'ArrowDown') await move(index, index + 1)
   } else {
-    let nextIdx = (key === 'ArrowUp') ? index - 1 : index + 1
+    let nextIdx = key === 'ArrowUp' ? index - 1 : index + 1
     if (nextIdx >= 0 && nextIdx < formFields.value.length) fieldItemRefs.value[formFields.value[nextIdx].id]?.focus()
   }
 }
@@ -290,24 +384,29 @@ const fieldSearch = ref('')
 const filteredFieldDefs = computed(() => {
   const q = fieldSearch.value.trim().toLowerCase()
   if (!q) return fieldDefs.value
-  return fieldDefs.value.filter(fd =>
-    fd.label?.toLowerCase().includes(q) || fd.variable_name?.toLowerCase().includes(q)
-  )
+  return fieldDefs.value.filter(fd => fd.label?.toLowerCase().includes(q) || fd.variable_name?.toLowerCase().includes(q))
 })
 
 // 渲染逻辑
 function renderCtrl(fd) {
   if (!fd) return '________________'
   const field = {
-    field_type: fd.field_type, options: fd.codelist?.options || [],
-    unit_symbol: fd.unit?.symbol, integer_digits: fd.integer_digits,
-    decimal_digits: fd.decimal_digits, date_format: fd.date_format,
+    field_type: fd.field_type,
+    options: fd.codelist?.options || [],
+    unit_symbol: fd.unit?.symbol,
+    integer_digits: fd.integer_digits,
+    decimal_digits: fd.decimal_digits,
+    date_format: fd.date_format
   }
   return renderCtrlBase(field)
 }
 
 function escapePreviewText(text) {
-  return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
 }
 
 function getPreviewField(ff) {
@@ -318,7 +417,7 @@ function getPreviewField(ff) {
     unit_symbol: ff.field_definition.unit?.symbol,
     integer_digits: ff.field_definition.integer_digits,
     decimal_digits: ff.field_definition.decimal_digits,
-    date_format: ff.field_definition.date_format,
+    date_format: ff.field_definition.date_format
   }
 }
 
@@ -349,19 +448,22 @@ function getInlineRows(fields) {
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n')
       while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
-      return { lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')), repeat: false }
+      return {
+        lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
+        repeat: false
+      }
     }
     const ctrl = renderCtrl(ff.field_definition).replace(/_{8,}/, '______')
     return { lines: [toHtml(ctrl)], repeat: true }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
-  return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? '')))
+  return Array.from({ length: maxRows }, (_, i) => cols.map(col => (col.repeat ? col.lines[0] : (col.lines[i] ?? ''))))
 }
-
 
 function computeMergeSpans(N, M) {
   if (M <= 0 || M > N) return Array(N).fill(1)
-  const base = Math.floor(N / M), extra = N % M
+  const base = Math.floor(N / M),
+    extra = N % M
   return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0))
 }
 
@@ -375,7 +477,7 @@ const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.val
 const designerVisibleFields = computed(() => {
   return sortFormFieldsByOrder(formFields.value).map((field, index) => ({
     ...field,
-    _displayOrder: index + 1,
+    _displayOrder: index + 1
   }))
 })
 
@@ -399,7 +501,7 @@ function applyPreviewSnapshot(baseField, snapshot) {
       ...baseField,
       label_override: snapshot.label ?? baseField.label_override,
       bg_color: Object.prototype.hasOwnProperty.call(snapshot, 'bg_color') ? snapshot.bg_color : (baseField.bg_color ?? null),
-      text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color') ? snapshot.text_color : (baseField.text_color ?? null),
+      text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color') ? snapshot.text_color : (baseField.text_color ?? null)
     }
   }
 
@@ -428,8 +530,8 @@ function applyPreviewSnapshot(baseField, snapshot) {
       codelist_id: codelistId,
       unit_id: unitId,
       codelist: codelistId ? resolveCodelist(codelistId) : null,
-      unit: unitId ? resolveUnit(unitId) : null,
-    },
+      unit: unitId ? resolveUnit(unitId) : null
+    }
   }
 }
 
@@ -462,7 +564,12 @@ const designerLandscapeMode = computed(() => forceLandscape.value || designerRen
 // defaultsSource 使用工厂闭包，基于内容驱动的 planner 计算默认比例（与 width_planning.py 对齐）。
 const formIdRef = computed(() => selectedForm.value?.id)
 const resizerCache = new Map()
-watch(() => selectedForm.value?.id, () => { resizerCache.clear() })
+watch(
+  () => selectedForm.value?.id,
+  () => {
+    resizerCache.clear()
+  }
+)
 
 /**
  * 构建规范的 table_instance_id。
@@ -471,7 +578,10 @@ watch(() => selectedForm.value?.id, () => { resizerCache.clear() })
  * 该标识符稳定于字段排序变化（groupIndex 不稳定），保证持久化一致性。
  */
 function buildTableInstanceId(kind, fields) {
-  const fieldIds = (fields || []).map(f => f.id).filter(id => id != null).join(',')
+  const fieldIds = (fields || [])
+    .map(f => f.id)
+    .filter(id => id != null)
+    .join(',')
   return `${kind}:fieldIds=${fieldIds}`
 }
 
@@ -479,7 +589,6 @@ function buildTableInstanceId(kind, fields) {
  * 旧键格式正则：匹配 <groupIndex>-<kind>-<colCount> 格式
  * 用于迁移到新格式。
  */
-const LEGACY_TABLE_KIND_RE = /^(\d+)-(normal|inline|unified)-(\d+)$/
 
 /**
  * 检测并迁移旧格式的 localStorage 键。
@@ -500,7 +609,9 @@ function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
     if (legacyValue != null) {
       localStorage.removeItem(legacyKey)
     }
-  } catch { /* ignore localStorage errors */ }
+  } catch {
+    /* ignore localStorage errors */
+  }
 }
 function buildResizerDefaultsFactory(kind, colCount, group) {
   if (kind === 'normal') {
@@ -512,9 +623,7 @@ function buildResizerDefaultsFactory(kind, colCount, group) {
   if (kind === 'inline') {
     return () => {
       const fractions = planInlineColumnFractions(group?.fields || [])
-      return fractions.length === colCount
-        ? fractions
-        : Array.from({ length: colCount }, () => 1 / colCount)
+      return fractions.length === colCount ? fractions : Array.from({ length: colCount }, () => 1 / colCount)
     }
   }
   if (kind === 'unified') {
@@ -522,9 +631,7 @@ function buildResizerDefaultsFactory(kind, colCount, group) {
       const unifiedColCount = group?.colCount || colCount
       const segments = buildFormDesignerUnifiedSegments(group?.fields || [])
       const fractions = planUnifiedColumnFractions(segments, unifiedColCount)
-      return fractions.length === unifiedColCount
-        ? fractions
-        : Array.from({ length: unifiedColCount }, () => 1 / unifiedColCount)
+      return fractions.length === unifiedColCount ? fractions : Array.from({ length: unifiedColCount }, () => 1 / unifiedColCount)
     }
   }
   return () => Array.from({ length: colCount }, () => 1 / colCount)
@@ -555,10 +662,18 @@ const isLibResizing = ref(false)
 watch(libraryWidth, v => localStorage.setItem('crf_libraryWidth', v))
 function startLibResize(e) {
   isLibResizing.value = true
-  const startX = e.clientX, startW = libraryWidth.value
-  function onMove(e) { libraryWidth.value = Math.max(140, Math.min(400, startW + e.clientX - startX)) }
-  function onUp() { isLibResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-  document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp)
+  const startX = e.clientX,
+    startW = libraryWidth.value
+  function onMove(e) {
+    libraryWidth.value = Math.max(140, Math.min(400, startW + e.clientX - startX))
+  }
+  function onUp() {
+    isLibResizing.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
 const previewPaneWidth = 460
@@ -566,21 +681,23 @@ const propWidth = computed(() => previewPaneWidth)
 
 const formDesignNotes = ref('')
 let notesTimer = null
-let isSavingDesignNotes = false
 let notesPendingSave = null
 let notesSavePromise = null
 let notesAutoSaveErrorShown = false
 const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''))
 const hasPreviewNotes = computed(() => Boolean(previewDesignNotesText.value.trim()))
-const previewDesignNotesHtml = computed(() => hasPreviewNotes.value ? escapePreviewText(previewDesignNotesText.value) : '')
+const previewDesignNotesHtml = computed(() => (hasPreviewNotes.value ? escapePreviewText(previewDesignNotesText.value) : ''))
 const designerHasPreviewNotes = computed(() => false)
 
-watch(() => selectedForm.value?.id, (formId) => {
-  clearTimeout(notesTimer)
-  notesAutoSaveErrorShown = false
-  const current = forms.value.find(f => f.id === formId) || selectedForm.value
-  formDesignNotes.value = current?.design_notes || ''
-})
+watch(
+  () => selectedForm.value?.id,
+  formId => {
+    clearTimeout(notesTimer)
+    notesAutoSaveErrorShown = false
+    const current = forms.value.find(f => f.id === formId) || selectedForm.value
+    formDesignNotes.value = current?.design_notes || ''
+  }
+)
 
 function buildDesignNotesSaveSnapshot({ form = selectedForm.value, projectId = props.projectId, notes = formDesignNotes.value } = {}) {
   if (!form?.id) return null
@@ -603,7 +720,6 @@ async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
   if (!notesPendingSave && !notesSavePromise) return true
   if (notesSavePromise) return notesSavePromise
   notesSavePromise = (async () => {
-    isSavingDesignNotes = true
     try {
       while (notesPendingSave) {
         const queuedSave = notesPendingSave
@@ -621,7 +737,6 @@ async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
       }
       return !notesPendingSave
     } finally {
-      isSavingDesignNotes = false
       notesSavePromise = null
     }
   })()
@@ -631,6 +746,8 @@ async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
 async function selectForm(nextForm) {
   const sessionId = ++formSelectionSession
   const currentForm = selectedForm.value
+  const eventName = currentForm ? 'designer_switch_form' : 'designer_select_form'
+  markPerfStart(eventName, { project_id: props.projectId, form_id: nextForm?.id ?? null })
   if ((currentForm?.id ?? null) === (nextForm?.id ?? null)) return
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }))
   if (sessionId !== formSelectionSession) return
@@ -648,6 +765,7 @@ async function selectForm(nextForm) {
   formFields.value = []
   selectedIds.value = []
   selectedForm.value = nextForm || null
+  markPerfEnd(eventName, { project_id: props.projectId, form_id: nextForm?.id ?? null })
 }
 
 function onNotesInput() {
@@ -661,8 +779,22 @@ function onNotesInput() {
 // 快速编辑
 const showQuickEdit = ref(false)
 const quickEditField = ref(null)
-const quickEditProp = reactive({ label: '', field_type: '', bg_color: '', text_color: '', inline_mark: false, default_value: '' })
+const quickEditProp = reactive({
+  label: '',
+  field_type: '',
+  bg_color: '',
+  text_color: '',
+  inline_mark: false,
+  default_value: ''
+})
 function openQuickEdit(ff) {
+  recordPerfEvent({
+    type: 'instant',
+    name: 'designer_edit_label',
+    project_id: props.projectId,
+    form_id: selectedForm.value?.id ?? null,
+    field_id: ff?.id ?? null
+  })
   quickEditField.value = ff
   Object.assign(quickEditProp, {
     label: getFormFieldDisplayLabel(ff) || '',
@@ -679,12 +811,18 @@ async function saveQuickEdit() {
   try {
     const supportsDefaultValue = isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))
     const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(quickEditProp.default_value, !quickEditProp.inline_mark) : ''
-    const payload = { label_override: quickEditProp.label, bg_color: quickEditProp.bg_color || null, text_color: quickEditProp.text_color || null, inline_mark: quickEditProp.inline_mark ? 1 : 0, default_value: normalizedDefaultValue || null }
+    const payload = {
+      label_override: quickEditProp.label,
+      bg_color: quickEditProp.bg_color || null,
+      text_color: quickEditProp.text_color || null,
+      inline_mark: quickEditProp.inline_mark ? 1 : 0,
+      default_value: normalizedDefaultValue || null
+    }
     const updated = await api.put(`/api/form-fields/${quickEditField.value.id}`, payload)
     const currentField = {
       ...quickEditField.value,
       ...updated,
-      field_definition: quickEditField.value.field_definition,
+      field_definition: quickEditField.value.field_definition
     }
     quickEditField.value = currentField
     syncSelectedField(currentField, { syncEditor: false })
@@ -694,15 +832,24 @@ async function saveQuickEdit() {
     }
     ElMessage.success('已保存')
     showQuickEdit.value = false
-  } catch (e) { ElMessage.error('保存失败: ' + e.message) }
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message)
+  }
 }
 
 async function toggleInline(ff) {
   if (!selectedForm.value || !canToggleInline(ff)) return
+  recordPerfEvent({
+    type: 'instant',
+    name: 'designer_toggle_inline',
+    project_id: props.projectId,
+    form_id: selectedForm.value?.id ?? null,
+    field_id: ff?.id ?? null
+  })
   try {
     await confirmFormChange()
     await api.patch(`/api/form-fields/${ff.id}/inline-mark`, {
-      inline_mark: ff.inline_mark ? 0 : 1,
+      inline_mark: ff.inline_mark ? 0 : 1
     })
     api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
     await loadFormFields()
@@ -717,9 +864,18 @@ async function toggleInline(ff) {
 
 const selectedFieldId = ref(null)
 const editProp = reactive({
-  label: '', variable_name: '', field_type: '文本', integer_digits: null, decimal_digits: null,
-  date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
-  bg_color: null, text_color: null,
+  label: '',
+  variable_name: '',
+  field_type: '文本',
+  integer_digits: null,
+  decimal_digits: null,
+  date_format: null,
+  codelist_id: null,
+  unit_id: null,
+  default_value: '',
+  inline_mark: 0,
+  bg_color: null,
+  text_color: null
 })
 let fieldPropSaveTimer = null
 let pendingFieldPropSnapshots = []
@@ -736,26 +892,30 @@ const BG_COLOR_OPTIONS = [
   { value: '0070C0', label: '蓝色' },
   { value: 'E3F2FD', label: '浅蓝' },
   { value: 'E8F5E9', label: '浅绿' },
-  { value: 'FFE0B2', label: '浅橙' },
+  { value: 'FFE0B2', label: '浅橙' }
 ]
 const TEXT_COLOR_OPTIONS = [
   { value: 'A6A6A6', label: '灰色' },
   { value: '0070C0', label: '蓝色' },
   { value: 'E3F2FD', label: '浅蓝' },
   { value: 'E8F5E9', label: '浅绿' },
-  { value: 'FFE0B2', label: '浅橙' },
+  { value: 'FFE0B2', label: '浅橙' }
 ]
-const customBgColorInput = ref(''), customTextColorInput = ref('')
+const customBgColorInput = ref(''),
+  customTextColorInput = ref('')
 const DATE_FORMAT_OPTIONS = {
-  '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
-  '日期时间': ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm', 'yyyy/MM/dd HH:mm:ss', 'dd/MM/yyyy HH:mm:ss'],
-  '时间': ['HH:mm:ss', 'HH:mm', 'hh:mm:ss AP', 'hh:mm AP'],
+  日期: ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
+  日期时间: ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm', 'yyyy/MM/dd HH:mm:ss', 'dd/MM/yyyy HH:mm:ss'],
+  时间: ['HH:mm:ss', 'HH:mm', 'hh:mm:ss AP', 'hh:mm AP']
 }
-const DEFAULT_DATE_FORMATS = { '日期': 'yyyy-MM-dd', '日期时间': 'yyyy-MM-dd HH:mm', '时间': 'HH:mm' }
+const DEFAULT_DATE_FORMATS = { 日期: 'yyyy-MM-dd', 日期时间: 'yyyy-MM-dd HH:mm', 时间: 'HH:mm' }
 
-watch(() => editProp.field_type, (newType) => {
-  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))
-})
+watch(
+  () => editProp.field_type,
+  newType => {
+    Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))
+  }
+)
 
 function applyCustomBgColor() {
   const raw = String(customBgColorInput.value ?? '').trim()
@@ -803,7 +963,7 @@ function buildFieldPropSnapshot(fieldId = selectedFieldId.value) {
     default_value: editProp.default_value,
     inline_mark: editProp.inline_mark,
     bg_color: editProp.bg_color,
-    text_color: editProp.text_color,
+    text_color: editProp.text_color
   }
 }
 
@@ -814,10 +974,7 @@ function getFieldPropSnapshotKey(snapshot = buildFieldPropSnapshot()) {
 function upsertPendingFieldPropSnapshot(snapshot) {
   if (!snapshot?.fieldId) return
   const snapshotKey = getFieldPropSnapshotKey(snapshot)
-  pendingFieldPropSnapshots = [
-    ...pendingFieldPropSnapshots.filter(item => item.fieldId !== snapshot.fieldId),
-    { ...snapshot, snapshotKey },
-  ]
+  pendingFieldPropSnapshots = [...pendingFieldPropSnapshots.filter(item => item.fieldId !== snapshot.fieldId), { ...snapshot, snapshotKey }]
   pendingFieldPropSnapshotVersion.value += 1
 }
 
@@ -845,9 +1002,18 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   if (!preserveEditor) {
     selectedFieldId.value = null
     Object.assign(editProp, {
-      label: '', variable_name: '', field_type: '文本', integer_digits: null, decimal_digits: null,
-      date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0,
-      bg_color: null, text_color: null,
+      label: '',
+      variable_name: '',
+      field_type: '文本',
+      integer_digits: null,
+      decimal_digits: null,
+      date_format: null,
+      codelist_id: null,
+      unit_id: null,
+      default_value: '',
+      inline_mark: 0,
+      bg_color: null,
+      text_color: null
     })
     customBgColorInput.value = ''
     customTextColorInput.value = ''
@@ -894,6 +1060,8 @@ async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
   const snapshotKey = snapshot.snapshotKey || getFieldPropSnapshotKey(snapshot)
   let saveSucceeded = false
   let flushFailed = false
+  let interrupted = false
+  let shouldContinue = false
   isSavingFieldProp = true
   try {
     await saveFieldProp(snapshot, sessionId)
@@ -915,26 +1083,30 @@ async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
       }, 1000)
     }
   } finally {
-    if (sessionId !== fieldPropSaveSession) return false
+    interrupted = sessionId !== fieldPropSaveSession
     isSavingFieldProp = false
-    const isCurrentSelectedField = selectedFieldId.value === snapshot.fieldId
-    const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey() !== snapshotKey
-    const hasQueuedDraft = hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)
-    if (hasNewerDraft && !hasQueuedDraft) upsertPendingFieldPropSnapshot(buildFieldPropSnapshot(snapshot.fieldId))
-    const shouldRefillEditor = selectedFieldId.value === snapshot.fieldId && !hasPendingFieldPropSnapshot(snapshot.fieldId)
-    if (saveSucceeded && shouldRefillEditor) {
-      const updated = formFields.value.find(f => f.id === snapshot.fieldId)
-      if (updated) selectField(updated)
-    }
-    if (saveSucceeded && pendingFieldPropSnapshots.length) {
-      clearTimeout(fieldPropSaveTimer)
-      return flushPendingFieldPropSave(sessionId)
+    if (!interrupted) {
+      const isCurrentSelectedField = selectedFieldId.value === snapshot.fieldId
+      const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey() !== snapshotKey
+      const hasQueuedDraft = hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)
+      if (hasNewerDraft && !hasQueuedDraft) upsertPendingFieldPropSnapshot(buildFieldPropSnapshot(snapshot.fieldId))
+      const shouldRefillEditor = selectedFieldId.value === snapshot.fieldId && !hasPendingFieldPropSnapshot(snapshot.fieldId)
+      if (saveSucceeded && shouldRefillEditor) {
+        const updated = formFields.value.find(f => f.id === snapshot.fieldId)
+        if (updated) selectField(updated)
+      }
+      if (saveSucceeded && pendingFieldPropSnapshots.length) {
+        clearTimeout(fieldPropSaveTimer)
+        shouldContinue = true
+      }
     }
   }
+  if (interrupted) return false
+  if (shouldContinue) return flushPendingFieldPropSave(sessionId)
   return !flushFailed
 }
 
-watch(currentFieldPropDraftKey, (draftKey) => {
+watch(currentFieldPropDraftKey, draftKey => {
   if (!draftKey || isHydratingFieldProp || draftKey === lastHydratedFieldPropDraftKey) return
   const snapshot = buildFieldPropSnapshot()
   if (!snapshot) return
@@ -951,9 +1123,22 @@ function selectField(ff) {
   isHydratingFieldProp = true
   selectedFieldId.value = ff.id
   if (ff.is_log_row) {
-    Object.assign(editProp, { label: ff.label_override || '以下为log行', variable_name: '', field_type: '日志行', integer_digits: null, decimal_digits: null, date_format: null, codelist_id: null, unit_id: null, default_value: '', inline_mark: 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
-    customBgColorInput.value = (ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
-    customTextColorInput.value = (ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+    Object.assign(editProp, {
+      label: ff.label_override || '以下为log行',
+      variable_name: '',
+      field_type: '日志行',
+      integer_digits: null,
+      decimal_digits: null,
+      date_format: null,
+      codelist_id: null,
+      unit_id: null,
+      default_value: '',
+      inline_mark: 0,
+      bg_color: ff.bg_color || null,
+      text_color: ff.text_color || null
+    })
+    customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color) ? ff.bg_color : ''
+    customTextColorInput.value = ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color) ? ff.text_color : ''
     lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
     isHydratingFieldProp = false
     return
@@ -964,9 +1149,22 @@ function selectField(ff) {
     isHydratingFieldProp = false
     return
   }
-  Object.assign(editProp, { label: fd.label || '', variable_name: fd.variable_name || '', field_type: fd.field_type || '文本', integer_digits: fd.integer_digits, decimal_digits: fd.decimal_digits, date_format: fd.date_format, codelist_id: fd.codelist_id, unit_id: fd.unit_id ?? null, default_value: ff.default_value || '', inline_mark: ff.inline_mark || 0, bg_color: ff.bg_color || null, text_color: ff.text_color || null })
-  customBgColorInput.value = (ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color)) ? ff.bg_color : ''
-  customTextColorInput.value = (ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color)) ? ff.text_color : ''
+  Object.assign(editProp, {
+    label: fd.label || '',
+    variable_name: fd.variable_name || '',
+    field_type: fd.field_type || '文本',
+    integer_digits: fd.integer_digits,
+    decimal_digits: fd.decimal_digits,
+    date_format: fd.date_format,
+    codelist_id: fd.codelist_id,
+    unit_id: fd.unit_id ?? null,
+    default_value: ff.default_value || '',
+    inline_mark: ff.inline_mark || 0,
+    bg_color: ff.bg_color || null,
+    text_color: ff.text_color || null
+  })
+  customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some(o => o.value === ff.bg_color) ? ff.bg_color : ''
+  customTextColorInput.value = ff.text_color && !TEXT_COLOR_OPTIONS.some(o => o.value === ff.text_color) ? ff.text_color : ''
   lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id))
   isHydratingFieldProp = false
 }
@@ -979,61 +1177,112 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   const projectId = snapshot.projectId
   if (!ff || !formId || projectId !== props.projectId) throw new Error('自动保存上下文已变更')
   if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id) throw new Error('单选/多选字段必须选择选项字典')
-  try {
-    if (ff.is_log_row) {
-      const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label })
-      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
-      syncSelectedField(updated, { syncEditor: false })
-      api.invalidateCache(`/api/forms/${formId}/fields`)
-    } else {
-      const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark))
-      const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark) : ''
-      const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, { label: snapshot.label, variable_name: snapshot.variable_name, field_type: snapshot.field_type, integer_digits: snapshot.integer_digits, decimal_digits: snapshot.decimal_digits, date_format: snapshot.date_format, codelist_id: snapshot.codelist_id, unit_id: snapshot.unit_id ?? null })
-      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
-      let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } }
-      syncSelectedField(currentField, { syncEditor: false })
-      api.invalidateCache(`/api/forms/${formId}/fields`)
-      const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue })
-      if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
-      currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition }
-      syncSelectedField(currentField, { syncEditor: false })
-    }
-    const baseField = formFields.value.find(f => f.id === ff.id) || ff
-    const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, { bg_color: snapshot.bg_color, text_color: snapshot.text_color })
+  if (ff.is_log_row) {
+    const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label })
     if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
-    syncSelectedField({ ...baseField, ...updatedColors, field_definition: baseField.field_definition }, { syncEditor: false })
-    await loadFormFields()
-  } catch (e) { throw e }
+    syncSelectedField(updated, { syncEditor: false })
+    api.invalidateCache(`/api/forms/${formId}/fields`)
+  } else {
+    const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark))
+    const normalizedDefaultValue = supportsDefaultValue ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark) : ''
+    const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, {
+      label: snapshot.label,
+      variable_name: snapshot.variable_name,
+      field_type: snapshot.field_type,
+      integer_digits: snapshot.integer_digits,
+      decimal_digits: snapshot.decimal_digits,
+      date_format: snapshot.date_format,
+      codelist_id: snapshot.codelist_id,
+      unit_id: snapshot.unit_id ?? null
+    })
+    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
+    let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } }
+    syncSelectedField(currentField, { syncEditor: false })
+    api.invalidateCache(`/api/forms/${formId}/fields`)
+    const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue })
+    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
+    currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition }
+    syncSelectedField(currentField, { syncEditor: false })
+  }
+  const baseField = formFields.value.find(f => f.id === ff.id) || ff
+  const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, {
+    bg_color: snapshot.bg_color,
+    text_color: snapshot.text_color
+  })
+  if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更')
+  syncSelectedField({ ...baseField, ...updatedColors, field_definition: baseField.field_definition }, { syncEditor: false })
+  await loadFormFields()
 }
 
 async function newField() {
   if (!selectedForm.value) return
   try {
-    const fd = await api.post(`/api/projects/${props.projectId}/field-definitions`, { variable_name: genFieldVarName(), label: '新字段', field_type: '文本' })
+    const fd = await api.post(`/api/projects/${props.projectId}/field-definitions`, {
+      variable_name: genFieldVarName(),
+      label: '新字段',
+      field_type: '文本'
+    })
     const ff = await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id })
-    await loadFormFields(); await loadFieldDefs()
+    await loadFormFields()
+    await loadFieldDefs()
     const newFf = formFields.value.find(f => f.id === ff.id)
     if (newFf) selectField(newFf)
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 async function addLogRow() {
   if (!selectedForm.value) return
-  try { await api.post(`/api/forms/${selectedForm.value.id}/fields`, { is_log_row: 1, label_override: '以下为log行' }); await loadFormFields() }
-  catch (e) { ElMessage.error(e.message) }
+  try {
+    await api.post(`/api/forms/${selectedForm.value.id}/fields`, { is_log_row: 1, label_override: '以下为log行' })
+    await loadFormFields()
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 // 选项字典快速CRUD
-const showQuickAddCodelist = ref(false), quickCodelistName = ref(''), quickCodelistDescription = ref(''), quickCodelistOpts = ref([]), quickOptCode = ref(''), quickOptDecode = ref(''), quickAddCodelistSaving = ref(false)
+const showQuickAddCodelist = ref(false),
+  quickCodelistName = ref(''),
+  quickCodelistDescription = ref(''),
+  quickCodelistOpts = ref([]),
+  quickOptCode = ref(''),
+  quickOptDecode = ref(''),
+  quickAddCodelistSaving = ref(false)
 function quickAddOptRow() {
   if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickCodelistOpts.value.length
-  quickCodelistOpts.value.push({ id: null, code: quickOptCode.value.trim() || `C.${n + 1}`, decode: quickOptDecode.value.trim(), trailing_underscore: 0 })
-  quickOptCode.value = `C.${n + 2}`; quickOptDecode.value = ''
+  quickCodelistOpts.value.push({
+    id: null,
+    code: quickOptCode.value.trim() || `C.${n + 1}`,
+    decode: quickOptDecode.value.trim(),
+    trailing_underscore: 0
+  })
+  quickOptCode.value = `C.${n + 2}`
+  quickOptDecode.value = ''
 }
-function quickDelOptRow(idx) { quickCodelistOpts.value.splice(idx, 1) }
-function closeQuickAddCodelist() { showQuickAddCodelist.value = false; quickCodelistName.value = ''; quickCodelistDescription.value = ''; quickCodelistOpts.value = []; quickOptCode.value = ''; quickOptDecode.value = ''; quickAddCodelistSaving.value = false }
-function openQuickAddCodelist() { quickCodelistName.value = ''; quickCodelistDescription.value = ''; quickCodelistOpts.value = []; quickOptCode.value = 'C.1'; quickOptDecode.value = ''; quickAddCodelistSaving.value = false; showQuickAddCodelist.value = true }
+function quickDelOptRow(idx) {
+  quickCodelistOpts.value.splice(idx, 1)
+}
+function closeQuickAddCodelist() {
+  showQuickAddCodelist.value = false
+  quickCodelistName.value = ''
+  quickCodelistDescription.value = ''
+  quickCodelistOpts.value = []
+  quickOptCode.value = ''
+  quickOptDecode.value = ''
+  quickAddCodelistSaving.value = false
+}
+function openQuickAddCodelist() {
+  quickCodelistName.value = ''
+  quickCodelistDescription.value = ''
+  quickCodelistOpts.value = []
+  quickOptCode.value = 'C.1'
+  quickOptDecode.value = ''
+  quickAddCodelistSaving.value = false
+  showQuickAddCodelist.value = true
+}
 async function quickAddCodelist() {
   if (quickAddCodelistSaving.value) return
 
@@ -1044,7 +1293,7 @@ async function quickAddCodelist() {
     ...opt,
     code: String(opt.code ?? '').trim(),
     decode: String(opt.decode ?? '').trim(),
-    trailing_underscore: opt.trailing_underscore || 0,
+    trailing_underscore: opt.trailing_underscore || 0
   }))
   const invalidOptionIndex = normalizedOptions.findIndex(opt => !opt.code || !opt.decode)
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`)
@@ -1060,31 +1309,71 @@ async function quickAddCodelist() {
         code: opt.code,
         decode: opt.decode,
         trailing_underscore: opt.trailing_underscore || 0,
-        order_index: index + 1,
-      })),
+        order_index: index + 1
+      }))
     })
-    await loadCodelists(); editProp.codelist_id = created.id; closeQuickAddCodelist()
-  } catch (e) { ElMessage.error(e.message) }
-  finally { quickAddCodelistSaving.value = false }
+    await loadCodelists()
+    editProp.codelist_id = created.id
+    closeQuickAddCodelist()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    quickAddCodelistSaving.value = false
+  }
 }
 
-const showQuickEditCodelist = ref(false), quickEditCodelistId = ref(null), quickEditCodelistName = ref(''), quickEditCodelistDescription = ref(''), quickEditCodelistOpts = ref([]), quickEditOptCode = ref(''), quickEditOptDecode = ref(''), quickEditCodelistSaving = ref(false)
+const showQuickEditCodelist = ref(false),
+  quickEditCodelistId = ref(null),
+  quickEditCodelistName = ref(''),
+  quickEditCodelistDescription = ref(''),
+  quickEditCodelistOpts = ref([]),
+  quickEditOptCode = ref(''),
+  quickEditOptDecode = ref(''),
+  quickEditCodelistSaving = ref(false)
 function openQuickEditCodelist() {
   if (!editProp.codelist_id) return
   const cl = codelists.value.find(c => c.id === editProp.codelist_id)
   if (!cl) return
-  quickEditCodelistId.value = cl.id; quickEditCodelistName.value = cl.name; quickEditCodelistDescription.value = cl.description || ''; quickEditCodelistOpts.value = (cl.options || []).map(o => ({ id: o.id, code: o.code, decode: o.decode, trailing_underscore: o.trailing_underscore || 0 }))
-  quickEditOptCode.value = `C.${(cl.options || []).length + 1}`; quickEditOptDecode.value = ''; showQuickEditCodelist.value = true
+  quickEditCodelistId.value = cl.id
+  quickEditCodelistName.value = cl.name
+  quickEditCodelistDescription.value = cl.description || ''
+  quickEditCodelistOpts.value = (cl.options || []).map(o => ({
+    id: o.id,
+    code: o.code,
+    decode: o.decode,
+    trailing_underscore: o.trailing_underscore || 0
+  }))
+  quickEditOptCode.value = `C.${(cl.options || []).length + 1}`
+  quickEditOptDecode.value = ''
+  showQuickEditCodelist.value = true
 }
 function quickEditAddOptRow() {
   if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickEditCodelistOpts.value.length
-  quickEditCodelistOpts.value.push({ id: null, code: quickEditOptCode.value.trim() || `C.${n + 1}`, decode: quickEditOptDecode.value.trim(), trailing_underscore: 0 })
-  quickEditOptCode.value = `C.${n + 2}`; quickEditOptDecode.value = ''
+  quickEditCodelistOpts.value.push({
+    id: null,
+    code: quickEditOptCode.value.trim() || `C.${n + 1}`,
+    decode: quickEditOptDecode.value.trim(),
+    trailing_underscore: 0
+  })
+  quickEditOptCode.value = `C.${n + 2}`
+  quickEditOptDecode.value = ''
 }
-function quickEditDelOptRow(idx) { quickEditCodelistOpts.value.splice(idx, 1) }
-function toggleTrailingLine(row) { row.trailing_underscore = row.trailing_underscore ? 0 : 1 }
-function closeQuickEditCodelist() { showQuickEditCodelist.value = false; quickEditCodelistId.value = null; quickEditCodelistName.value = ''; quickEditCodelistDescription.value = ''; quickEditCodelistOpts.value = []; quickEditOptCode.value = ''; quickEditOptDecode.value = '' }
+function quickEditDelOptRow(idx) {
+  quickEditCodelistOpts.value.splice(idx, 1)
+}
+function toggleTrailingLine(row) {
+  row.trailing_underscore = row.trailing_underscore ? 0 : 1
+}
+function closeQuickEditCodelist() {
+  showQuickEditCodelist.value = false
+  quickEditCodelistId.value = null
+  quickEditCodelistName.value = ''
+  quickEditCodelistDescription.value = ''
+  quickEditCodelistOpts.value = []
+  quickEditOptCode.value = ''
+  quickEditOptDecode.value = ''
+}
 async function quickSaveCodelist() {
   if (quickEditCodelistSaving.value) return
 
@@ -1095,7 +1384,7 @@ async function quickSaveCodelist() {
     ...opt,
     code: String(opt.code ?? '').trim(),
     decode: String(opt.decode ?? '').trim(),
-    trailing_underscore: opt.trailing_underscore || 0,
+    trailing_underscore: opt.trailing_underscore || 0
   }))
   const invalidOptionIndex = normalizedOptions.findIndex(opt => !opt.code || !opt.decode)
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`)
@@ -1118,23 +1407,27 @@ async function quickSaveCodelist() {
         id: opt.id,
         code: opt.code,
         decode: opt.decode,
-        trailing_underscore: opt.trailing_underscore || 0,
-      })),
+        trailing_underscore: opt.trailing_underscore || 0
+      }))
     })
 
-    api.invalidateCache(`/api/projects/${props.projectId}/codelists`); await loadCodelists()
+    api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
+    await loadCodelists()
     if (selectedForm.value) {
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`); await loadFormFields()
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      await loadFormFields()
       const updated = formFields.value.find(f => f.id === selectedFieldId.value)
       if (updated) selectField(updated)
     }
-    closeQuickEditCodelist(); ElMessage.success('保存成功')
+    closeQuickEditCodelist()
+    ElMessage.success('保存成功')
   } catch (e) {
     if (e === 'cancel') return
     api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
     await loadCodelists()
     if (selectedForm.value) {
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`); await loadFormFields()
+      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`)
+      await loadFormFields()
       const updated = formFields.value.find(f => f.id === selectedFieldId.value)
       if (updated) selectField(updated)
     }
@@ -1145,40 +1438,82 @@ async function quickSaveCodelist() {
   }
 }
 
-const showQuickAddUnit = ref(false), quickUnitSymbol = ref('')
+const showQuickAddUnit = ref(false),
+  quickUnitSymbol = ref('')
 async function quickAddUnit() {
   if (!quickUnitSymbol.value.trim()) return ElMessage.warning('请输入单位符号')
   try {
     const created = await api.post(`/api/projects/${props.projectId}/units`, { symbol: quickUnitSymbol.value.trim() })
-    await loadUnits(); editProp.unit_id = created.id; showQuickAddUnit.value = false; quickUnitSymbol.value = ''
-  } catch (e) { ElMessage.error(e.message) }
+    await loadUnits()
+    editProp.unit_id = created.id
+    showQuickAddUnit.value = false
+    quickUnitSymbol.value = ''
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
 }
 
 // 拖拽排序（表单）
-const formsTableRef = ref(null), isFormsFiltered = computed(() => searchForm.value.trim().length > 0), formsReorderUrl = computed(() => `/api/projects/${props.projectId}/forms/reorder`)
-const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, { reloadFn: reloadForms, isFiltered: isFormsFiltered, renderList: filteredForms })
+const formsTableRef = ref(null),
+  isFormsFiltered = computed(() => searchForm.value.trim().length > 0),
+  formsReorderUrl = computed(() => `/api/projects/${props.projectId}/forms/reorder`)
+const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, forms, formsReorderUrl, {
+  reloadFn: reloadForms,
+  isFiltered: isFormsFiltered,
+  renderList: filteredForms
+})
 
-onMounted(async () => { await Promise.all([loadForms(), loadFieldDefs(), loadCodelists(), loadUnits()]); nextTick(() => initFormsSortable()) })
-watch(() => showDesigner.value, async (visible, previousVisible) => {
-  if (!visible && previousVisible) {
-    const resetSucceeded = await flushFieldPropSaveBeforeReset()
-    if (!resetSucceeded) showDesigner.value = true
+async function ensureDesignerAuxiliaryDataLoaded() {
+  if (designerAuxiliaryLoaded.value || designerAuxiliaryLoading.value) return
+  designerAuxiliaryLoading.value = true
+  designerAuxiliaryLoadError.value = ''
+  try {
+    await Promise.all([loadFieldDefs(), loadCodelists(), loadUnits()])
+    designerAuxiliaryLoaded.value = true
+  } catch (error) {
+    designerAuxiliaryLoadError.value = error?.message || '加载失败'
+    throw error
+  } finally {
+    designerAuxiliaryLoading.value = false
   }
+}
+
+onMounted(async () => {
+  await loadForms()
+  nextTick(() => initFormsSortable())
 })
-watch(() => props.projectId, async (newProjectId, previousProjectId) => {
-  if (newProjectId === previousProjectId) return
-  invalidateFormSelectionSession()
-  const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId })
-  const flushSucceeded = await flushDesignNotesSave(flushSnapshot)
-  if (!flushSucceeded && selectedForm.value?.id) return
-  const resetSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true })
-  if (!resetSucceeded) {
-    fieldPropProjectId.value = previousProjectId
-    return
+watch(
+  () => showDesigner.value,
+  async (visible, previousVisible) => {
+    if (!visible && previousVisible) {
+      const resetSucceeded = await flushFieldPropSaveBeforeReset()
+      if (!resetSucceeded) showDesigner.value = true
+    }
   }
-  fieldPropProjectId.value = newProjectId
-  selectedForm.value = null; formFields.value = []; selectedFieldId.value = null; loadForms(); loadFieldDefs(); loadCodelists(); loadUnits()
-})
+)
+watch(
+  () => props.projectId,
+  async (newProjectId, previousProjectId) => {
+    if (newProjectId === previousProjectId) return
+    invalidateFormSelectionSession()
+    const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId })
+    const flushSucceeded = await flushDesignNotesSave(flushSnapshot)
+    if (!flushSucceeded && selectedForm.value?.id) return
+    const resetSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true })
+    if (!resetSucceeded) {
+      fieldPropProjectId.value = previousProjectId
+      return
+    }
+    fieldPropProjectId.value = newProjectId
+    designerAuxiliaryLoaded.value = false
+    designerAuxiliaryLoading.value = false
+    designerAuxiliaryLoadError.value = ''
+    selectedForm.value = null
+    formFields.value = []
+    selectedFieldId.value = null
+    loadForms()
+  }
+)
 
 async function canLeaveProject() {
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot())
@@ -1186,24 +1521,49 @@ async function canLeaveProject() {
   return flushFieldPropSaveBeforeReset({ preserveEditor: true })
 }
 
+async function openDesigner() {
+  markPerfStart('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null })
+  try {
+    await ensureDesignerAuxiliaryDataLoaded()
+    showDesigner.value = true
+    markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null })
+  } catch (error) {
+    markPerfEnd('designer_open_fullscreen', {
+      project_id: props.projectId,
+      form_id: selectedForm.value?.id ?? null,
+      error: true
+    })
+    ElMessage.error(`设计器辅助数据加载失败：${error?.message || designerAuxiliaryLoadError.value || '未知错误'}`)
+  }
+}
+
 defineExpose({ canLeaveProject, getForms: () => forms.value })
 
-function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value = true }
+function openAddForm() {
+  newFormCode.value = genCode('FORM')
+  showAddForm.value = true
+}
 </script>
 
 <template>
   <div class="form-designer">
     <div class="fd-formlist">
-      <div style="margin-bottom:12px;display:flex;gap:8px">
+      <div style="margin-bottom: 12px; display: flex; gap: 8px">
         <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
         <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms">批量删除({{ selForms.length }})</el-button>
-        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width:180px" />
+        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
       </div>
-      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => selForms = r" style="width:100%" height="100%">
-        <el-table-column width="32" v-if="!isFormsFiltered"><template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template></el-table-column>
+      <el-table ref="formsTableRef" :data="filteredForms" size="small" border highlight-current-row row-key="id" @current-change="selectForm" @selection-change="r => (selForms = r)" style="width: 100%" height="100%">
+        <el-table-column width="32" v-if="!isFormsFiltered"
+          ><template #default><span class="drag-handle" style="cursor: move; color: var(--color-text-muted)">☰</span></template></el-table-column
+        >
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
-          <template #default="{ row }"><div @click.stop><span class="ordinal-cell">{{ row.order_index }}</span></div></template>
+          <template #default="{ row }"
+            ><div @click.stop>
+              <span class="ordinal-cell">{{ row.order_index }}</span>
+            </div></template
+          >
         </el-table-column>
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
@@ -1213,11 +1573,11 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
     </div>
 
     <div class="fd-right">
-      <div class="fd-canvas" style="flex:1">
+      <div class="fd-canvas" style="flex: 1">
         <div class="fd-canvas-header">
-          <el-button v-if="selectedForm" size="small" type="primary" @click="showDesigner = true">设计表单</el-button>
+          <el-button v-if="selectedForm" size="small" type="primary" @click="openDesigner">设计表单</el-button>
           <span>{{ selectedForm?.name || '未选择表单' }}</span>
-          <span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ formFields.length }} 个字段</span>
+          <span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto">共 {{ formFields.length }} 个字段</span>
         </div>
         <div class="word-preview">
           <div :class="['word-page', { landscape: landscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
@@ -1230,45 +1590,118 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                   <template v-for="(g, gi) in renderGroups" :key="gi">
                     <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
                       <table class="unified-table">
-                        <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'main')"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'main')">
+                          <col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'main').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                        </colgroup>
                         <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
                           <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
-                            <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
+                            <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                              {{ getFormFieldDisplayLabel(seg.fields[0]) }}
+                            </td>
                             <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                           </tr>
                           <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
-                            <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                            <td
+                              :class="{
+                                'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签'
+                              }"
+                              :colspan="g.colCount"
+                              :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">
+                              {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
+                            </td>
                           </tr>
                           <template v-else-if="seg.type === 'inline_block'">
-                            <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                            <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr>
+                            <tr>
+                              <td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">
+                                {{ getFormFieldDisplayLabel(ff) }}
+                              </td>
+                            </tr>
+                            <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                              <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td>
+                            </tr>
                           </template>
                         </template>
                       </table>
-                      <template v-if="getResizer('unified', g.colCount, gi, g, 'main')"><div v-for="bi in getResizer('unified', g.colCount, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi, g, 'main').snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('unified', g.colCount, gi, g, 'main')"
+                        ><div
+                          v-for="bi in getResizer('unified', g.colCount, gi, g, 'main').colRatios.length - 1"
+                          :key="bi"
+                          class="resizer-handle"
+                          :style="{
+                            left: cumRatio(getResizer('unified', g.colCount, gi, g, 'main').colRatios, bi - 1) * 100 + '%'
+                          }"
+                          @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'main').onResizeStart(bi - 1, e)"></div>
+                        <div v-if="getResizer('unified', g.colCount, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi, g, 'main').snapGuideX + 'px' }"></div
+                      ></template>
                     </div>
                     <div v-else-if="g.type === 'normal'" class="col-resize-host">
                       <table>
-                        <colgroup v-if="getResizer('normal', 2, gi, g, 'main')"><col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                        <colgroup v-if="getResizer('normal', 2, gi, g, 'main')">
+                          <col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'main').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                        </colgroup>
                         <template v-for="ff in g.fields" :key="ff.id">
-                          <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                          <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                          <tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
+                          <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)">
+                            <td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">
+                              {{ getFormFieldDisplayLabel(ff) }}
+                            </td>
+                          </tr>
+                          <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)">
+                            <td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">
+                              {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                            </td>
+                          </tr>
+                          <tr v-else @dblclick="openQuickEdit(ff)">
+                            <td class="wp-label" :style="getFormFieldPreviewStyle(ff)">
+                              {{ getFormFieldDisplayLabel(ff) }}
+                            </td>
+                            <td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td>
+                          </tr>
                         </template>
                       </table>
-                      <template v-if="getResizer('normal', 2, gi, g, 'main')"><div v-for="bi in getResizer('normal', 2, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'main').snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('normal', 2, gi, g, 'main')"
+                        ><div
+                          v-for="bi in getResizer('normal', 2, gi, g, 'main').colRatios.length - 1"
+                          :key="bi"
+                          class="resizer-handle"
+                          :style="{
+                            left: cumRatio(getResizer('normal', 2, gi, g, 'main').colRatios, bi - 1) * 100 + '%'
+                          }"
+                          @pointerdown="e => getResizer('normal', 2, gi, g, 'main').onResizeStart(bi - 1, e)"></div>
+                        <div v-if="getResizer('normal', 2, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'main').snapGuideX + 'px' }"></div
+                      ></template>
                     </div>
                     <div v-else class="col-resize-host inline-host">
                       <table class="inline-table">
-                        <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'main')"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'main').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
-                        <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                        <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="(getFormFieldPreviewStyle(g.fields[ci]))" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
+                        <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'main')">
+                          <col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'main').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                        </colgroup>
+                        <tr>
+                          <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">
+                            {{ getFormFieldDisplayLabel(ff) }}
+                          </td>
+                        </tr>
+                        <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                          <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td>
+                        </tr>
                       </table>
-                      <template v-if="getResizer('inline', g.fields.length, gi, g, 'main')"><div v-for="bi in getResizer('inline', g.fields.length, gi, g, 'main').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'main').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'main').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX + 'px' }"></div></template>
+                      <template v-if="getResizer('inline', g.fields.length, gi, g, 'main')"
+                        ><div
+                          v-for="bi in getResizer('inline', g.fields.length, gi, g, 'main').colRatios.length - 1"
+                          :key="bi"
+                          class="resizer-handle"
+                          :style="{
+                            left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'main').colRatios, bi - 1) * 100 + '%'
+                          }"
+                          @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'main').onResizeStart(bi - 1, e)"></div>
+                        <div v-if="getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi, g, 'main').snapGuideX + 'px' }"></div
+                      ></template>
                     </div>
                   </template>
                 </div>
-                <aside v-if="hasPreviewNotes" class="wp-notes"><div class="wp-notes-title">设计备注</div><div class="wp-notes-content" v-html="previewDesignNotesHtml"></div></aside>
+                <aside v-if="hasPreviewNotes" class="wp-notes">
+                  <div class="wp-notes-title">设计备注</div>
+                  <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+                </aside>
               </div>
             </template>
           </div>
@@ -1280,17 +1713,29 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
       <div class="designer-shell">
         <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
-          <div class="designer-pane-toolbar"><el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable /></div>
-          <div class="fd-library-list"><div v-for="fd in filteredFieldDefs" :key="fd.id" class="fd-item" :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)"><span>{{ fd.label }}</span><span style="color:var(--color-text-muted);font-size:11px">{{ fd.field_type }}</span></div></div>
+          <div class="designer-pane-toolbar">
+            <el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable />
+          </div>
+          <div class="fd-library-list">
+            <button v-for="fd in filteredFieldDefs" :key="fd.id" type="button" class="fd-item" :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''" @click="addField(fd)">
+              <span>{{ fd.label }}</span
+              ><span style="color: var(--color-text-muted); font-size: 11px">{{ fd.field_type }}</span>
+            </button>
+          </div>
         </div>
-        <div class="fd-panel-resizer" @mousedown="startLibResize"></div>
+        <button type="button" class="fd-panel-resizer" aria-label="调整字段库宽度" @mousedown="startLibResize"></button>
         <div class="designer-workspace">
           <div class="designer-workspace-top">
             <div class="fd-canvas designer-fields-panel">
-              <div class="fd-canvas-header"><el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{selectedIds.length}})</el-button><span style="color:var(--color-text-muted);font-size:12px;margin-left:auto">共 {{ designerVisibleFields.length }} 个字段</span></div>
+              <div class="fd-canvas-header">
+                <el-button size="small" type="primary" @click="newField">新建字段</el-button><el-button size="small" @click="addLogRow">添加log行</el-button><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete">批量删除({{ selectedIds.length }})</el-button><span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto">共 {{ designerVisibleFields.length }} 个字段</span>
+              </div>
               <div class="fd-canvas-list designer-field-list">
-                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => fieldItemRefs[ff.id] = el" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" :draggable="true" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
-                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><span class="ordinal-cell" style="width:56px;margin-left:2px">{{ ff._displayOrder }}</span><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
+                <div v-for="(ff, idx) in designerVisibleFields" :key="ff.id" :ref="el => (fieldItemRefs[ff.id] = el)" class="ff-item" :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }" :draggable="true" role="button" @click="selectField(ff)" @dragstart="onDragStart(ff)" @dragover="onDragOver($event, idx)" @dragleave="onDragLeave" @drop="onDrop($event, idx)" :style="(dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') + (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')" tabindex="0" @keydown="handleFieldKeydown($event, ff, idx)">
+                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
+                  ><span class="drag-handle">⠿</span><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</span
+                  ><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"><el-button size="small" link :type="ff.inline_mark ? 'warning' : ''" :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'" @click.stop="toggleInline(ff)">⊞</el-button></el-tooltip
+                  ><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
                 </div>
               </div>
             </div>
@@ -1310,33 +1755,126 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                             <template v-for="(g, gi) in designerRenderGroups" :key="gi">
                               <div v-if="g.type === 'unified'" class="col-resize-host unified-host">
                                 <table class="unified-table">
-                                  <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
+                                  <colgroup v-if="getResizer('unified', g.colCount, gi, g, 'designer')">
+                                    <col v-for="(r, ci) in getResizer('unified', g.colCount, gi, g, 'designer').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                                  </colgroup>
                                   <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
-                                    <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])"><td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td><td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td></tr>
-                                    <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])"><td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="g.colCount" :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td></tr>
-                                    <template v-else-if="seg.type === 'inline_block'"><tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr></template>
+                                    <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
+                                      <td class="unified-label" :colspan="computeLabelValueSpans(g.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                                        {{ getFormFieldDisplayLabel(seg.fields[0]) }}
+                                      </td>
+                                      <td class="unified-value" :colspan="computeLabelValueSpans(g.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
+                                    </tr>
+                                    <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
+                                      <td
+                                        :class="{
+                                          'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签'
+                                        }"
+                                        :colspan="g.colCount"
+                                        :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')">
+                                        {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
+                                      </td>
+                                    </tr>
+                                    <template v-else-if="seg.type === 'inline_block'"
+                                      ><tr>
+                                        <td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">
+                                          {{ getFormFieldDisplayLabel(ff) }}
+                                        </td>
+                                      </tr>
+                                      <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                                        <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell" @dblclick="openQuickEdit(seg.fields[ci])"></td></tr
+                                    ></template>
                                   </template>
                                 </table>
-                                <template v-if="getResizer('unified', g.colCount, gi, g, 'designer')"><div v-for="bi in getResizer('unified', g.colCount, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('unified', g.colCount, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('unified', g.colCount, gi, g, 'designer')"
+                                  ><div
+                                    v-for="bi in getResizer('unified', g.colCount, gi, g, 'designer').colRatios.length - 1"
+                                    :key="bi"
+                                    class="resizer-handle"
+                                    :style="{
+                                      left: cumRatio(getResizer('unified', g.colCount, gi, g, 'designer').colRatios, bi - 1) * 100 + '%'
+                                    }"
+                                    @pointerdown="e => getResizer('unified', g.colCount, gi, g, 'designer').onResizeStart(bi - 1, e)"></div>
+                                  <div
+                                    v-if="getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX !== null"
+                                    class="snap-guide"
+                                    :style="{
+                                      left: getResizer('unified', g.colCount, gi, g, 'designer').snapGuideX + 'px'
+                                    }"></div
+                                ></template>
                               </div>
                               <div v-else-if="g.type === 'normal'" class="col-resize-host">
                                 <table>
-                                  <colgroup v-if="getResizer('normal', 2, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
-                                  <template v-for="ff in g.fields" :key="ff.id"><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr><tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)"><td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr><tr v-else @dblclick="openQuickEdit(ff)"><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr></template>
+                                  <colgroup v-if="getResizer('normal', 2, gi, g, 'designer')">
+                                    <col v-for="(r, ci) in getResizer('normal', 2, gi, g, 'designer').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                                  </colgroup>
+                                  <template v-for="ff in g.fields" :key="ff.id"
+                                    ><tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)">
+                                      <td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">
+                                        {{ getFormFieldDisplayLabel(ff) }}
+                                      </td>
+                                    </tr>
+                                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'" @dblclick="openQuickEdit(ff)">
+                                      <td colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">
+                                        {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                                      </td>
+                                    </tr>
+                                    <tr v-else @dblclick="openQuickEdit(ff)">
+                                      <td class="wp-label" :style="getFormFieldPreviewStyle(ff)">
+                                        {{ getFormFieldDisplayLabel(ff) }}
+                                      </td>
+                                      <td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr
+                                  ></template>
                                 </table>
-                                <template v-if="getResizer('normal', 2, gi, g, 'designer')"><div v-for="bi in getResizer('normal', 2, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('normal', 2, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('normal', 2, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('normal', 2, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('normal', 2, gi, g, 'designer')"
+                                  ><div
+                                    v-for="bi in getResizer('normal', 2, gi, g, 'designer').colRatios.length - 1"
+                                    :key="bi"
+                                    class="resizer-handle"
+                                    :style="{
+                                      left: cumRatio(getResizer('normal', 2, gi, g, 'designer').colRatios, bi - 1) * 100 + '%'
+                                    }"
+                                    @pointerdown="e => getResizer('normal', 2, gi, g, 'designer').onResizeStart(bi - 1, e)"></div>
+                                  <div v-if="getResizer('normal', 2, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('normal', 2, gi, g, 'designer').snapGuideX + 'px' }"></div
+                                ></template>
                               </div>
                               <div v-else class="col-resize-host inline-host">
                                 <table class="inline-table">
-                                  <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"><col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios" :key="ci" :style="{ width: (r * 100) + '%' }" /></colgroup>
-                                  <tr><td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                                  <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td></tr>
+                                  <colgroup v-if="getResizer('inline', g.fields.length, gi, g, 'designer')">
+                                    <col v-for="(r, ci) in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios" :key="ci" :style="{ width: r * 100 + '%' }" />
+                                  </colgroup>
+                                  <tr>
+                                    <td v-for="ff in g.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)" @dblclick="openQuickEdit(ff)">
+                                      {{ getFormFieldDisplayLabel(ff) }}
+                                    </td>
+                                  </tr>
+                                  <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                                    <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(g.fields[ci])" v-html="cell" @dblclick="openQuickEdit(g.fields[ci])"></td>
+                                  </tr>
                                 </table>
-                                <template v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"><div v-for="bi in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios.length - 1" :key="bi" class="resizer-handle" :style="{ left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'designer').colRatios, bi - 1) * 100 + '%' }" @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'designer').onResizeStart(bi - 1, e)"></div><div v-if="getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX !== null" class="snap-guide" :style="{ left: getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX + 'px' }"></div></template>
+                                <template v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"
+                                  ><div
+                                    v-for="bi in getResizer('inline', g.fields.length, gi, g, 'designer').colRatios.length - 1"
+                                    :key="bi"
+                                    class="resizer-handle"
+                                    :style="{
+                                      left: cumRatio(getResizer('inline', g.fields.length, gi, g, 'designer').colRatios, bi - 1) * 100 + '%'
+                                    }"
+                                    @pointerdown="e => getResizer('inline', g.fields.length, gi, g, 'designer').onResizeStart(bi - 1, e)"></div>
+                                  <div
+                                    v-if="getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX !== null"
+                                    class="snap-guide"
+                                    :style="{
+                                      left: getResizer('inline', g.fields.length, gi, g, 'designer').snapGuideX + 'px'
+                                    }"></div
+                                ></template>
                               </div>
                             </template>
                           </div>
-                          <aside v-if="designerHasPreviewNotes" class="wp-notes"><div class="wp-notes-title">设计备注</div><div class="wp-notes-content" v-html="previewDesignNotesHtml"></div></aside>
+                          <aside v-if="designerHasPreviewNotes" class="wp-notes">
+                            <div class="wp-notes-title">设计备注</div>
+                            <div class="wp-notes-content" v-html="previewDesignNotesHtml"></div>
+                          </aside>
                         </div>
                       </template>
                     </div>
@@ -1355,18 +1893,18 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
                 <el-form-item label="底纹颜色">
                   <div class="color-picker">
-                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.bg_color && !customBgColorInput}" @click="editProp.bg_color = null; customBgColorInput = ''">默认</div>
-                    <div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
-                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                    <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }" @click="editProp.bg_color = null; customBgColorInput = ''">默认</button>
+                    <button v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }" :style="{ background: '#' + opt.value }" :aria-label="`选择底纹颜色：${opt.label}`" :title="opt.label" @click="editProp.bg_color = opt.value; customBgColorInput = ''"></button>
+                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width: 90px; margin-left: 4px" @input="applyCustomBgColor">
                       <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
                     </el-input>
                   </div>
                 </el-form-item>
                 <el-form-item label="文字颜色">
                   <div class="color-picker">
-                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.text_color && !customTextColorInput}" @click="editProp.text_color = null; customTextColorInput = ''">默认</div>
-                    <div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
-                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                    <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }" @click="editProp.text_color = null; customTextColorInput = ''">默认</button>
+                    <button v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }" :style="{ background: '#' + opt.value }" :aria-label="`选择文字颜色：${opt.label}`" :title="opt.label" @click="editProp.text_color = opt.value; customTextColorInput = ''"></button>
+                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width: 90px; margin-left: 4px" @input="applyCustomTextColor">
                       <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
                     </el-input>
                   </div>
@@ -1378,17 +1916,17 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 <el-form-item label="变量标签"><el-input v-model="editProp.label" :type="editProp.field_type === '标签' ? 'textarea' : 'text'" :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined" /></el-form-item>
                 <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"><el-input v-model="editProp.variable_name" /></el-form-item>
                 <el-form-item label="字段类型">
-                  <el-select v-model="editProp.field_type" style="width:100%">
+                  <el-select v-model="editProp.field_type" style="width: 100%">
                     <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
                   </el-select>
                 </el-form-item>
                 <template v-if="editProp.field_type === '数值'">
-                  <el-form-item label="整数位数"><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width:100%" /></el-form-item>
-                  <el-form-item label="小数位数"><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width:100%" /></el-form-item>
+                  <el-form-item label="整数位数"><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width: 100%" /></el-form-item>
+                  <el-form-item label="小数位数"><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width: 100%" /></el-form-item>
                 </template>
                 <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
-                  <el-select v-model="editProp.date_format" clearable style="width:100%">
-                    <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
+                  <el-select v-model="editProp.date_format" clearable style="width: 100%">
+                    <el-option v-for="f in DATE_FORMAT_OPTIONS[editProp.field_type] || []" :key="f" :label="f" :value="f" />
                   </el-select>
                 </el-form-item>
                 <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
@@ -1403,8 +1941,8 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                   </div>
                 </el-form-item>
                 <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
-                  <div style="display:flex;gap:4px">
-                    <el-select v-model="editProp.unit_id" clearable filterable style="flex:1" placeholder="请选择" :value-on-clear="null">
+                  <div style="display: flex; gap: 4px">
+                    <el-select v-model="editProp.unit_id" clearable filterable style="flex: 1" placeholder="请选择" :value-on-clear="null">
                       <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
                     </el-select>
                     <el-button class="choice-codelist-icon-btn" size="small" circle type="primary" plain :icon="Plus" aria-label="新增单位" title="新增单位" @click="showQuickAddUnit = true" />
@@ -1413,25 +1951,27 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
                 <el-form-item v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))" label="默认值/覆盖">
                   <template #label>
                     <el-tooltip :content="editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'">
-                      <span>默认值 <el-icon><InfoFilled /></el-icon></span>
+                      <span
+                        >默认值 <el-icon><InfoFilled /></el-icon
+                      ></span>
                     </el-tooltip>
                   </template>
                   <el-input v-model="editProp.default_value" :type="editProp.inline_mark ? 'textarea' : 'text'" :rows="editProp.inline_mark ? 2 : undefined" :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'" />
                 </el-form-item>
                 <el-form-item label="底纹颜色">
                   <div class="color-picker">
-                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.bg_color && !customBgColorInput}" @click="editProp.bg_color = null; customBgColorInput = ''">默认</div>
-                    <div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': editProp.bg_color===opt.value && !customBgColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.bg_color=opt.value; customBgColorInput = ''"></div>
-                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomBgColor">
+                    <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }" @click="editProp.bg_color = null; customBgColorInput = ''">默认</button>
+                    <button v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }" :style="{ background: '#' + opt.value }" :aria-label="`选择底纹颜色：${opt.label}`" :title="opt.label" @click="editProp.bg_color = opt.value; customBgColorInput = ''"></button>
+                    <el-input v-model="customBgColorInput" placeholder="自定义HEX" size="small" style="width: 90px; margin-left: 4px" @input="applyCustomBgColor">
                       <template #prefix><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template>
                     </el-input>
                   </div>
                 </el-form-item>
                 <el-form-item label="文字颜色">
                   <div class="color-picker">
-                    <div class="color-option color-option-default" :class="{'color-selected': !editProp.text_color && !customTextColorInput}" @click="editProp.text_color = null; customTextColorInput = ''">默认</div>
-                    <div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': editProp.text_color===opt.value && !customTextColorInput}" :style="{ background: '#' + opt.value }" @click="editProp.text_color=opt.value; customTextColorInput = ''"></div>
-                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width:90px;margin-left:4px" @input="applyCustomTextColor">
+                    <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }" @click="editProp.text_color = null; customTextColorInput = ''">默认</button>
+                    <button v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }" :style="{ background: '#' + opt.value }" :aria-label="`选择文字颜色：${opt.label}`" :title="opt.label" @click="editProp.text_color = opt.value; customTextColorInput = ''"></button>
+                    <el-input v-model="customTextColorInput" placeholder="自定义HEX" size="small" style="width: 90px; margin-left: 4px" @input="applyCustomTextColor">
                       <template #prefix><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template>
                     </el-input>
                   </div>
@@ -1441,31 +1981,79 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
           </div>
           <div class="designer-notes-card">
             <div class="designer-section-title">设计备注</div>
-            <div class="designer-notes-editor"><el-input v-model="formDesignNotes" type="textarea" :autosize="false" class="designer-notes-input" @input="onNotesInput" /></div>
+            <div class="designer-notes-editor">
+              <el-input v-model="formDesignNotes" type="textarea" :autosize="false" class="designer-notes-input" @input="onNotesInput" />
+            </div>
           </div>
         </div>
       </div>
     </el-dialog>
 
     <!-- 各类弹窗 -->
-    <el-dialog v-model="showAddForm" title="新建表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item></el-form><template #footer><el-button @click="showAddForm=false">取消</el-button><el-button type="primary" @click="addForm">确定</el-button></template></el-dialog>
-    <el-dialog v-model="showEditForm" title="编辑表单" width="360px"><el-form label-width="80px"><el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item><el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item></el-form><template #footer><el-button @click="showEditForm=false">取消</el-button><el-button type="primary" @click="updateForm">确定</el-button></template></el-dialog>
+    <el-dialog v-model="showAddForm" title="新建表单" width="360px">
+      <el-form label-width="80px">
+        <el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showAddForm = false">取消</el-button>
+        <el-button type="primary" @click="addForm">确定</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
+      <el-form label-width="80px">
+        <el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditForm = false">取消</el-button>
+        <el-button type="primary" @click="updateForm">确定</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="480px" append-to-body>
       <el-form :model="quickEditProp" label-width="80px" size="small">
-        <el-form-item label="变量标签"><el-input v-model="quickEditProp.label" :type="quickEditProp.field_type === '标签' ? 'textarea' : 'text'" :autosize="quickEditProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined" /></el-form-item>
-        <el-form-item v-if="quickEditField?.field_definition" label="字段类型"><el-input :model-value="quickEditField.field_definition.field_type" disabled /></el-form-item>
+        <el-form-item label="变量标签">
+          <el-input v-model="quickEditProp.label" :type="quickEditProp.field_type === '标签' ? 'textarea' : 'text'" :autosize="quickEditProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined" />
+        </el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition" label="字段类型">
+          <el-input :model-value="quickEditField.field_definition.field_type" disabled />
+        </el-form-item>
         <template v-if="quickEditField?.field_definition?.field_type === '数值'">
-          <el-form-item label="整数位数"><el-input :model-value="quickEditField.field_definition.integer_digits" disabled /></el-form-item>
-          <el-form-item label="小数位数"><el-input :model-value="quickEditField.field_definition.decimal_digits" disabled /></el-form-item>
+          <el-form-item label="整数位数">
+            <el-input :model-value="quickEditField.field_definition.integer_digits" disabled />
+          </el-form-item>
+          <el-form-item label="小数位数">
+            <el-input :model-value="quickEditField.field_definition.decimal_digits" disabled />
+          </el-form-item>
         </template>
-        <el-form-item v-if="['日期','日期时间','时间'].includes(quickEditField?.field_definition?.field_type)" label="日期格式"><el-input :model-value="quickEditField.field_definition.date_format" disabled /></el-form-item>
-        <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典"><el-input :model-value="quickEditField.field_definition.codelist.name" disabled /></el-form-item>
-        <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位"><el-input :model-value="quickEditField.field_definition.unit.symbol" disabled /></el-form-item>
-        <el-form-item v-if="isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))" label="默认值"><el-input v-model="quickEditProp.default_value" :type="quickEditProp.inline_mark ? 'textarea' : 'text'" :autosize="quickEditProp.inline_mark ? { minRows: 1, maxRows: 3 } : undefined" /></el-form-item>
-        <el-form-item label="底纹颜色"><div class="color-picker"><div class="color-option color-option-default" :class="{'color-selected': !quickEditProp.bg_color}" @click="quickEditProp.bg_color = null">默认</div><div v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.bg_color === opt.value}" :style="{ background: '#' + opt.value }" @click="quickEditProp.bg_color = opt.value"></div></div></el-form-item>
-        <el-form-item label="文字颜色"><div class="color-picker"><div class="color-option color-option-default" :class="{'color-selected': !quickEditProp.text_color}" @click="quickEditProp.text_color = null">默认</div><div v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" class="color-option" :class="{'color-selected': quickEditProp.text_color === opt.value}" :style="{ background: '#' + opt.value }" @click="quickEditProp.text_color = opt.value"></div></div></el-form-item>
-        <el-form-item label="布局" v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'"><el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox></el-form-item>
+        <el-form-item v-if="['日期', '日期时间', '时间'].includes(quickEditField?.field_definition?.field_type)" label="日期格式">
+          <el-input :model-value="quickEditField.field_definition.date_format" disabled />
+        </el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典">
+          <el-input :model-value="quickEditField.field_definition.codelist.name" disabled />
+        </el-form-item>
+        <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位">
+          <el-input :model-value="quickEditField.field_definition.unit.symbol" disabled />
+        </el-form-item>
+        <el-form-item v-if="isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))" label="默认值">
+          <el-input v-model="quickEditProp.default_value" :type="quickEditProp.inline_mark ? 'textarea' : 'text'" :autosize="quickEditProp.inline_mark ? { minRows: 1, maxRows: 3 } : undefined" />
+        </el-form-item>
+        <el-form-item label="底纹颜色">
+          <div class="color-picker">
+            <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !quickEditProp.bg_color }" @click="quickEditProp.bg_color = null">默认</button>
+            <button v-for="opt in BG_COLOR_OPTIONS.slice(1)" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': quickEditProp.bg_color === opt.value }" :style="{ background: '#' + opt.value }" :aria-label="`选择底纹颜色：${opt.label}`" :title="opt.label" @click="quickEditProp.bg_color = opt.value"></button>
+          </div>
+        </el-form-item>
+        <el-form-item label="文字颜色">
+          <div class="color-picker">
+            <button type="button" class="color-option color-option-default" :class="{ 'color-selected': !quickEditProp.text_color }" @click="quickEditProp.text_color = null">默认</button>
+            <button v-for="opt in TEXT_COLOR_OPTIONS" :key="opt.value" type="button" class="color-option" :class="{ 'color-selected': quickEditProp.text_color === opt.value }" :style="{ background: '#' + opt.value }" :aria-label="`选择文字颜色：${opt.label}`" :title="opt.label" @click="quickEditProp.text_color = opt.value"></button>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'" label="布局">
+          <el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox>
+        </el-form-item>
       </el-form>
       <template #footer><el-button @click="showQuickEdit = false">取消</el-button><el-button type="primary" @click="saveQuickEdit">确定</el-button></template>
     </el-dialog>
@@ -1793,5 +2381,7 @@ function openAddForm() { newFormCode.value = genCode('FORM'); showAddForm.value 
   pointer-events: none;
   z-index: 1;
 }
-.unified-table-host { cursor: default; }
+.unified-table-host {
+  cursor: default;
+}
 </style>

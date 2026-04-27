@@ -267,7 +267,7 @@ def plan_unified_table_width(
     Returns:
         每列宽度列表（厘米），长度等于 column_count 或最大 block 列数
     """
-    if not segments:
+    if not segments and not regular_field_demands:
         return []
 
     # 确定物理列数 N

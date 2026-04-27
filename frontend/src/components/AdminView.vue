@@ -3,7 +3,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../composables/useApi'
 
-const emit = defineEmits(['logout'])
 const adminApiBase = '/api/admin'
 
 const users = ref([])
