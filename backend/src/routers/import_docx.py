@@ -227,6 +227,7 @@ async def preview_docx_import(
         with perf_span("upload_read"):
             content = await file.read()
         record_payload_size(len(content))
+        record_counter("file_size_bytes", len(content))
 
         temp_id, file_path = DocxImportService.save_temp_file(
 
