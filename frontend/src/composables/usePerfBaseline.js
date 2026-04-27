@@ -2,6 +2,8 @@ const PERF_STORAGE_KEY = 'crf_perf_baseline';
 const PERF_EXPORT_KEY = '__CRF_PERF_EXPORT__';
 const perfEvents = [];
 const perfStarts = new Map();
+const perfIdMap = new Map();
+let perfIdCounter = 0;
 
 function isPerfBaselineEnabled() {
   if (typeof window === 'undefined') return false;
@@ -19,20 +21,41 @@ function isPerfBaselineEnabled() {
   }
 }
 
-function sanitizeProjectId(value) {
+function sanitizeEntityId(value) {
   if (value == null) return null;
-  return `project-${String(value).length}`;
+  const raw = String(value);
+  if (!perfIdMap.has(raw)) {
+    perfIdCounter += 1;
+    perfIdMap.set(raw, `id-${perfIdCounter.toString(36)}`);
+  }
+  return perfIdMap.get(raw);
+}
+
+function normalizeMetrics(metrics) {
+  const normalized = { ...metrics };
+  if (Object.prototype.hasOwnProperty.call(normalized, 'project_id')) {
+    normalized.project_id = sanitizeEntityId(normalized.project_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'form_id')) {
+    normalized.form_id = sanitizeEntityId(normalized.form_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'field_id')) {
+    normalized.field_id = sanitizeEntityId(normalized.field_id);
+  }
+  return normalized;
 }
 
 function normalizeEvent(event) {
-  const normalized = {
-    ...event,
-    timestamp_ms: Number.isFinite(event.timestamp_ms) ? event.timestamp_ms : performance.now(),
+  const scenario = event.scenario || event.name || 'unknown';
+  const metrics = normalizeMetrics(event.metrics || Object.fromEntries(
+    Object.entries(event).filter(([key]) => !['timestamp', 'legacy_perf_time', 'scenario', 'name', 'duration_ms', 'metrics', 'type'].includes(key))
+  ));
+  return {
+    timestamp: new Date().toISOString(),
+    scenario,
+    duration_ms: Number.isFinite(event.duration_ms) ? event.duration_ms : 0,
+    metrics,
   };
-  if (Object.prototype.hasOwnProperty.call(normalized, 'project_id')) {
-    normalized.project_id = sanitizeProjectId(normalized.project_id);
-  }
-  return normalized;
 }
 
 function recordPerfEvent(event) {
@@ -44,14 +67,8 @@ function recordPerfEvent(event) {
 
 function markPerfStart(name, payload = {}) {
   if (!isPerfBaselineEnabled()) return null;
-  const startedAt = performance.now();
-  perfStarts.set(name, startedAt);
-  return recordPerfEvent({
-    type: 'start',
-    name,
-    timestamp_ms: startedAt,
-    ...payload,
-  });
+  perfStarts.set(name, performance.now());
+  return null;
 }
 
 function markPerfEnd(name, payload = {}) {
@@ -60,21 +77,21 @@ function markPerfEnd(name, payload = {}) {
   const startedAt = perfStarts.get(name);
   perfStarts.delete(name);
   return recordPerfEvent({
-    type: 'end',
-    name,
-    timestamp_ms: endedAt,
-    duration_ms: Number.isFinite(startedAt) ? endedAt - startedAt : null,
-    ...payload,
+    scenario: name,
+    duration_ms: Number.isFinite(startedAt) ? endedAt - startedAt : 0,
+    metrics: payload,
   });
 }
 
 function exportPerfEvents() {
-  return perfEvents.map((event) => ({ ...event }));
+  return perfEvents.map((event) => ({ ...event, metrics: { ...event.metrics } }));
 }
 
 function clearPerfEvents() {
   perfEvents.splice(0, perfEvents.length);
   perfStarts.clear();
+  perfIdMap.clear();
+  perfIdCounter = 0;
 }
 
 if (typeof window !== 'undefined' && isPerfBaselineEnabled()) {

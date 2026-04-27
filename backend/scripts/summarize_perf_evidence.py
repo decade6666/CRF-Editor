@@ -81,6 +81,29 @@ def _safe_ratio(numerator: float, denominator: float) -> float:
 
 
 
+def _collect_explain_findings(group: list[dict[str, Any]]) -> list[dict[str, Any]]:
+  findings = []
+  for row in group:
+    for shape in (row.get('metrics') or {}).get('sql_shapes') or []:
+      explain_rows = shape.get('explain') or []
+      if any('SCAN ' in str(item).upper() for item in explain_rows):
+        findings.append({
+          'hash': shape.get('hash', ''),
+          'shape': shape.get('shape', ''),
+          'explain': explain_rows,
+        })
+  deduped = []
+  seen = set()
+  for item in findings:
+    key = (item['hash'], tuple(item['explain']))
+    if key in seen:
+      continue
+    seen.add(key)
+    deduped.append(item)
+  return deduped
+
+
+
 def _summarize_backend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
   grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
   for row in rows:
@@ -95,11 +118,13 @@ def _summarize_backend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sql_counts = [int(row['metrics'].get('sql_count') or 0) for row in group]
     flushes = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('flush_ms') or 0.0) for row in group)
     commits = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('commit_ms') or 0.0) for row in group)
-    sqlite_busy = sorted(float(row['metrics'].get('sqlite_busy_count') or 0.0) for row in group)
+    sqlite_busy_waits = sorted(float(row['metrics'].get('sqlite_busy_wait_ms') or 0.0) for row in group)
+    sqlite_busy_counts = [int(row['metrics'].get('sqlite_busy_count') or 0) for row in group]
     docx_parse = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('docx_parse_ms') or 0.0) for row in group)
     docx_generate = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('docx_generate_ms') or 0.0) for row in group)
     temp_file_write = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('temp_file_write_ms') or 0.0) for row in group)
     file_response_prepare = sorted(float((row['metrics'].get('phase_timings_ms') or {}).get('file_response_prepare_ms') or 0.0) for row in group)
+    explain_findings = _collect_explain_findings(group)
 
     thresholds_triggered = []
     candidate_types = []
@@ -109,7 +134,9 @@ def _summarize_backend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
       thresholds_triggered.append('SQL-1')
     if any(count > 100 for count in sql_counts):
       thresholds_triggered.append('SQL-2')
-    if _percentile(sqlite_busy, 0.95) >= 200.0:
+    if explain_findings:
+      thresholds_triggered.append('SQL-3')
+    if _percentile(sqlite_busy_waits, 0.95) >= 200.0:
       thresholds_triggered.extend(['SQL-4', 'TX-3'])
     if _percentile(flushes, 0.95) >= 200.0:
       thresholds_triggered.append('TX-1')
@@ -147,8 +174,9 @@ def _summarize_backend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
       'max_sql_count': max(sql_counts) if sql_counts else 0,
       'p95_flush_ms': _percentile(flushes, 0.95),
       'p95_commit_ms': _percentile(commits, 0.95),
-      'p95_sqlite_busy_wait_ms': _percentile(sqlite_busy, 0.95),
-      'explain_findings': [],
+      'p95_sqlite_busy_wait_ms': _percentile(sqlite_busy_waits, 0.95),
+      'sqlite_busy_count': max(sqlite_busy_counts) if sqlite_busy_counts else 0,
+      'explain_findings': explain_findings,
       'thresholds_triggered': thresholds_triggered,
       'candidate_types': candidate_types if reason == 'accepted' else [],
       'reason': reason,

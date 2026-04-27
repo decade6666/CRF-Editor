@@ -12,6 +12,7 @@ from src.perf import (
     increment_sqlite_busy_count,
     is_perf_baseline_enabled,
     record_sql_statement,
+    record_sqlite_busy_wait,
 )
 
 
@@ -81,6 +82,7 @@ def attach_perf_sql_listeners(engine) -> None:
         lowered_statement = statement.lower()
         if "busy" in lowered_statement:
             increment_sqlite_busy_count()
+            record_sqlite_busy_wait(elapsed_ms)
 
     engine._crf_perf_listeners_attached = True
 

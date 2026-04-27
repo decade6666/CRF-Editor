@@ -113,6 +113,7 @@ def begin_request_metrics(method: str, route_template: str | None) -> str:
             "sql_shapes": [],
             "slow_sql_shapes": [],
             "sqlite_busy_count": 0,
+            "sqlite_busy_wait_ms": 0.0,
             "payload_size_bytes": None,
         }
     )
@@ -148,6 +149,7 @@ def finish_request_metrics(status_code: int, error_type: str | None = None) -> d
         "sql_shapes": deepcopy(metrics["sql_shapes"]),
         "slow_sql_shapes": deepcopy(metrics["slow_sql_shapes"]),
         "sqlite_busy_count": metrics["sqlite_busy_count"],
+        "sqlite_busy_wait_ms": _round_ms(metrics["sqlite_busy_wait_ms"]),
         "payload_size_bytes": metrics["payload_size_bytes"],
     }
     if error_type is not None:
@@ -228,6 +230,14 @@ def increment_sqlite_busy_count() -> None:
     if metrics is None:
         return
     metrics["sqlite_busy_count"] += 1
+
+
+
+def record_sqlite_busy_wait(elapsed_ms: float) -> None:
+    metrics = _CURRENT_METRICS.get()
+    if metrics is None:
+        return
+    metrics["sqlite_busy_wait_ms"] += max(float(elapsed_ms), 0.0)
 
 
 
