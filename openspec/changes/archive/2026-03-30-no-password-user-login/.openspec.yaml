@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-03-30
+status: ready-for-impl
+artifacts:
+  - proposal.md
+  - specs.md
+  - design.md
+  - tasks.md

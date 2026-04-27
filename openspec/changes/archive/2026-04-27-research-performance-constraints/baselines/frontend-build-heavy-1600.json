@@ -1,0 +1,45 @@
+{
+  "generated_at_utc": "2026-04-26T12:18:21.210Z",
+  "buckets": {
+    "index": {
+      "raw_bytes": 194369,
+      "gzip_bytes": 52086,
+      "files": [
+        "index-BSLJe07e.js"
+      ]
+    },
+    "vendor-ep": {
+      "raw_bytes": 1042970,
+      "gzip_bytes": 328618,
+      "files": [
+        "vendor-ep-t0TK1W-t.js"
+      ]
+    },
+    "vendor-misc": {
+      "raw_bytes": 215509,
+      "gzip_bytes": 74514,
+      "files": [
+        "vendor-misc-Chehxw7W.js"
+      ]
+    },
+    "vendor-vue": {
+      "raw_bytes": 121154,
+      "gzip_bytes": 48217,
+      "files": [
+        "vendor-vue-DL_lj5IT.js"
+      ]
+    },
+    "total-js": {
+      "raw_bytes": 1574002,
+      "gzip_bytes": 503435,
+      "files": []
+    },
+    "total-css": {
+      "raw_bytes": 381686,
+      "gzip_bytes": 53520,
+      "files": [
+        "index-BlMvYQxp.css"
+      ]
+    }
+  }
+}
