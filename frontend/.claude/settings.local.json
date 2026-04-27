@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__fast-context__fast_context_search",
+      "mcp__popup-mcp__confirm_action"
+    ]
+  }
+}
