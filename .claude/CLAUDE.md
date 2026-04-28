@@ -115,6 +115,12 @@ cd frontend && node --test tests/*.test.js
 
 **规则**：修改代码前必读 prefs/，做决策时按 workflow.md 规则记录日志。
 
+## Git 工作流
+- **draft → main 必须通过 PR 合并**，禁止直接 `git push origin main`。
+- 流程：在 draft 完成开发 → 创建 PR（draft → main）→ 审查/合并 PR → 自动同步到 main。
+- `draft` 分支可直接 push 到远程；`main` 分支仅接受 PR 合并。
+
 ## 变更记录
+- `2026年4月28日`：新增 Git 工作流规则：draft → main 必须通过 PR 合并。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。后端源码 53 文件、测试 34 文件；前端源码 26 文件、测试 20 文件。更新 Mermaid 结构图，同步文件计数。
 - `2026年4月27日 星期一 05:45:45 PDT`：刷新文件统计数据，同步 backend tests 25->34、frontend composables 9->11、frontend tests 17->21。
