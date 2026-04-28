@@ -220,6 +220,70 @@ Element Plus handles most a11y automatically:
 
 ---
 
+## List Item with Drag Handle Pattern
+
+When building draggable list items (e.g., project list), separate the drag handle from the clickable action button for better semantics and accessibility.
+
+### Pattern
+
+```vue
+<template>
+  <div class="list-item" :class="{ active: isSelected }">
+    <!-- Drag handle: decorative, not interactive -->
+    <span class="drag-handle" aria-hidden="true">
+      <el-icon><Rank /></el-icon>
+    </span>
+
+    <!-- Clickable action: proper button semantics -->
+    <button
+      class="list-item-select-btn"
+      type="button"
+      :aria-current="isSelected ? 'true' : undefined"
+      @click="onSelect(item)"
+    >
+      <span class="list-item-main">
+        <el-icon aria-hidden="true"><Files /></el-icon>
+        <span class="list-item-name">{{ item.name }}</span>
+      </span>
+    </button>
+
+    <!-- Action buttons: clearly labeled -->
+    <div class="list-item-actions">
+      <el-button
+        link
+        aria-label="复制"
+        title="复制"
+        @click.stop="onCopy(item)"
+      >
+        <el-icon aria-hidden="true"><DocumentCopy /></el-icon>
+      </el-button>
+    </div>
+  </div>
+</template>
+```
+
+### Key Rules
+
+1. **Drag handle** → `aria-hidden="true"`, not a button (sortablejs handles keyboard drag)
+2. **Select action** → `<button type="button">` with `aria-current` for active state
+3. **Icon-only buttons** → must have `aria-label` + `title`
+4. **Icons inside buttons** → `aria-hidden="true"` (button label conveys meaning)
+5. **`.stop` modifier** → on action buttons to prevent bubbling to parent click
+
+### Don't: Wrap Entire Item in Single Button
+
+```vue
+<!-- WRONG: drag handle inside button causes confusion -->
+<button class="project-item" @click="selectProject(p)">
+  <div class="drag-handle"><el-icon><Rank /></el-icon></div>
+  <span>{{ p.name }}</span>
+</button>
+```
+
+**Why**: The drag handle becomes part of the button's accessible name, and sortablejs may conflict with button click events.
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Using `<script setup>`
