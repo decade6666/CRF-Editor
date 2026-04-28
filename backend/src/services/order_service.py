@@ -14,6 +14,8 @@ from sqlalchemy import func, update, select
 
 from sqlalchemy.orm import Session
 
+from src.perf import perf_span, record_counter
+
 
 
 
@@ -482,71 +484,50 @@ class OrderService:
 
         """
 
-        # 1. 校验：查询当前作用域的所有合法 ID
+        with perf_span("order_scope_load"):
+            valid_ids = {
+                row.id for row in session.scalars(
+                    select(model_class).where(scope_filter)
+                ).all()
+            }
 
-        valid_ids = {
-
-            row.id for row in session.scalars(
-
-                select(model_class).where(scope_filter)
-
-            ).all()
-
-        }
+        record_counter("scope_size", len(valid_ids))
 
 
 
-        # 2. 校验：请求的 ID 必须全部属于当前作用域，且无重复
+        with perf_span("order_validate"):
+            request_ids = set(id_order_list)
 
-        request_ids = set(id_order_list)
+            if len(request_ids) != len(id_order_list):
 
-        if len(request_ids) != len(id_order_list):
+                raise ValueError("ID 列表包含重复项")
 
-            raise ValueError("ID 列表包含重复项")
+            if not request_ids.issubset(valid_ids):
 
-        if not request_ids.issubset(valid_ids):
+                raise ValueError("ID 列表包含不属于当前作用域的记录")
 
-            raise ValueError("ID 列表包含不属于当前作用域的记录")
+            if request_ids != valid_ids:
 
-        if request_ids != valid_ids:
+                raise ValueError("ID 列表不完整，必须包含作用域内所有记录")
 
-            raise ValueError("ID 列表不完整，必须包含作用域内所有记录")
-
-
-
-        # 3. 两阶段重排：先搬到安全区，再写回最终值
-
-        # 阶段 1：把参与重排的记录搬到负数安全区
-
-        session.execute(
-
-            update(model_class)
-
-            .where(scope_filter)
-
-            .values(order_index=model_class.order_index - OrderService.SAFE_OFFSET)
-
-        )
-
-        session.flush()
-
-
-
-        # 阶段 2：按新顺序写入最终序号
-
-        for idx, record_id in enumerate(id_order_list, start=1):
-
+        with perf_span("order_safe_offset_update"):
             session.execute(
-
                 update(model_class)
-
-                .where(model_class.id == record_id)
-
-                .where(scope_filter)  # 双重保险：同时校验作用域
-
-                .values(order_index=idx)
-
+                .where(scope_filter)
+                .values(order_index=model_class.order_index - OrderService.SAFE_OFFSET)
             )
+
+        with perf_span("flush"):
+            session.flush()
+
+        with perf_span("order_final_update"):
+            for idx, record_id in enumerate(id_order_list, start=1):
+                session.execute(
+                    update(model_class)
+                    .where(model_class.id == record_id)
+                    .where(scope_filter)
+                    .values(order_index=idx)
+                )
 
 
 
@@ -738,55 +719,48 @@ class OrderService:
 
         from sqlalchemy import select
 
-        valid_ids = {
+        with perf_span("order_scope_load"):
+            valid_ids = {
+                row.id for row in session.scalars(
+                    select(model_class).where(scope_filter)
+                ).all()
+            }
 
-            row.id for row in session.scalars(
+        record_counter("scope_size", len(valid_ids))
 
-                select(model_class).where(scope_filter)
+        with perf_span("order_validate"):
+            request_ids = set(id_order_list)
 
-            ).all()
+            if len(request_ids) != len(id_order_list):
 
-        }
+                raise ValueError("ID 列表包含重复项")
 
-        request_ids = set(id_order_list)
+            if not request_ids.issubset(valid_ids):
 
-        if len(request_ids) != len(id_order_list):
+                raise ValueError("ID 列表包含不属于当前作用域的记录")
 
-            raise ValueError("ID 列表包含重复项")
+            if request_ids != valid_ids:
 
-        if not request_ids.issubset(valid_ids):
+                raise ValueError("ID 列表不完整，必须包含作用域内所有记录")
 
-            raise ValueError("ID 列表包含不属于当前作用域的记录")
-
-        if request_ids != valid_ids:
-
-            raise ValueError("ID 列表不完整，必须包含作用域内所有记录")
-
-        session.execute(
-
-            update(model_class)
-
-            .where(scope_filter)
-
-            .values(sequence=model_class.sequence + OrderService.SAFE_OFFSET)
-
-        )
-
-        session.flush()
-
-        for idx, record_id in enumerate(id_order_list, start=1):
-
+        with perf_span("order_safe_offset_update"):
             session.execute(
-
                 update(model_class)
-
-                .where(model_class.id == record_id)
-
                 .where(scope_filter)
-
-                .values(sequence=idx)
-
+                .values(sequence=model_class.sequence + OrderService.SAFE_OFFSET)
             )
+
+        with perf_span("flush"):
+            session.flush()
+
+        with perf_span("order_final_update"):
+            for idx, record_id in enumerate(id_order_list, start=1):
+                session.execute(
+                    update(model_class)
+                    .where(model_class.id == record_id)
+                    .where(scope_filter)
+                    .values(sequence=idx)
+                )
 
 
 
