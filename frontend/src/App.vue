@@ -847,8 +847,16 @@ function startResize(e) {
     <div class="header">
       <div class="header-left">
         <h1 v-if="!isCollapsed">CRF编辑器</h1>
-        <el-button v-else class="header-icon-btn" text circle @click="isCollapsed = false" title="展开侧边栏">
-          <el-icon><Expand /></el-icon>
+        <el-button
+          v-else
+          class="header-icon-btn"
+          text
+          circle
+          aria-label="展开侧边栏"
+          title="展开侧边栏"
+          @click="isCollapsed = false"
+        >
+          <el-icon aria-hidden="true"><Expand /></el-icon>
         </el-button>
         <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"
           ><el-icon aria-hidden="true"><RefreshRight /></el-icon
@@ -899,46 +907,44 @@ function startResize(e) {
               @end="onProjectDragEnd"
             >
               <template #item="{ element: p }">
-                <button
-                  class="project-item"
-                  type="button"
-                  :class="{ active: selectedProject?.id === p.id }"
-                  @click="selectProject(p)"
-                >
-                  <div
-                    class="drag-handle"
-                    style="cursor: grab; padding: 4px; color: var(--color-text-muted)"
-                    aria-label="拖拽排序"
-                    role="button"
-                    tabindex="0"
-                  >
+                <div class="project-item" :class="{ active: selectedProject?.id === p.id }">
+                  <span class="drag-handle" aria-hidden="true">
                     <el-icon><Rank /></el-icon>
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; min-width: 0; flex: 1">
-                    <el-icon><Files /></el-icon>
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p.name }}</span>
-                  </div>
+                  </span>
+                  <button
+                    class="project-select-btn"
+                    type="button"
+                    :aria-current="selectedProject?.id === p.id ? 'true' : undefined"
+                    @click="selectProject(p)"
+                  >
+                    <span class="project-item-main">
+                      <el-icon aria-hidden="true"><Files /></el-icon>
+                      <span class="project-item-name">{{ p.name }}</span>
+                    </span>
+                  </button>
                   <div class="project-actions">
                     <el-button
-                      class="project-action-btn"
+                      class="project-action-btn project-action-btn--copy"
                       link
-                      @click.stop="copyProject(p)"
                       :loading="copyingProjectId === p.id"
+                      aria-label="复制项目"
                       title="复制项目"
+                      @click.stop="copyProject(p)"
                     >
-                      <el-icon><DocumentCopy /></el-icon>
+                      <el-icon aria-hidden="true"><DocumentCopy /></el-icon>
                     </el-button>
                     <el-button
-                      class="project-action-btn"
+                      class="project-action-btn project-action-btn--delete"
                       link
                       type="danger"
-                      @click.stop="deleteProject(p)"
+                      aria-label="删除项目"
                       title="删除项目"
+                      @click.stop="deleteProject(p)"
                     >
-                      <el-icon><Delete /></el-icon>
+                      <el-icon aria-hidden="true"><Delete /></el-icon>
                     </el-button>
                   </div>
-                </button>
+                </div>
               </template>
             </draggable>
           </div>
@@ -1406,28 +1412,76 @@ function startResize(e) {
   margin-left: auto !important;
 }
 
+.project-item .drag-handle {
+  flex-shrink: 0;
+  padding: 4px;
+  color: var(--color-text-muted);
+  cursor: grab;
+}
+
+.project-select-btn {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-select-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.project-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.project-item-main .el-icon {
+  flex-shrink: 0;
+}
+
+.project-item-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-action-btn {
   margin: 0;
-  padding: 4px;
+  padding: 3px;
 }
 
 /* 侧边栏复制按钮三态对比度（仅作用于 .project-item .project-actions） */
-.project-item .project-actions .project-action-btn:not([type='danger']) {
+.project-item .project-actions .project-action-btn--copy {
   color: rgba(255, 255, 255, 0.85);
 }
 
-.project-item:hover .project-actions .project-action-btn:not([type='danger']) {
+.project-item:hover .project-actions .project-action-btn--copy {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.project-item.active .project-actions .project-action-btn:not([type='danger']) {
+.project-item.active .project-actions .project-action-btn--copy {
   color: #ffffff;
 }
 
 .project-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
+  flex-shrink: 0;
   margin-left: auto;
 }
 

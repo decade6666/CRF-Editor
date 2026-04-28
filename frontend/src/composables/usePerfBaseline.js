@@ -67,19 +67,21 @@ function recordPerfEvent(event) {
 
 function markPerfStart(name, payload = {}) {
   if (!isPerfBaselineEnabled()) return null;
-  perfStarts.set(name, performance.now());
+  perfStarts.set(name, { startedAt: performance.now(), metrics: { ...payload } });
   return null;
 }
 
 function markPerfEnd(name, payload = {}) {
   if (!isPerfBaselineEnabled()) return null;
   const endedAt = performance.now();
-  const startedAt = perfStarts.get(name);
+  const started = perfStarts.get(name);
   perfStarts.delete(name);
+  const startedAt = typeof started === 'number' ? started : started?.startedAt;
+  const startMetrics = typeof started === 'object' && started !== null ? started.metrics : {};
   return recordPerfEvent({
     scenario: name,
     duration_ms: Number.isFinite(startedAt) ? endedAt - startedAt : 0,
-    metrics: payload,
+    metrics: { ...startMetrics, ...payload },
   });
 }
 
