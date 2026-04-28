@@ -1,0 +1,66 @@
+[
+  {
+    "property": "frontend.interaction.debounce_window",
+    "definition": "The temporal threshold for aggregating discrete user input events into a single persistence operation in the Form Designer.",
+    "boundary_conditions": {
+      "lower_limit": "200ms (too short causes excessive API pressure and potential race conditions)",
+      "upper_limit": "1000ms (too long degrades perceived real-time responsiveness)",
+      "current_value": "400ms"
+    },
+    "counterexample_generation": "Rapidly typing 10 characters in a label field; if 10 separate API calls are observed, the debounce boundary is violated."
+  },
+  {
+    "property": "frontend.state.save_session_lock",
+    "definition": "A monotonic session identifier that ensures asynchronous persistence operations do not overwrite newer state when the user switches context (e.g., selecting a different field).",
+    "boundary_conditions": {
+      "violation": "A slow 'save' response for Field A returning after the user has already modified Field B, if it overwrites the UI state with stale Field A data.",
+      "implementation": "fieldPropSaveSession counter incremented on each selection change or reset."
+    },
+    "counterexample_generation": "Select Field 1 -> Modify -> Select Field 2 (triggering save for Field 1) -> Modify Field 2; if the UI reverts Field 2 properties to Field 1's state upon Field 1's save completion, the session lock failed."
+  },
+  {
+    "property": "integration.api.rate_limit_resilience",
+    "definition": "The system's ability to recover from HTTP 429 Too Many Requests responses using structured retry logic and user notification.",
+    "boundary_conditions": {
+      "limit": "IMPORT_RULE: 3 requests per 60s; AUTH_LOGIN_RULE: 5 requests per 60s",
+      "retry_behavior": "Should detect 429 status and trigger a delayed retry (current: 1000ms) unless the context has expired."
+    },
+    "counterexample_generation": "Triggering 4 imports in 10 seconds; if the 4th import fails without a retry attempt or a clear 'Too Many Requests' error message, resilience is insufficient."
+  },
+  {
+    "property": "integration.external_service.ai_timeout",
+    "definition": "The maximum duration the backend will wait for a response from the AI review or import services before failing over.",
+    "boundary_conditions": {
+      "default": "30 seconds",
+      "observability": "Should log a specific timeout error vs a generic 500 internal server error."
+    },
+    "counterexample_generation": "An AI request taking 35 seconds; if the connection remains open indefinitely or returns a 504 without application-level logging, the boundary is unmanaged."
+  },
+  {
+    "property": "observability.sync.background_failure_transparency",
+    "definition": "The mechanism for surfacing failures in background auto-save operations to the user without interrupting the primary workflow.",
+    "boundary_conditions": {
+      "threshold": "Failure must be shown exactly once per error type until state reset.",
+      "transparency": "Use of ElMessage.error for immediate feedback on persistent save failures."
+    },
+    "counterexample_generation": "Disconnect network during auto-save; if the save queue grows silently and then discards data without ever notifying the user, observability is violated."
+  },
+  {
+    "property": "performance.layout.width_planning_scaling",
+    "definition": "The deterministic scaling mechanism for form layouts when content-driven demand exceeds page width boundaries.",
+    "boundary_conditions": {
+      "mechanism": "Fallback 3B (proportional scaling) instead of uniform width distribution.",
+      "computational_complexity": "O(N*M) where N is fields and M is characters per field (mitigated by caching/debouncing)."
+    },
+    "counterexample_generation": "A form with 50 columns each requiring 200px on a 1000px page; if columns overflow or revert to equal widths rather than proportional scaling, the planning boundary is broken."
+  },
+  {
+    "property": "integration.export.schema_compatibility",
+    "definition": "Validation boundary ensuring the underlying database schema aligns with the export service's expectations to prevent corrupted or incomplete documents.",
+    "boundary_conditions": {
+      "checks": "Table existence, migration status (no legacy sort_order), and data integrity (non-null field_definition_id for non-log rows).",
+      "failure_mode": "Throws structured ExportError with stability codes (e.g., SCHEMA_INCOMPATIBLE)."
+    },
+    "counterexample_generation": "Attempting an export on a project with unmigrated 'sort_order' columns; if the service produces a corrupted .docx instead of a structured error, the boundary is breached."
+  }
+]
