@@ -65,7 +65,7 @@ import {
   planNormalColumnFractions,
 } from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
-import { getFormFieldPreviewStyle, getFormFieldDisplayLabel } from '../composables/formFieldPresentation'
+import { getFormFieldPreviewStyle } from '../composables/formFieldPresentation'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },

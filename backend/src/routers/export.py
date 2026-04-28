@@ -14,6 +14,7 @@ from src.config import get_config
 from src.database import get_read_session
 from src.dependencies import get_current_user, require_admin, verify_project_owner
 from src.models.user import User
+from src.perf import perf_span, record_counter
 from src.repositories.project_repository import ProjectRepository
 from src.services.export_service import (
     ExportService,
@@ -41,8 +42,11 @@ def export_word(
             { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
             其中每个数组元素表示该列占总宽度的比例（0.0~1.0）
     """
-    verify_project_owner(project_id, current_user, session)
-    project = ProjectRepository(session).get_by_id(project_id)
+    with perf_span("auth_owner"):
+        verify_project_owner(project_id, current_user, session)
+
+    with perf_span("project_tree_load"):
+        project = ProjectRepository(session).get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
 
@@ -52,15 +56,18 @@ def export_word(
 
     try:
         service = ExportService(session)
-        ok = service.export_project_to_word(project_id, tmp_path, column_width_overrides=column_width_overrides)
+        with perf_span("docx_generate"):
+            ok = service.export_project_to_word(project_id, tmp_path, column_width_overrides=column_width_overrides)
         if not ok:
             os.unlink(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
 
-        valid, reason = ExportService._validate_output(tmp_path)
+        with perf_span("output_validate"):
+            valid, reason = ExportService._validate_output(tmp_path)
         if not valid:
             os.unlink(tmp_path)
             raise HTTPException(500, f"导出失败: {reason}")
+        record_counter("output_size_bytes", os.path.getsize(tmp_path))
     except HTTPException:
         raise
     except Exception:
@@ -71,11 +78,13 @@ def export_word(
             pass
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
-    return FileResponse(
-        tmp_path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        background=BackgroundTask(os.unlink, tmp_path),
-    )
+    with perf_span("file_response_prepare"):
+        response = FileResponse(
+            tmp_path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            background=BackgroundTask(os.unlink, tmp_path),
+        )
+    return response
 
 
 @router.get("/export/database")

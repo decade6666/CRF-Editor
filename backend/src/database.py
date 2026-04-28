@@ -1,11 +1,19 @@
 """数据库 Session 管理"""
 
 import logging
+import time
 from typing import Optional
 
 from sqlalchemy import create_engine, event, text, inspect
 
 from sqlalchemy.orm import Session
+
+from src.perf import (
+    increment_sqlite_busy_count,
+    is_perf_baseline_enabled,
+    record_sql_statement,
+    record_sqlite_busy_wait,
+)
 
 
 _FORM_FIELD_CANONICAL_COLUMNS = (
@@ -47,6 +55,36 @@ logger = logging.getLogger("src.database")
 _engine = None
 
 
+def attach_perf_sql_listeners(engine) -> None:
+
+    if getattr(engine, "_crf_perf_listeners_attached", False):
+        return
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        if not is_perf_baseline_enabled():
+            return
+        conn.info.setdefault("crf_perf_started_at", []).append(time.perf_counter())
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        if not is_perf_baseline_enabled():
+            return
+        started_stack = conn.info.get("crf_perf_started_at") or []
+        if not started_stack:
+            return
+        started_at = started_stack.pop()
+        elapsed_ms = max((time.perf_counter() - started_at) * 1000.0, 0.0)
+        try:
+            record_sql_statement(statement, elapsed_ms)
+        except Exception:
+            logger.debug("perf sql listener skipped statement aggregation", exc_info=True)
+        lowered_statement = statement.lower()
+        if "busy" in lowered_statement:
+            increment_sqlite_busy_count()
+            record_sqlite_busy_wait(elapsed_ms)
+
+    engine._crf_perf_listeners_attached = True
 
 
 
@@ -76,7 +114,7 @@ def get_engine():
 
             dbapi_conn.execute("PRAGMA synchronous=NORMAL")
 
-
+        attach_perf_sql_listeners(_engine)
 
     return _engine
 

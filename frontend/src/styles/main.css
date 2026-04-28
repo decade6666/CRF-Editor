@@ -1,22 +1,22 @@
 /* ——— 原子色板（Primitive Tokens）——— */
 :root {
-  --indigo-50:  #f7fbff;
-  --indigo-100: #eef6ff;
-  --indigo-200: #dbeafe;
-  --indigo-300: #bfdbfe;
-  --indigo-400: #93c5fd;
-  --indigo-500: #60a5fa;
-  --indigo-600: #3b82f6;
-  --indigo-700: #2f6fd6;   /* 主色（更浅、更柔和） */
-  --indigo-800: #245fc3;   /* hover 态 */
-  --indigo-900: #234972;   /* 深蓝（侧边栏）*/
+  --indigo-50:  #f5f8fb;
+  --indigo-100: #e8f0f6;
+  --indigo-200: #d2e0ea;
+  --indigo-300: #b3c9d8;
+  --indigo-400: #8fb0c4;
+  --indigo-500: #6d95ae;
+  --indigo-600: #4f7893;
+  --indigo-700: #355f78;
+  --indigo-800: #294b61;
+  --indigo-900: #1f394b;
 
   /* ——— 语义 Token（Semantic Tokens）——— */
   --color-primary:        var(--indigo-700);
   --color-primary-dark:   var(--indigo-800);
   --color-primary-light:  var(--indigo-100);
-  --color-primary-subtle: #f7fbff;
-  --color-primary-rgb:    47, 111, 214;
+  --color-primary-subtle: #f5f8fb;
+  --color-primary-rgb:    53, 95, 120;
 
   --color-sidebar-bg:     var(--indigo-900);
   --color-sidebar-item:   rgba(255,255,255,0.85);
@@ -24,7 +24,7 @@
   --color-sidebar-active: rgba(255,255,255,0.20);
   --color-sidebar-border: rgba(255,255,255,0.10);
 
-  --color-header-bg:      #4169E1;
+  --color-header-bg:      #2c5368;
   --color-header-text:    #ffffff;
 
   --color-bg-body:        #f7fbff;
@@ -46,6 +46,7 @@
   --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -1px rgba(0,0,0,0.04);
   --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
   --shadow-page: 0 4px 24px rgba(0,0,0,0.10);
+  --shadow-preview-page: 0 4px 24px rgba(0,0,0,0.10);
 
   /* ——— 圆角 ——— */
   --radius-sm: 4px;
@@ -115,9 +116,9 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .sidebar-header { padding: 10px; border-bottom: 1px solid var(--color-sidebar-border); display: flex; gap: 8px; align-items: center; }
 .sidebar-header span { font-weight: bold; font-size: 14px; flex: 1; }
 .project-list { flex: 1; overflow-y: auto; }
-.project-item { padding: 10px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--color-sidebar-border); display: flex; align-items: center; justify-content: space-between; color: var(--color-sidebar-item); transition: all var(--transition-fast); }
-.project-item:hover { background: var(--color-sidebar-hover); padding-left: 18px; }
-.project-item.active { background: var(--color-sidebar-active); color: #ffffff; font-weight: bold; border-left: 3px solid #ffffff; }
+.project-item { width: 100%; min-width: 0; padding: 10px 8px; font-size: 13px; border-bottom: 1px solid var(--color-sidebar-border); border-left: 3px solid transparent; display: flex; align-items: center; justify-content: flex-start; gap: 4px; color: var(--color-sidebar-item); background: transparent; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); }
+.project-item:hover { background: var(--color-sidebar-hover); }
+.project-item.active { background: var(--color-sidebar-active); color: #ffffff; font-weight: bold; border-left-color: #ffffff; }
 .project-item .del-btn { opacity: 0; font-size: 12px; color: var(--color-danger); transition: opacity var(--transition-fast); }
 .project-item:hover .del-btn { opacity: 1; }
 .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -180,7 +181,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   max-width: 900px; /* 从 700px 放大 */
   margin: 0 auto;
   padding: 32px 40px;
-  box-shadow: var(--shadow-page);
+  box-shadow: var(--shadow-preview-page);
   min-height: 400px;
   font-family: 'SimSun', serif;
   font-size: 10.5pt;
@@ -288,22 +289,31 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 
 /* 暗色模式 CSS 变量覆盖 */
 html[data-theme="dark"] {
-  --indigo-900: #18365a;
-  --indigo-700: #5b93f5;
-  --indigo-500: #74a7f7;
-  --color-bg-body: #0f172a;
-  --color-bg-card: #1e293b;
-  --color-bg-hover: #334155;
-  --color-border: #334155;
-  --color-text-primary: #f1f5f9;
-  --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
-  --color-primary-subtle: #1e3a5f;
-  --color-primary-rgb: 91, 147, 245;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.6);
-  --shadow-page: 0 0 40px rgba(0, 0, 0, 0.5);
+  --indigo-900: #111f2a;
+  --indigo-800: #1d3342;
+  --indigo-700: #5f879b;
+  --indigo-600: #6f98ad;
+  --indigo-500: #89aebe;
+  --color-primary-dark: #4f7488;
+  --color-primary-light: #182b37;
+  --color-primary-subtle: #14232e;
+  --color-primary-rgb: 95, 135, 155;
+  --color-sidebar-bg: #0d1821;
+  --color-sidebar-item: rgba(226, 236, 242, 0.86);
+  --color-sidebar-hover: rgba(137, 174, 190, 0.12);
+  --color-sidebar-active: rgba(137, 174, 190, 0.18);
+  --color-sidebar-border: rgba(137, 174, 190, 0.14);
+  --color-header-bg: #122531;
+  --color-bg-body: #0b1117;
+  --color-bg-card: #121c24;
+  --color-bg-hover: #1b2933;
+  --color-border: #253845;
+  --color-text-primary: #e2ecf2;
+  --color-text-secondary: #9fb4c1;
+  --color-text-muted: #718895;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 6px 14px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 14px 28px rgba(0, 0, 0, 0.48);
 }
 
 /* 顶部图标按钮 — 统一风格（白底 header 上保证对比度）*/

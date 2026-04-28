@@ -1,0 +1,301 @@
+{
+  "timestamp": "2026-04-28T08:31:55-07:00",
+  "version": "1.3.0",
+  "root_claude_md": ".claude/CLAUDE.md",
+  "modules": [
+    {
+      "name": "backend",
+      "path": "backend/",
+      "language": "Python",
+      "claude_md": "backend/.claude/CLAUDE.md",
+      "entry_files": [
+        "backend/main.py",
+        "backend/app_launcher.py"
+      ],
+      "infrastructure": [
+        "backend/src/config.py",
+        "backend/src/database.py",
+        "backend/src/dependencies.py",
+        "backend/src/rate_limit.py",
+        "backend/src/perf.py",
+        "backend/src/utils.py"
+      ],
+      "api_routes": [
+        "backend/src/routers/auth.py",
+        "backend/src/routers/admin.py",
+        "backend/src/routers/projects.py",
+        "backend/src/routers/visits.py",
+        "backend/src/routers/forms.py",
+        "backend/src/routers/fields.py",
+        "backend/src/routers/codelists.py",
+        "backend/src/routers/units.py",
+        "backend/src/routers/export.py",
+        "backend/src/routers/settings.py",
+        "backend/src/routers/import_template.py",
+        "backend/src/routers/import_docx.py"
+      ],
+      "services": [
+        "backend/src/services/auth_service.py",
+        "backend/src/services/user_admin_service.py",
+        "backend/src/services/import_service.py",
+        "backend/src/services/project_import_service.py",
+        "backend/src/services/docx_import_service.py",
+        "backend/src/services/export_service.py",
+        "backend/src/services/width_planning.py",
+        "backend/src/services/order_service.py",
+        "backend/src/services/project_clone_service.py",
+        "backend/src/services/docx_screenshot_service.py",
+        "backend/src/services/ai_review_service.py",
+        "backend/src/services/field_rendering.py"
+      ],
+      "models": [
+        "backend/src/models/project.py",
+        "backend/src/models/visit.py",
+        "backend/src/models/form.py",
+        "backend/src/models/visit_form.py",
+        "backend/src/models/field_definition.py",
+        "backend/src/models/field.py",
+        "backend/src/models/form_field.py",
+        "backend/src/models/codelist.py",
+        "backend/src/models/unit.py",
+        "backend/src/models/user.py"
+      ],
+      "schemas": [
+        "backend/src/schemas/project.py",
+        "backend/src/schemas/visit.py",
+        "backend/src/schemas/form.py",
+        "backend/src/schemas/field.py",
+        "backend/src/schemas/codelist.py",
+        "backend/src/schemas/unit.py"
+      ],
+      "repositories": [
+        "backend/src/repositories/base_repository.py",
+        "backend/src/repositories/project_repository.py",
+        "backend/src/repositories/field_definition_repository.py",
+        "backend/src/repositories/field_repository.py",
+        "backend/src/repositories/form_field_repository.py"
+      ],
+      "scripts": [
+        "backend/scripts/migrate_template_db.py",
+        "backend/scripts/generate_perf_fixture.py",
+        "backend/scripts/run_perf_baseline.py",
+        "backend/scripts/summarize_perf_evidence.py"
+      ],
+      "tests": [
+        "backend/tests/conftest.py",
+        "backend/tests/helpers.py",
+        "backend/tests/test_auth.py",
+        "backend/tests/test_user_admin.py",
+        "backend/tests/test_permission_guards.py",
+        "backend/tests/test_isolation.py",
+        "backend/tests/test_subresource_isolation.py",
+        "backend/tests/test_import_service.py",
+        "backend/tests/test_project_import.py",
+        "backend/tests/test_export_service.py",
+        "backend/tests/test_export_unified.py",
+        "backend/tests/test_export_validation.py",
+        "backend/tests/test_export_column_width_override.py",
+        "backend/tests/test_width_planning.py",
+        "backend/tests/test_wal.py",
+        "backend/tests/test_rate_limit.py",
+        "backend/tests/test_app_security.py",
+        "backend/tests/test_config.py",
+        "backend/tests/test_utils.py",
+        "backend/tests/test_order_service.py",
+        "backend/tests/test_phase0_ordering_contracts.py",
+        "backend/tests/test_fields_router.py",
+        "backend/tests/test_codelists_router.py",
+        "backend/tests/test_project_metadata.py",
+        "backend/tests/test_project_copy.py",
+        "backend/tests/test_admin_project_ops.py",
+        "backend/tests/test_form_design_notes.py",
+        "backend/tests/test_perf_baseline.py",
+        "backend/tests/test_perf_harness.py",
+        "backend/tests/test_perf_contracts.py",
+        "backend/tests/test_perf_evidence_summary.py",
+        "backend/tests/test_perf_redaction.py",
+        "backend/tests/test_perf_reorder_spans.py",
+        "backend/tests/test_perf_busy_wait_metric.py",
+        "backend/tests/test_perf_fixture.py"
+      ],
+      "coverage": {
+        "estimated_files": 87,
+        "scanned_files": 87,
+        "percent": 100
+      },
+      "gaps": [
+        {
+          "type": "large_service_file",
+          "description": "export_service.py 与 docx_import_service.py 仍适合在后续导入导出专项中继续拆解复杂路径。"
+        }
+      ]
+    },
+    {
+      "name": "frontend",
+      "path": "frontend/",
+      "language": "JavaScript/Vue",
+      "claude_md": "frontend/.claude/CLAUDE.md",
+      "entry_files": [
+        "frontend/src/main.js",
+        "frontend/src/App.vue"
+      ],
+      "components": [
+        "frontend/src/components/AdminView.vue",
+        "frontend/src/components/LoginView.vue",
+        "frontend/src/components/ProjectInfoTab.vue",
+        "frontend/src/components/CodelistsTab.vue",
+        "frontend/src/components/UnitsTab.vue",
+        "frontend/src/components/FieldsTab.vue",
+        "frontend/src/components/FormDesignerTab.vue",
+        "frontend/src/components/VisitsTab.vue",
+        "frontend/src/components/SimulatedCRFForm.vue",
+        "frontend/src/components/TemplatePreviewDialog.vue",
+        "frontend/src/components/DocxCompareDialog.vue",
+        "frontend/src/components/DocxScreenshotPanel.vue"
+      ],
+      "composables": [
+        "frontend/src/composables/useApi.js",
+        "frontend/src/composables/useOrderableList.js",
+        "frontend/src/composables/useSortableTable.js",
+        "frontend/src/composables/useCRFRenderer.js",
+        "frontend/src/composables/useColumnResize.js",
+        "frontend/src/composables/formDesignerPropertyEditor.js",
+        "frontend/src/composables/formFieldPresentation.js",
+        "frontend/src/composables/exportDownloadState.js",
+        "frontend/src/composables/visitPreviewLandscape.js",
+        "frontend/src/composables/useLazyTabs.js",
+        "frontend/src/composables/usePerfBaseline.js"
+      ],
+      "styles": [
+        "frontend/src/styles/main.css"
+      ],
+      "config_files": [
+        "frontend/package.json",
+        "frontend/vite.config.js"
+      ],
+      "tests": [
+        "frontend/tests/adminViewStructure.test.js",
+        "frontend/tests/appSettingsShell.test.js",
+        "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/columnWidthPlanning.pbt.test.js",
+        "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
+        "frontend/tests/formFieldPresentation.test.js",
+        "frontend/tests/exportDownloadState.test.js",
+        "frontend/tests/portDefaults.test.js",
+        "frontend/tests/browserPerfBaselineScript.test.js",
+        "frontend/tests/perfBaselineHelpers.test.js",
+        "frontend/tests/appTabLazyLoad.test.js",
+        "frontend/tests/visitPreviewLandscape.test.js",
+        "frontend/tests/importRenameFeedback.test.js",
+        "frontend/tests/orderingStructure.test.js",
+        "frontend/tests/themePalette.test.js",
+        "frontend/tests/sidebarCopyButtonScope.test.js",
+        "frontend/tests/appCollapse.test.js",
+        "frontend/tests/quickEditBehavior.test.js",
+        "frontend/tests/projectInfoMetadata.test.js",
+        "frontend/tests/sidebarCollapseBehavior.test.js"
+      ],
+      "coverage": {
+        "estimated_files": 46,
+        "scanned_files": 46,
+        "percent": 100
+      },
+      "gaps": [
+        {
+          "type": "no_browser_e2e",
+          "description": "未发现 Playwright / Cypress 等浏览器级 E2E 套件；当前以 node:test 源码级回归为主。"
+        }
+      ]
+    },
+    {
+      "name": "assets",
+      "path": "assets/",
+      "language": "static-assets",
+      "claude_md": null,
+      "important_paths": [
+        "assets/logos/README.md"
+      ],
+      "coverage": {
+        "estimated_files": 1,
+        "scanned_files": 1,
+        "percent": 100
+      },
+      "gaps": []
+    }
+  ],
+  "scan_summary": {
+    "estimated_total_files": 134,
+    "scanned_files": 134,
+    "coverage_percent": 100,
+    "ignored_patterns": [
+      "node_modules/**",
+      ".git/**",
+      "frontend/dist/**",
+      "build/**",
+      "__pycache__/**",
+      "*.lock",
+      "*.log",
+      "*.bin",
+      "*.pdf",
+      "*.png",
+      "*.jpg",
+      "*.jpeg",
+      "*.gif",
+      "*.mp4",
+      "*.zip",
+      "*.tar",
+      "*.gz",
+      ".venv/**",
+      ".venv-linux/**",
+      "backend/uploads/**",
+      ".pytest_cache/**",
+      ".obsidian/**",
+      ".codex/**"
+    ],
+    "ignored_top_paths": [
+      {
+        "path": "frontend/node_modules/",
+        "reason": "dependency_tree"
+      },
+      {
+        "path": "frontend/dist/",
+        "reason": "generated_build_output"
+      },
+      {
+        "path": "backend/uploads/docx_temp/",
+        "reason": "runtime_temp_files"
+      },
+      {
+        "path": "backend/.venv/",
+        "reason": "virtual_environment"
+      },
+      {
+        "path": "backend/.venv-linux/",
+        "reason": "virtual_environment"
+      },
+      {
+        "path": "docs/",
+        "reason": "binary_docx_archive"
+      },
+      {
+        "path": ".obsidian/",
+        "reason": "editor_config"
+      }
+    ],
+    "truncated": false,
+    "phase_reached": "D",
+    "next_steps": [
+      "如需更高可信度，可补扫 backend/src/services/export_service.py 与 docx_import_service.py 的复杂导入导出分支。",
+      "如需 UI 行为保障，可补充 Playwright / Cypress 浏览器级 E2E 套件。",
+      "性能基线测试套件已就绪，可在后续迭代中扩展场景覆盖。"
+    ]
+  },
+  "gap_summary": {
+    "backend": [
+      "large_service_file"
+    ],
+    "frontend": [
+      "no_browser_e2e"
+    ]
+  }
+}

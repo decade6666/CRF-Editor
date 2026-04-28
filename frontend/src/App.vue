@@ -1,198 +1,230 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import draggable from 'vuedraggable'
-import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi'
-import { getDownloadFilename } from './composables/exportDownloadState'
-import ProjectInfoTab from './components/ProjectInfoTab.vue'
-import VisitsTab from './components/VisitsTab.vue'
-import FormDesignerTab from './components/FormDesignerTab.vue'
-import FieldsTab from './components/FieldsTab.vue'
-import CodelistsTab from './components/CodelistsTab.vue'
-import UnitsTab from './components/UnitsTab.vue'
-import DocxCompareDialog from './components/DocxCompareDialog.vue'
-import TemplatePreviewDialog from './components/TemplatePreviewDialog.vue'
-import LoginView from './components/LoginView.vue'
-import AdminView from './components/AdminView.vue'
-import { useOrderableList } from './composables/useOrderableList'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide, defineAsyncComponent } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  Delete,
+  DocumentCopy,
+  Expand,
+  Files,
+  Loading,
+  Monitor,
+  Moon,
+  Plus,
+  Rank,
+  RefreshRight,
+  Setting,
+  Sunny,
+  UploadFilled,
+} from '@element-plus/icons-vue';
+import draggable from 'vuedraggable';
+import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi';
+import { getDownloadFilename } from './composables/exportDownloadState';
+import { createLazyTabState } from './composables/useLazyTabs';
+import { clearPerfEvents, markPerfEnd, markPerfStart, recordPerfEvent } from './composables/usePerfBaseline';
+import ProjectInfoTab from './components/ProjectInfoTab.vue';
+import LoginView from './components/LoginView.vue';
+import AdminView from './components/AdminView.vue';
+import { useOrderableList } from './composables/useOrderableList';
+
+const VisitsTab = defineAsyncComponent(() => import('./components/VisitsTab.vue'));
+const FormDesignerTab = defineAsyncComponent(() => import('./components/FormDesignerTab.vue'));
+const FieldsTab = defineAsyncComponent(() => import('./components/FieldsTab.vue'));
+const CodelistsTab = defineAsyncComponent(() => import('./components/CodelistsTab.vue'));
+const UnitsTab = defineAsyncComponent(() => import('./components/UnitsTab.vue'));
+const DocxCompareDialog = defineAsyncComponent(() => import('./components/DocxCompareDialog.vue'));
+const TemplatePreviewDialog = defineAsyncComponent(() => import('./components/TemplatePreviewDialog.vue'));
 
 // 登录状态
-const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
+const isLoggedIn = ref(!!localStorage.getItem('crf_token'));
 
 function getEmptyUser() {
-  return { username: '', is_admin: false }
+  return { username: '', is_admin: false };
 }
 
 function rememberUsername(username = currentUser.value.username) {
-  const normalized = String(username || '').trim()
-  if (normalized) localStorage.setItem('crf_last_username', normalized)
+  const normalized = String(username || '').trim();
+  if (normalized) localStorage.setItem('crf_last_username', normalized);
 }
 
 function resetSessionState() {
-  api.clearAllCache()
-  localStorage.removeItem('crf_token')
-  isLoggedIn.value = false
-  closeSelfPasswordDialog()
-  showSettings.value = false
-  projects.value = []
-  selectedProject.value = null
-  activeTab.value = 'info'
-  currentUser.value = getEmptyUser()
+  api.clearAllCache();
+  clearPerfEvents();
+  localStorage.removeItem('crf_token');
+  isLoggedIn.value = false;
+  closeSelfPasswordDialog();
+  showSettings.value = false;
+  projects.value = [];
+  selectedProject.value = null;
+  resetLazyTabs('info');
+  currentUser.value = getEmptyUser();
 }
 
 async function onLoginSuccess() {
-  isLoggedIn.value = true
-  await loadMe()
+  isLoggedIn.value = true;
+  await loadMe();
   if (isAdmin.value) {
-    selectedProject.value = null
-    projects.value = []
-    return
+    selectedProject.value = null;
+    projects.value = [];
+    return;
   }
-  await loadProjects()
+  await loadProjects();
 }
 
 function logout() {
-  rememberUsername()
-  resetSessionState()
-  ElMessage.success('已退出登录')
+  rememberUsername();
+  resetSessionState();
+  ElMessage.success('已退出登录');
 }
 
 function handleAuthExpired() {
-  rememberUsername()
-  resetSessionState()
+  rememberUsername();
+  resetSessionState();
 }
 
 // 当前用户信息
-const currentUser = ref(getEmptyUser())
-const isAdmin = computed(() => currentUser.value.is_admin)
+const currentUser = ref(getEmptyUser());
+const isAdmin = computed(() => currentUser.value.is_admin);
 
 async function loadMe() {
   try {
-    currentUser.value = await api.get('/api/auth/me')
-    rememberUsername(currentUser.value.username)
+    currentUser.value = await api.get('/api/auth/me');
+    rememberUsername(currentUser.value.username);
   } catch {
-    currentUser.value = getEmptyUser()
+    currentUser.value = getEmptyUser();
   }
 }
 
 // 项目数据
-const projects = ref([])
-const selectedProject = ref(null)
-const activeTab = ref('info')
-const formDesignerTabRef = ref(null)
-const showCreateProject = ref(false)
-const newProject = reactive({ name: '', version: '1.0' })
-const copyingProjectId = ref(null)
+const projects = ref([]);
+const selectedProject = ref(null);
+const { activeTab, activateTab, isTabActivated, reset: resetLazyTabs } = createLazyTabState('info');
+const formDesignerTabRef = ref(null);
+const showCreateProject = ref(false);
+const newProject = reactive({ name: '', version: '1.0' });
+const copyingProjectId = ref(null);
 
-const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder')
+const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder');
 
 async function loadProjects() {
   if (isAdmin.value) {
-    projects.value = []
-    selectedProject.value = null
-    return
+    projects.value = [];
+    selectedProject.value = null;
+    return;
   }
-  projects.value = await api.get('/api/projects')
+  markPerfStart('app_project_load');
+  projects.value = await api.get('/api/projects');
+  markPerfEnd('app_project_load', { project_count: projects.value.length });
 }
 
 async function onProjectDragEnd() {
-  await handleProjectDragEnd(
-    projects.value,
-    loadProjects,
-    (err) => ElMessage.error(err.message)
-  )
+  await handleProjectDragEnd(projects.value, loadProjects, (err) => ElMessage.error(err.message));
 }
 onMounted(async () => {
   if (isLoggedIn.value) {
-    await loadMe()
-    if (!isAdmin.value) await loadProjects()
+    await loadMe();
+    if (!isAdmin.value) await loadProjects();
   }
-  window.addEventListener('crf:auth-expired', handleAuthExpired)
-})
+  window.addEventListener('crf:auth-expired', handleAuthExpired);
+});
 
 onBeforeUnmount(() => {
-  window.removeEventListener('crf:auth-expired', handleAuthExpired)
-})
+  window.removeEventListener('crf:auth-expired', handleAuthExpired);
+});
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
-const refreshKey = ref(0)
-provide('refreshKey', refreshKey)
+const refreshKey = ref(0);
+provide('refreshKey', refreshKey);
 
 // 编辑模式（持久化，默认关闭）
-const editMode = ref(localStorage.getItem('crf_edit_mode') === 'true')
-const ADVANCED_EDIT_TABS = new Set(['codelists', 'units', 'fields'])
-watch(editMode, v => {
-  localStorage.setItem('crf_edit_mode', String(v))
-  if (!v && ADVANCED_EDIT_TABS.has(activeTab.value)) activeTab.value = 'info'
-})
-provide('editMode', editMode)
+const editMode = ref(localStorage.getItem('crf_edit_mode') === 'true');
+const ADVANCED_EDIT_TABS = new Set(['codelists', 'units', 'fields']);
+watch(editMode, (v) => {
+  localStorage.setItem('crf_edit_mode', String(v));
+  if (!v && ADVANCED_EDIT_TABS.has(activeTab.value)) resetLazyTabs('info');
+});
+provide('editMode', editMode);
 
 function handleRefresh() {
-  api.clearAllCache()
-  refreshKey.value++
-  loadProjects()
-  ElMessage.success('数据已刷新')
+  api.clearAllCache();
+  refreshKey.value++;
+  loadProjects();
+  ElMessage.success('数据已刷新');
 }
 
 async function selectProject(p) {
-  if (selectedProject.value?.id === p.id) return
+  if (selectedProject.value?.id === p.id) return;
   if (activeTab.value === 'designer' && formDesignerTabRef.value?.canLeaveProject) {
-    const canLeave = await formDesignerTabRef.value.canLeaveProject()
-    if (!canLeave) return
+    const canLeave = await formDesignerTabRef.value.canLeaveProject();
+    if (!canLeave) return;
   }
-  selectedProject.value = p
-  activeTab.value = 'info'
+  selectedProject.value = p;
+  resetLazyTabs('info');
 }
 
 // 切换Tab时刷新相关数据
 watch(activeTab, (newTab) => {
   // 切换到字段库时刷新，确保显示最新数据（表单设计器可能修改了字段）
   if (newTab === 'fields') {
-    api.invalidateCache(`/api/projects/${selectedProject.value?.id}/field-definitions`)
-    refreshKey.value++
+    api.invalidateCache(`/api/projects/${selectedProject.value?.id}/field-definitions`);
+    refreshKey.value++;
   }
-})
+});
+
+function onMainTabChange(name) {
+  const firstActivation = !isTabActivated(name);
+  activateTab(name);
+  if (firstActivation) {
+    recordPerfEvent({
+      type: 'instant',
+      name: `tab_${name}_first_activate`,
+      project_id: selectedProject.value?.id ?? null,
+    });
+  }
+}
 
 function onProjectUpdated(p) {
-  selectedProject.value = p
-  const idx = projects.value.findIndex(x => x.id === p.id)
-  if (idx >= 0) projects.value[idx] = p
+  selectedProject.value = p;
+  const idx = projects.value.findIndex((x) => x.id === p.id);
+  if (idx >= 0) projects.value[idx] = p;
 }
 
 async function createProject() {
-  if (!newProject.name) return ElMessage.warning('请输入项目名称')
+  if (!newProject.name) return ElMessage.warning('请输入项目名称');
   try {
-    const p = await api.post('/api/projects', { ...newProject })
-    projects.value.push(p); showCreateProject.value = false; newProject.name = ''
-    selectProject(p)
-  } catch (e) { ElMessage.error(e.message) }
+    const p = await api.post('/api/projects', { ...newProject });
+    projects.value.push(p);
+    showCreateProject.value = false;
+    newProject.name = '';
+    selectProject(p);
+  } catch (e) {
+    ElMessage.error(e.message);
+  }
 }
 
 async function deleteProject(p) {
-  await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' })
-  await api.del(`/api/projects/${p.id}`)
+  await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' });
+  await api.del(`/api/projects/${p.id}`);
   if (selectedProject.value?.id === p.id) {
-    selectedProject.value = null
+    selectedProject.value = null;
   }
-  loadProjects()
+  loadProjects();
 }
 
 async function copyProject(p) {
-  copyingProjectId.value = p.id
+  copyingProjectId.value = p.id;
   try {
-    const copied = await api.post(`/api/projects/${p.id}/copy`, {})
-    await loadProjects()
-    selectProject(copied)
-    ElMessage.success('项目复制成功')
+    const copied = await api.post(`/api/projects/${p.id}/copy`, {});
+    await loadProjects();
+    selectProject(copied);
+    ElMessage.success('项目复制成功');
   } catch (e) {
-    ElMessage.error('项目复制失败: ' + e.message)
+    ElMessage.error('项目复制失败: ' + e.message);
   } finally {
-    copyingProjectId.value = null
+    copyingProjectId.value = null;
   }
 }
 
-
-const exportWordLoading = ref(false)
+const exportWordLoading = ref(false);
 
 /**
  * 收集项目中所有表单的列宽覆盖配置。
@@ -202,48 +234,48 @@ const exportWordLoading = ref(false)
  *   table_instance_id 格式：kind:fieldIds=<ordered-field-ids> 或 legacy: groupIndex-kind-colCount
  */
 function collectColumnWidthOverrides(forms) {
-  const overrides = {}
-  if (!forms || !forms.length) return overrides
+  const overrides = {};
+  if (!forms || !forms.length) return overrides;
 
-  const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
+  const formIds = new Set(forms.map((f) => f.id).filter((id) => id != null));
 
   // 遍历 localStorage 中所有相关键
-  const keyPrefix = 'crf:designer:col-widths:'
+  const keyPrefix = 'crf:designer:col-widths:';
   for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (!key || !key.startsWith(keyPrefix)) continue
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(keyPrefix)) continue;
 
     // 解析键格式：crf:designer:col-widths:<form_id>:<table_instance_id>
-    const parts = key.slice(keyPrefix.length).split(':')
-    if (parts.length < 2) continue
+    const parts = key.slice(keyPrefix.length).split(':');
+    if (parts.length < 2) continue;
 
-    const formId = parseInt(parts[0], 10)
-    if (!formIds.has(formId)) continue
+    const formId = parseInt(parts[0], 10);
+    if (!formIds.has(formId)) continue;
 
-    const tableInstanceId = parts.slice(1).join(':')
+    const tableInstanceId = parts.slice(1).join(':');
 
     try {
-      const raw = localStorage.getItem(key)
-      if (!raw) continue
-      const arr = JSON.parse(raw)
-      if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
-        overrides[tableInstanceId] = arr
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0 && arr.every((r) => Number.isFinite(r) && r >= 0 && r <= 1)) {
+        overrides[tableInstanceId] = arr;
       }
     } catch {
       // 忽略解析错误
     }
   }
 
-  return overrides
+  return overrides;
 }
 
 async function exportWord() {
-  if (!selectedProject.value || exportWordLoading.value) return
-  exportWordLoading.value = true
+  if (!selectedProject.value || exportWordLoading.value) return;
+  exportWordLoading.value = true;
   try {
     // 收集列宽覆盖配置
-    const forms = formDesignerTabRef.value?.getForms?.() || []
-    const columnWidthOverrides = collectColumnWidthOverrides(forms)
+    const forms = formDesignerTabRef.value?.getForms?.() || [];
+    const columnWidthOverrides = collectColumnWidthOverrides(forms);
 
     const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
       method: 'POST',
@@ -252,126 +284,130 @@ async function exportWord() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ column_width_overrides: columnWidthOverrides }),
-    })
+    });
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      return ElMessage.error('导出失败: ' + (err.detail || '未知错误'))
+      const err = await response.json().catch(() => ({}));
+      return ElMessage.error('导出失败: ' + (err.detail || '未知错误'));
     }
-    const blob = await response.blob()
-    const contentDisposition = response.headers.get('content-disposition')
-    const fallbackFilename = `${selectedProject.value.name}_CRF.docx`
-    const filename = getDownloadFilename(contentDisposition, fallbackFilename)
-    const objectUrl = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(objectUrl)
-    ElMessage.success('导出成功')
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('content-disposition');
+    const fallbackFilename = `${selectedProject.value.name}_CRF.docx`;
+    const filename = getDownloadFilename(contentDisposition, fallbackFilename);
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
+    ElMessage.success('导出成功');
   } catch (e) {
-    ElMessage.error('导出失败: ' + e.message)
+    ElMessage.error('导出失败: ' + e.message);
   } finally {
-    exportWordLoading.value = false
+    exportWordLoading.value = false;
   }
 }
 
 async function _blobDownload(url, fallbackFilename) {
-  const response = await fetch(url, { headers: getAuthHeaders() })
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.detail || '未知错误')
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || '未知错误');
   }
-  const blob = await response.blob()
-  const contentDisposition = response.headers.get('content-disposition')
-  const filename = getDownloadFilename(contentDisposition, fallbackFilename)
-  const objectUrl = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(objectUrl)
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get('content-disposition');
+  const filename = getDownloadFilename(contentDisposition, fallbackFilename);
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(objectUrl);
 }
 
 async function exportFullDatabase() {
-  const exportUrl = isAdmin.value ? '/api/export/database' : '/api/projects/export/database'
-  const dialogTitle = '导出所有项目'
+  const exportUrl = isAdmin.value ? '/api/export/database' : '/api/projects/export/database';
+  const dialogTitle = '导出所有项目';
   const dialogMessage = isAdmin.value
     ? '将导出所有项目数据库文件，是否继续？'
-    : '将导出当前账号名下的全部项目，是否继续？'
-  const fallbackFilename = isAdmin.value
-    ? 'crf_editor_full.db'
-    : `${currentUser.value.username || 'my'}_projects.db`
+    : '将导出当前账号名下的全部项目，是否继续？';
+  const fallbackFilename = isAdmin.value ? 'crf_editor_full.db' : `${currentUser.value.username || 'my'}_projects.db`;
 
   try {
-    await ElMessageBox.confirm(dialogMessage, dialogTitle, { type: 'info' })
-  } catch { return }
+    await ElMessageBox.confirm(dialogMessage, dialogTitle, { type: 'info' });
+  } catch {
+    return;
+  }
   try {
-    await _blobDownload(exportUrl, fallbackFilename)
-    ElMessage.success('数据库导出成功')
+    await _blobDownload(exportUrl, fallbackFilename);
+    ElMessage.success('数据库导出成功');
   } catch (e) {
-    ElMessage.error('导出失败: ' + e.message)
+    ElMessage.error('导出失败: ' + e.message);
   }
 }
 
 async function exportProjectDatabase() {
-  if (!selectedProject.value) return
-  const name = selectedProject.value.name
+  if (!selectedProject.value) return;
+  const name = selectedProject.value.name;
   try {
-    await ElMessageBox.confirm(`将导出项目「${name}」的数据库，是否继续？`, '导出当前项目', { type: 'info' })
-  } catch { return }
+    await ElMessageBox.confirm(`将导出项目「${name}」的数据库，是否继续？`, '导出当前项目', { type: 'info' });
+  } catch {
+    return;
+  }
   try {
-    await _blobDownload(`/api/projects/${selectedProject.value.id}/export/database`, `${name}_template.db`)
-    ElMessage.success('项目数据库导出成功')
+    await _blobDownload(`/api/projects/${selectedProject.value.id}/export/database`, `${name}_template.db`);
+    ElMessage.success('项目数据库导出成功');
   } catch (e) {
-    ElMessage.error('导出失败: ' + e.message)
+    ElMessage.error('导出失败: ' + e.message);
   }
 }
 
 // 导入项目（统一入口，自动检测单项目/多项目）
-const importProjectInput = ref(null)
-const importProjectLoading = ref(false)
+const importProjectInput = ref(null);
+const importProjectLoading = ref(false);
 
-function triggerImportProject() { importProjectInput.value?.click() }
+function triggerImportProject() {
+  importProjectInput.value?.click();
+}
 
 async function handleImportProject(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  e.target.value = ''
-  importProjectLoading.value = true
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';
+  importProjectLoading.value = true;
   try {
-    const form = new FormData()
-    form.append('file', file)
+    const form = new FormData();
+    form.append('file', file);
     const resp = await fetch('/api/projects/import/auto', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,
-    })
-    const data = await resp.json()
-    if (!resp.ok) throw new Error(data.detail || '导入失败')
-    const names = data.imported.map(p => p.name).join('、')
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '导入失败');
+    const names = data.imported.map((p) => p.name).join('、');
     const renamedInfo = data.renamed.length
-      ? `\n重命名：${data.renamed.map(r => `${r.original} → ${r.new}`).join('、')}`
-      : ''
+      ? `\n重命名：${data.renamed.map((r) => `${r.original} → ${r.new}`).join('、')}`
+      : '';
     if (data.count === 1) {
-      ElMessage.success(`导入成功：${names}`)
+      ElMessage.success(`导入成功：${names}`);
     } else {
-      ElMessageBox.alert(`导入 ${data.count} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' })
+      ElMessageBox.alert(`导入 ${data.count} 个项目：${names}${renamedInfo}`, '导入结果', { type: 'success' });
     }
-    api.clearAllCache()
-    loadProjects()
+    api.clearAllCache();
+    loadProjects();
   } catch (err) {
-    ElMessage.error('导入失败: ' + err.message)
+    ElMessage.error('导入失败: ' + err.message);
   } finally {
-    importProjectLoading.value = false
+    importProjectLoading.value = false;
   }
 }
 
 // 设置弹窗
-const showSettings = ref(false)
+const showSettings = ref(false);
 const settingsForm = reactive({
   template_path: '',
   ai_enabled: false,
@@ -379,86 +415,88 @@ const settingsForm = reactive({
   ai_api_key: '',
   ai_model: '',
   ai_api_format: '',
-})
-const aiTestLoading = ref(false)
-const aiTestResult = ref(null) // { ok, latency_ms, model, error }
-const showSelfPasswordDialog = ref(false)
-const selfPasswordSaving = ref(false)
+});
+const aiTestLoading = ref(false);
+const aiTestResult = ref(null); // { ok, latency_ms, model, error }
+const showSelfPasswordDialog = ref(false);
+const selfPasswordSaving = ref(false);
 const selfPasswordForm = reactive({
   current_password: '',
   new_password: '',
   confirm_new_password: '',
-})
+});
 
 function resetSelfPasswordForm() {
-  selfPasswordForm.current_password = ''
-  selfPasswordForm.new_password = ''
-  selfPasswordForm.confirm_new_password = ''
+  selfPasswordForm.current_password = '';
+  selfPasswordForm.new_password = '';
+  selfPasswordForm.confirm_new_password = '';
 }
 
 function openSelfPasswordDialog() {
-  resetSelfPasswordForm()
-  showSelfPasswordDialog.value = true
+  resetSelfPasswordForm();
+  showSelfPasswordDialog.value = true;
 }
 
 function closeSelfPasswordDialog() {
-  showSelfPasswordDialog.value = false
-  selfPasswordSaving.value = false
-  resetSelfPasswordForm()
+  showSelfPasswordDialog.value = false;
+  selfPasswordSaving.value = false;
+  resetSelfPasswordForm();
 }
 
 async function submitSelfPasswordChange() {
   if (selfPasswordForm.new_password !== selfPasswordForm.confirm_new_password) {
-    ElMessage.error('新密码与确认新密码不一致')
-    return
+    ElMessage.error('新密码与确认新密码不一致');
+    return;
   }
-  selfPasswordSaving.value = true
+  selfPasswordSaving.value = true;
   try {
     await api.put('/api/auth/me/password', {
       current_password: selfPasswordForm.current_password,
       new_password: selfPasswordForm.new_password,
-    })
-    ElMessage.success('密码修改成功，请重新登录')
-    closeSelfPasswordDialog()
-    rememberUsername()
-    resetSessionState()
+    });
+    ElMessage.success('密码修改成功，请重新登录');
+    closeSelfPasswordDialog();
+    rememberUsername();
+    resetSessionState();
   } catch (e) {
-    if (e.status !== 401) ElMessage.error(e.message)
+    if (e.status !== 401) ElMessage.error(e.message);
   } finally {
-    selfPasswordSaving.value = false
+    selfPasswordSaving.value = false;
   }
 }
 
 function resetSettingsForm() {
-  settingsForm.template_path = ''
-  settingsForm.ai_enabled = false
-  settingsForm.ai_api_url = ''
-  settingsForm.ai_api_key = ''
-  settingsForm.ai_model = ''
-  settingsForm.ai_api_format = ''
+  settingsForm.template_path = '';
+  settingsForm.ai_enabled = false;
+  settingsForm.ai_api_url = '';
+  settingsForm.ai_api_key = '';
+  settingsForm.ai_model = '';
+  settingsForm.ai_api_format = '';
 }
 
 async function openSettings() {
-  showSettings.value = true
-  aiTestResult.value = null
-  closeSelfPasswordDialog()
-  resetSettingsForm()
-  if (!isAdmin.value) return
+  showSettings.value = true;
+  aiTestResult.value = null;
+  closeSelfPasswordDialog();
+  resetSettingsForm();
+  if (!isAdmin.value) return;
   try {
-    const data = await api.get('/api/settings')
-    settingsForm.template_path = data.template_path || ''
-    settingsForm.ai_enabled = data.ai_enabled || false
-    settingsForm.ai_api_url = data.ai_api_url || ''
-    settingsForm.ai_api_key = data.ai_api_key || ''
-    settingsForm.ai_model = data.ai_model || ''
-    settingsForm.ai_api_format = data.ai_api_format || ''
-  } catch (e) { ElMessage.error('加载设置失败: ' + e.message) }
+    const data = await api.get('/api/settings');
+    settingsForm.template_path = data.template_path || '';
+    settingsForm.ai_enabled = data.ai_enabled || false;
+    settingsForm.ai_api_url = data.ai_api_url || '';
+    settingsForm.ai_api_key = data.ai_api_key || '';
+    settingsForm.ai_model = data.ai_model || '';
+    settingsForm.ai_api_format = data.ai_api_format || '';
+  } catch (e) {
+    ElMessage.error('加载设置失败: ' + e.message);
+  }
 }
 
 async function saveSettings() {
   if (!isAdmin.value) {
-    showSettings.value = false
-    return
+    showSettings.value = false;
+    return;
   }
   try {
     await api.put('/api/settings', {
@@ -468,204 +506,228 @@ async function saveSettings() {
       ai_api_key: settingsForm.ai_api_key,
       ai_model: settingsForm.ai_model,
       ai_api_format: settingsForm.ai_api_format,
-    })
-    ElMessage.success('设置已保存'); showSettings.value = false
-  } catch (e) { ElMessage.error('保存失败: ' + e.message) }
+    });
+    ElMessage.success('设置已保存');
+    showSettings.value = false;
+  } catch (e) {
+    ElMessage.error('保存失败: ' + e.message);
+  }
 }
 
 async function testAiConnection() {
-  aiTestLoading.value = true
-  aiTestResult.value = null
+  aiTestLoading.value = true;
+  aiTestResult.value = null;
   try {
     const res = await api.post('/api/settings/ai/test', {
       ai_api_url: settingsForm.ai_api_url,
       ai_api_key: settingsForm.ai_api_key,
       ai_model: settingsForm.ai_model,
-    })
-    aiTestResult.value = res
+    });
+    aiTestResult.value = res;
     // 测试成功时自动记录探测到的API格式
     if (res.ok && res.api_format) {
-      settingsForm.ai_api_format = res.api_format
+      settingsForm.ai_api_format = res.api_format;
     }
   } catch (e) {
-    aiTestResult.value = { ok: false, error: e.message }
-  } finally { aiTestLoading.value = false }
+    aiTestResult.value = { ok: false, error: e.message };
+  } finally {
+    aiTestLoading.value = false;
+  }
 }
 
 // 导入模板
-const showImport = ref(false)
-const importLoading = ref(false)
-const importProjects = ref([])
-const importSelectedForms = ref([])  // 选中的表单 id 列表
+const showImport = ref(false);
+const importLoading = ref(false);
+const importProjects = ref([]);
+const importSelectedForms = ref([]); // 选中的表单 id 列表
 // 树节点选中信息（用于定位 source_project_id）
-const importTreeCheckedForms = ref([]) // [{projectId, formId, formName}]
+const importTreeCheckedForms = ref([]); // [{projectId, formId, formName}]
 // 预览对话框
-const showTemplatePreview = ref(false)
-const templatePreviewFormId = ref(null)
-const templatePreviewFormName = ref('')
+const showTemplatePreview = ref(false);
+const hasOpenedTemplatePreview = ref(false);
+const templatePreviewFormId = ref(null);
+const templatePreviewFormName = ref('');
 
 // 将后端返回的项目+表单数据转换为 el-tree 所需格式
 function buildImportTreeData(projects) {
-  return projects.map(p => ({
+  return projects.map((p) => ({
     id: `proj_${p.id}`,
     label: `${p.name}（v${p.version}，${p.forms.length} 个表单）`,
     projectId: p.id,
     isProject: true,
-    children: p.forms.map(f => ({
+    children: p.forms.map((f) => ({
       id: `form_${f.id}`,
       label: f.name,
       formId: f.id,
       projectId: p.id,
       isForm: true,
-    }))
-  }))
+    })),
+  }));
 }
-const importTreeData = ref([])
+const importTreeData = ref([]);
 
 async function openImportDialog() {
-  importProjects.value = []
-  importTreeData.value = []
-  importSelectedForms.value = []
-  importTreeCheckedForms.value = []
-  showImport.value = true
-  importLoading.value = true
+  importProjects.value = [];
+  importTreeData.value = [];
+  importSelectedForms.value = [];
+  importTreeCheckedForms.value = [];
+  showImport.value = true;
+  importLoading.value = true;
   try {
-    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-template`)
-    importProjects.value = data.projects || []
-    importTreeData.value = buildImportTreeData(importProjects.value)
+    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-template`);
+    importProjects.value = data.projects || [];
+    importTreeData.value = buildImportTreeData(importProjects.value);
   } catch (e) {
-    ElMessage.error('加载模板失败: ' + e.message); showImport.value = false
-  } finally { importLoading.value = false }
+    ElMessage.error('加载模板失败: ' + e.message);
+    showImport.value = false;
+  } finally {
+    importLoading.value = false;
+  }
 }
 
 function handleImportTreeCheck(node, { checkedNodes }) {
   // 只收集叶子节点（表单）
-  const forms = checkedNodes.filter(n => n.isForm)
-  importSelectedForms.value = forms.map(n => n.formId)
-  importTreeCheckedForms.value = forms
+  const forms = checkedNodes.filter((n) => n.isForm);
+  importSelectedForms.value = forms.map((n) => n.formId);
+  importTreeCheckedForms.value = forms;
 }
 
 function openTemplatePreview(node) {
-  if (!node.isForm) return
-  templatePreviewFormId.value = node.formId
-  templatePreviewFormName.value = node.label
-  showTemplatePreview.value = true
-}
-
-function onTemplateImported() {
-  showImport.value = false
-  api.clearAllCache()
-  refreshKey.value++
+  if (!node.isForm) return;
+  templatePreviewFormId.value = node.formId;
+  templatePreviewFormName.value = node.label;
+  hasOpenedTemplatePreview.value = true;
+  showTemplatePreview.value = true;
 }
 
 // 从选中的表单中推断 source_project_id（取第一个选中表单所属项目）
 function getSourceProjectId() {
-  if (!importTreeCheckedForms.value.length) return null
-  return importTreeCheckedForms.value[0].projectId
+  if (!importTreeCheckedForms.value.length) return null;
+  return importTreeCheckedForms.value[0].projectId;
 }
 
 async function executeImport() {
-  if (!importSelectedForms.value.length) return
-  const sourceProjectId = getSourceProjectId()
-  if (!sourceProjectId) return
-  importLoading.value = true
+  if (!importSelectedForms.value.length) return;
+  const sourceProjectId = getSourceProjectId();
+  if (!sourceProjectId) return;
+  importLoading.value = true;
   try {
-    const data = await api.post(
-      `/api/projects/${selectedProject.value.id}/import-template/execute`,
-      { source_project_id: sourceProjectId, form_ids: importSelectedForms.value }
-    )
-    ElMessage.success(`导入成功：${data.imported_form_count}个表单`)
-    showImport.value = false
-    api.clearAllCache(); refreshKey.value++
-  } catch (e) { ElMessage.error('导入失败: ' + e.message) }
-  finally { importLoading.value = false }
+    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-template/execute`, {
+      source_project_id: sourceProjectId,
+      form_ids: importSelectedForms.value,
+    });
+    ElMessage.success(`导入成功：${data.imported_form_count}个表单`);
+    showImport.value = false;
+    api.clearAllCache();
+    refreshKey.value++;
+  } catch (e) {
+    ElMessage.error('导入失败: ' + e.message);
+  } finally {
+    importLoading.value = false;
+  }
 }
 
 // 导入Word
-const showImportWordDialog = ref(false)
-const importWordStep = ref(1)
-const importWordLoading = ref(false)
-const importedFormsPreview = ref([])
-const selectedFormsToImport = ref([])
-const tempDocxId = ref(null)
-const importWordErrorMessage = ref('')
-const importWordAiError = ref('')
+const showImportWordDialog = ref(false);
+const importWordStep = ref(1);
+const importWordLoading = ref(false);
+const importedFormsPreview = ref([]);
+const selectedFormsToImport = ref([]);
+const tempDocxId = ref(null);
+const importWordErrorMessage = ref('');
+const importWordAiError = ref('');
 // 预览对比对话框
-const showDocxCompare = ref(false)
-const compareFormData = ref(null)
+const showDocxCompare = ref(false);
+const hasOpenedDocxCompare = ref(false);
+const compareFormData = ref(null);
 // 每个表单是否采纳AI建议：{formIndex: boolean}
-const aiSuggestionFlags = ref({})
+const aiSuggestionFlags = ref({});
 
 function openImportWordDialog() {
-  importWordStep.value = 1; importWordLoading.value = false
-  importedFormsPreview.value = []; selectedFormsToImport.value = []
-  tempDocxId.value = null; importWordErrorMessage.value = ''
-  importWordAiError.value = ''
-  showDocxCompare.value = false; compareFormData.value = null
-  aiSuggestionFlags.value = {}
-  showImportWordDialog.value = true
+  importWordStep.value = 1;
+  importWordLoading.value = false;
+  importedFormsPreview.value = [];
+  selectedFormsToImport.value = [];
+  tempDocxId.value = null;
+  importWordErrorMessage.value = '';
+  importWordAiError.value = '';
+  showDocxCompare.value = false;
+  compareFormData.value = null;
+  aiSuggestionFlags.value = {};
+  showImportWordDialog.value = true;
 }
 
 function goBackToImportWordStep1() {
-  importWordStep.value = 1; importedFormsPreview.value = []
-  selectedFormsToImport.value = []; tempDocxId.value = null
-  importWordErrorMessage.value = ''
+  importWordStep.value = 1;
+  importedFormsPreview.value = [];
+  selectedFormsToImport.value = [];
+  tempDocxId.value = null;
+  importWordErrorMessage.value = '';
 }
 
 function beforeDocxUpload(file) {
-  if (file.size > 10 * 1024 * 1024) { ElMessage.error('文件大小不能超过 10MB'); return false }
-  importWordErrorMessage.value = ''; importWordLoading.value = true
-  return true
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('文件大小不能超过 10MB');
+    return false;
+  }
+  importWordErrorMessage.value = '';
+  importWordLoading.value = true;
+  return true;
 }
 
 function handleDocxUploadSuccess(response) {
-  importWordLoading.value = false
+  importWordLoading.value = false;
   if (response?.forms && response?.temp_id) {
-    importedFormsPreview.value = response.forms
-    selectedFormsToImport.value = []; tempDocxId.value = response.temp_id
-    importWordErrorMessage.value = ''
-    importWordAiError.value = response.ai_error || ''
-    importWordStep.value = 2
+    importedFormsPreview.value = response.forms;
+    selectedFormsToImport.value = [];
+    tempDocxId.value = response.temp_id;
+    importWordErrorMessage.value = '';
+    importWordAiError.value = response.ai_error || '';
+    importWordStep.value = 2;
   } else {
-    importWordErrorMessage.value = '文件解析失败或响应格式不正确。'
-    ElMessage.error(importWordErrorMessage.value)
+    importWordErrorMessage.value = '文件解析失败或响应格式不正确。';
+    ElMessage.error(importWordErrorMessage.value);
   }
 }
 
 function handleDocxUploadError(error) {
-  importWordLoading.value = false
-  importWordErrorMessage.value = '文件上传失败。'
+  importWordLoading.value = false;
+  importWordErrorMessage.value = '文件上传失败。';
   if (error?.message) {
-    try { importWordErrorMessage.value += ` 错误: ${JSON.parse(error.message).detail || error.message}` }
-    catch { importWordErrorMessage.value += ` 错误: ${error.message}` }
+    try {
+      importWordErrorMessage.value += ` 错误: ${JSON.parse(error.message).detail || error.message}`;
+    } catch {
+      importWordErrorMessage.value += ` 错误: ${error.message}`;
+    }
   }
-  ElMessage.error(importWordErrorMessage.value)
+  ElMessage.error(importWordErrorMessage.value);
 }
 
 function toggleSelectAllImportWordForms() {
-  toggleSelectAll(importedFormsPreview, selectedFormsToImport, f => f.index)
+  toggleSelectAll(importedFormsPreview, selectedFormsToImport, (f) => f.index);
 }
 
 async function executeImportWord() {
   if (!selectedFormsToImport.value.length || !tempDocxId.value) {
-    importWordErrorMessage.value = '请选择要导入的表单。'
-    return ElMessage.warning(importWordErrorMessage.value)
+    importWordErrorMessage.value = '请选择要导入的表单。';
+    return ElMessage.warning(importWordErrorMessage.value);
   }
-  importWordLoading.value = true; importWordErrorMessage.value = ''
+  importWordLoading.value = true;
+  importWordErrorMessage.value = '';
   try {
     // 构建 AI 覆盖参数：只包含开启了AI建议的表单
-    const aiOverrides = []
+    const aiOverrides = [];
     for (const formIdx of selectedFormsToImport.value) {
       if (aiSuggestionFlags.value[formIdx]) {
-        const form = importedFormsPreview.value.find(f => f.index === formIdx)
+        const form = importedFormsPreview.value.find((f) => f.index === formIdx);
         if (form?.ai_suggestions?.length) {
           aiOverrides.push({
             form_index: formIdx,
-            overrides: form.ai_suggestions.map(s => ({
+            overrides: form.ai_suggestions.map((s) => ({
               index: s.index,
               field_type: s.suggested_type,
             })),
-          })
+          });
         }
       }
     }
@@ -673,75 +735,85 @@ async function executeImportWord() {
     const payload = {
       temp_id: tempDocxId.value,
       form_indices: selectedFormsToImport.value,
-    }
-    if (aiOverrides.length) payload.ai_overrides = aiOverrides
+    };
+    if (aiOverrides.length) payload.ai_overrides = aiOverrides;
 
-    const data = await api.post(
-      `/api/projects/${selectedProject.value.id}/import-docx/execute`,
-      payload,
-    )
-    ElMessage.success(`导入成功：${data.imported_form_count}个表单`)
-    showImportWordDialog.value = false
-    api.clearAllCache(); refreshKey.value++
+    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-docx/execute`, payload);
+    ElMessage.success(`导入成功：${data.imported_form_count}个表单`);
+    showImportWordDialog.value = false;
+    api.clearAllCache();
+    refreshKey.value++;
   } catch (e) {
-    importWordErrorMessage.value = '导入失败: ' + e.message
-    ElMessage.error(importWordErrorMessage.value)
-  } finally { importWordLoading.value = false }
+    importWordErrorMessage.value = '导入失败: ' + e.message;
+    ElMessage.error(importWordErrorMessage.value);
+  } finally {
+    importWordLoading.value = false;
+  }
 }
 
 // AI建议：根据字段索引获取字段标签
 function getFieldLabel(form, fieldIndex) {
-  const field = form.fields?.find(f => f.index === fieldIndex)
-  return field?.label || `字段${fieldIndex}`
+  const field = form.fields?.find((f) => f.index === fieldIndex);
+  return field?.label || `字段${fieldIndex}`;
 }
 
 // 打开预览对比对话框
 function openDocxCompare(form) {
-  compareFormData.value = form
-  showDocxCompare.value = true
+  compareFormData.value = form;
+  hasOpenedDocxCompare.value = true;
+  showDocxCompare.value = true;
 }
 
 // 更新某个表单的AI建议开关
 function updateAiFlag(formIndex, val) {
-  aiSuggestionFlags.value[formIndex] = val
+  aiSuggestionFlags.value[formIndex] = val;
 }
 
 // 暗色模式（持久化）
-const isDark = ref(localStorage.getItem('crf_theme') === 'dark')
+const isDark = ref(localStorage.getItem('crf_theme') === 'dark');
 
 function applyTheme() {
-  document.documentElement.classList.toggle('dark', isDark.value)
-  document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
+  document.documentElement.classList.toggle('dark', isDark.value);
+  document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
 }
 
 function setTheme(value) {
-  isDark.value = !!value
-  localStorage.setItem('crf_theme', isDark.value ? 'dark' : 'light')
-  applyTheme()
+  isDark.value = !!value;
+  localStorage.setItem('crf_theme', isDark.value ? 'dark' : 'light');
+  applyTheme();
 }
 
 function toggleTheme() {
-  setTheme(!isDark.value)
+  setTheme(!isDark.value);
 }
 
-onMounted(() => { applyTheme() })
+onMounted(() => {
+  applyTheme();
+});
 
 // 侧边栏折叠
-const isCollapsed = ref(false)
+const isCollapsed = ref(false);
 
 // 侧边栏宽度拖拽（持久化）
-const sidebarWidth = ref(parseInt(localStorage.getItem('crf_sidebarWidth')) || 220)
-const isResizing = ref(false)
-watch(sidebarWidth, v => localStorage.setItem('crf_sidebarWidth', v))
+const sidebarWidth = ref(parseInt(localStorage.getItem('crf_sidebarWidth')) || 220);
+const isResizing = ref(false);
+watch(sidebarWidth, (v) => localStorage.setItem('crf_sidebarWidth', v));
 
 function startResize(e) {
-  if (isCollapsed.value) return
-  isResizing.value = true
-  const startX = e.clientX, startW = sidebarWidth.value
-  function onMove(e) { sidebarWidth.value = Math.max(120, Math.min(400, startW + e.clientX - startX)) }
-  function onUp() { isResizing.value = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  if (isCollapsed.value) return;
+  isResizing.value = true;
+  const startX = e.clientX,
+    startW = sidebarWidth.value;
+  function onMove(e) {
+    sidebarWidth.value = Math.max(120, Math.min(400, startW + e.clientX - startX));
+  }
+  function onUp() {
+    isResizing.value = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 </script>
 
@@ -751,8 +823,17 @@ function startResize(e) {
     <div class="header">
       <div class="header-left">
         <h1>CRF编辑器</h1>
-        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
-        <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"
+          ><el-icon aria-hidden="true"><Setting /></el-icon
+        ></el-button>
+        <el-button
+          class="header-icon-btn"
+          text
+          circle
+          @click="toggleTheme"
+          :title="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+          :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+        >
           <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
         </el-button>
       </div>
@@ -762,246 +843,392 @@ function startResize(e) {
     </div>
   </template>
   <template v-else>
-  <!-- 头部 -->
-  <div class="header">
-    <div class="header-left">
-      <h1 v-if="!isCollapsed">CRF编辑器</h1>
-      <el-button v-else class="header-icon-btn" text circle @click="isCollapsed = false" title="展开侧边栏">
-        <el-icon><Expand /></el-icon>
-      </el-button>
-      <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button>
-      <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"><el-icon aria-hidden="true"><Setting /></el-icon></el-button>
-      <el-button class="header-icon-btn" text circle @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'">
-        <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
-      </el-button>
-    </div>
-    <div class="header-right">
-      <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
-      <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord">导出Word</el-button>
-    </div>
-  </div>
-
-  <!-- 主体布局 -->
-  <div class="main">
-    <!-- 侧边栏 -->
-    <div class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '0px' : sidebarWidth + 'px' }">
-      <div class="sidebar-content" v-show="!isCollapsed">
-        <div class="sidebar-header">
-          <span>项目列表</span>
-          <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"><el-icon><Plus /></el-icon></el-button>
-        </div>
-        <div class="project-list">
-          <draggable v-model="projects" item-key="id" handle=".drag-handle" @start="draggingProjects = true" @end="onProjectDragEnd">
-            <template #item="{ element: p }">
-              <div
-                class="project-item"
-                :class="{ active: selectedProject?.id === p.id }"
-                @click="selectProject(p)"
-              >
-                <div class="drag-handle" style="cursor:grab;padding:4px;color:var(--color-text-muted)" aria-label="拖拽排序" role="button" tabindex="0">
-                  <el-icon><Rank /></el-icon>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1">
-                  <el-icon><Files /></el-icon>
-                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
-                </div>
-                <div class="project-actions">
-                  <el-button class="project-action-btn" link @click.stop="copyProject(p)" :loading="copyingProjectId === p.id" title="复制项目">
-                    <el-icon><DocumentCopy /></el-icon>
-                  </el-button>
-                  <el-button class="project-action-btn" link type="danger" @click.stop="deleteProject(p)" title="删除项目">
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-            </template>
-          </draggable>
-        </div>
+    <!-- 头部 -->
+    <div class="header">
+      <div class="header-left">
+        <h1 v-if="!isCollapsed">CRF编辑器</h1>
+        <el-button
+          v-else
+          class="header-icon-btn"
+          text
+          circle
+          aria-label="展开侧边栏"
+          title="展开侧边栏"
+          @click="isCollapsed = false"
+        >
+          <el-icon aria-hidden="true"><Expand /></el-icon>
+        </el-button>
+        <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"
+          ><el-icon aria-hidden="true"><RefreshRight /></el-icon
+        ></el-button>
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"
+          ><el-icon aria-hidden="true"><Setting /></el-icon
+        ></el-button>
+        <el-button
+          class="header-icon-btn"
+          text
+          circle
+          @click="toggleTheme"
+          :title="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+          :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+        >
+          <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
+        </el-button>
+      </div>
+      <div class="header-right">
+        <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
+        <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord"
+          >导出Word</el-button
+        >
       </div>
     </div>
-    <div v-if="!isCollapsed" class="sidebar-resizer" :class="{ dragging: isResizing }" @mousedown="startResize"></div>
 
-    <!-- 内容区 -->
-    <div class="content">
-      <div v-if="!selectedProject" class="empty-tip">
-        <div class="empty-state">
-          <el-icon size="64px" color="var(--color-text-muted)"><Monitor /></el-icon>
-          <h3>欢迎使用 CRF 编辑器</h3>
-          <p>请从左侧选择一个项目开始编辑，或新建一个项目</p>
-          <el-button type="primary" plain @click="showCreateProject = true">新建项目</el-button>
+    <!-- 主体布局 -->
+    <div class="main">
+      <!-- 侧边栏 -->
+      <div
+        class="sidebar"
+        :class="{ collapsed: isCollapsed }"
+        :style="{ width: isCollapsed ? '0px' : sidebarWidth + 'px' }"
+      >
+        <div class="sidebar-content" v-show="!isCollapsed">
+          <div class="sidebar-header">
+            <span>项目列表</span>
+            <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"
+              ><el-icon><Plus /></el-icon
+            ></el-button>
+          </div>
+          <div class="project-list">
+            <draggable
+              v-model="projects"
+              item-key="id"
+              handle=".drag-handle"
+              @start="draggingProjects = true"
+              @end="onProjectDragEnd"
+            >
+              <template #item="{ element: p }">
+                <div class="project-item" :class="{ active: selectedProject?.id === p.id }">
+                  <span class="drag-handle" aria-hidden="true">
+                    <el-icon><Rank /></el-icon>
+                  </span>
+                  <button
+                    class="project-select-btn"
+                    type="button"
+                    :aria-current="selectedProject?.id === p.id ? 'true' : undefined"
+                    @click="selectProject(p)"
+                  >
+                    <span class="project-item-main">
+                      <el-icon aria-hidden="true"><Files /></el-icon>
+                      <span class="project-item-name">{{ p.name }}</span>
+                    </span>
+                  </button>
+                  <div class="project-actions">
+                    <el-button
+                      class="project-action-btn project-action-btn--copy"
+                      link
+                      :loading="copyingProjectId === p.id"
+                      aria-label="复制项目"
+                      title="复制项目"
+                      @click.stop="copyProject(p)"
+                    >
+                      <el-icon aria-hidden="true"><DocumentCopy /></el-icon>
+                    </el-button>
+                    <el-button
+                      class="project-action-btn project-action-btn--delete"
+                      link
+                      type="danger"
+                      aria-label="删除项目"
+                      title="删除项目"
+                      @click.stop="deleteProject(p)"
+                    >
+                      <el-icon aria-hidden="true"><Delete /></el-icon>
+                    </el-button>
+                  </div>
+                </div>
+              </template>
+            </draggable>
+          </div>
         </div>
+      </div>
+      <button
+        v-if="!isCollapsed"
+        type="button"
+        class="sidebar-resizer"
+        :class="{ dragging: isResizing }"
+        aria-label="调整侧边栏宽度"
+        @mousedown="startResize"
+      ></button>
+
+      <!-- 内容区 -->
+      <div class="content">
+        <div v-if="!selectedProject" class="empty-tip">
+          <div class="empty-state">
+            <el-icon size="64px" color="var(--color-text-muted)"><Monitor /></el-icon>
+            <h3>欢迎使用 CRF 编辑器</h3>
+            <p>请从左侧选择一个项目开始编辑，或新建一个项目</p>
+            <el-button type="primary" plain @click="showCreateProject = true">新建项目</el-button>
+          </div>
+        </div>
+        <template v-else>
+          <el-tabs
+            class="main-content-tabs"
+            v-model="activeTab"
+            @tab-change="onMainTabChange"
+            style="height: 100%; display: flex; flex-direction: column"
+          >
+            <el-tab-pane label="项目信息" name="info">
+              <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
+            </el-tab-pane>
+            <el-tab-pane v-if="editMode" label="选项" name="codelists">
+              <div v-if="isTabActivated('codelists')" class="content-inner">
+                <CodelistsTab :project-id="selectedProject.id" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane v-if="editMode" label="单位" name="units">
+              <div v-if="isTabActivated('units')" class="content-inner">
+                <UnitsTab :project-id="selectedProject.id" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane v-if="editMode" label="字段" name="fields">
+              <div v-if="isTabActivated('fields')" class="content-inner">
+                <FieldsTab :project-id="selectedProject.id" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="表单" name="designer">
+              <div v-if="isTabActivated('designer')" class="content-inner">
+                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="访视" name="visits">
+              <div v-if="isTabActivated('visits')" class="content-inner">
+                <VisitsTab :project-id="selectedProject.id" />
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </template>
+      </div>
+    </div>
+
+    <!-- 新建项目弹窗 -->
+    <el-dialog v-model="showCreateProject" title="新建项目" width="400px" :close-on-click-modal="false">
+      <el-form :model="newProject" label-width="80px">
+        <el-form-item label="项目名称"><el-input v-model="newProject.name" /></el-form-item>
+        <el-form-item label="版本号"><el-input v-model="newProject.version" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCreateProject = false">取消</el-button>
+        <el-button type="primary" @click="createProject">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 导入模板弹窗 -->
+    <el-dialog v-model="showImport" title="导入模板" width="560px" :close-on-click-modal="false">
+      <div v-if="importLoading" style="text-align: center; padding: 30px 0">
+        <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
       </div>
       <template v-else>
-        <el-tabs class="main-content-tabs" v-model="activeTab" style="height:100%;display:flex;flex-direction:column">
-          <el-tab-pane label="项目信息" name="info">
-            <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
-          </el-tab-pane>
-          <el-tab-pane v-if="editMode" label="选项" name="codelists">
-            <div class="content-inner"><CodelistsTab :project-id="selectedProject.id" /></div>
-          </el-tab-pane>
-          <el-tab-pane v-if="editMode" label="单位" name="units">
-            <div class="content-inner"><UnitsTab :project-id="selectedProject.id" /></div>
-          </el-tab-pane>
-          <el-tab-pane v-if="editMode" label="字段" name="fields">
-            <div class="content-inner"><FieldsTab :project-id="selectedProject.id" /></div>
-          </el-tab-pane>
-          <el-tab-pane label="表单" name="designer">
-            <div class="content-inner"><FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" /></div>
-          </el-tab-pane>
-          <el-tab-pane label="访视" name="visits">
-            <div class="content-inner"><VisitsTab :project-id="selectedProject.id" /></div>
-          </el-tab-pane>
-        </el-tabs>
-      </template>
-    </div>
-  </div>
-
-  <!-- 新建项目弹窗 -->
-  <el-dialog v-model="showCreateProject" title="新建项目" width="400px" :close-on-click-modal="false">
-    <el-form :model="newProject" label-width="80px">
-      <el-form-item label="项目名称"><el-input v-model="newProject.name" /></el-form-item>
-      <el-form-item label="版本号"><el-input v-model="newProject.version" /></el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="showCreateProject = false">取消</el-button>
-      <el-button type="primary" @click="createProject">确定</el-button>
-    </template>
-  </el-dialog>
-
-  <!-- 导入模板弹窗 -->
-  <el-dialog v-model="showImport" title="导入模板" width="560px" :close-on-click-modal="false">
-    <div v-if="importLoading" style="text-align:center;padding:30px 0">
-      <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
-    </div>
-    <template v-else>
-      <p style="margin-bottom:12px;color:var(--color-text-secondary)">请选择需要导入的表单：</p>
-      <el-tree
-        :data="importTreeData"
-        show-checkbox
-        node-key="id"
-        :props="{ label: 'label', children: 'children' }"
-        @check="handleImportTreeCheck"
-        style="max-height:400px;overflow-y:auto;border:1px solid var(--color-border);border-radius:4px;padding:8px"
-      >
-        <template #default="{ node, data }">
-          <span style="flex:1">{{ node.label }}</span>
-          <el-button
-            v-if="data.isForm"
-            size="small"
-            text
-            type="primary"
-            @click.stop="openTemplatePreview(data)"
-          >预览</el-button>
-        </template>
-      </el-tree>
-      <div v-if="importTreeData.length === 0" style="color:var(--color-text-muted);text-align:center;padding:20px 0">模板库中没有项目</div>
-    </template>
-    <template #footer>
-      <el-button @click="showImport = false">取消</el-button>
-      <el-button type="primary" :disabled="importSelectedForms.length === 0" @click="executeImport">确认导入</el-button>
-    </template>
-  </el-dialog>
-
-  <!-- 模板预览对话框 -->
-  <TemplatePreviewDialog
-    v-model="showTemplatePreview"
-    :project-id="selectedProject?.id"
-    :form-id="templatePreviewFormId"
-    :form-name="templatePreviewFormName"
-  />
-
-  <!-- 导入Word弹窗 -->
-  <el-dialog v-model="showImportWordDialog" title="导入Word" width="620px" :close-on-click-modal="false">
-    <div v-if="importWordLoading" style="text-align:center;padding:30px 0">
-      <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
-    </div>
-    <template v-else>
-      <div v-if="importWordStep === 1">
-        <el-upload
-          drag
-          :action="'/api/projects/' + selectedProject.id + '/import-docx/preview'"
-          :headers="getAuthHeaders()"
-          :show-file-list="false"
-          accept=".docx"
-          :on-success="handleDocxUploadSuccess"
-          :on-error="handleDocxUploadError"
-          :before-upload="beforeDocxUpload"
-          style="text-align:center;padding:20px 0;">
-          <el-icon class="el-icon--upload" size="67px"><UploadFilled /></el-icon>
-          <div class="el-upload__text">将文件拖拽至此区域 或 <em>点击上传</em></div>
-          <template #tip>
-            <div class="el-upload__tip">只支持 .docx 文件</div>
+        <p style="margin-bottom: 12px; color: var(--color-text-secondary)">请选择需要导入的表单：</p>
+        <el-tree
+          :data="importTreeData"
+          show-checkbox
+          node-key="id"
+          :props="{ label: 'label', children: 'children' }"
+          @check="handleImportTreeCheck"
+          style="
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            padding: 8px;
+          "
+        >
+          <template #default="{ node, data }">
+            <span style="flex: 1">{{ node.label }}</span>
+            <el-button v-if="data.isForm" size="small" text type="primary" @click.stop="openTemplatePreview(data)"
+              >预览</el-button
+            >
           </template>
-        </el-upload>
-        <el-alert v-if="importWordErrorMessage" :title="importWordErrorMessage" type="error" show-icon style="margin-top:10px;" />
-      </div>
-      <div v-if="importWordStep === 2">
-        <el-alert v-if="importWordAiError" :title="importWordAiError" type="warning" show-icon style="margin-bottom:12px;" closable />
-        <div class="form-select-header">
-          <p class="form-select-prompt">请勾选要导入的表单：</p>
-          <el-button size="small" @click="toggleSelectAllImportWordForms"
-            :disabled="importedFormsPreview.length === 0" aria-controls="import-word-forms-list">
-            {{ selectedFormsToImport.length === importedFormsPreview.length && importedFormsPreview.length > 0 ? '取消全选' : '全选' }}
-          </el-button>
+        </el-tree>
+        <div
+          v-if="importTreeData.length === 0"
+          style="color: var(--color-text-muted); text-align: center; padding: 20px 0"
+        >
+          模板库中没有项目
         </div>
-        <el-checkbox-group id="import-word-forms-list" v-model="selectedFormsToImport"
-          style="display:flex;flex-direction:column;gap:8px">
-          <el-checkbox v-for="f in importedFormsPreview" :key="f.index" :value="f.index" border class="docx-form-checkbox">
-            <div class="docx-form-item">
-              <el-tooltip :content="f.name + ' (' + f.field_count + '个字段)'" placement="top" :disabled="f.name.length <= 20">
-                <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
-              </el-tooltip>
-              <span class="docx-form-actions" @click.stop>
-                <el-popover v-if="f.ai_suggestions?.length" trigger="hover" width="360" placement="right">
-                  <template #reference>
-                    <el-tag size="small" type="warning" style="cursor:help">AI建议 {{ f.ai_suggestions.length }}</el-tag>
-                  </template>
-                  <div style="font-size:12px">
-                    <div v-for="s in f.ai_suggestions" :key="s.index" style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #eee">
-                      <div><b>字段#{{ s.index }}</b>：{{ getFieldLabel(f, s.index) }}</div>
-                      <div>建议类型：<el-tag size="small" type="danger">{{ s.suggested_type }}</el-tag></div>
-                      <div style="color:var(--color-text-muted)">{{ s.reason }}</div>
-                    </div>
-                  </div>
-                </el-popover>
-                <el-switch
-                  v-if="f.ai_suggestions?.length"
-                  :model-value="aiSuggestionFlags[f.index] || false"
-                  @update:model-value="updateAiFlag(f.index, $event)"
-                  size="small"
-                  active-text="AI"
-                  style="margin-left:8px"
-                />
-                <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览对比</el-button>
-              </span>
-            </div>
-          </el-checkbox>
-        </el-checkbox-group>
-        <div v-if="importedFormsPreview.length === 0" style="color:var(--color-text-muted);text-align:center;padding:20px 0">Word文档中没有发现表单</div>
-        <el-alert v-if="importWordErrorMessage" :title="importWordErrorMessage" type="error" show-icon style="margin-top:10px;" />
+      </template>
+      <template #footer>
+        <el-button @click="showImport = false">取消</el-button>
+        <el-button type="primary" :disabled="importSelectedForms.length === 0" @click="executeImport"
+          >确认导入</el-button
+        >
+      </template>
+    </el-dialog>
+
+    <!-- 模板预览对话框 -->
+    <TemplatePreviewDialog
+      v-if="hasOpenedTemplatePreview"
+      v-model="showTemplatePreview"
+      :project-id="selectedProject?.id"
+      :form-id="templatePreviewFormId"
+      :form-name="templatePreviewFormName"
+    />
+
+    <!-- 导入Word弹窗 -->
+    <el-dialog v-model="showImportWordDialog" title="导入Word" width="620px" :close-on-click-modal="false">
+      <div v-if="importWordLoading" style="text-align: center; padding: 30px 0">
+        <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
       </div>
-    </template>
-    <template #footer>
-      <el-button @click="showImportWordDialog = false" :disabled="importWordLoading">取消</el-button>
-      <el-button v-if="importWordStep === 2" @click="goBackToImportWordStep1" :disabled="importWordLoading">上一步</el-button>
-      <el-button v-if="importWordStep === 2" type="primary"
-        :disabled="selectedFormsToImport.length === 0 || importWordLoading"
-        :loading="importWordLoading" @click="executeImportWord">确认导入</el-button>
-    </template>
-  </el-dialog>
+      <template v-else>
+        <div v-if="importWordStep === 1">
+          <el-upload
+            drag
+            :action="'/api/projects/' + selectedProject.id + '/import-docx/preview'"
+            :headers="getAuthHeaders()"
+            :show-file-list="false"
+            accept=".docx"
+            :on-success="handleDocxUploadSuccess"
+            :on-error="handleDocxUploadError"
+            :before-upload="beforeDocxUpload"
+            style="text-align: center; padding: 20px 0"
+          >
+            <el-icon class="el-icon--upload" size="67px"><UploadFilled /></el-icon>
+            <div class="el-upload__text">将文件拖拽至此区域 或 <em>点击上传</em></div>
+            <template #tip>
+              <div class="el-upload__tip">只支持 .docx 文件</div>
+            </template>
+          </el-upload>
+          <el-alert
+            v-if="importWordErrorMessage"
+            :title="importWordErrorMessage"
+            type="error"
+            show-icon
+            style="margin-top: 10px"
+          />
+        </div>
+        <div v-if="importWordStep === 2">
+          <el-alert
+            v-if="importWordAiError"
+            :title="importWordAiError"
+            type="warning"
+            show-icon
+            style="margin-bottom: 12px"
+            closable
+          />
+          <div class="form-select-header">
+            <p class="form-select-prompt">请勾选要导入的表单：</p>
+            <el-button
+              size="small"
+              @click="toggleSelectAllImportWordForms"
+              :disabled="importedFormsPreview.length === 0"
+              aria-controls="import-word-forms-list"
+            >
+              {{
+                selectedFormsToImport.length === importedFormsPreview.length && importedFormsPreview.length > 0
+                  ? '取消全选'
+                  : '全选'
+              }}
+            </el-button>
+          </div>
+          <el-checkbox-group
+            id="import-word-forms-list"
+            v-model="selectedFormsToImport"
+            style="display: flex; flex-direction: column; gap: 8px"
+          >
+            <el-checkbox
+              v-for="f in importedFormsPreview"
+              :key="f.index"
+              :value="f.index"
+              border
+              class="docx-form-checkbox"
+            >
+              <div class="docx-form-item">
+                <el-tooltip
+                  :content="f.name + ' (' + f.field_count + '个字段)'"
+                  placement="top"
+                  :disabled="f.name.length <= 20"
+                >
+                  <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
+                </el-tooltip>
+                <span class="docx-form-actions">
+                  <el-popover v-if="f.ai_suggestions?.length" trigger="hover" width="360" placement="right">
+                    <template #reference>
+                      <el-tag size="small" type="warning" style="cursor: help"
+                        >AI建议 {{ f.ai_suggestions.length }}</el-tag
+                      >
+                    </template>
+                    <div style="font-size: 12px">
+                      <div
+                        v-for="s in f.ai_suggestions"
+                        :key="s.index"
+                        style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #eee"
+                      >
+                        <div>
+                          <b>字段#{{ s.index }}</b
+                          >：{{ getFieldLabel(f, s.index) }}
+                        </div>
+                        <div>
+                          建议类型：<el-tag size="small" type="danger">{{ s.suggested_type }}</el-tag>
+                        </div>
+                        <div style="color: var(--color-text-muted)">{{ s.reason }}</div>
+                      </div>
+                    </div>
+                  </el-popover>
+                  <el-switch
+                    v-if="f.ai_suggestions?.length"
+                    :model-value="aiSuggestionFlags[f.index] || false"
+                    @update:model-value="updateAiFlag(f.index, $event)"
+                    size="small"
+                    active-text="AI"
+                    style="margin-left: 8px"
+                  />
+                  <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览对比</el-button>
+                </span>
+              </div>
+            </el-checkbox>
+          </el-checkbox-group>
+          <div
+            v-if="importedFormsPreview.length === 0"
+            style="color: var(--color-text-muted); text-align: center; padding: 20px 0"
+          >
+            Word文档中没有发现表单
+          </div>
+          <el-alert
+            v-if="importWordErrorMessage"
+            :title="importWordErrorMessage"
+            type="error"
+            show-icon
+            style="margin-top: 10px"
+          />
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="showImportWordDialog = false" :disabled="importWordLoading">取消</el-button>
+        <el-button v-if="importWordStep === 2" @click="goBackToImportWordStep1" :disabled="importWordLoading"
+          >上一步</el-button
+        >
+        <el-button
+          v-if="importWordStep === 2"
+          type="primary"
+          :disabled="selectedFormsToImport.length === 0 || importWordLoading"
+          :loading="importWordLoading"
+          @click="executeImportWord"
+          >确认导入</el-button
+        >
+      </template>
+    </el-dialog>
 
-  <!-- Word导入预览对比对话框 -->
-  <DocxCompareDialog
-    v-model="showDocxCompare"
-    :form-data="compareFormData"
-    :apply-ai="compareFormData ? (aiSuggestionFlags[compareFormData.index] || false) : false"
-    :temp-id="tempDocxId || ''"
-    :project-id="selectedProject?.id || 0"
-    :all-form-names="importedFormsPreview.map(f => f.name)"
-    :all-forms-data="importedFormsPreview"
-    @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
-  />
-
+    <!-- Word导入预览对比对话框 -->
+    <DocxCompareDialog
+      v-if="hasOpenedDocxCompare"
+      v-model="showDocxCompare"
+      :form-data="compareFormData"
+      :apply-ai="compareFormData ? aiSuggestionFlags[compareFormData.index] || false : false"
+      :temp-id="tempDocxId || ''"
+      :project-id="selectedProject?.id || 0"
+      :all-form-names="importedFormsPreview.map((f) => f.name)"
+      :all-forms-data="importedFormsPreview"
+      @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
+    />
   </template>
 
   <!-- 设置弹窗（全局可用） -->
@@ -1016,7 +1243,9 @@ function startResize(e) {
       </el-form-item>
       <el-form-item v-if="!isAdmin" label="编辑模式">
         <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
-        <span style="margin-left:8px;color:var(--color-text-muted);font-size:12px">关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span>
+        <span style="margin-left: 8px; color: var(--color-text-muted); font-size: 12px"
+          >关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span
+        >
       </el-form-item>
       <el-form-item label="主题模式">
         <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
@@ -1040,40 +1269,68 @@ function startResize(e) {
           <el-switch v-model="settingsForm.ai_enabled" />
         </el-form-item>
         <el-form-item label="API URL">
-          <el-input v-model="settingsForm.ai_api_url" placeholder="如：https://api.openai.com/v1"
-            :disabled="!settingsForm.ai_enabled" clearable />
+          <el-input
+            v-model="settingsForm.ai_api_url"
+            placeholder="如：https://api.openai.com/v1"
+            :disabled="!settingsForm.ai_enabled"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="settingsForm.ai_api_key" type="password" show-password
-            :disabled="!settingsForm.ai_enabled" clearable />
+          <el-input
+            v-model="settingsForm.ai_api_key"
+            type="password"
+            show-password
+            :disabled="!settingsForm.ai_enabled"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="settingsForm.ai_model" placeholder="如：gpt-4o, deepseek-chat"
-            :disabled="!settingsForm.ai_enabled" clearable />
+          <el-input
+            v-model="settingsForm.ai_model"
+            placeholder="如：gpt-4o, deepseek-chat"
+            :disabled="!settingsForm.ai_enabled"
+            clearable
+          />
         </el-form-item>
         <el-form-item v-if="settingsForm.ai_enabled">
-          <el-button :loading="aiTestLoading" @click="testAiConnection"
-            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model">
+          <el-button
+            :loading="aiTestLoading"
+            @click="testAiConnection"
+            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model"
+          >
             测试连接
           </el-button>
-          <span v-if="aiTestResult" style="margin-left:10px;font-size:13px">
-            <span v-if="aiTestResult.ok" style="color:var(--color-success)">
-              连接成功 ({{ aiTestResult.latency_ms }}ms, {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+          <span v-if="aiTestResult" style="margin-left: 10px; font-size: 13px">
+            <span v-if="aiTestResult.ok" style="color: var(--color-success)">
+              连接成功 ({{ aiTestResult.latency_ms }}ms,
+              {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
             </span>
-            <span v-else style="color:var(--color-danger)">
-              连接失败: {{ aiTestResult.error }}
-            </span>
+            <span v-else style="color: var(--color-danger)"> 连接失败: {{ aiTestResult.error }} </span>
           </span>
         </el-form-item>
       </template>
 
-      <input ref="importProjectInput" type="file" accept=".db" style="display:none" @change="handleImportProject" />
+      <input
+        ref="importProjectInput"
+        aria-label="导入项目数据库文件"
+        type="file"
+        accept=".db"
+        style="display: none"
+        @change="handleImportProject"
+      />
     </el-form>
     <template #footer>
-      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
         <el-button type="danger" plain @click="logout">退出登录</el-button>
-        <div style="display:flex;gap:8px">
-          <el-button @click="closeSelfPasswordDialog(); showSettings = false">关闭</el-button>
+        <div style="display: flex; gap: 8px">
+          <el-button
+            @click="
+              closeSelfPasswordDialog();
+              showSettings = false;
+            "
+            >关闭</el-button
+          >
           <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
         </div>
       </div>
@@ -1090,13 +1347,23 @@ function startResize(e) {
   >
     <el-form label-width="100px">
       <el-form-item label="当前密码">
-        <el-input v-model="selfPasswordForm.current_password" type="password" show-password autocomplete="current-password" />
+        <el-input
+          v-model="selfPasswordForm.current_password"
+          type="password"
+          show-password
+          autocomplete="current-password"
+        />
       </el-form-item>
       <el-form-item label="新密码">
         <el-input v-model="selfPasswordForm.new_password" type="password" show-password autocomplete="new-password" />
       </el-form-item>
       <el-form-item label="确认新密码">
-        <el-input v-model="selfPasswordForm.confirm_new_password" type="password" show-password autocomplete="new-password" />
+        <el-input
+          v-model="selfPasswordForm.confirm_new_password"
+          type="password"
+          show-password
+          autocomplete="new-password"
+        />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -1145,28 +1412,76 @@ function startResize(e) {
   margin-left: auto !important;
 }
 
+.project-item .drag-handle {
+  flex-shrink: 0;
+  padding: 4px;
+  color: var(--color-text-muted);
+  cursor: grab;
+}
+
+.project-select-btn {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-select-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.project-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.project-item-main .el-icon {
+  flex-shrink: 0;
+}
+
+.project-item-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-action-btn {
   margin: 0;
-  padding: 4px;
+  padding: 3px;
 }
 
 /* 侧边栏复制按钮三态对比度（仅作用于 .project-item .project-actions） */
-.project-item .project-actions .project-action-btn:not([type="danger"]) {
+.project-item .project-actions .project-action-btn--copy {
   color: rgba(255, 255, 255, 0.85);
 }
 
-.project-item:hover .project-actions .project-action-btn:not([type="danger"]) {
+.project-item:hover .project-actions .project-action-btn--copy {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.project-item.active .project-actions .project-action-btn:not([type="danger"]) {
+.project-item.active .project-actions .project-action-btn--copy {
   color: #ffffff;
 }
 
 .project-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
+  flex-shrink: 0;
   margin-left: auto;
 }
 
@@ -1214,11 +1529,7 @@ function startResize(e) {
 }
 
 :deep(.el-dialog__header) {
-  background: linear-gradient(
-    135deg,
-    var(--color-primary-subtle) 0%,
-    var(--color-bg-card) 100%
-  );
+  background: linear-gradient(135deg, var(--color-primary-subtle) 0%, var(--color-bg-card) 100%);
   padding-bottom: 12px;
   border-bottom: 1px solid var(--color-border);
 }
