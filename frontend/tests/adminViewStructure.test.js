@@ -71,7 +71,9 @@ test('AdminView requires password when creating a user', () => {
 })
 
 test('App.vue shows copy button without hover condition', () => {
-  const copyButtonTag = appSource.match(/<el-button class="project-action-btn" link @click\.stop="copyProject\(p\)"[^>]*title="复制项目">/)?.[0]
+  const copyButtonTag = appSource.match(
+    /<el-button(?=[^>]*class="project-action-btn project-action-btn--copy")(?=[^>]*\blink\b)(?=[^>]*aria-label="复制项目")(?=[^>]*@click\.stop="copyProject\(p\)")(?=[^>]*title="复制项目")[^>]*>/
+  )?.[0]
 
   assert.ok(copyButtonTag)
   assert.equal(/v-if=|v-show=/.test(copyButtonTag), false)

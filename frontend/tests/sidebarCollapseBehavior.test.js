@@ -14,9 +14,9 @@ const stylesSource = readFileSync(path.resolve(currentDir, '../src/styles/main.c
  */
 test('collapsed sidebar keeps project switch accessible via expand button', () => {
   // 折叠后 header 渲染展开按钮
-  assert.match(appSource, /<el-button v-else class="header-icon-btn" text circle @click="isCollapsed = false" title="展开侧边栏">/)
-  // 展开按钮使用 Element Plus 图标
-  assert.match(appSource, /<el-icon><Expand \/><\/el-icon>/)
+  assert.match(appSource, /<el-button[\s\S]*?v-else[\s\S]*?class="header-icon-btn"[\s\S]*?aria-label="展开侧边栏"[\s\S]*?title="展开侧边栏"[\s\S]*?@click="isCollapsed = false"[\s\S]*?>/)
+  // 展开按钮使用 Element Plus 图标且隐藏装饰图标语义
+  assert.match(appSource, /<el-icon aria-hidden="true"><Expand \/><\/el-icon>/)
 })
 
 test('collapsed state hides sidebar content but keeps action buttons in header', () => {
@@ -32,12 +32,29 @@ test('project list actions remain accessible when sidebar is expanded', () => {
   // 项目列表区域存在
   assert.match(appSource, /<div class="project-list"/)
   // 项目复制按钮存在且不依赖 hover
-  const copyButtonPattern = /<el-button class="project-action-btn" link @click\.stop="copyProject\(p\)"[^>]*title="复制项目">/
+  const copyButtonPattern = /<el-button(?=[^>]*class="project-action-btn project-action-btn--copy")(?=[^>]*\blink\b)(?=[^>]*aria-label="复制项目")(?=[^>]*@click\.stop="copyProject\(p\)")(?=[^>]*title="复制项目")[^>]*>/
   assert.match(appSource, copyButtonPattern)
   // 项目删除按钮存在
   assert.match(appSource, /@click\.stop="deleteProject\(p\)"/)
-  // 项目切换通过点击项目名
-  assert.match(appSource, /@click="selectProject\(p\)"/)
+  // 项目切换通过专用选择按钮，避免外层交互容器嵌套按钮
+  assert.match(appSource, /<div class="project-item" :class="\{ active: selectedProject\?\.id === p\.id \}">/)
+  assert.match(appSource, /<button[\s\S]*?class="project-select-btn"[\s\S]*?type="button"[\s\S]*?:aria-current="selectedProject\?\.id === p\.id \? 'true' : undefined"[\s\S]*?@click="selectProject\(p\)"[\s\S]*?>/)
+})
+
+test('project rows use truncation-safe layout classes', () => {
+  assert.match(appSource, /<span class="project-item-main">/)
+  assert.match(appSource, /<span class="project-item-name">\{\{ p\.name \}\}<\/span>/)
+  assert.match(stylesSource, /\.project-item\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*border-left:\s*3px solid transparent;/s)
+  assert.doesNotMatch(stylesSource, /\.project-item\s*\{[^}]*cursor:\s*pointer;/s)
+  assert.match(stylesSource, /\.project-item:hover\s*\{[^}]*background:\s*var\(--color-sidebar-hover\);[^}]*\}/s)
+  assert.match(stylesSource, /\.project-item\.active\s*\{[^}]*border-left-color:\s*#ffffff;/s)
+  assert.doesNotMatch(stylesSource, /\.project-item:hover\s*\{[^}]*padding-left:/s)
+})
+
+test('project drag handle is decorative and keeps mouse drag target available', () => {
+  assert.match(appSource, /<span class="drag-handle" aria-hidden="true">/)
+  assert.match(appSource, /handle="\.drag-handle"/)
+  assert.doesNotMatch(appSource, /\.project-item \.drag-handle\s*\{[^}]*pointer-events:\s*none;/s)
 })
 
 test('settings entry is always visible in header regardless of sidebar state', () => {
