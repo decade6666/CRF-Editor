@@ -61,6 +61,8 @@ test('usePerfBaseline sanitizes project form and field ids with session-local ha
 
 
 test('App and FormDesigner record required perf event names', () => {
+  assert.match(perfSource, /function markPerfStart\(name, payload = \{\}\)/)
+  assert.match(perfSource, /metrics: \{ \.\.\.startMetrics, \.\.\.payload \}/)
   assert.match(appSource, /markPerfStart\('app_project_load'/)
   assert.match(appSource, /markPerfEnd\('app_project_load'/)
   assert.match(appSource, /name: `tab_\$\{name\}_first_activate`/)
