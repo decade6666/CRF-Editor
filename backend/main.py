@@ -50,6 +50,36 @@ _SECURITY_HEADERS = {
 }
 
 
+class _SuppressNotFoundAccessLog(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.INFO:
+            return True
+        status_code = _get_access_log_status_code(record)
+        return status_code != 404
+
+
+def _get_access_log_status_code(record: logging.LogRecord) -> int | None:
+    args = record.args
+    status_code = None
+    if isinstance(args, dict):
+        status_code = args.get("status_code")
+    elif isinstance(args, tuple) and args:
+        status_code = args[-1]
+    if status_code is None:
+        status_code = getattr(record, "status_code", None)
+    try:
+        return int(status_code)
+    except (TypeError, ValueError):
+        return None
+
+
+def _install_access_log_filter() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    has_filter = any(isinstance(item, _SuppressNotFoundAccessLog) for item in access_logger.filters)
+    if not has_filter:
+        access_logger.addFilter(_SuppressNotFoundAccessLog())
+
+
 # 配置应用日志：uvicorn 只管自己的 logger，src.* 的日志需要单独挂 handler
 
 # 放在 startup 事件中，确保在 uvicorn dictConfig 之后执行
@@ -72,7 +102,7 @@ def _setup_app_logging():
 
         app_logger.addHandler(h)
 
-
+    _install_access_log_filter()
 
 
 
