@@ -115,6 +115,18 @@ test('login view distinguishes development migration hints from generic auth fai
 
 test('admin workspace mounts before normal project shell content', () => {
   assert.match(appSource, /async function onLoginSuccess\(\) \{[\s\S]*await loadMe\(\)[\s\S]*if \(isAdmin\.value\) \{[\s\S]*projects\.value = \[\]/)
-  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*await loadMe\(\)[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)/)
+  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*window\.addEventListener\('crf:auth-expired', handleAuthExpired\)[\s\S]*await restoreSession\(\)/)
   assert.match(appSource, /<template v-else-if="isAdmin">/)
+})
+
+test('app verifies saved token before rendering authenticated workspaces', () => {
+  assert.match(appSource, /const isCheckingAuth = ref\(!!localStorage\.getItem\('crf_token'\)\)/)
+  assert.match(appSource, /<div v-if="isCheckingAuth" class="auth-loading" aria-live="polite">/)
+  assert.match(appSource, /<LoginView v-else-if="!isLoggedIn" @login-success="onLoginSuccess" \/>/)
+  assert.match(appSource, /<template v-else-if="isAdmin">/)
+})
+
+test('app clears invalid saved token before loading projects', () => {
+  assert.match(appSource, /async function loadMe\(\) \{[\s\S]*currentUser\.value = await api\.get\('\/api\/auth\/me'\)[\s\S]*return true[\s\S]*catch \{[\s\S]*currentUser\.value = getEmptyUser\(\)[\s\S]*return false[\s\S]*\}/)
+  assert.match(appSource, /async function restoreSession\(\) \{[\s\S]*const hasToken = !!localStorage\.getItem\('crf_token'\)[\s\S]*if \(!hasToken\) \{[\s\S]*isLoggedIn\.value = false[\s\S]*return[\s\S]*\}[\s\S]*const authenticated = await loadMe\(\)[\s\S]*if \(!authenticated\) \{[\s\S]*resetSessionState\(\)[\s\S]*return[\s\S]*\}[\s\S]*isLoggedIn\.value = true[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)[\s\S]*\}/)
 })
