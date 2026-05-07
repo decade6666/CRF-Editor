@@ -82,6 +82,100 @@ cache.set('/projects', {
 
 ---
 
+## Scenario: Startup Auth Gate Before Workspace Rendering
+
+### 1. Scope / Trigger
+
+- Trigger: authentication state controls whether `App.vue` renders `LoginView`, `AdminView`, or the normal project workspace.
+- This is a cross-layer auth contract because startup rendering depends on `GET /api/auth/me` and the `crf_token` localStorage key.
+- The normal editor and admin workspace must not render until a saved token is verified.
+
+### 2. Signatures
+
+```javascript
+// frontend/src/App.vue
+const isCheckingAuth = ref(!!localStorage.getItem('crf_token'))
+const isLoggedIn = ref(false)
+const currentUser = ref({ username: '', is_admin: false })
+
+async function loadMe(): Promise<boolean>
+async function restoreSession(): Promise<void>
+async function onLoginSuccess(): Promise<void>
+function resetSessionState(): void
+```
+
+```http
+GET /api/auth/me
+Authorization: Bearer <localStorage.crf_token>
+```
+
+### 3. Contracts
+
+| Contract | Field / State | Type | Constraint |
+|----------|---------------|------|------------|
+| Persistent token | `localStorage.crf_token` | string | Presence means "verify first", not "already logged in". |
+| User response | `username` | string | Persist as `crf_last_username` after successful verification. |
+| User response | `is_admin` | boolean | `true` renders admin shell; `false` renders normal project workspace. |
+| Loading gate | `isCheckingAuth` | `Ref<boolean>` | `true` renders only `.auth-loading` with `aria-live="polite"`. |
+| Login flag | `isLoggedIn` | `Ref<boolean>` | Set to `true` only after `loadMe()` succeeds. |
+| Project data | `projects` | `Ref<Array>` | Load only for verified non-admin users. |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+|-----------|-------------------|
+| No `crf_token` on startup | Set `isLoggedIn=false`, `isCheckingAuth=false`, render `LoginView`, do not call `loadProjects()`. |
+| `GET /api/auth/me` returns 200 | Store user in `currentUser`, remember username, set `isLoggedIn=true`. |
+| Verified admin user | Clear normal project state and render `AdminView`; do not load projects. |
+| Verified ordinary user | Render normal workspace after `loadProjects()` resolves. |
+| `GET /api/auth/me` returns 401 | `useApi.js` removes `crf_token`; `restoreSession()` calls `resetSessionState()` and renders `LoginView`. |
+| Any `loadMe()` failure | Reset `currentUser` to the empty user and return `false`; callers must not render authenticated workspaces. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: saved valid ordinary-user token -> loading gate -> `/api/auth/me` succeeds -> projects load -> normal workspace renders.
+- Base: no saved token -> login screen renders immediately with no auth check request.
+- Bad: saved expired token -> token is cleared -> session state resets -> login screen renders before any project request.
+
+### 6. Tests Required
+
+- `frontend/tests/appSettingsShell.test.js` must assert `isCheckingAuth` initializes from `crf_token` presence.
+- Assert template order: auth loading gate -> `LoginView` -> admin shell -> normal workspace.
+- Assert `loadMe()` returns `true` only after `/api/auth/me` succeeds and returns `false` on catch.
+- Assert `restoreSession()` calls `resetSessionState()` and returns before `loadProjects()` when verification fails.
+- Assert admin login clears normal project state and does not render the normal project shell.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```javascript
+// Treating token presence as authenticated leaks editor/admin UI before verification.
+const isLoggedIn = ref(!!localStorage.getItem('crf_token'))
+onMounted(loadProjects)
+```
+
+#### Correct
+
+```javascript
+const isCheckingAuth = ref(!!localStorage.getItem('crf_token'))
+const isLoggedIn = ref(false)
+
+async function restoreSession() {
+  if (!localStorage.getItem('crf_token')) {
+    isCheckingAuth.value = false
+    return
+  }
+  const authenticated = await loadMe()
+  if (!authenticated) return resetSessionState()
+  isLoggedIn.value = true
+  if (!isAdmin.value) await loadProjects()
+  isCheckingAuth.value = false
+}
+```
+
+---
+
 ## When to Use Global State
 
 ### Use provide/inject When:
