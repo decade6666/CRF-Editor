@@ -35,7 +35,8 @@ const DocxCompareDialog = defineAsyncComponent(() => import('./components/DocxCo
 const TemplatePreviewDialog = defineAsyncComponent(() => import('./components/TemplatePreviewDialog.vue'));
 
 // 登录状态
-const isLoggedIn = ref(!!localStorage.getItem('crf_token'));
+const isCheckingAuth = ref(!!localStorage.getItem('crf_token'));
+const isLoggedIn = ref(false);
 
 function getEmptyUser() {
   return { username: '', is_admin: false };
@@ -51,6 +52,7 @@ function resetSessionState() {
   clearPerfEvents();
   localStorage.removeItem('crf_token');
   isLoggedIn.value = false;
+  isCheckingAuth.value = false;
   closeSelfPasswordDialog();
   showSettings.value = false;
   projects.value = [];
@@ -60,8 +62,14 @@ function resetSessionState() {
 }
 
 async function onLoginSuccess() {
+  isCheckingAuth.value = true;
+  const authenticated = await loadMe();
+  if (!authenticated) {
+    resetSessionState();
+    return;
+  }
   isLoggedIn.value = true;
-  await loadMe();
+  isCheckingAuth.value = false;
   if (isAdmin.value) {
     selectedProject.value = null;
     projects.value = [];
@@ -89,8 +97,10 @@ async function loadMe() {
   try {
     currentUser.value = await api.get('/api/auth/me');
     rememberUsername(currentUser.value.username);
+    return true;
   } catch {
     currentUser.value = getEmptyUser();
+    return false;
   }
 }
 
@@ -116,15 +126,33 @@ async function loadProjects() {
   markPerfEnd('app_project_load', { project_count: projects.value.length });
 }
 
+async function restoreSession() {
+  const hasToken = !!localStorage.getItem('crf_token');
+  if (!hasToken) {
+    isLoggedIn.value = false;
+    isCheckingAuth.value = false;
+    return;
+  }
+  isCheckingAuth.value = true;
+  const authenticated = await loadMe();
+  if (!authenticated) {
+    resetSessionState();
+    return;
+  }
+  isLoggedIn.value = true;
+  try {
+    if (!isAdmin.value) await loadProjects();
+  } finally {
+    isCheckingAuth.value = false;
+  }
+}
+
 async function onProjectDragEnd() {
   await handleProjectDragEnd(projects.value, loadProjects, (err) => ElMessage.error(err.message));
 }
 onMounted(async () => {
-  if (isLoggedIn.value) {
-    await loadMe();
-    if (!isAdmin.value) await loadProjects();
-  }
   window.addEventListener('crf:auth-expired', handleAuthExpired);
+  await restoreSession();
 });
 
 onBeforeUnmount(() => {
@@ -818,7 +846,11 @@ function startResize(e) {
 </script>
 
 <template>
-  <LoginView v-if="!isLoggedIn" @login-success="onLoginSuccess" />
+  <div v-if="isCheckingAuth" class="auth-loading" aria-live="polite">
+    <el-icon class="is-loading" size="24px"><Loading /></el-icon>
+    <span>正在验证登录状态...</span>
+  </div>
+  <LoginView v-else-if="!isLoggedIn" @login-success="onLoginSuccess" />
   <template v-else-if="isAdmin">
     <div class="header">
       <div class="header-left">
@@ -1374,6 +1406,16 @@ function startResize(e) {
 </template>
 
 <style scoped>
+.auth-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 100vh;
+  color: var(--color-text-secondary);
+  background: var(--el-bg-color-page, #f5f7fa);
+}
+
 /* 导入Word弹窗 - 表单项布局 */
 :deep(.docx-form-checkbox.el-checkbox.is-bordered) {
   width: 100% !important;
