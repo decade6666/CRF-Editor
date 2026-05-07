@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
-- **Last Active**: 2026-04-28
+- **Total Sessions**: 2
+- **Last Active**: 2026-05-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~61 | Active |
+| `journal-1.md` | ~104 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-05-07 | 首次访问必须先验证登录态 | `f68f803` | `draft` |
 | 1 | 2026-04-28 | 优化暗色模式配色与项目列表 UI | `665d61e`, `583bbd8` | `draft` |
 <!-- @@@/auto:session-history -->
 

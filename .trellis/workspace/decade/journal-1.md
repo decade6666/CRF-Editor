@@ -59,3 +59,46 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 首次访问必须先验证登录态
+
+**Date**: 2026-05-07
+**Task**: 首次访问必须先验证登录态
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Summary |
+|------|---------|
+| Auth startup | Added token validation before rendering the editor or admin workspace so invalid local sessions are cleared first. |
+| Regression tests | Added app shell tests for auth waiting state, invalid token cleanup, and post-login routing. |
+| Task metadata | Captured PRD for the login-before-editor requirement and archived the completed Trellis task. |
+
+**Updated Files**:
+- `frontend/src/App.vue`
+- `frontend/tests/appSettingsShell.test.js`
+- `.trellis/tasks/archive/2026-05/05-06-require-login-before-editor/`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f68f803` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
