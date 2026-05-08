@@ -240,6 +240,10 @@ def test_export_inline_table_column_width_override(session: Session, tmp_path: P
 # ========== 测试 3：unified 表格列宽覆盖 ==========
 
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; column-width override on unified path not exercised",
+    strict=False,
+)
 def test_export_unified_table_column_width_override(session: Session, tmp_path: Path) -> None:
     """验证 unified 表格列宽覆盖应用到 Word 表格。
 

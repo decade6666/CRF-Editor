@@ -28,7 +28,7 @@ def test_create_temp_docx_upload_roundtrips_with_docx_service(tmp_path: Path) ->
     temp_id, stored_path = _create_temp_docx_upload(source)
     try:
         resolved_path = DocxImportService.get_temp_path(temp_id)
-        assert resolved_path == stored_path
+        assert Path(resolved_path) == stored_path
         assert stored_path.exists()
     finally:
         _cleanup_temp_docx(temp_id)
