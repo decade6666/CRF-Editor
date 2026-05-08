@@ -294,6 +294,10 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
 
 # ========== Task 3.5: unified 字段顺序测试 ==========
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_field_order_matches_order_index(session: Session, tmp_path: Path) -> None:
     """验证表格行顺序与 order_index 一致。"""
     project, _ = create_minimal_project(session)
@@ -351,6 +355,10 @@ def test_export_unified_field_order_matches_order_index(session: Session, tmp_pa
 
 # ========== Task 3.7: unified label/log 行测试 ==========
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_full_row_span_equals_N(session: Session, tmp_path: Path) -> None:
     """验证 label/log 行 gridSpan = N。"""
     project, _ = create_minimal_project(session)
@@ -808,6 +816,10 @@ def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> 
 # ========== Task 4.2: unified 多 inline block 共享单表级宽度语义回归测试 ==========
 
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_multi_blocks_share_table_level_width(session: Session, tmp_path: Path) -> None:
     """验证多个 inline block 共享单表级宽度规划，而非各自独立分配。
 

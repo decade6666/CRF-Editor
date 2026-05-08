@@ -89,7 +89,7 @@ async def import_project_db(
     with perf_span("upload_read"):
         file_bytes = await file.read()
     with perf_span("temp_file_write"):
-        tmp_path = await _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
+        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
     record_payload_size(tmp_path.stat().st_size)
     try:
         result = ProjectDbImportService.import_single_project(
@@ -125,7 +125,7 @@ async def import_database_merge(
     with perf_span("upload_read"):
         file_bytes = await file.read()
     with perf_span("temp_file_write"):
-        tmp_path = await _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
+        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
     record_payload_size(tmp_path.stat().st_size)
     try:
         report = DatabaseMergeService.merge(
