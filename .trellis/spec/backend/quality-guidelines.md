@@ -245,6 +245,42 @@ python -m pytest --cov=src --cov-report=term-missing
 python -m pytest tests/test_auth.py -v
 ```
 
+### Convention: `xfail` Stale Tests with Commit Hash
+
+**What**: When production code paths are replaced (renamed, swapped for an alternative
+implementation, or temporarily disabled) but the tests covering the old path are still
+useful as future-restore guards, mark them `@pytest.mark.xfail` and cite the commit
+hash that introduced the divergence in `reason`.
+
+**Why**: Deleting the tests loses the contract; updating them to pass against the new
+path silently rewrites history of what the old code guaranteed. `xfail` keeps the
+contract green-on-CI, while the commit reference lets future readers locate exactly
+when and why the path diverged — without grepping through years of history.
+
+**Example**:
+```python
+# tests/test_export_unified.py
+import pytest
+
+@pytest.mark.xfail(
+    reason=(
+        "unified_landscape rendering path replaced by mixed_landscape in 786aaa4 "
+        "(tag 0.2.0); restore this test if unified path is reinstated."
+    ),
+    strict=True,
+)
+def test_unified_landscape_column_alignment():
+    ...
+```
+
+**Rules**:
+- Always set `strict=True` so an accidental pass becomes a CI failure (signals the path
+  is alive again and the test should be re-enabled).
+- The `reason` must contain a 7+ char commit hash and a one-line description of the
+  replacement, not just "deprecated".
+- Do **not** delete the dead production code in the same change as the `xfail`. Keeping
+  the path navigable preserves the option to restore.
+
 ---
 
 ## Code Review Checklist

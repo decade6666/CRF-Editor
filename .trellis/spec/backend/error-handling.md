@@ -257,3 +257,36 @@ raise HTTPException(status_code=401, detail="...")
 from fastapi import status
 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="...")
 ```
+
+### 5. `await` on Synchronous Helper (Masked by Middleware)
+
+**Symptom**: Endpoint returns generic 500 in tests, no stack trace in response body. Real
+`TypeError: object str can't be used in 'await' expression` is hidden because
+`security_headers_middleware` wraps `call_next` in `try/except Exception` and converts
+unhandled errors into a 500.
+
+**Cause**: `_save_bytes_to_temp` (and similar helpers in `routers/projects.py`) are plain
+`def`, not `async def`. Awaiting their return value raises `TypeError` *after* response
+serialization begins, so the framework hands it to the middleware tier, which masks the
+true error.
+
+**Wrong**:
+```python
+# routers/projects.py — _save_bytes_to_temp is sync, returns str
+temp_path = await _save_bytes_to_temp(payload)  # TypeError -> 500
+```
+
+**Correct**:
+```python
+temp_path = _save_bytes_to_temp(payload)  # str
+```
+
+**Prevention**:
+- Before adding `await`, confirm the callee signature begins with `async def`. `def`
+  helpers that return non-awaitables must be called synchronously.
+- When debugging an opaque 500 from a route, run the handler logic with
+  `TestClient(raise_server_exceptions=True)` (the default) and inspect the captured
+  exception, **or** temporarily bypass `security_headers_middleware` to surface the real
+  trace. A long-lived 500 in tests is almost always a middleware-masked exception.
+- Treat any `try/except Exception` in middleware as a debugging hazard: log the original
+  exception with `exc_info=True` even when normalizing to 500.
