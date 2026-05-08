@@ -102,3 +102,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 孤立项目自动入回收站 + restore 兼容 NULL owner_id
+
+**Date**: 2026-05-07
+**Task**: 孤立项目自动入回收站 + restore 兼容 NULL owner_id
+**Branch**: `draft`
+
+### Summary
+
+将启动时孤立项目警告改为自动软删入回收站；restore_project 跳过 NULL owner_id 的名称冲突与排序重算；修正 datetime 写入格式与 ORM 一致避免回收站倒序错乱；新增 3 个 pytest 用例（含混合时间戳排序回归）；spec 沉淀 raw text() UPDATE 必须传 datetime 对象的规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `64f5ae8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
