@@ -135,3 +135,54 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 孤立项目入回收站 + 修复预存测试基线
+
+**Date**: 2026-05-07
+**Task**: 孤立项目入回收站 + 修复预存测试基线
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 主题 | 说明 |
+|------|------|
+| 启动迁移 | `_warn_orphan_projects` → `_move_orphan_projects_to_recycle_bin`，启动时把 `owner_id IS NULL` 活跃项目软删入回收站，告警降为 INFO。 |
+| 恢复路径 | `restore_project` 对孤立项目跳过同名冲突检查与 order_index 重排，恢复后保持 `owner_id=NULL`（仅管理员可见）。 |
+| 时间戳一致性 | 启动迁移与原生 `text()` UPDATE 改用 `datetime` 对象写入，避免与 ORM ISO 字符串混排导致回收站倒序错乱。 |
+| 测试基线 | 后端全量测试 27 failed → 0 failed（4 xfailed）：移除 `projects.py` 同步函数 `_save_bytes_to_temp` 的误 `await`（22 条转绿）；修正 `test_perf_harness` 路径断言；`unified_landscape` 死代码 4 条断言改 xfail 并引用 786aaa4。 |
+| 规范沉淀 | `.trellis/spec/backend/database-guidelines.md` 新增「raw text() UPDATE 必须传 datetime 对象」条目。 |
+
+**Updated Files**:
+- `backend/src/database.py`
+- `backend/src/routers/admin.py`
+- `backend/src/routers/projects.py`
+- `backend/tests/test_admin_project_ops.py`
+- `backend/tests/test_perf_harness.py`
+- `backend/tests/test_export_unified.py`
+- `backend/tests/test_export_column_width_override.py`
+- `.trellis/spec/backend/database-guidelines.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `64f5ae8` | (see git log) |
+| `7cef80a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
