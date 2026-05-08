@@ -349,3 +349,117 @@ def test_hard_delete_only_accepts_recycled_projects_and_physically_removes_that_
         assert deleted_forms == 0
         assert deleted_visits == 0
         assert deleted_field_defs == 0
+
+
+def test_move_orphan_projects_to_recycle_bin_sets_deleted_at_idempotently(client, engine):
+    """启动迁移：将孤立项目（owner_id=NULL 且未删除）软删除；二次执行不重复修改。"""
+    from src.database import _move_orphan_projects_to_recycle_bin
+
+    login_as(client, 'admin')
+
+    with Session(engine) as session:
+        admin_user = session.scalar(select(User).where(User.username == 'admin'))
+        orphan_a = Project(name='孤立项目A', version='1.0', owner_id=None, order_index=1)
+        orphan_b = Project(name='孤立项目B', version='1.0', owner_id=None, order_index=2)
+        owned = _create_owned_project(session, admin_user.id, '正常项目', order_index=1)
+        session.add_all([orphan_a, orphan_b])
+        session.commit()
+        orphan_ids = [orphan_a.id, orphan_b.id]
+        owned_id = owned.id
+
+    _move_orphan_projects_to_recycle_bin(engine)
+
+    with Session(engine) as session:
+        for pid in orphan_ids:
+            project = session.get(Project, pid)
+            assert project is not None
+            assert project.owner_id is None
+            assert project.deleted_at is not None
+        assert session.get(Project, owned_id).deleted_at is None
+        before = {pid: session.get(Project, pid).deleted_at for pid in orphan_ids}
+
+    _move_orphan_projects_to_recycle_bin(engine)
+
+    with Session(engine) as session:
+        after = {pid: session.get(Project, pid).deleted_at for pid in orphan_ids}
+    assert after == before
+
+
+def test_restore_orphan_project_keeps_owner_id_null(client, engine):
+    """孤立项目（owner_id=NULL）恢复后保持 owner_id 为 NULL，且不重命名/不重排序。"""
+    admin_token = login_as(client, 'admin')
+
+    with Session(engine) as session:
+        orphan = Project(
+            name='孤立回收站项目',
+            version='1.0',
+            owner_id=None,
+            order_index=0,
+            deleted_at=datetime.now(timezone.utc),
+        )
+        session.add(orphan)
+        session.commit()
+        orphan_id = orphan.id
+        original_order = orphan.order_index
+
+    resp = client.post(f'/api/admin/projects/{orphan_id}/restore', headers=auth_headers(admin_token))
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload['name'] == '孤立回收站项目'
+    assert payload['deleted_at'] is None
+
+    with Session(engine) as session:
+        restored = session.get(Project, orphan_id)
+        assert restored.owner_id is None
+        assert restored.deleted_at is None
+        assert restored.order_index == original_order
+
+
+def test_recycle_bin_orders_orphan_and_orm_deletes_chronologically(client, engine):
+    """启动迁移与 ORM 软删共存时，回收站按 deleted_at 倒序稳定排序（防御时间戳格式回归）。
+
+    历史 bug：用 ``datetime.now().isoformat()`` 写入时产生 ``'2026-05-07T...'``（T 分隔），
+    与 SQLAlchemy ORM 写入的 ``'2026-05-07 ...'``（空格分隔）字典序错乱，影响倒序排序。
+    """
+    from sqlalchemy import text as sa_text
+    from src.database import _move_orphan_projects_to_recycle_bin
+
+    admin_token = login_as(client, 'admin')
+
+    with Session(engine) as session:
+        admin_user = session.scalar(select(User).where(User.username == 'admin'))
+        owned = _create_owned_project(
+            session, admin_user.id, 'ORM 软删项目', order_index=1,
+            deleted_at=datetime(2024, 1, 1, 0, 0, 0),
+        )
+        orphan = Project(name='孤立项目', version='1.0', owner_id=None, order_index=99)
+        session.add(orphan)
+        session.commit()
+        owned_id = owned.id
+        orphan_id = orphan.id
+
+    _move_orphan_projects_to_recycle_bin(engine)
+
+    # 直接读 raw 列值：迁移写入的 deleted_at 应与 ORM 写入格式一致（不能包含 'T' 分隔符）。
+    with engine.connect() as conn:
+        orphan_raw = conn.execute(
+            sa_text("SELECT deleted_at FROM project WHERE id = :id"),
+            {"id": orphan_id},
+        ).scalar()
+        owned_raw = conn.execute(
+            sa_text("SELECT deleted_at FROM project WHERE id = :id"),
+            {"id": owned_id},
+        ).scalar()
+    assert orphan_raw is not None
+    assert 'T' not in str(orphan_raw), f"启动迁移 deleted_at 不应使用 ISO T 分隔符，实际: {orphan_raw!r}"
+    assert 'T' not in str(owned_raw), f"ORM deleted_at 不应使用 ISO T 分隔符，实际: {owned_raw!r}"
+
+    # API 端到端：孤立项目（迁移时间 > 2024-01-01）应排在 ORM 软删项目之前。
+    resp = client.get('/api/admin/projects/recycle-bin', headers=auth_headers(admin_token))
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    ids = [item['id'] for item in payload]
+    assert ids == [orphan_id, owned_id], f"回收站应按 deleted_at 倒序，期望 {[orphan_id, owned_id]}, 实际 {ids}"
+    orphan_row = next(item for item in payload if item['id'] == orphan_id)
+    assert orphan_row['owner_id'] is None
+    assert orphan_row['owner_username'] is None
