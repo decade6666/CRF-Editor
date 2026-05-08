@@ -738,11 +738,12 @@ def _heal_reserved_admin_account(engine):
 
 
 
-def _warn_orphan_projects(engine):
+def _move_orphan_projects_to_recycle_bin(engine) -> None:
 
-    """检查并警告孤立项目（owner_id 为 NULL）。"""
+    """将孤立项目（owner_id 为 NULL）自动移入回收站。"""
 
     import logging
+    from datetime import datetime
 
 
 
@@ -758,11 +759,14 @@ def _warn_orphan_projects(engine):
 
     with engine.begin() as conn:
 
-        count = conn.execute(text("SELECT COUNT(*) FROM project WHERE owner_id IS NULL")).scalar()
+        result = conn.execute(
+            text("UPDATE project SET deleted_at = :now WHERE owner_id IS NULL AND deleted_at IS NULL"),
+            {"now": datetime.now()},
+        )
 
-        if count > 0:
+        if result.rowcount > 0:
 
-            logger.warning("发现 %d 个孤立项目（owner_id 为 NULL），这些项目将无法被任何用户访问", count)
+            logger.info("已将 %d 个孤立项目移入回收站", result.rowcount)
 
 
 
@@ -1001,7 +1005,7 @@ def init_db():
 
     _heal_reserved_admin_account(engine)
 
-    _warn_orphan_projects(engine)
+    _move_orphan_projects_to_recycle_bin(engine)
 
 
 

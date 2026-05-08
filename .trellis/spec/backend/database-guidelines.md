@@ -217,3 +217,23 @@ with session.begin():
     session.add(item)
     # Commit immediately
 ```
+
+### 5. Raw `text()` UPDATE on Datetime Columns
+
+When writing raw SQL via `text()` to update a `DateTime`/`DateTime(timezone=True)` column, **always pass a `datetime` object** as the bind parameter — never a pre-serialized ISO string. SQLAlchemy's SQLite dialect serializes `datetime` objects with a **space** separator (`'2026-05-07 12:34:56'`), but `datetime.isoformat()` uses `'T'` (`'2026-05-07T12:34:56'`). Mixing both formats in the same column breaks `ORDER BY <col> DESC` because `'T'` (ASCII 84) > `' '` (ASCII 32) lexically — same-day records sort incorrectly.
+
+```python
+# Wrong - ISO string with 'T' separator, breaks chronological sort vs ORM-managed rows
+conn.execute(
+    text("UPDATE project SET deleted_at = :now WHERE ..."),
+    {"now": datetime.now().isoformat()},
+)
+
+# Correct - pass datetime object; SQLAlchemy serializes consistently with ORM
+conn.execute(
+    text("UPDATE project SET deleted_at = :now WHERE ..."),
+    {"now": datetime.now()},
+)
+```
+
+Also prefer using the UPDATE's `result.rowcount` for affected-row logging instead of running a separate `SELECT COUNT(*)` with the same predicate — eliminates the duplicate query and the small race window between count and update.
