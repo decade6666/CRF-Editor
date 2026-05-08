@@ -58,7 +58,6 @@ export function buildFormDesignerUnifiedSegments(fields) {
 export function buildFormDesignerRenderGroups(fields) {
   if (!fields.length) return []
 
-  const hasRegular = fields.some(field => field.inline_mark === 0)
   let maxBlockWidth = 0
   let currentWidth = 0
 

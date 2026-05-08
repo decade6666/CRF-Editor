@@ -22,6 +22,13 @@ from sqlalchemy.exc import IntegrityError
 from src.config import get_config, is_production_env
 
 from src.database import init_db
+from src.perf import (
+    begin_request_metrics,
+    finish_request_metrics,
+    is_perf_baseline_enabled,
+    sanitize_route_path,
+    set_route_template,
+)
 
 from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx
 
@@ -41,6 +48,36 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
 }
+
+
+class _SuppressNotFoundAccessLog(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.INFO:
+            return True
+        status_code = _get_access_log_status_code(record)
+        return status_code != 404
+
+
+def _get_access_log_status_code(record: logging.LogRecord) -> int | None:
+    args = record.args
+    status_code = None
+    if isinstance(args, dict):
+        status_code = args.get("status_code")
+    elif isinstance(args, tuple) and args:
+        status_code = args[-1]
+    if status_code is None:
+        status_code = getattr(record, "status_code", None)
+    try:
+        return int(status_code)
+    except (TypeError, ValueError):
+        return None
+
+
+def _install_access_log_filter() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    has_filter = any(isinstance(item, _SuppressNotFoundAccessLog) for item in access_logger.filters)
+    if not has_filter:
+        access_logger.addFilter(_SuppressNotFoundAccessLog())
 
 
 # 配置应用日志：uvicorn 只管自己的 logger，src.* 的日志需要单独挂 handler
@@ -65,7 +102,7 @@ def _setup_app_logging():
 
         app_logger.addHandler(h)
 
-
+    _install_access_log_filter()
 
 
 
@@ -280,6 +317,40 @@ async def security_headers_middleware(request: Request, call_next):
     except Exception:
         response = JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
     return _apply_security_headers(response)
+
+
+@app.middleware("http")
+async def performance_baseline_middleware(request: Request, call_next):
+    if not is_perf_baseline_enabled():
+        return await call_next(request)
+
+    route_template = None
+    route = request.scope.get("route")
+    if route is not None:
+        route_template = getattr(route, "path", None)
+    request_id = begin_request_metrics(
+        request.method,
+        route_template or sanitize_route_path(request.url.path),
+    )
+    status_code = 500
+    error_type = None
+    try:
+        response = await call_next(request)
+        resolved_route = request.scope.get("route")
+        if resolved_route is not None:
+            set_route_template(getattr(resolved_route, "path", None))
+        status_code = response.status_code
+        return response
+    except Exception as exc:
+        error_type = exc.__class__.__name__
+        raise
+    finally:
+        summary = finish_request_metrics(status_code, error_type)
+        if summary:
+            logging.getLogger("src.perf").info(
+                "perf.request %s",
+                summary,
+            )
 
 
 @app.exception_handler(RequestValidationError)

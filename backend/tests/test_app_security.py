@@ -1,8 +1,7 @@
 """应用构造与安全响应头回归测试。"""
 
-import os
+import logging
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +33,42 @@ def test_build_fastapi_kwargs_disables_docs_in_production(monkeypatch: pytest.Mo
     kwargs = main_module._build_fastapi_kwargs()
 
     assert kwargs == {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+
+def _make_access_record(status_code: int, level: int = logging.INFO) -> logging.LogRecord:
+    return logging.LogRecord(
+        "uvicorn.access",
+        level,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:1", "GET", "/missing", "1.1", status_code),
+        None,
+    )
+
+
+
+def test_access_log_filter_suppresses_only_404_access_records() -> None:
+    access_filter = main_module._SuppressNotFoundAccessLog()
+
+    assert access_filter.filter(_make_access_record(404)) is False
+    assert access_filter.filter(_make_access_record(404, logging.WARNING)) is True
+    assert access_filter.filter(_make_access_record(200)) is True
+    assert access_filter.filter(_make_access_record(500)) is True
+
+
+
+def test_setup_app_logging_installs_access_filter() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    original_filters = list(access_logger.filters)
+    access_logger.filters = []
+    try:
+        main_module._setup_app_logging()
+
+        assert any(isinstance(item, main_module._SuppressNotFoundAccessLog) for item in access_logger.filters)
+    finally:
+        access_logger.filters = original_filters
 
 
 

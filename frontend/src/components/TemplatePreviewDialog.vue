@@ -87,6 +87,8 @@
             :key="f.id"
             class="selection-item"
             :style="getItemStyle(f)"
+            role="button"
+            tabindex="0"
             @click="toggleSelect(f.id)"
           >
             <el-checkbox :model-value="selectedIds.has(f.id)" @click.stop />

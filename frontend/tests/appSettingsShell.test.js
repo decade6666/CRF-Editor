@@ -37,19 +37,19 @@ test('settings dialog uses inline prompt edit mode copy', () => {
   assert.match(appSource, /关闭时保留基础浏览与设计入口，开启后显示完整编辑能力/)
   assert.doesNotMatch(appSource, /开启后显示选项\/单位\/字段标签及表单编辑按钮/)
   assert.match(appSource, /const ADVANCED_EDIT_TABS = new Set\(\['codelists', 'units', 'fields'\]\)/)
-  assert.match(appSource, /watch\(editMode, v => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) activeTab\.value = 'info'/)
+  assert.match(appSource, /watch\(editMode, \(v\) => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) resetLazyTabs\('info'\)/)
 })
 
 test('header keeps template import and word export only', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || ''
   assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/)
-  assert.match(headerSection, /@click="exportWord">导出Word<\/el-button>/)
+  assert.match(headerSection, /@click="exportWord"[\s\S]*>导出Word<\/el-button\s*>/)
   assert.doesNotMatch(headerSection, /导入Word/)
   assert.match(appSource, /<el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板<\/el-button>/)
 })
 
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {
-  assert.match(appSource, /<el-tabs class="main-content-tabs" v-model="activeTab"/)
+  assert.match(appSource, /<el-tabs[\s\S]*class="main-content-tabs"[\s\S]*v-model="activeTab"/)
   assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/)
   assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/)
   const actionsSection = appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || ''
@@ -115,6 +115,18 @@ test('login view distinguishes development migration hints from generic auth fai
 
 test('admin workspace mounts before normal project shell content', () => {
   assert.match(appSource, /async function onLoginSuccess\(\) \{[\s\S]*await loadMe\(\)[\s\S]*if \(isAdmin\.value\) \{[\s\S]*projects\.value = \[\]/)
-  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*await loadMe\(\)[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)/)
+  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*window\.addEventListener\('crf:auth-expired', handleAuthExpired\)[\s\S]*await restoreSession\(\)/)
   assert.match(appSource, /<template v-else-if="isAdmin">/)
+})
+
+test('app verifies saved token before rendering authenticated workspaces', () => {
+  assert.match(appSource, /const isCheckingAuth = ref\(!!localStorage\.getItem\('crf_token'\)\)/)
+  assert.match(appSource, /<div v-if="isCheckingAuth" class="auth-loading" aria-live="polite">/)
+  assert.match(appSource, /<LoginView v-else-if="!isLoggedIn" @login-success="onLoginSuccess" \/>/)
+  assert.match(appSource, /<template v-else-if="isAdmin">/)
+})
+
+test('app clears invalid saved token before loading projects', () => {
+  assert.match(appSource, /async function loadMe\(\) \{[\s\S]*currentUser\.value = await api\.get\('\/api\/auth\/me'\)[\s\S]*return true[\s\S]*catch \{[\s\S]*currentUser\.value = getEmptyUser\(\)[\s\S]*return false[\s\S]*\}/)
+  assert.match(appSource, /async function restoreSession\(\) \{[\s\S]*const hasToken = !!localStorage\.getItem\('crf_token'\)[\s\S]*if \(!hasToken\) \{[\s\S]*isLoggedIn\.value = false[\s\S]*return[\s\S]*\}[\s\S]*const authenticated = await loadMe\(\)[\s\S]*if \(!authenticated\) \{[\s\S]*resetSessionState\(\)[\s\S]*return[\s\S]*\}[\s\S]*isLoggedIn\.value = true[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)[\s\S]*\}/)
 })
