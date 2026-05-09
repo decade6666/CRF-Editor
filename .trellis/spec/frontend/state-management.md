@@ -217,6 +217,93 @@ watch(token, (val) => {
 
 ---
 
+## Scenario: refreshKey Global Bump for Cross-Tab Synchronization
+
+### 1. Scope / Trigger
+
+- Trigger: a write in one tab (e.g., CodelistsTab renames a dictionary) must
+  immediately update data displayed in another tab (FormDesignerTab shows the
+  old name in field properties).
+- This is a cross-tab data-sync contract because multiple lazy-loaded tabs
+  independently fetch their own API data via `cachedGet`, and no global store
+  exists to broadcast mutations.
+
+### 2. Signatures
+
+```javascript
+// App.vue — provider
+const refreshKey = ref(0)
+provide('refreshKey', refreshKey)
+
+// Any child component — consumer (injection returns the SAME ref object)
+const refreshKey = inject('refreshKey', ref(0))
+
+// Mutating from any consumer triggers all other consumers' watchers:
+refreshKey.value++
+```
+
+### 3. Contracts
+
+| Field / State | Type | Constraint |
+|---|---|---|
+| `refreshKey` | `Ref<number>` | Monotonically incrementing integer; the actual value is meaningless — only the change event matters. |
+| Provider | `App.vue` | Must be the single `provide()` call; never duplicate in child components. |
+| Consumer watch | `watch(refreshKey, ...)` | Must call `load*()` functions to re-fetch API data (which may hit `cachedGet`; cache was already invalidated by `_autoInvalidate` on the write that triggered the bump). |
+| Write path | Service/Tab that mutated data | Must call `api.invalidateCache(urlPrefix)` **before** bumping `refreshKey`; otherwise consumers fetch stale cached data on their next `cachedGet`. |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Tab writes codelist, does NOT bump `refreshKey` | Other tabs show stale dictionary names until user manually navigates away and back. **Bug.** |
+| Tab bumps `refreshKey` but does NOT invalidate cache first | Consumers' watchers fire, but `cachedGet` returns stale data from the still-warm cache. **Bug.** |
+| Correct sequence: `invalidateCache → load (own) → refreshKey++` | Other tabs' watchers fire, `cachedGet` misses invalidated entry, fetches fresh data from network. **Correct.** |
+| `reload()` bumps `refreshKey` and also calls `load()` | Own watcher fires again → redundant `load()` call. Harmless (single extra network round-trip with warm cache); acceptable to keep code simple. |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: `CodelistsTab.updateCl` → `api.invalidateCache(/codelists)` →
+  `load()` → `refreshKey.value++` → `FormDesignerTab` watcher fires →
+  `loadCodelists()` + `loadFormFields()` → new dictionary name visible in
+  field property editor.
+- **Base**: Only `CodelistsTab.reload()` runs without bump → dictionary name
+  updates only inside CodelistsTab; FormDesignerTab shows stale name until
+  user switches tabs.
+- **Bad**: Bump `refreshKey` without `invalidateCache` → watcher fires but
+  `cachedGet` returns 30s-cached stale data; user sees no change.
+
+### 6. Tests Required
+
+- `frontend/tests/` must verify that `CodelistsTab` exposes a watchable
+  `refreshKey` (injected from `App.vue`).
+- Source-level assertion: after `updateCl` resolves, `refreshKey.value`
+  has incremented by at least 1.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```javascript
+// CodelistsTab — bump without invalidating cache
+async function updateCl() {
+  await api.put(`/api/projects/${pid}/codelists/${id}`, data)
+  refreshKey.value++   // other tabs fire but cachedGet returns stale data
+}
+```
+
+#### Correct
+
+```javascript
+// CodelistsTab — invalidate first, then bump
+async function reload() {
+  api.invalidateCache(`/api/projects/${pid}/codelists`)
+  await load()          // own tab gets fresh data
+  refreshKey.value++    // other tabs' watchers fire → fresh fetch
+}
+```
+
+---
+
 ## Server State
 
 ### API Cache Strategy

@@ -284,6 +284,81 @@ When building draggable list items (e.g., project list), separate the drag handl
 
 ---
 
+## Scenario: Blob URL Lifecycle Management
+
+### 1. Scope / Trigger
+
+- Trigger: any component that fetches binary data (images, PDFs) from an API,
+  creates `URL.createObjectURL(blob)`, and displays it via `:src="objectUrl"`.
+- This applies to `ProjectInfoTab.vue` (company logo), but the pattern is
+  reusable wherever a blob-derived URL is bound to the template.
+
+### 2. Signatures
+
+```javascript
+const logoUrl = ref(null)          // object URL string or null
+const project = defineProps(...)   // triggers watch on project.id change
+
+async function fetchLogo(projectId) {
+  // Always release the previous blob first
+  if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
+  if (!projectId) return               // guard: no project → stay null
+  const r = await fetch(`/api/projects/${projectId}/logo`, { headers: getAuthHeaders() })
+  if (r.ok) logoUrl.value = URL.createObjectURL(await r.blob())
+  // on error: logoUrl stays null → UI shows "上传Logo" button
+}
+```
+
+### 3. Contracts
+
+| Step | Action | Why |
+|---|---|---|
+| `watch(project)` — new project has logo | Call `fetchLogo(p.id)` | Loads the correct blob for the new project. |
+| `watch(project)` — new project has NO logo | `URL.revokeObjectURL(logoUrl.value); logoUrl.value = null` | Prevents showing the *previous* project's logo on a newly-created or logo-less project. |
+| `onUnmounted` | `URL.revokeObjectURL(logoUrl.value); logoUrl.value = null` | Prevents memory leak if the component is destroyed while a blob URL is still in use (e.g., user navigates away). |
+| `fetchLogo` entry | `revoke + null` before `fetch` | Ensures the old blob is freed even if the new fetch fails or the component rapidly re-renders. |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Project A (has logo) → Project B (new, no logo) | `logoUrl` becomes `null`; UI shows "上传Logo" only, no stale image from A. |
+| Project A (has logo) → Project C (has logo) | Old blob revoked, new blob created; image updates. |
+| Component unmounted while blob in use | `onUnmounted` fires, blob revoked; no memory leak. |
+| `fetchLogo` called with `projectId = undefined/null` | Early return; `logoUrl` stays `null`. |
+
+### 5. Wrong vs Correct
+
+#### Wrong
+
+```javascript
+watch(() => props.project, (p) => {
+  Object.assign(form, { name: p.name, ... })
+  if (p.company_logo_path) fetchLogo(p.id)
+  // BUG: when p has NO logo, logoUrl still points to the previous project's blob
+}, { immediate: true })
+```
+
+#### Correct
+
+```javascript
+watch(() => props.project, (p) => {
+  Object.assign(form, { name: p.name, ... })
+  if (p.company_logo_path) {
+    fetchLogo(p.id)
+  } else if (logoUrl.value) {
+    URL.revokeObjectURL(logoUrl.value)
+    logoUrl.value = null
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
+})
+```
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Using `<script setup>`
