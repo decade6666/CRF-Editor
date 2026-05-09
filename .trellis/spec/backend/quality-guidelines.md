@@ -162,6 +162,46 @@ class TokenIdentity:
     auth_version: int
 ```
 
+### 6. API Response: Additive-Only New Fields
+
+When a frontend feature requires a new field in an existing API response, add it
+additively — do **not** rename, remove, or reorder existing fields. This keeps
+old clients (or cached responses) working while new clients opt in to the extra
+data.
+
+**Real example — `DocxFormResult.form_id`** (PR 9a67590):
+
+```python
+# backend/src/routers/import_docx.py
+class DocxFormResult(BaseModel):
+    name: str
+    field_count: int
+    form_id: int          # ← added; old clients simply ignore it
+```
+
+```python
+# backend/src/services/docx_import_service.py — return value
+return {"name": form_name, "field_count": field_count, "form_id": new_form.id}
+#                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#                                               new field appended, not replacing
+```
+
+**Why**: Pydantic strict mode will reject responses missing required fields, so
+always add *after* existing fields and set a sensible default if the field might
+be absent in legacy code paths.
+
+**Required tests** (at least one):
+- Verify `POST /execute` response body contains the new field with expected type.
+- If the field references a DB row, verify the referenced row exists and belongs
+  to the target project (`test_docx_import_contract.py`).
+
+**Rules**:
+- Never reorder existing fields in `BaseModel` responses.
+- If the new field can be absent in some code path, make it `Optional[T]` with
+  `default=None`; only mark it required if every code path always produces it.
+- Always update the corresponding mock data in tests that patch the service
+  (e.g., `test_rate_limit.py`).
+
 ---
 
 ## Testing Requirements
