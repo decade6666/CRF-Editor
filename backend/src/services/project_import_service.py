@@ -32,7 +32,7 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
         "company_logo_path", "data_management_unit", "owner_id",
     }),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
-    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes"}),
+    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes", "paper_orientation"}),
     "visit_form": frozenset({"id", "visit_id", "form_id", "sequence"}),
     "field_definition": frozenset({
         "id", "project_id", "variable_name", "label", "field_type",
@@ -53,16 +53,22 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
 
 
 def _patch_legacy_project_schema(file_path: str) -> None:
-    """为旧版项目库补齐导入所需的新增 project 列，仅修改临时副本。"""
+    """为旧版项目库补齐导入所需的新增列，仅修改临时副本。"""
     conn = sqlite3.connect(file_path)
     try:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        if 'project' not in tables:
-            return
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
-        if 'screening_number_format' not in cols:
-            conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
-            conn.commit()
+        if 'project' in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
+            if 'screening_number_format' not in cols:
+                conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
+        if 'form' in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+            if 'paper_orientation' not in cols:
+                conn.execute(
+                    "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
+                    "NOT NULL DEFAULT 'auto'"
+                )
+        conn.commit()
     finally:
         conn.close()
 

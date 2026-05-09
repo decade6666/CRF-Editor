@@ -83,6 +83,7 @@ cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 - 重逻辑放 `services/`，接口层保持轻量。
 - 数据结构演进由 `src/database.py` 内轻量迁移维护。
 - 接口响应以稳定 JSON 为主，错误信息优先返回可直接展示的中文 `detail`。
+- 表单新增 `paper_orientation`（`auto/landscape/portrait`）时，需同步检查：`Form` 模型、Pydantic Schema、`database.py` 轻量迁移、`forms.py` 复制路径、`project_clone_service.py`、`project_import_service.py` 旧库兼容、`export_service.py` 方向覆写逻辑。
 - 修改认证、管理员、限流、项目隔离、导入路径或 Logo 处理时，需要同步补充安全测试。
 - 修改导入导出或列宽规划时，需要同步更新后端测试、前端契约测试和根级/模块级文档。
 
@@ -98,5 +99,6 @@ cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 | 仓储 | `src/repositories/base_repository.py`、`src/repositories/project_repository.py`、`src/repositories/field_definition_repository.py`、`src/repositories/field_repository.py`、`src/repositories/form_field_repository.py` |
 
 ## 变更记录
+- `2026年5月8日`：新增 `form.paper_orientation` 字段、轻量迁移、复制/导入兼容与 Word 导出方向覆写；补充同主题后端测试。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 53 文件（routers 12、services 12、models 10、schemas 6、repositories 5、基础设施 8）、测试 34 文件、脚本 4 文件。补充基础设施与服务条目。
 - `2026年4月27日 星期一 05:45:45 PDT`：初始生成。
