@@ -92,6 +92,7 @@ cd frontend && node --test tests/*.test.js
 - 列宽 fixture：`backend/tests/fixtures/planner_cases.json` 同时被后端 `backend/tests/test_width_planning.py` 与前端 `frontend/tests/columnWidthPlanning.test.js` 使用。
 - 排序契约：后端 `backend/src/services/order_service.py` 与前端 `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` 需要保持接口语义一致。
 - 认证契约：后端 `backend/src/routers/auth.py`、`backend/src/services/auth_service.py` 与前端 `frontend/src/App.vue`、`frontend/src/components/LoginView.vue`、`frontend/src/components/AdminView.vue` 需要同步检查。
+- 表单方向契约：后端 `backend/src/models/form.py`、`backend/src/schemas/form.py`、`backend/src/database.py`、`backend/src/routers/forms.py`、`backend/src/services/project_clone_service.py`、`backend/src/services/project_import_service.py`、`backend/src/services/export_service.py` 需与前端 `frontend/src/components/FormDesignerTab.vue` 同步；`paper_orientation` 改动时同步校验 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_project_copy.py` 与前端源码级测试。
 
 ## 测试策略
 - 后端测试使用 `pytest`，包含认证、权限、导入导出、排序、列宽规划、WAL、安全响应头、项目隔离等用例。
@@ -121,6 +122,7 @@ cd frontend && node --test tests/*.test.js
 - `draft` 分支可直接 push 到远程；`main` 分支仅接受 PR 合并。
 
 ## 变更记录
+- `2026年5月8日`：新增“表单方向契约”跨栈条目，记录 `paper_orientation` 跨后端迁移/schema/导出与前端设计器的同步规则。
 - `2026年4月28日`：新增 Git 工作流规则：draft → main 必须通过 PR 合并。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。后端源码 53 文件、测试 34 文件；前端源码 26 文件、测试 20 文件。更新 Mermaid 结构图，同步文件计数。
 - `2026年4月27日 星期一 05:45:45 PDT`：刷新文件统计数据，同步 backend tests 25->34、frontend composables 9->11、frontend tests 17->21。

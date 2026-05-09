@@ -51,6 +51,8 @@
 - 字段预览与 HTML 渲染统一复用 `useCRFRenderer.js`。
 - 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
 - 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
+- `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
+- 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
 - 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
 
 ## 预览列宽（内容驱动）
@@ -93,5 +95,6 @@
 | 配置 | `package.json`、`vite.config.js` |
 
 ## 变更记录
+- `2026年5月8日`：FormDesignerTab 备注展示迁移到顶栏/section-title、新增 per-form `paper_orientation` 控制与旧 `forceLandscape` 迁移；同步更新前端测试与样式。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 26 文件（组件 12、composables 11、样式 1、入口 2）、测试 20 文件。补充完整测试关注点列表与文件清单。
 - `2026年4月27日 星期一 05:45:45 PDT`：初始生成。

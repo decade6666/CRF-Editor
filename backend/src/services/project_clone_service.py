@@ -290,6 +290,7 @@ class ProjectCloneService:
                     domain=form.domain,
                     order_index=form_idx,
                     design_notes=form.design_notes,
+                    paper_orientation=getattr(form, "paper_orientation", "auto") or "auto",
                 )
                 session.add(new_form)
                 session.flush()

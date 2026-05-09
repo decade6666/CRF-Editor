@@ -212,7 +212,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .choice-atom { display: inline-flex; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
 .word-page .choice-atom .fill-line { vertical-align: bottom; }
 
-/* 预览正文与备注布局 */
+/* 预览正文与备注布局（VisitsTab 访视预览仍保留右侧 aside；FormDesignerTab 已迁移至顶栏） */
 .wp-body { display: flex; gap: 32px; align-items: flex-start; }
 .wp-main { flex: 1 1 auto; min-width: 0; }
 .wp-body--with-notes .wp-main { flex: 0 1 calc(100% - 272px); max-width: calc(100% - 272px); }

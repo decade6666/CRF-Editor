@@ -159,6 +159,10 @@ class LayoutDecision:
 
     value_span: int  # value 区合并列数
 
+    force_landscape: bool = False  # paper_orientation='landscape' 强制覆写：legacy 模式下切横向
+
+    force_portrait: bool = False   # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
+
 
 
 
@@ -931,7 +935,9 @@ class ExportService:
 
             form_fields = sorted(form.form_fields, key=lambda ff: (ff.order_index, ff.id))
 
-            layout = self._classify_form_layout(form_fields)
+            paper_orientation = getattr(form, "paper_orientation", "auto") or "auto"
+
+            layout = self._classify_form_layout(form_fields, paper_orientation=paper_orientation)
 
             is_last_form = idx == total_forms
 
@@ -1007,6 +1013,10 @@ class ExportService:
 
                 # legacy 路径（保持现有行为）
 
+                if layout.force_landscape:
+
+                    self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
                 heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
 
                 for run in heading_para.runs:
@@ -1035,9 +1045,9 @@ class ExportService:
 
                     if first_field.inline_mark == 1:
 
-                        is_wide = len(group) > 4
+                        is_wide = len(group) > 4 and not layout.force_portrait
 
-                        if is_wide:
+                        if is_wide and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
@@ -1047,7 +1057,7 @@ class ExportService:
 
 
 
-                        if is_wide:
+                        if is_wide and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
@@ -1064,11 +1074,17 @@ class ExportService:
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
-                # 仅当后续还有表单时才分页，避免末尾空白页
+                # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
 
                 if not is_last_form:
 
-                    doc.add_page_break()
+                    if layout.force_landscape:
+
+                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+                    else:
+
+                        doc.add_page_break()
 
 
 
@@ -1152,60 +1168,76 @@ class ExportService:
         field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, 'id') and f.id is not None]
         return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
-    def _classify_form_layout(self, form_fields) -> LayoutDecision:
+    def _classify_form_layout(self, form_fields, paper_orientation: str = "auto") -> LayoutDecision:
         """判断表单是否需要走统一横向布局（unified landscape）。
 
 
 
         触发条件：同时存在普通字段和 inline 字段，且最大 inline block 宽度 > 4。
 
+        paper_orientation 覆写：
+            - 'landscape'：自动判定为 legacy 时附加 force_landscape 标记，强制切横向。
+            - 'portrait' ：强制 legacy 并附加 force_portrait，抑制 inline 宽表的自动横向切换。
+            - 'auto'    ：维持原有自动判定。
         """
 
         if not form_fields:
 
-            return LayoutDecision("legacy", 0, 0, 0)
+            decision = LayoutDecision("legacy", 0, 0, 0)
+
+        else:
+
+            sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
+
+            has_regular = any(f.inline_mark == 0 for f in sorted_fields)
 
 
 
-        sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
+            # 计算连续 inline block 的最大宽度
 
-        has_regular = any(f.inline_mark == 0 for f in sorted_fields)
+            max_block_width = 0
+
+            current_block_width = 0
+
+            for f in sorted_fields:
+
+                if f.inline_mark == 1:
+
+                    current_block_width += 1
+
+                else:
+
+                    max_block_width = max(max_block_width, current_block_width)
+
+                    current_block_width = 0
+
+            max_block_width = max(max_block_width, current_block_width)
 
 
 
-        # 计算连续 inline block 的最大宽度
+            has_inline = max_block_width > 0
 
-        max_block_width = 0
+            if has_regular and has_inline and max_block_width > 4:
 
-        current_block_width = 0
+                N = max_block_width
 
-        for f in sorted_fields:
-
-            if f.inline_mark == 1:
-
-                current_block_width += 1
+                decision = LayoutDecision("mixed_landscape", N, 0, 0)
 
             else:
 
-                max_block_width = max(max_block_width, current_block_width)
-
-                current_block_width = 0
-
-        max_block_width = max(max_block_width, current_block_width)
+                decision = LayoutDecision("legacy", 0, 0, 0)
 
 
 
-        has_inline = max_block_width > 0
+        if paper_orientation == "portrait":
 
-        if has_regular and has_inline and max_block_width > 4:
+            return LayoutDecision("legacy", 0, 0, 0, force_portrait=True)
 
-            N = max_block_width
+        if paper_orientation == "landscape" and decision.mode == "legacy":
 
-            return LayoutDecision("mixed_landscape", N, 0, 0)
+            return LayoutDecision("legacy", 0, 0, 0, force_landscape=True)
 
-
-
-        return LayoutDecision("legacy", 0, 0, 0)
+        return decision
 
 
 
