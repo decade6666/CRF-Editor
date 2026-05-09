@@ -2,7 +2,7 @@
 
 # backend 模块说明
 
-> 最近更新：2026年4月28日 星期二 08:31:55 PDT
+> 最近更新：2026年5月8日 18:26:34
 
 ## 模块职责
 - 提供 REST API 与前端静态资源入口。
@@ -26,7 +26,7 @@
 - `src/models/`（10 个 ORM 模型）：Project、Visit、Form、VisitForm、FieldDefinition、FormField、CodeList、CodeListOption、Unit、User。
 - `src/schemas/`（6 个 Pydantic 模块）：项目、访视、表单、字段、字典、单位等请求/响应结构。
 - `src/repositories/`（5 个仓储模块）：基础仓储、项目、字段定义、字段实例、表单字段等数据库访问封装。
-- `tests/`（34 个测试文件）：认证、管理员、权限、项目隔离、导入导出、排序、配置、WAL、限流、列宽规划、性能基线等 pytest 用例。
+- `tests/`（37 个测试文件）：认证、管理员、权限、项目隔离、导入导出、排序、配置、WAL、限流、列宽规划、性能基线、表单方向、Word 导入契约等 pytest 用例。
 - `scripts/`（4 个脚本）：模板数据库迁移、性能 fixture 生成、性能基线运行、性能证据汇总。
 
 ## 路由概览
@@ -97,8 +97,10 @@ cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 | 模型 | `src/models/project.py`、`src/models/visit.py`、`src/models/form.py`、`src/models/visit_form.py`、`src/models/field_definition.py`、`src/models/field.py`、`src/models/form_field.py`、`src/models/codelist.py`、`src/models/unit.py`、`src/models/user.py` |
 | Schema | `src/schemas/project.py`、`src/schemas/visit.py`、`src/schemas/form.py`、`src/schemas/field.py`、`src/schemas/codelist.py`、`src/schemas/unit.py` |
 | 仓储 | `src/repositories/base_repository.py`、`src/repositories/project_repository.py`、`src/repositories/field_definition_repository.py`、`src/repositories/field_repository.py`、`src/repositories/form_field_repository.py` |
+| 测试（新增） | `tests/test_form_paper_orientation.py`、`tests/test_export_paper_orientation.py`、`tests/test_docx_import_contract.py` |
 
 ## 变更记录
+- `2026年5月8日 18:26:34`：增量扫描刷新。测试 34→37 文件，新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`；补充相关文件清单与目录条目。
 - `2026年5月8日`：新增 `form.paper_orientation` 字段、轻量迁移、复制/导入兼容与 Word 导出方向覆写；补充同主题后端测试。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 53 文件（routers 12、services 12、models 10、schemas 6、repositories 5、基础设施 8）、测试 34 文件、脚本 4 文件。补充基础设施与服务条目。
 - `2026年4月27日 星期一 05:45:45 PDT`：初始生成。
