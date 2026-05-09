@@ -2,7 +2,7 @@
 
 # frontend 模块说明
 
-> 最近更新：2026年4月28日 星期二 08:31:55 PDT
+> 最近更新：2026年5月8日 18:26:34
 
 ## 模块职责
 - 提供 CRF 编辑器的 Vue 3 单页界面。
@@ -23,7 +23,8 @@
 - `src/components/`（12 个 Vue 组件）：项目、字典、单位、字段、表单设计、访视、登录、管理、导入预览、CRF 模拟渲染等页面组件。
 - `src/composables/`（11 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、导出下载状态、列宽拖拽、访视预览方向、标签页懒加载、性能基线等共享逻辑。
 - `src/styles/`：全局样式与主题变量。
-- `tests/`（20 个测试文件）：基于 `node:test` 的前端回归与契约测试。
+- `scripts/`（3 个脚本）：fixture 生成（`generatePlannerFixtures.mjs`）、构建指标采集（`collectBuildMetrics.mjs`）、浏览器性能基线（`runBrowserPerfBaseline.mjs`）。
+- `tests/`（21 个测试文件）：基于 `node:test` 的前端回归与契约测试。
 
 ## 关键组件与流程
 - `components/LoginView.vue`：账号 + 密码登录表单；development 下展示迁移提示，production 下显示通用认证失败文案。
@@ -84,6 +85,7 @@
 - `appTabLazyLoad.test.js`：标签页懒加载。
 - `sidebarCopyButtonScope.test.js`：侧边栏复制按钮作用域。
 - `browserPerfBaselineScript.test.js`、`perfBaselineHelpers.test.js`：性能基线相关。
+- `testProperty.js`：属性测试工具库（seeded 随机生成器、`forAll` runner），为契约与属性测试提供轻量替代 fast-check 的基础设施。
 
 ## 相关文件清单
 | 类别 | 文件 |
@@ -95,6 +97,7 @@
 | 配置 | `package.json`、`vite.config.js` |
 
 ## 变更记录
+- `2026年5月8日 18:26:34`：增量扫描刷新。测试 20→21 文件（新增 `testProperty.js`）；补充 `scripts/` 目录条目与测试工具说明。
 - `2026年5月8日`：FormDesignerTab 备注展示迁移到顶栏/section-title、新增 per-form `paper_orientation` 控制与旧 `forceLandscape` 迁移；同步更新前端测试与样式。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 26 文件（组件 12、composables 11、样式 1、入口 2）、测试 20 文件。补充完整测试关注点列表与文件清单。
 - `2026年4月27日 星期一 05:45:45 PDT`：初始生成。
