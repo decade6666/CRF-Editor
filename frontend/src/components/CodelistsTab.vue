@@ -39,10 +39,11 @@ async function load() {
   }
   nextTick(() => initCodelistsSortable())
 }
-// 写操作后强制刷新：先失效缓存，再重新加载
+// 写操作后强制刷新：先失效缓存，再重新加载，最后 bump 全局 refreshKey 让其他 Tab 同步字典名/选项
 async function reload() {
   api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
   await load()
+  refreshKey.value++
 }
 const { initSortable: initCodelistsSortable } = useSortableTable(
   codelistsTableRef,
@@ -63,7 +64,7 @@ function onClTableHeaderDragend(newWidth, _, col) {
 async function addCl() {
   try {
     await api.post(`/api/projects/${props.projectId}/codelists`, { ...clForm })
-    showAddCl.value = false; clForm.name = ''; clForm.code = ''; clForm.description = ''; load()
+    showAddCl.value = false; clForm.name = ''; clForm.code = ''; clForm.description = ''; reload()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -76,7 +77,7 @@ async function delCl(c) {
     }
     await api.del(`/api/projects/${props.projectId}/codelists/${c.id}`)
     if (selected.value?.id === c.id) selected.value = null
-    load()
+    reload()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -93,7 +94,7 @@ async function batchDelCl() {
     }
     if (allRefs.length) return ElMessageBox.alert(`以下字典被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids })
-    selCls.value = []; selected.value = null; load()
+    selCls.value = []; selected.value = null; reload()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

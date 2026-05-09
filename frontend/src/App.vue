@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide, defineAsyncComponent } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide, defineAsyncComponent, nextTick } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   Delete,
@@ -663,13 +663,12 @@ const importedFormsPreview = ref([]);
 const selectedFormsToImport = ref([]);
 const tempDocxId = ref(null);
 const importWordErrorMessage = ref('');
-const importWordAiError = ref('');
-// 预览对比对话框
+// 预览对话框
 const showDocxCompare = ref(false);
 const hasOpenedDocxCompare = ref(false);
 const compareFormData = ref(null);
-// 每个表单是否采纳AI建议：{formIndex: boolean}
-const aiSuggestionFlags = ref({});
+// Step 3：导入完成后的表单清单（每项含 form_id / name / field_count）
+const importedResults = ref([]);
 
 function openImportWordDialog() {
   importWordStep.value = 1;
@@ -678,10 +677,9 @@ function openImportWordDialog() {
   selectedFormsToImport.value = [];
   tempDocxId.value = null;
   importWordErrorMessage.value = '';
-  importWordAiError.value = '';
   showDocxCompare.value = false;
   compareFormData.value = null;
-  aiSuggestionFlags.value = {};
+  importedResults.value = [];
   showImportWordDialog.value = true;
 }
 
@@ -710,7 +708,6 @@ function handleDocxUploadSuccess(response) {
     selectedFormsToImport.value = [];
     tempDocxId.value = response.temp_id;
     importWordErrorMessage.value = '';
-    importWordAiError.value = response.ai_error || '';
     importWordStep.value = 2;
   } else {
     importWordErrorMessage.value = '文件解析失败或响应格式不正确。';
@@ -743,32 +740,14 @@ async function executeImportWord() {
   importWordLoading.value = true;
   importWordErrorMessage.value = '';
   try {
-    // 构建 AI 覆盖参数：只包含开启了AI建议的表单
-    const aiOverrides = [];
-    for (const formIdx of selectedFormsToImport.value) {
-      if (aiSuggestionFlags.value[formIdx]) {
-        const form = importedFormsPreview.value.find((f) => f.index === formIdx);
-        if (form?.ai_suggestions?.length) {
-          aiOverrides.push({
-            form_index: formIdx,
-            overrides: form.ai_suggestions.map((s) => ({
-              index: s.index,
-              field_type: s.suggested_type,
-            })),
-          });
-        }
-      }
-    }
-
     const payload = {
       temp_id: tempDocxId.value,
       form_indices: selectedFormsToImport.value,
     };
-    if (aiOverrides.length) payload.ai_overrides = aiOverrides;
-
     const data = await api.post(`/api/projects/${selectedProject.value.id}/import-docx/execute`, payload);
     ElMessage.success(`导入成功：${data.imported_form_count}个表单`);
-    showImportWordDialog.value = false;
+    importedResults.value = Array.isArray(data.detail) ? data.detail : [];
+    importWordStep.value = 3;
     api.clearAllCache();
     refreshKey.value++;
   } catch (e) {
@@ -779,22 +758,27 @@ async function executeImportWord() {
   }
 }
 
-// AI建议：根据字段索引获取字段标签
-function getFieldLabel(form, fieldIndex) {
-  const field = form.fields?.find((f) => f.index === fieldIndex);
-  return field?.label || `字段${fieldIndex}`;
-}
-
-// 打开预览对比对话框
+// 打开预览对话框
 function openDocxCompare(form) {
   compareFormData.value = form;
   hasOpenedDocxCompare.value = true;
   showDocxCompare.value = true;
 }
 
-// 更新某个表单的AI建议开关
-function updateAiFlag(formIndex, val) {
-  aiSuggestionFlags.value[formIndex] = val;
+// Step 3：跳转到表单设计页并选中该表单
+async function openDesignerForImportedForm(formId) {
+  showImportWordDialog.value = false;
+  activateTab('designer');
+  activeTab.value = 'designer';
+  await nextTick();
+  const tries = 20;
+  for (let i = 0; i < tries; i++) {
+    if (formDesignerTabRef.value?.selectFormById) {
+      await formDesignerTabRef.value.selectFormById(formId);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
 }
 
 // 暗色模式（持久化）
@@ -1138,14 +1122,6 @@ function startResize(e) {
           />
         </div>
         <div v-if="importWordStep === 2">
-          <el-alert
-            v-if="importWordAiError"
-            :title="importWordAiError"
-            type="warning"
-            show-icon
-            style="margin-bottom: 12px"
-            closable
-          />
           <div class="form-select-header">
             <p class="form-select-prompt">请勾选要导入的表单：</p>
             <el-button
@@ -1182,38 +1158,7 @@ function startResize(e) {
                   <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
                 </el-tooltip>
                 <span class="docx-form-actions">
-                  <el-popover v-if="f.ai_suggestions?.length" trigger="hover" width="360" placement="right">
-                    <template #reference>
-                      <el-tag size="small" type="warning" style="cursor: help"
-                        >AI建议 {{ f.ai_suggestions.length }}</el-tag
-                      >
-                    </template>
-                    <div style="font-size: 12px">
-                      <div
-                        v-for="s in f.ai_suggestions"
-                        :key="s.index"
-                        style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #eee"
-                      >
-                        <div>
-                          <b>字段#{{ s.index }}</b
-                          >：{{ getFieldLabel(f, s.index) }}
-                        </div>
-                        <div>
-                          建议类型：<el-tag size="small" type="danger">{{ s.suggested_type }}</el-tag>
-                        </div>
-                        <div style="color: var(--color-text-muted)">{{ s.reason }}</div>
-                      </div>
-                    </div>
-                  </el-popover>
-                  <el-switch
-                    v-if="f.ai_suggestions?.length"
-                    :model-value="aiSuggestionFlags[f.index] || false"
-                    @update:model-value="updateAiFlag(f.index, $event)"
-                    size="small"
-                    active-text="AI"
-                    style="margin-left: 8px"
-                  />
-                  <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览对比</el-button>
+                  <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览</el-button>
                 </span>
               </div>
             </el-checkbox>
@@ -1232,9 +1177,35 @@ function startResize(e) {
             style="margin-top: 10px"
           />
         </div>
+        <div v-if="importWordStep === 3">
+          <el-alert
+            type="success"
+            show-icon
+            :closable="false"
+            :title="`导入成功，共 ${importedResults.length} 个表单`"
+            style="margin-bottom: 12px"
+          />
+          <el-table :data="importedResults" size="small" border style="width: 100%" max-height="360" aria-label="导入结果">
+            <el-table-column type="index" label="#" width="50" />
+            <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
+            <el-table-column prop="field_count" label="字段数" width="90" align="center" />
+            <el-table-column label="操作" width="140" align="center">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" link @click="openDesignerForImportedForm(row.form_id)"
+                  >打开设计页</el-button
+                >
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </template>
       <template #footer>
-        <el-button @click="showImportWordDialog = false" :disabled="importWordLoading">取消</el-button>
+        <el-button
+          v-if="importWordStep !== 3"
+          @click="showImportWordDialog = false"
+          :disabled="importWordLoading"
+          >取消</el-button
+        >
         <el-button v-if="importWordStep === 2" @click="goBackToImportWordStep1" :disabled="importWordLoading"
           >上一步</el-button
         >
@@ -1246,20 +1217,19 @@ function startResize(e) {
           @click="executeImportWord"
           >确认导入</el-button
         >
+        <el-button v-if="importWordStep === 3" type="primary" @click="showImportWordDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
-    <!-- Word导入预览对比对话框 -->
+    <!-- Word导入预览对话框 -->
     <DocxCompareDialog
       v-if="hasOpenedDocxCompare"
       v-model="showDocxCompare"
       :form-data="compareFormData"
-      :apply-ai="compareFormData ? aiSuggestionFlags[compareFormData.index] || false : false"
       :temp-id="tempDocxId || ''"
       :project-id="selectedProject?.id || 0"
       :all-form-names="importedFormsPreview.map((f) => f.name)"
       :all-forms-data="importedFormsPreview"
-      @update:apply-ai="(v) => compareFormData && updateAiFlag(compareFormData.index, v)"
     />
   </template>
 
