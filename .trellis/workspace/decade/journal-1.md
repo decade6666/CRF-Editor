@@ -186,3 +186,64 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Word导入去AI预览、Step3摘要、字典名同步、按钮文案、Logo重置
+
+**Date**: 2026-05-08
+**Task**: Word导入去AI预览、Step3摘要、字典名同步、按钮文案、Logo重置
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 完成事项
+
+| 项 | 内容 |
+|---|---|
+| PR1 | FormDesignerTab 按钮文案"添加log行"→"添加'以下为log行'提示"；ProjectInfoTab Logo 残留修复（无 logo 项目切换时清空 logoUrl） |
+| PR2 | DocxCompareDialog 重写为纯预览（标题"预览"，移除 AI 建议/AI 说明/AI 开关）；App.vue 全量移除 aiSuggestionFlags / updateAiFlag / importWordAiError / getFieldLabel；表单列表去 AI Popover/Switch |
+| PR3 | App.vue executeImportWord 成功进入 Step 3 摘要表（name/field_count/打开设计页按钮）；新增 openDesignerForImportedForm 跳转；后端 DocxFormResult 新增 form_id 字段；backend/tests/test_rate_limit.py 补 mock |
+| PR4 | CodelistsTab reload() bump refreshKey 联动其他 Tab；FormDesignerTab.quickSaveCodelist 两处 bump refreshKey；FormDesignerTab 暴露 selectFormById |
+| S4 | Step 3 el-table 增加 aria-label="导入结果"（Gemini 审查建议） |
+| S5 | ProjectInfoTab onUnmounted 释放 logoUrl blob（Gemini 审查建议） |
+| M1 | 新建 backend/tests/test_docx_import_contract.py：2 个用例覆盖 form_id 契约（Codex 审查建议） |
+
+**变更文件**：
+- `backend/src/routers/import_docx.py` - DocxFormResult 新增 form_id
+- `backend/src/services/docx_import_service.py` - _create_form 返回 form_id
+- `backend/tests/test_rate_limit.py` - mock 补 form_id
+- `backend/tests/test_docx_import_contract.py` - 新建契约测试
+- `frontend/src/App.vue` - AI 移除、Step 3 摘要、跳转
+- `frontend/src/components/DocxCompareDialog.vue` - 重写为纯预览
+- `frontend/src/components/CodelistsTab.vue` - reload bump refreshKey
+- `frontend/src/components/FormDesignerTab.vue` - selectFormById、quickSaveCodelist bump、按钮文案
+- `frontend/src/components/ProjectInfoTab.vue` - Logo 残留修复 + onUnmounted
+
+**测试**：后端 47/47 pass，前端 179/181 pass（2 个 pre-existing 失败，属 05-07 任务）
+
+**双模态审查**：codex 后端 75/100（M1 已补）；gemini 前端无 Critical，S4/S5 已补
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c22457` | (see git log) |
+| `f017850` | (see git log) |
+| `e290de3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

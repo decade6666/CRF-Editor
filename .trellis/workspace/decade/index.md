@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
-- **Last Active**: 2026-05-07
+- **Total Sessions**: 5
+- **Last Active**: 2026-05-08
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~188 | Active |
+| `journal-1.md` | ~249 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-05-08 | Word导入去AI预览、Step3摘要、字典名同步、按钮文案、Logo重置 | `7c22457`, `f017850`, `e290de3` | `draft` |
 | 4 | 2026-05-07 | 孤立项目入回收站 + 修复预存测试基线 | `64f5ae8`, `7cef80a` | `draft` |
 | 3 | 2026-05-07 | 孤立项目自动入回收站 + restore 兼容 NULL owner_id | `64f5ae8` | `draft` |
 | 2 | 2026-05-07 | 首次访问必须先验证登录态 | `f68f803` | `draft` |
