@@ -188,6 +188,63 @@
 - None - task complete
 
 
+## Session 5: 表单备注移位 + per-form 纸张方向
+
+**Date**: 2026-05-08
+**Task**: 05-07-form-paper-direction-and-notes-relocation
+**Branch**: `draft`
+
+### Summary
+
+实现了表单设计页备注从右侧 aside 移到 header/section-title，并为每张表单增加 `paper_orientation`（`auto/landscape/portrait`）控制；预览与 Word 导出保持方向一致。
+
+### Main Changes
+
+| 主题 | 说明 |
+|------|------|
+| 后端 | `Form` 模型新增 `paper_orientation`；`database.py` 增轻量迁移；`FormCreate/FormUpdate/FormResponse` 补字段；`copy_form`、`project_clone_service`、`project_import_service` 同步复制与旧库兼容。 |
+| 导出 | `export_service._classify_form_layout` 增 `paper_orientation` 参数；`landscape` / `portrait` 覆写 legacy+inline 宽表路径。 |
+| 前端 | `FormDesignerTab.vue` 备注迁移为顶栏摘要 + tooltip；编辑表单弹窗增加纸张方向 radio；重写 `landscapeMode` / `designerLandscapeMode`；增加一次性 `crf_forceLandscape` 迁移。 |
+| 测试 | 新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`；更新 `test_project_copy.py` 与前端源码级测试正则。 |
+
+**Updated Files**:
+- `backend/src/models/form.py`
+- `backend/src/schemas/form.py`
+- `backend/src/database.py`
+- `backend/src/routers/forms.py`
+- `backend/src/services/export_service.py`
+- `backend/src/services/project_clone_service.py`
+- `backend/src/services/project_import_service.py`
+- `backend/src/services/import_service.py`
+- `backend/tests/test_form_paper_orientation.py`
+- `backend/tests/test_export_paper_orientation.py`
+- `backend/tests/test_project_copy.py`
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/src/styles/main.css`
+- `frontend/tests/formFieldPresentation.test.js`
+- `frontend/tests/orderingStructure.test.js`
+- `.claude/CLAUDE.md`
+- `backend/.claude/CLAUDE.md`
+- `frontend/.claude/CLAUDE.md`
+
+### Testing
+
+- [OK] `python3 -m pytest backend/tests/test_form_paper_orientation.py backend/tests/test_export_paper_orientation.py backend/tests/test_project_copy.py backend/tests/test_form_design_notes.py backend/tests/test_export_service.py backend/tests/test_import_service.py backend/tests/test_project_import.py -q` -> `111 passed`
+- [OK] `node --test frontend/tests/formFieldPresentation.test.js frontend/tests/orderingStructure.test.js frontend/tests/visitPreviewLandscape.test.js frontend/tests/columnWidthPlanning.test.js` -> `67 passed`
+- [OK] `npm --prefix frontend run build` -> built successfully
+- [OK] touched frontend files `prettier --check` -> ok
+- [OK] touched frontend files eslint -> only warnings, 0 errors
+
+### Status
+
+[OK] **Spec Updated / Session Recorded**
+
+### Next Steps
+
+- 按 `draft -> PR` 流程发起合并
+- 若产品确认，再单独补 README 一行能力记录或完整回归脚本
+
+
 ## Session 5: Word导入去AI预览、Step3摘要、字典名同步、按钮文案、Logo重置
 
 **Date**: 2026-05-08
@@ -235,6 +292,46 @@
 | `7c22457` | (see git log) |
 | `f017850` | (see git log) |
 | `e290de3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 6: 沉淀本次任务的三个 code-spec 模式
+
+**Date**: 2026-05-08
+**Task**: 沉淀本次任务的三个 code-spec 模式
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 沉淀内容
+
+| 文件 | 新增模式 |
+|---|---|
+| `backend/quality-guidelines.md` | API 响应新增字段的向后兼容：additive-only、不重排旧字段、mock 数据同步更新、契约测试必须覆盖 |
+| `frontend/state-management.md` | refreshKey 全局 bump 联动：`invalidateCache → load → refreshKey.value++` 顺序、validation & error matrix、wrong vs correct |
+| `frontend/component-guidelines.md` | Blob URL 生命周期管理：watch(project) 时 `fetchLogo` 无条件 revoke、无 logo 项目清空 blob、onUnmounted 释放 |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17b4f8a` | (see git log) |
 
 ### Testing
 
