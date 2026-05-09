@@ -1972,8 +1972,8 @@ function openAddForm() {
               :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''"
               @click="addField(fd)"
             >
-              <span>{{ fd.label }}</span
-              ><span style="color: var(--color-text-muted); font-size: 11px">{{ fd.field_type }}</span>
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ fd.label }}</span
+              ><span style="color: var(--color-text-muted); font-size: 11px; flex-shrink: 0">{{ fd.field_type }}</span>
             </button>
           </div>
         </div>
@@ -2937,6 +2937,7 @@ function openAddForm() {
   overflow-y: auto;
 }
 .fd-item {
+  width: 100%;
   padding: 6px 10px;
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
@@ -2944,6 +2945,7 @@ function openAddForm() {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
+  box-sizing: border-box;
 }
 .fd-item:hover {
   background: var(--color-bg-hover);
