@@ -3,7 +3,7 @@
   "name": "form-paper-direction-and-notes-relocation",
   "title": "表单设计页：备注移位与纸张方向控制",
   "description": "",
-  "status": "planning",
+  "status": "in-progress",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -15,7 +15,7 @@
   "branch": null,
   "base_branch": "draft",
   "worktree_path": null,
-  "current_phase": 0,
+  "current_phase": 5,
   "next_action": [
     {
       "phase": 1,
