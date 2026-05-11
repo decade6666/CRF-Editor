@@ -344,3 +344,71 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: 修复 Word 导入预览对话框内容空白
+
+**Date**: 2026-05-10
+**Task**: 修复 Word 导入预览对话框内容空白
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## Summary
+
+修复 .docx 导入流程中, 点击"预览"后 DocxCompareDialog 右侧 SimulatedCRFForm 渲染空白的问题。根因是 DocxCompareDialog 的 v-model 双向绑定断裂——内部 `visible` computed 的 setter 是空函数, 导致父级状态无法回写, 同时切换不同表单时对话框组件不重建, fields prop 引用未刷新。
+
+## Root Cause
+
+| 位置 | 问题 |
+|------|------|
+| `DocxCompareDialog.vue` 旧版 | `const visible = computed({ get: () => props.modelValue, set: () => {} })` —— setter 空操作, el-dialog 关闭事件无法回传父组件 |
+| `App.vue` 旧版 | 用 `hasOpenedDocxCompare` 一次性挂载控制, 切换表单时同一个 dialog 实例复用, 子组件不会因 prop 引用变化而重新执行 setup |
+
+## Fix
+
+| 文件 | 改动 |
+|------|------|
+| `frontend/src/components/DocxCompareDialog.vue` | 删除空 setter computed; 改为 `:model-value="modelValue"` + `@update:model-value="$emit('update:modelValue', $event)"`; 移除 `destroy-on-close`(用 key 替代) |
+| `frontend/src/App.vue` | 删除冗余 `hasOpenedDocxCompare` ref; `v-if="compareFormData"` + `:key="compareFormData?.index"` 强制切换表单时重建对话框实例 |
+| `frontend/src/components/SimulatedCRFForm.vue` | 引入 `getFormFieldTextColorStyle`, 为 label-only / label-cell / control-cell 三类 td 加 `:style="getCellStyle(field)"`, 与设计器预览字体颜色一致 |
+
+## Updated Files
+
+- `frontend/src/App.vue` (+3/-4)
+- `frontend/src/components/DocxCompareDialog.vue` (+4/-9)
+- `frontend/src/components/SimulatedCRFForm.vue` (+8/-1)
+
+## Validation
+
+- 人工浏览器测试: 用户确认预览对话框可正常展示 CRF 表单字段
+- 工作区 `git status` clean, `origin/draft` 与本地同步
+- 任务 `05-09-word-import-preview` 已归档至 `archive/2026-05/`
+
+## Notes
+
+- 05-07 任务(form-paper-direction-and-notes-relocation)仍处 in-progress, 但主体 commit `cb7fa36` + spec 沉淀 commit `17b4f8a` 已落地, 待用户确认是否一并归档
+- 后续若需将"切换表单时重建对话框"模式沉淀为契约, 可走 /trellis:update-spec
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `162208f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

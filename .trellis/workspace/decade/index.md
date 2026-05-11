@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-05-08
+- **Total Sessions**: 7
+- **Last Active**: 2026-05-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~346 | Active |
+| `journal-1.md` | ~414 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-05-10 | 修复 Word 导入预览对话框内容空白 | `162208f` | `draft` |
 | 6 | 2026-05-08 | 沉淀本次任务的三个 code-spec 模式 | `17b4f8a` | `draft` |
 | 5 | 2026-05-08 | Word导入去AI预览、Step3摘要、字典名同步、按钮文案、Logo重置 | `7c22457`, `f017850`, `e290de3` | `draft` |
 | 4 | 2026-05-07 | 孤立项目入回收站 + 修复预存测试基线 | `64f5ae8`, `7cef80a` | `draft` |
