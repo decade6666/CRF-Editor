@@ -412,3 +412,62 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 归档 05-07 表单纸张方向 + 备注移位任务
+
+**Date**: 2026-05-10
+**Task**: 归档 05-07 表单纸张方向 + 备注移位任务
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## Summary
+
+行政性收尾: 05-07-form-paper-direction-and-notes-relocation 任务的核心实现与 spec 沉淀早在 Session 5 完整记录, 本次仅把任务状态推进到 archive。
+
+## Why Archive Now
+
+| 验收项 | 落地证据 |
+|---|---|
+| 后端 `paper_orientation` 模型/Schema/迁移/复制 | commit `cb7fa36` |
+| 前端备注顶栏迁移 + 纸张方向 radio + 一次性迁移 | commit `cb7fa36` |
+| Word 导出按 orientation 行为 | commit `cb7fa36` |
+| 测试 `test_form_paper_orientation.py` / `test_export_paper_orientation.py` / `test_project_copy.py` | commit `cb7fa36`, 全绿 |
+| 三个 code-spec 模式沉淀 | commit `17b4f8a` |
+| 跨栈契约更新到根 `CLAUDE.md` | 已在 5/8 全量扫描 commit `6fce08c` 中同步 |
+
+PRD 中 R1-R5 全部满足, Acceptance Criteria 全部勾选, DoD 全部达成; 任务 task.json 状态 in-progress 与现实脱钩, 本次归档让 board 真实可信。
+
+## Action
+
+- `python3 ./.trellis/scripts/task.py archive 05-07-form-paper-direction-and-notes-relocation` → archive/2026-05/
+
+## Cross Reference
+
+- Session 5 (journal-1.md:191): 完整实现 + 验证记录
+- Session 7 (journal-1.md, 本日早些时候): 05-09 修复 + dialog v-model spec 沉淀
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb7fa36` | (see git log) |
+| `17b4f8a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
