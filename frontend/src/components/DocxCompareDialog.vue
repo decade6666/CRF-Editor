@@ -1,11 +1,11 @@
 <template>
   <el-dialog
-    v-model="visible"
+    :model-value="modelValue"
     :title="`预览 - ${formData?.name || ''}`"
     :width="dialogWidth"
     :close-on-click-modal="false"
-    :destroy-on-close="true"
     append-to-body
+    @update:model-value="$emit('update:modelValue', $event)"
     @close="$emit('update:modelValue', false)"
   >
     <div v-if="formData" class="compare-container">
@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import DocxScreenshotPanel from './DocxScreenshotPanel.vue'
 import SimulatedCRFForm from './SimulatedCRFForm.vue'
 
@@ -55,7 +55,7 @@ import SimulatedCRFForm from './SimulatedCRFForm.vue'
 // 恢复方法：将 ENABLE_LEFT_PREVIEW 改为 true 即可
 const ENABLE_LEFT_PREVIEW = false
 
-const props = defineProps({
+defineProps({
   modelValue: { type: Boolean, default: false },
   formData: { type: Object, default: null },
   tempId: { type: String, default: '' },
@@ -65,11 +65,6 @@ const props = defineProps({
 })
 
 defineEmits(['update:modelValue'])
-
-const visible = computed({
-  get: () => props.modelValue,
-  set: () => {},
-})
 
 const dialogWidth = 'min(92vw, 1200px)'
 const highlightedField = ref(null)
