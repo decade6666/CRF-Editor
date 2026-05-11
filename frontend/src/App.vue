@@ -665,7 +665,6 @@ const tempDocxId = ref(null);
 const importWordErrorMessage = ref('');
 // 预览对话框
 const showDocxCompare = ref(false);
-const hasOpenedDocxCompare = ref(false);
 const compareFormData = ref(null);
 // Step 3：导入完成后的表单清单（每项含 form_id / name / field_count）
 const importedResults = ref([]);
@@ -761,7 +760,6 @@ async function executeImportWord() {
 // 打开预览对话框
 function openDocxCompare(form) {
   compareFormData.value = form;
-  hasOpenedDocxCompare.value = true;
   showDocxCompare.value = true;
 }
 
@@ -1223,8 +1221,9 @@ function startResize(e) {
 
     <!-- Word导入预览对话框 -->
     <DocxCompareDialog
-      v-if="hasOpenedDocxCompare"
+      v-if="compareFormData"
       v-model="showDocxCompare"
+      :key="compareFormData?.index"
       :form-data="compareFormData"
       :temp-id="tempDocxId || ''"
       :project-id="selectedProject?.id || 0"

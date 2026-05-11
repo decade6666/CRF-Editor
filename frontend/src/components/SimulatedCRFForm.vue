@@ -65,7 +65,10 @@ import {
   planNormalColumnFractions,
 } from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
-import { getFormFieldPreviewStyle } from '../composables/formFieldPresentation'
+import {
+  getFormFieldPreviewStyle,
+  getFormFieldTextColorStyle,
+} from '../composables/formFieldPresentation'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
@@ -101,6 +104,10 @@ function applyPreviewDefaultValue(field) {
 // Task 3.3: 使用 formFieldPresentation.js 的样式函数
 function getRowStyle(field) {
   return getFormFieldPreviewStyle(field, '')
+}
+
+function getCellStyle(field) {
+  return getFormFieldTextColorStyle(field)
 }
 
 // 只读读取设计器持久化列宽；格式不合法或与当前列数不匹配时返回 null
