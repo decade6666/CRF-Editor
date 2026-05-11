@@ -359,6 +359,110 @@ onUnmounted(() => {
 
 ---
 
+## Scenario: Dialog v-model + Per-Object Key Reset
+
+### 1. Scope / Trigger
+
+- Trigger: a reusable dialog component (e.g. `DocxCompareDialog`, preview /
+  inspector dialogs) that is opened repeatedly for **different business objects**
+  from the same parent.
+- This applies to `frontend/src/components/DocxCompareDialog.vue` (Word import
+  preview), but the pattern is reusable whenever the parent holds a single
+  dialog instance yet iterates over a list of items to inspect.
+
+### 2. Signatures
+
+```javascript
+// Parent (e.g. App.vue)
+const showDialog = ref(false)
+const compareFormData = ref(null) // current business object
+function openCompare(form) {
+  compareFormData.value = form
+  showDialog.value = true
+}
+```
+
+```vue
+<!-- Parent template -->
+<DialogComponent
+  v-if="compareFormData"
+  v-model="showDialog"
+  :key="compareFormData?.id ?? compareFormData?.index"
+  :form-data="compareFormData"
+/>
+```
+
+```vue
+<!-- Child dialog -->
+<el-dialog
+  :model-value="modelValue"
+  @update:model-value="$emit('update:modelValue', $event)"
+  @close="$emit('update:modelValue', false)"
+/>
+```
+
+### 3. Contracts
+
+| Step | Action | Why |
+|---|---|---|
+| Parent `v-if="businessObject"` | Mount the dialog only when a target exists | Avoids stale state from the previous object lingering in DOM |
+| Parent `:key="businessObject.id"` | Force re-creation of dialog instance on target switch | Child `setup()` re-runs, all `ref` / `computed` reset, props see fresh values |
+| Child `:model-value` + `@update:model-value` | Forward open/close from parent to el-dialog and emit changes back | Maintains true two-way binding through el-dialog's internal close events |
+| Child must NOT wrap `modelValue` in `computed({ get, set: () => {} })` | — | An empty setter swallows el-dialog close events; parent state never updates and the dialog appears stuck |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Open dialog for object A → close → open for object B | Child component is destroyed and re-created; B's data fully replaces A's, no leaked refs or computed cache |
+| User clicks close button / mask / presses ESC | `@update:model-value(false)` → parent `showDialog = false` → dialog closes cleanly |
+| Parent sets `businessObject = null` while open | `v-if` removes dialog from DOM; no orphaned child state |
+| Child internal `ref`s (e.g. highlight, scroll position) | Reset on every open, because `:key` change destroys the previous instance |
+
+### 5. Wrong vs Correct
+
+#### Wrong
+
+```vue
+<!-- Child: empty setter breaks two-way binding -->
+<el-dialog v-model="visible" :destroy-on-close="true" />
+
+<script setup>
+const visible = computed({
+  get: () => props.modelValue,
+  set: () => {},   // BUG: close event is dropped, parent state never flips
+})
+</script>
+```
+
+```vue
+<!-- Parent: dialog instance mounts once; switching items does not re-run child setup -->
+<DialogComponent v-if="hasOpenedOnce" v-model="show" :form-data="current" />
+```
+
+#### Correct
+
+```vue
+<!-- Child: explicit emit, no empty setter, no destroy-on-close -->
+<el-dialog
+  :model-value="modelValue"
+  @update:model-value="$emit('update:modelValue', $event)"
+  @close="$emit('update:modelValue', false)"
+/>
+```
+
+```vue
+<!-- Parent: per-object key so the child is fully rebuilt on switch -->
+<DialogComponent
+  v-if="current"
+  v-model="show"
+  :key="current.id ?? current.index"
+  :form-data="current"
+/>
+```
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Using `<script setup>`
