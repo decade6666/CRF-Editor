@@ -471,3 +471,90 @@ PRD 中 R1-R5 全部满足, Acceptance Criteria 全部勾选, DoD 全部达成; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: 05-12 Word 预览/导出视觉对齐：INLINE_HEADER_FLOOR 与 wp-form-title 左对齐
+
+**Date**: 2026-05-13
+**Task**: 05-12 Word 预览/导出视觉对齐：INLINE_HEADER_FLOOR 与 wp-form-title 左对齐
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务范围
+
+`.trellis/tasks/05-12-word-preview-export-parity` (P2)：拉齐 Word 预览与 `.docx` 导出在两条视觉契约上的偏离。
+
+| ID | 现象 | 根因 |
+|---|---|---|
+| R1 | 预览端 `.wp-form-title` 居中，导出 Heading-1 默认左对齐 | `main.css` 历史样式 `text-align: center` |
+| R2 | 预览端 ≤4 字短表头（如"未查/项目/单位"）被长邻居挤到换行 | `buildInlineColumnDemands` / `build_inline_column_demands` 未设表头权重下限 |
+
+## 改动总览（3 个 commit）
+
+| 阶段 | Commit | 描述 |
+|---|---|---|
+| PR1 (TDD-RED) | `16fc75e` | 3 个测试文件 / 6 个红灯断言 |
+| PR2 (GREEN) | `a14cf16` | 双端 `INLINE_HEADER_FLOOR=8` + `.wp-form-title` 左对齐 + generator 单一来源整顿 |
+| PR3 (Spec) | `bdf76ef` | 跨栈契约规范同步 |
+
+**关键决策**：`INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8` 只作用于 `inline` 表（`normal`/`unified` 各自保有 `WEIGHT_ASCII * 4` 等已有保护），写在 max chain `max(label_weight, control_weight, INLINE_HEADER_FLOOR)`。
+
+**Updated Files**：
+- `backend/src/services/width_planning.py`（新增常量）
+- `backend/src/services/field_rendering.py`（max chain 应用 floor）
+- `frontend/src/composables/useCRFRenderer.js`（镜像常量 + 应用 floor）
+- `frontend/src/styles/main.css`（`.wp-form-title text-align: left`）
+- `frontend/scripts/generatePlannerFixtures.mjs`（dateField helper + 3 case 补齐）
+- `backend/tests/fixtures/planner_cases.json`（由 generator 重新输出，11 cases）
+- 新建 `frontend/tests/wordPageGeometry.test.js`（3 视觉契约断言）
+- `frontend/tests/columnWidthPlanning.test.js`（+9.12 / 9.12b）
+- `backend/tests/test_width_planning.py`（+TestInlineHeaderFloor 三测试）
+- `.trellis/spec/guides/cross-stack-contracts.md`（§1 + §4）
+- 根/前端/后端 `CLAUDE.md`（跨栈契约段、变更记录）
+
+## 测试矩阵
+
+| 套件 | 通过 / 失败 | 备注 |
+|---|---|---|
+| `backend/tests/test_width_planning.py` | 78 / 0 | 含 TestInlineHeaderFloor 三测试 + fixture 比对 |
+| 后端整体 | 385 / 0 (4 xfailed) | 零回归 |
+| `wordPageGeometry` + `columnWidthPlanning` | 30 / 0 | PR1 红灯全转绿 |
+| 前端整体 | 185 / 1 | 唯一 fail `importRenameFeedback.test.js` 在 base 上即已 fail，与本任务无关 |
+
+## 重要发现 / 学到的教训
+
+1. **Generator 是 fixture 唯一权威**：发现 `generatePlannerFixtures.mjs` 之前漏同步两个 unified case（`unified_mixed_inline_and_regular`、`unified_regular_date_control_weight_spans_value_columns`）—— 它们曾被手动追加进 `planner_cases.json`，导致后续跑 generator 会"丢" case。此次把这两个 case 也补进 generator，让单一来源成立。
+2. **Commit 边界隔离**：working tree 上有大量 base 在途的 §4 实现改动（A4 几何 / `@media print` / `table-layout: fixed` / `_render_choice_field` 6 个 `_` 等），不属于本任务。用 `git stash push -- <file>` 把这三个文件的混合改动暂存，重新精准 Edit 出本任务改动，避免 PR2 commit 边界被污染。
+3. **`importRenameFeedback.test.js` 是 stale baseline**：`git stash`/`pop` 验证在 PR2 改动之前 base 即已 fail，独立于本任务。
+
+## 未完成 / 后续
+
+- `stash@{0}` 中保留了 §4 视觉一致性的 base 在途实现改动（main.css 的 A4 几何与 @media print、useCRFRenderer.js 的 choice / fill-line literal 调整、field_rendering.py 的动态 placeholder weight）。建议后续单独走一个任务 commit 这些工作。
+- 工作树仍有 14 个无关在途文件（`export_service.py`、`FormDesignerTab.vue`、`VisitsTab.vue`、等），与本任务无关，由后续任务处理。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `16fc75e` | (see git log) |
+| `a14cf16` | (see git log) |
+| `bdf76ef` | (see git log) |
+| `d7b53db` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
