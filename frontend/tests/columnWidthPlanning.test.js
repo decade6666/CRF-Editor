@@ -152,6 +152,68 @@ test('9.7 rare_cjk_extension_char: 𠮷吉 权重 = 4（code point 正确）', (
   assert.equal(computeTextWeight(text), 4)
 })
 
+// ─── 9.12：inline 短表头不可压缩 floor（PRD R2 表头不换行契约） ────────────
+//
+// 跨栈契约：当 inline 表头为 ≤4 字中文短文本（label_weight ≤ 4，如"未查/项目/单位"）
+// 且字段控件本身权重不超过 FILL_LINE_WEIGHT 时，列 demand 必须高于
+// FILL_LINE_WEIGHT，避免被长邻居列归一化稀释到 < 单行所需宽度。
+//
+// 与后端 backend/src/services/field_rendering.py build_inline_column_demands /
+// backend/src/services/width_planning.py 共享同一 floor 常量；具体数值由
+// PR2 fixture 反推（≥ WEIGHT_CHINESE × 4 = 8 是预期下界，但 PR1 红灯只锁
+// 「严格大于 FILL_LINE_WEIGHT」的契约边界，避免提前固化数值）。
+
+test('9.12 inline_short_header_floor: 短表头 demand 高于 FILL_LINE_WEIGHT 不可压缩 floor', () => {
+  const FILL_LINE_WEIGHT = 6 // 与 useCRFRenderer.js / width_planning.py 常量一致
+
+  // 案例 1：纯文本短表头（label_weight=4，control 走 FILL_LINE_WEIGHT 兜底）
+  // 当前实现：max(4, 6) = 6；期望（PR2 修复后）：> 6
+  const shortLabelField = {
+    field_definition: { field_type: '文本', label: '未查' },
+  }
+  const demands = buildInlineColumnDemands([shortLabelField])
+  assert.equal(demands.length, 1)
+  assert.ok(
+    demands[0].weight > FILL_LINE_WEIGHT,
+    `短表头 '未查' demand=${demands[0].weight} 必须 > FILL_LINE_WEIGHT(${FILL_LINE_WEIGHT})，` +
+      `否则在长邻居列下会被归一化压缩到 < 单行所需宽度`,
+  )
+
+  // 案例 2：另一个常见 2 字短表头（'项目'）
+  const otherShort = [
+    { field_definition: { field_type: '文本', label: '项目' } },
+  ]
+  const otherDemands = buildInlineColumnDemands(otherShort)
+  assert.ok(
+    otherDemands[0].weight > FILL_LINE_WEIGHT,
+    `短表头 '项目' demand=${otherDemands[0].weight} 必须 > FILL_LINE_WEIGHT(${FILL_LINE_WEIGHT})`,
+  )
+})
+
+test('9.12b inline_short_header_floor: 短表头与长邻居共存时 fraction 保留单行可见水位', () => {
+  // 复刻 PRD '生命体征' 截图证据的简化版：≤4 字短表头 + 邻接长 label 列
+  const fields = [
+    { field_definition: { field_type: '文本', label: '未查' } },
+    {
+      field_definition: {
+        field_type: '文本',
+        label: '异常有临床意义请详细说明本次检查的具体表现与判读依据',
+      },
+    },
+  ]
+  const fractions = planInlineColumnFractions(fields)
+  assert.equal(fractions.length, 2)
+
+  // 短表头列归一化后的权重份额 = fractions[0]
+  // PR2 floor 修复后，短表头 weight 应高于 FILL_LINE_WEIGHT，且总权重不变量条件下
+  // fractions[0] > 当前实现下的 FILL_LINE_WEIGHT / (FILL_LINE_WEIGHT + 长 label weight)
+  // 当前 buggy: 6/(6+~50) ≈ 0.107；期望（PR2 后）：≥ 0.12 锁住单行水位
+  assert.ok(
+    fractions[0] >= 0.12,
+    `短表头 '未查' fraction=${fractions[0].toFixed(4)} < 0.12 阈值（长邻居稀释导致换行）`,
+  )
+})
+
 // ─── 9.8–9.11：useColumnResize 持久化行为 ────────────────────────────────
 
 // 简易 localStorage mock（测试期替换 globalThis.localStorage）
