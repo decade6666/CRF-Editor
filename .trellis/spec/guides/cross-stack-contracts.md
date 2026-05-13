@@ -31,10 +31,11 @@ A cross-stack contract is a **shared agreement** between backend and frontend th
 
 ```python
 # Backend (width_planning.py)
-WEIGHT_CHINESE = 2      # CJK character weight
-WEIGHT_ASCII = 1        # English/number/punctuation weight
-FILL_LINE_WEIGHT = 6    # Fill-line field weight
-AVAILABLE_CM = 14.66    # Available width for normal tables
+WEIGHT_CHINESE = 2                              # CJK character weight
+WEIGHT_ASCII = 1                                # English/number/punctuation weight
+FILL_LINE_WEIGHT = 6                            # Fill-line field weight
+INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4        # = 8, short-header floor for inline columns
+AVAILABLE_CM = 14.66                            # Available width for normal tables
 ```
 
 ```javascript
@@ -42,18 +43,28 @@ AVAILABLE_CM = 14.66    # Available width for normal tables
 const WEIGHT_CHINESE = 2
 const WEIGHT_ASCII = 1
 const FILL_LINE_WEIGHT = 6
+const INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4  // = 8
 const AVAILABLE_CM = 14.66
 ```
 
+`INLINE_HEADER_FLOOR` is the **per-column minimum demand for inline tables only**.
+It protects ≤4-CJK-char headers (e.g. `未查` / `项目` / `单位`) from being squeezed
+to a sub-line width by long sibling columns. Both ends apply it inside the same
+`max(label_weight, control_weight, INLINE_HEADER_FLOOR)` chain in
+`build_inline_column_demands` (Python) / `buildInlineColumnDemands` (JS) so
+preview and export agree on column shares. `normal` and `unified` tables keep
+their own protections (`max(weight, WEIGHT_ASCII * 4)`) and are NOT affected.
+
 **Contract Rules**:
 1. Any change to weight constants must update both files
-2. New test cases must be added to shared fixture
+2. New test cases must be added to shared fixture (regenerate via `frontend/scripts/generatePlannerFixtures.mjs`)
 3. Both backend and frontend tests must pass
 
 **Synchronization Checklist**:
 - [ ] Update `width_planning.py` constants
 - [ ] Update `useCRFRenderer.js` constants
-- [ ] Add test case to `planner_cases.json`
+- [ ] Update `field_rendering.py` (backend) and `useCRFRenderer.js` `buildInlineColumnDemands` (frontend) if the floor semantics change
+- [ ] Add test case to `generatePlannerFixtures.mjs` (single source of truth) and regenerate `planner_cases.json`
 - [ ] Run `backend/tests/test_width_planning.py`
 - [ ] Run `frontend/tests/columnWidthPlanning.test.js`
 
@@ -174,6 +185,12 @@ const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char 
 ```css
 /* main.css — page font that calibrates the 0.5em estimator */
 .word-page { font-size: 10.5pt; font-family: 'SimSun', serif; }
+
+/* Heading-1 equivalent form title — MUST stay left-aligned to mirror
+   python-docx `add_heading(level=1)` default left alignment in the
+   exported .docx. Center-alignment in preview drifts visually from the
+   Word document and is forbidden. */
+.word-page .wp-form-title { font-size: 14pt; font-weight: bold; text-align: left; }
 ```
 
 **Contract Rules**:
@@ -181,6 +198,7 @@ const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char 
 2. **`FILL_LINE_WEIGHT = 6` is the planner contract**, not the visual width. Adjusting only the preview's em-estimator (e.g. `0.5em` factor) is a **frontend-only visual change** and MUST NOT bump the constant.
 3. **Page font size is part of the contract**: `.word-page { font-size: 10.5pt }` calibrates the `0.5em` factor. Switching to `px` / `rem` invalidates the calibration.
 4. **Two render paths on the frontend**: `renderCtrlHtml → renderChoiceHtml` and `renderCtrl → toHtml`. Both produce DOM and BOTH must be updated together. See `.trellis/spec/frontend/component-guidelines.md` → "Scenario: Word Preview ↔ Word Export Visual Parity".
+5. **Form title alignment**: `.wp-form-title` MUST be `text-align: left` to match `python-docx` `add_heading(level=1)` default. Reintroducing `text-align: center` (or `margin: 0 auto`) drifts preview from the exported `.docx`. Locked by `frontend/tests/wordPageGeometry.test.js`.
 
 **Synchronization Checklist**:
 - [ ] Update `export_service.py` `_render_choice_field` / `_get_option_labels` literals

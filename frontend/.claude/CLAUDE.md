@@ -58,11 +58,12 @@
 
 ## 预览列宽（内容驱动）
 - `useCRFRenderer.js` 暴露 `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` 作为三类表格的统一 planner 入口。
-- 字符权重常量与 CJK 码点范围与后端 `backend/src/services/width_planning.py` 共享契约，任一端改动需同步另一端。
+- 字符权重常量与 CJK 码点范围与后端 `backend/src/services/width_planning.py` 共享契约，任一端改动需同步另一端。共享常量包含 `WEIGHT_CHINESE=2`、`WEIGHT_ASCII=1`、`FILL_LINE_WEIGHT=6`、`INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8`（仅作用于 inline 表，保护 ≤4 字短表头如 `未查` / `项目` / `单位` 与长邻居共存时不被挤压到不可单行）、`AVAILABLE_CM=14.66`。
 - `FormDesignerTab.vue` 使用 `useColumnResize` 管理拖拽；默认值源接受数组/工厂函数/Ref，切换 `formId` 或 `tableKind` 时自动 rehydrate。
 - localStorage 键：`crf:designer:col-widths:<form_id>:<table_kind>`；只有设计器写入，`TemplatePreviewDialog` / `SimulatedCRFForm` 仅读取。
 - 读取列宽缓存失败（非数组/元素越界/和不为 1）时回退内容驱动默认值。
-- 跨栈 fixture：`backend/tests/fixtures/planner_cases.json` 同时被前端 `columnWidthPlanning.test.js` 与后端 `test_width_planning.py` 加载；新增用例通过 `frontend/scripts/generatePlannerFixtures.mjs` 重新生成。
+- 跨栈 fixture：`backend/tests/fixtures/planner_cases.json` 同时被前端 `columnWidthPlanning.test.js` 与后端 `test_width_planning.py` 加载；**唯一权威生成器** `frontend/scripts/generatePlannerFixtures.mjs`，新增/修改 case 必须改 generator 后重跑。
+- `.wp-form-title` 必须保持 `text-align: left` 与 Word 导出 `add_heading(level=1)` 默认左对齐对齐，由 `frontend/tests/wordPageGeometry.test.js` 锁住，禁止改回 `center` 或引入 `margin: 0 auto` 触发块居中。
 
 ## 认证与管理员交互
 - 登录后由 `App.vue` 调用 `/api/auth/me` 获取 `username` 与 `is_admin`，再分流到管理员工作台或普通项目工作台。

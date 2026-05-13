@@ -68,7 +68,8 @@
 ## 导入导出与列宽契约
 - Word 导出 normal 表列宽采用内容驱动：`export_service._build_form_table` 调用 `width_planning.plan_normal_table_width(fields, available_cm=14.66)`。
 - `available_cm=14.66` 与原页面预算对齐；字符权重与 CJK 扩展区覆盖与前端 `useCRFRenderer.js` 共享契约。
-- 跨栈 fixture 位于 `backend/tests/fixtures/planner_cases.json`，同时被 `backend/tests/test_width_planning.py` 与 `frontend/tests/columnWidthPlanning.test.js` 读取。
+- inline 表表头权重下限 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8`（`width_planning.py`），由 `field_rendering.build_inline_column_demands` 写入 max chain，保护 ≤4 字短表头（如 `未查` / `项目` / `单位`）与长邻居共存时不被压到不可单行；常量与前端 `useCRFRenderer.js` 严格同名同值。
+- 跨栈 fixture 位于 `backend/tests/fixtures/planner_cases.json`，**唯一权威生成器**是 `frontend/scripts/generatePlannerFixtures.mjs`；新增/修改 case 必须改 generator 后重跑，再让 `backend/tests/test_width_planning.py` 与 `frontend/tests/columnWidthPlanning.test.js` 同时绿。
 
 ## 常用命令
 ```bash
