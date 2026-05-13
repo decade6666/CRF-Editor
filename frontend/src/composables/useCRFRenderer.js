@@ -20,6 +20,12 @@ const WEIGHT_CHINESE = 2  // 中文字符权重
 const WEIGHT_ASCII = 1    // 英文/数字/标点权重
 const FILL_LINE_WEIGHT = 6  // 填写线默认权重
 
+// inline 表头权重下限：4 个中文字符等效宽度。
+// 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
+// 被压缩到不可单行显示的窄宽。
+// 必须与后端 backend/src/services/width_planning.py 中的同名常量保持一致。
+const INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4
+
 /**
  * 计算单个字符的宽度权重
  * @param {string} char - 单个字符
@@ -102,7 +108,11 @@ export function buildInlineColumnDemands(fields) {
 
     return {
       label,
-      weight: Math.max(computeTextWeight(label), computeFieldControlWeight(ff)),
+      weight: Math.max(
+        computeTextWeight(label),
+        computeFieldControlWeight(ff),
+        INLINE_HEADER_FLOOR,
+      ),
     }
   })
 }
