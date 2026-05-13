@@ -1,6 +1,6 @@
 # CRF 编辑器 -- 项目 AI 上下文
 
-> 最近更新：2026年5月8日 18:26:34
+> 最近更新：2026年5月12日 17:42:57
 > 根级文档保持简明；实现细节优先进入模块级文档。
 
 ## 项目概览
@@ -25,7 +25,7 @@ graph TD
     C --> C1["src/components (12)"];
     C --> C2["src/composables (11)"];
     C --> C3["src/styles"];
-    C --> C4["tests (21)"];
+    C --> C4["tests (22)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "查看 backend 模块文档"
@@ -36,7 +36,7 @@ graph TD
 | 模块 | 路径 | 技术栈 | 职责 | 关键入口 | 测试 |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI、SQLAlchemy、SQLite、Pydantic、PyJWT、passlib、python-docx | API、认证、管理员、项目隔离、轻量迁移、导入导出、桌面发行入口 | `backend/main.py`、`backend/app_launcher.py` | `backend/tests/`（37 文件） |
-| frontend | `frontend/` | Vue 3、Vite、Element Plus、sortablejs、vuedraggable | 登录、项目工作台、管理员工作台、表单设计器、导入导出、主题与预览交互 | `frontend/src/main.js`、`frontend/src/App.vue` | `frontend/tests/`（21 文件） |
+| frontend | `frontend/` | Vue 3、Vite、Element Plus、sortablejs、vuedraggable | 登录、项目工作台、管理员工作台、表单设计器、导入导出、主题与预览交互 | `frontend/src/main.js`、`frontend/src/App.vue` | `frontend/tests/`（22 文件） |
 | assets | `assets/logos/` | 静态资源 | Logo 示例资源说明；运行时上传不写入该目录 | `assets/logos/README.md` | 无 |
 
 ## 核心能力
@@ -122,6 +122,7 @@ cd frontend && node --test tests/*.test.js
 - `draft` 分支可直接 push 到远程；`main` 分支仅接受 PR 合并。
 
 ## 变更记录
+- `2026年5月12日 17:42:57`：增量扫描刷新。前端测试 21→22（新增 `wordPageGeometry.test.js`，覆盖 Word 预览 A4 几何契约、`.designer-scaled-word-page` 尺寸、`.word-page.landscape` 翻转、`table-layout: fixed` 与 inline `<colgroup>` 契约）；后端测试与源码文件计数无变化。同步刷新 Mermaid 图与模块索引。同步在 `.trellis/spec/guides/cross-stack-contracts.md` 中补写第 5 条契约 `form-paper-orientation`，与根级跨栈契约对齐。
 - `2026年5月8日 18:26:34`：增量扫描刷新。后端测试 34→37（新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`）；前端测试 20→21（新增 `testProperty.js` 属性测试工具库）；同步更新 Mermaid 图、模块索引与文件计数。
 - `2026年5月8日`：新增”表单方向契约”跨栈条目，记录 `paper_orientation` 跨后端迁移/schema/导出与前端设计器的同步规则。
 - `2026年4月28日`：新增 Git 工作流规则：draft → main 必须通过 PR 合并。

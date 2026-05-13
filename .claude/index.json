@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-05-08T18:26:34+08:00",
-  "version": "1.3.0",
+  "timestamp": "2026-05-12T17:42:57+08:00",
+  "version": "1.3.1",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
     {
@@ -197,6 +197,7 @@
         "frontend/tests/quickEditBehavior.test.js",
         "frontend/tests/projectInfoMetadata.test.js",
         "frontend/tests/sidebarCollapseBehavior.test.js",
+        "frontend/tests/wordPageGeometry.test.js",
         "frontend/tests/testProperty.js"
       ],
       "coverage": {
