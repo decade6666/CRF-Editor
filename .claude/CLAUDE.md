@@ -88,11 +88,12 @@ cd frontend && node --test tests/*.test.js
 - production 空库首次启动会自动创建或修复保留管理员账号；上线后需立即完成管理员账号审计与访问面检查。
 
 ## 跨栈契约
-- 列宽规划：后端 `backend/src/services/width_planning.py` 与前端 `frontend/src/composables/useCRFRenderer.js` 必须同步演进。
-- 列宽 fixture：`backend/tests/fixtures/planner_cases.json` 同时被后端 `backend/tests/test_width_planning.py` 与前端 `frontend/tests/columnWidthPlanning.test.js` 使用。
+- 列宽规划：后端 `backend/src/services/width_planning.py` 与前端 `frontend/src/composables/useCRFRenderer.js` 必须同步演进。共享常量 `WEIGHT_CHINESE=2`、`WEIGHT_ASCII=1`、`FILL_LINE_WEIGHT=6`、`INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8`（仅作用于 inline 表，保护 ≤4 字短表头不被长邻居挤压到不可单行显示）、`AVAILABLE_CM=14.66`。改动任一端必须同步另一端并通过 `frontend/scripts/generatePlannerFixtures.mjs` 重新生成 fixture。
+- 列宽 fixture：`backend/tests/fixtures/planner_cases.json` 由 generator 单一来源输出，同时被后端 `backend/tests/test_width_planning.py` 与前端 `frontend/tests/columnWidthPlanning.test.js` 使用。
 - 排序契约：后端 `backend/src/services/order_service.py` 与前端 `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` 需要保持接口语义一致。
 - 认证契约：后端 `backend/src/routers/auth.py`、`backend/src/services/auth_service.py` 与前端 `frontend/src/App.vue`、`frontend/src/components/LoginView.vue`、`frontend/src/components/AdminView.vue` 需要同步检查。
 - 表单方向契约：后端 `backend/src/models/form.py`、`backend/src/schemas/form.py`、`backend/src/database.py`、`backend/src/routers/forms.py`、`backend/src/services/project_clone_service.py`、`backend/src/services/project_import_service.py`、`backend/src/services/export_service.py` 需与前端 `frontend/src/components/FormDesignerTab.vue` 同步；`paper_orientation` 改动时同步校验 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_project_copy.py` 与前端源码级测试。
+- 预览与导出视觉一致性：前端 `frontend/src/styles/main.css` `.wp-form-title` 必须保持 `text-align: left`（与后端 `export_service.add_heading(level=1)` 的 python-docx 默认左对齐对齐），由 `frontend/tests/wordPageGeometry.test.js` 锁住；详见 `.trellis/spec/guides/cross-stack-contracts.md` §4。
 
 ## 测试策略
 - 后端测试使用 `pytest`，包含认证、权限、导入导出、排序、列宽规划、WAL、安全响应头、项目隔离等用例。
@@ -122,6 +123,7 @@ cd frontend && node --test tests/*.test.js
 - `draft` 分支可直接 push 到远程；`main` 分支仅接受 PR 合并。
 
 ## 变更记录
+- `2026年5月12日`（任务 `05-12-word-preview-export-parity`）：跨栈引入 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8` 常量到 `backend/src/services/width_planning.py` + `frontend/src/composables/useCRFRenderer.js`，并在双端 `build_inline_column_demands` / `buildInlineColumnDemands` 的 max chain 应用，解决 ≤4 字短表头（如"未查/项目/单位"）与长邻居共存时被压缩到不可单行的红线；`.wp-form-title` 由 `text-align: center` 改为 `left` 与 Word 导出 Heading-1 默认左对齐对齐；`generatePlannerFixtures.mjs` 补齐遗漏的 `unified_mixed_inline_and_regular`、`unified_regular_date_control_weight_spans_value_columns` 与新增 `inline_short_header_floor` 共 3 个 case，fixture 由 generator 单一来源重新生成（11 cases）。新增前端测试 `wordPageGeometry.test.js` 中 `.wp-form-title` 三个断言；前端 `columnWidthPlanning.test.js` 新增 9.12 / 9.12b；后端 `test_width_planning.py` 新增 `TestInlineHeaderFloor` 三测试。
 - `2026年5月12日 17:42:57`：增量扫描刷新。前端测试 21→22（新增 `wordPageGeometry.test.js`，覆盖 Word 预览 A4 几何契约、`.designer-scaled-word-page` 尺寸、`.word-page.landscape` 翻转、`table-layout: fixed` 与 inline `<colgroup>` 契约）；后端测试与源码文件计数无变化。同步刷新 Mermaid 图与模块索引。同步在 `.trellis/spec/guides/cross-stack-contracts.md` 中补写第 5 条契约 `form-paper-orientation`，与根级跨栈契约对齐。
 - `2026年5月8日 18:26:34`：增量扫描刷新。后端测试 34→37（新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`）；前端测试 20→21（新增 `testProperty.js` 属性测试工具库）；同步更新 Mermaid 图、模块索引与文件计数。
 - `2026年5月8日`：新增”表单方向契约”跨栈条目，记录 `paper_orientation` 跨后端迁移/schema/导出与前端设计器的同步规则。
