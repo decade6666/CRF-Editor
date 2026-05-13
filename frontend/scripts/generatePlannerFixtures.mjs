@@ -73,6 +73,19 @@ const rareCjkField = () => ({
   field_definition: { field_type: '文本', label: '𠮷吉' },
 })
 
+const dateField = (label, dateFormat = 'yyyy-MM-dd') => ({
+  label_override: null,
+  is_log_row: 0,
+  inline_mark: 0,
+  default_value: null,
+  field_definition: {
+    field_type: '日期',
+    label,
+    date_format: dateFormat,
+    options: null,
+  },
+})
+
 const cases = [
   // ── normal ──
   {
@@ -135,6 +148,16 @@ const cases = [
     description: 'field_definition 缺失 → FILL_LINE_WEIGHT 兜底，不抛异常',
     fields: [{ label_override: null, field_definition: null }],
   },
+  {
+    name: 'inline_short_header_floor',
+    kind: 'inline',
+    description:
+      '≤4 字短表头（"未查"）与长邻居共存时，INLINE_HEADER_FLOOR 保护其单行可见水位',
+    fields: [
+      textField('未查'),
+      textField('异常有临床意义请详细说明本次检查的具体表现与判读依据'),
+    ],
+  },
 
   // ── unified ──
   {
@@ -150,6 +173,36 @@ const cases = [
       {
         type: 'inline_block',
         fields: [textField('超长的第一列更长一些更长啊'), textField('B')],
+      },
+    ],
+  },
+  {
+    name: 'unified_mixed_inline_and_regular',
+    kind: 'unified',
+    columnCount: 2,
+    description:
+      'inline_block + regular_field 混合布局：regular_field label/control 按实际 colspan 分摊到 label/value 物理列',
+    segments: [
+      {
+        type: 'inline_block',
+        fields: [textField('姓名'), textField('联系方式')],
+      },
+      {
+        type: 'regular_field',
+        fields: [textField('诊断结果详细描述')],
+      },
+    ],
+  },
+  {
+    name: 'unified_regular_date_control_weight_spans_value_columns',
+    kind: 'unified',
+    columnCount: 7,
+    description:
+      'regular_field 日期控件：label 权重分摊到前 3 列，日期占位符权重分摊到后 4 列',
+    segments: [
+      {
+        type: 'regular_field',
+        fields: [dateField('测量日期', 'yyyy-MM-dd')],
       },
     ],
   },

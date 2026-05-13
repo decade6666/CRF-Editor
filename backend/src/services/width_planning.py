@@ -19,6 +19,13 @@ WEIGHT_ASCII = 1    # 英文/数字/标点权重
 # 填写线默认权重（代表语义长度，不以实际字符数计算）
 FILL_LINE_WEIGHT = 6
 
+# inline 表头权重下限：4 个中文字符等效宽度。
+# 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
+# 被压缩到不可单行显示的窄宽——典型受害场景见
+# `.trellis/tasks/05-12-word-preview-export-parity/prd.md` R2。
+# 必须与前端 frontend/src/composables/useCRFRenderer.js 中的同名常量保持一致。
+INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4
+
 # 结构字段类型集合（标签 / 日志行）——不参与 normal 列宽聚合
 STRUCTURAL_FIELD_TYPES = {"标签", "日志行"}
 
