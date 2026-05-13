@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-05-10
+- **Total Sessions**: 9
+- **Last Active**: 2026-05-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~473 | Active |
+| `journal-1.md` | ~560 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-05-13 | 05-12 Word 预览/导出视觉对齐：INLINE_HEADER_FLOOR 与 wp-form-title 左对齐 | `16fc75e`, `a14cf16`, `bdf76ef`, `d7b53db` | `draft` |
 | 8 | 2026-05-10 | 归档 05-07 表单纸张方向 + 备注移位任务 | `cb7fa36`, `17b4f8a` | `draft` |
 | 7 | 2026-05-10 | 修复 Word 导入预览对话框内容空白 | `162208f` | `draft` |
 | 6 | 2026-05-08 | 沉淀本次任务的三个 code-spec 模式 | `17b4f8a` | `draft` |
