@@ -3199,15 +3199,16 @@ function openAddForm() {
 }
 
 .designer-scaled-word-page {
-  width: 100%;
-  max-width: none;
-  min-height: 100%;
-  margin: 0;
+  width: 21cm;
+  min-height: 29.7cm;
+  max-width: 100%;
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
 .designer-scaled-word-page.landscape {
-  width: 100%;
+  width: 29.7cm;
+  min-height: 21cm;
 }
 
 /* 预览表格列宽拖拽（R5） */
@@ -3215,7 +3216,7 @@ function openAddForm() {
   position: relative;
   margin-bottom: 4px;
 }
-/* 必须用 !important 压过 main.css 的 .word-page .inline-table { table-layout: auto } */
+/* !important 确保设计器拖拽场景下始终固定布局 */
 .col-resize-host > table,
 .col-resize-host > table.inline-table {
   width: 100% !important;

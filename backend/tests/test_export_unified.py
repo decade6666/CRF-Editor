@@ -1101,3 +1101,80 @@ def test_export_multiline_default_value_in_inline_table(session: Session, tmp_pa
     # 第 2 行数据（row index 2）包含 "行B"
     cell_r2 = inline_table.rows[2].cells[1]
     assert "行B" in cell_r2.text, "第 2 数据行第 2 列应包含 '行B'"
+
+
+# ========== unified 路径：cell.tcW 必须与 gridCol 对齐 ==========
+
+
+def test_export_unified_cell_widths_match_gridcol(session: Session, tmp_path: Path) -> None:
+    """unified 表格的每个 cell tcW 必须与 gridCol 对齐，避免 Word 按默认 1234 twips 渲染。
+
+    回归用例：当 _build_unified_table 只设置 col.width 而未同步 cell.width 时，
+    python-docx 会给后续添加的 cell 默认 tcW=1234 twips，导致 Word 渲染时按
+    cell 默认宽度均分而非按 gridCol 的内容驱动列宽显示。
+    """
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="Unified宽度对齐", code="F_UNIFIED_W", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    # 1 个 normal + 5 个 inline，触发 mixed_landscape -> unified table (N=5)
+    fd_normal = create_text_field_def(session, project.id, "普通字段")
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
+    short_labels = ["A", "B", "C", "D"]
+    for i, label in enumerate(short_labels, start=1):
+        fd = create_text_field_def(session, project.id, label)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
+    fd_wide = create_text_field_def(session, project.id, "这是一个非常长的中文标签文本")
+    add_field_to_form(session, form.id, fd_wide.id, order_index=20, inline_mark=1)
+
+    session.commit()
+
+    output_path = tmp_path / "unified_widths.docx"
+    ok = ExportService(session).export_project_to_word(project.id, str(output_path))
+    assert ok is True
+
+    doc = Document(str(output_path))
+    unified_table = next((t for t in doc.tables[2:] if len(t.columns) == 5), None)
+    assert unified_table is not None, "应存在 5 列 unified 表格"
+
+    expected_total_twips = int(ExportService.LANDSCAPE_CONTENT_WIDTH_CM * 567)
+    tolerance_twips = int(0.1 * 567)
+
+    grid_cols = unified_table._tbl.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
+    grid_widths = [int(gc.get(qn("w:w"), "0")) for gc in grid_cols]
+    assert len(grid_widths) == 5
+    assert abs(sum(grid_widths) - expected_total_twips) <= tolerance_twips, (
+        f"gridCol 总宽应约等于 LANDSCAPE_CONTENT_WIDTH_CM, 实际 {sum(grid_widths)} twips"
+    )
+
+    # 每个 row 的 cell tcW 总和必须与 gridCol 对齐
+    for row_idx, row in enumerate(unified_table.rows):
+        row_widths = []
+        seen = set()
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id in seen:
+                continue
+            seen.add(tc_id)
+            tc_pr = cell._tc.tcPr
+            tc_w = tc_pr.find(qn("w:tcW")) if tc_pr is not None else None
+            assert tc_w is not None, f"row {row_idx} cell 应已设置 tcW"
+            row_widths.append(int(tc_w.get(qn("w:w"), "0")))
+        assert abs(sum(row_widths) - expected_total_twips) <= tolerance_twips, (
+            f"row {row_idx} cell 宽度总和 ({sum(row_widths)}) 应与 LANDSCAPE_CONTENT_WIDTH_CM 对齐"
+        )
+
+    # 最后一列对应长标签字段，宽度应明显大于第一列
+    assert grid_widths[4] > grid_widths[0], (
+        f"长标签列应比短标签列更宽: w0={grid_widths[0]}, w4={grid_widths[4]}"
+    )

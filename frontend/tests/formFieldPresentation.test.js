@@ -223,18 +223,21 @@ test('designer preview uses full-width static layout without scale logic', () =>
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 
-test('designer preview page stretches to full width', () => {
+test('designer preview page keeps A4 geometry and stretches the stage container', () => {
   assert.match(formDesignerSource, /\.designer-preview-viewport \{[\s\S]*overflow: auto;[\s\S]*padding: 0;/);
   assert.match(formDesignerSource, /\.designer-preview-stage \{[\s\S]*width: 100%;[\s\S]*min-height: 100%;/);
   assert.match(
     formDesignerSource,
     /\.designer-preview-page \{[\s\S]*position: static;[\s\S]*width: 100%;[\s\S]*min-height: 100%;[\s\S]*transform: none;/,
   );
-  assert.match(
-    formDesignerSource,
-    /\.designer-scaled-word-page \{[\s\S]*width: 100%;[\s\S]*max-width: none;[\s\S]*min-height: 100%;[\s\S]*margin: 0;[\s\S]*box-sizing: border-box;/,
-  );
-  assert.match(formDesignerSource, /\.designer-scaled-word-page\.landscape \{[\s\S]*width: 100%;/);
+  // 全屏对话框里的 word-page 保持 A4 几何（21cm × 29.7cm），由 wordPageGeometry.test.js 维护强契约；
+  // 这里只断言两条不可回退的负向约束：横纵向不再强制 width:100% 抹平差异。
+  const scaledBlock = formDesignerSource.match(/\.designer-scaled-word-page \{([^}]+)\}/)
+  assert.ok(scaledBlock, '.designer-scaled-word-page rule should exist')
+  assert.doesNotMatch(scaledBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page must not force width:100% (use A4 geometry)')
+  const landscapeBlock = formDesignerSource.match(/\.designer-scaled-word-page\.landscape \{([^}]+)\}/)
+  assert.ok(landscapeBlock, '.designer-scaled-word-page.landscape rule should exist')
+  assert.doesNotMatch(landscapeBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page.landscape must not force width:100% (use A4 landscape geometry)')
 });
 
 test('notes autosave failures keep main preview on persisted notes', () => {

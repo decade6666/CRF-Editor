@@ -159,7 +159,7 @@ POST /api/forms/{form_id}/fields/reorder
 |--------|----------------------|-------------------------|
 | **File** | `backend/src/services/export_service.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/styles/main.css` |
 | **Purpose** | Render the authoritative Word document | Render an on-screen preview that matches what the user will get in `.docx` |
-| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt** | Same |
+| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, table-cell vertical rhythm **5.25pt / 1.0** | Same |
 
 **Shared Literals** (must be kept in lock-step):
 
@@ -185,6 +185,7 @@ const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char 
 ```css
 /* main.css — page font that calibrates the 0.5em estimator */
 .word-page { font-size: 10.5pt; font-family: 'SimSun', serif; }
+.word-page td { padding: 5.25pt 6px; line-height: 1.0; }
 
 /* Heading-1 equivalent form title — MUST stay left-aligned to mirror
    python-docx `add_heading(level=1)` default left alignment in the
@@ -199,6 +200,7 @@ const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char 
 3. **Page font size is part of the contract**: `.word-page { font-size: 10.5pt }` calibrates the `0.5em` factor. Switching to `px` / `rem` invalidates the calibration.
 4. **Two render paths on the frontend**: `renderCtrlHtml → renderChoiceHtml` and `renderCtrl → toHtml`. Both produce DOM and BOTH must be updated together. See `.trellis/spec/frontend/component-guidelines.md` → "Scenario: Word Preview ↔ Word Export Visual Parity".
 5. **Form title alignment**: `.wp-form-title` MUST be `text-align: left` to match `python-docx` `add_heading(level=1)` default. Reintroducing `text-align: center` (or `margin: 0 auto`) drifts preview from the exported `.docx`. Locked by `frontend/tests/wordPageGeometry.test.js`.
+6. **Table-cell vertical rhythm**: `.word-page td` MUST keep `padding: 5.25pt 6px` and `line-height: 1.0` to mirror export paragraph formatting (`space_before=5.25pt`, `space_after=5.25pt`, `line_spacing=1.0`). Changing it requires updating `frontend/tests/wordPageGeometry.test.js` and rechecking preview/export screenshots.
 
 **Synchronization Checklist**:
 - [ ] Update `export_service.py` `_render_choice_field` / `_get_option_labels` literals
@@ -206,6 +208,7 @@ const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char 
 - [ ] Update `useCRFRenderer.js` `renderChoiceHtml` `buildFillLineHtml(N)` (path B)
 - [ ] If changing the planner weight, update **both** `FILL_LINE_WEIGHT` constants
 - [ ] If retuning the visual estimator, **do not** touch any character count or planner weight
+- [ ] If changing preview table-cell spacing, compare against backend `space_before/after` and `line_spacing` values
 - [ ] Run `backend/tests/test_export_unified.py`, `tests/test_width_planning.py`
 - [ ] Run `frontend/tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js`
 - [ ] Manual: side-by-side A4 zoom 100% preview vs exported `.docx` at Word 100% zoom
