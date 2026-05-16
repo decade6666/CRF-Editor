@@ -45,9 +45,7 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [
-    "05-16-word-table-field-remaining-parity"
-  ],
+  "children": [],
   "parent": null,
   "relatedFiles": [],
   "notes": "",
