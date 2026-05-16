@@ -645,3 +645,41 @@ PRD 中 R1-R5 全部满足, Acceptance Criteria 全部勾选, DoD 全部达成; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Word preview/export strict table-field parity
+
+**Date**: 2026-05-16
+**Task**: Word preview/export strict table-field parity
+**Branch**: `draft`
+
+### Summary
+
+Implemented strict preview/export table-field parity for Word output, added comparator evidence, synchronized cross-stack contracts, and archived completed Trellis tasks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4266c31` | (see git log) |
+| `013fba9` | (see git log) |
+| `2d49a3d` | (see git log) |
+| `fb8e4ab` | (see git log) |
+| `c891cea` | (see git log) |
+| `9e37ed1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

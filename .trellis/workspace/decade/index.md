@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
-- **Last Active**: 2026-05-15
+- **Total Sessions**: 12
+- **Last Active**: 2026-05-16
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~647 | Active |
+| `journal-1.md` | ~685 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-05-16 | Word preview/export strict table-field parity | `4266c31`, `013fba9`, `2d49a3d`, `fb8e4ab`, `c891cea`, `9e37ed1` | `draft` |
 | 11 | 2026-05-15 | 忽略本地设置并刷新性能证据 | `74d0b0e` | `draft` |
 | 10 | 2026-05-15 | 完成 Word 预览与导出视觉一致性修复 | `374bd8e`, `af0253a` | `draft` |
 | 9 | 2026-05-13 | 05-12 Word 预览/导出视觉对齐：INLINE_HEADER_FLOOR 与 wp-form-title 左对齐 | `16fc75e`, `a14cf16`, `bdf76ef`, `d7b53db` | `draft` |
