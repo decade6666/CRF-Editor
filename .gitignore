@@ -54,6 +54,7 @@ node_modules/
 .ace-tool/
 .playwright-mcp/
 .obsidian/
+.claude/settings.local.json
 
 # ==========================================
 # 临时与调试文件
