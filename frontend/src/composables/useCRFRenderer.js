@@ -75,8 +75,8 @@ export function computeTextWeight(text) {
  * @returns {number} 权重
  */
 export function computeChoiceAtomWeight(label, hasTrailing) {
-  // 符号（○或□）+ 空格
-  let weight = 2 * WEIGHT_ASCII
+  // 符号（○或□）；marker-label 内部无空格
+  let weight = WEIGHT_ASCII
   // 标签文本
   weight += computeTextWeight(label)
   // 尾部填写线
@@ -402,14 +402,13 @@ function renderChoiceHtml(fieldType, rawOptions) {
 
   return options.map(option => {
     const labelHtml = escapeHtml(option.text)
-    // 选项文本：保证最小宽度且不换行
-    const optionTextHtml = `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
-    // 下划线后缀：对齐到底部
+    const optionTextHtml = option.trailingUnderscore
+      ? `<span style="white-space:nowrap">${labelHtml}</span>`
+      : `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
     const suffixHtml = option.trailingUnderscore
       ? buildFillLineHtml(6)
       : ''
-    // 整个选项不拆行，对齐到底部
-    return `<span style="display:inline-flex;align-items:flex-end;gap:0.2em;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+    return `<span style="display:inline-flex;align-items:flex-end;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
   }).join(separator)
 }
 
@@ -469,12 +468,15 @@ export function renderCtrl(field) {
   ))
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 
-  function boxes(n) { return n > 0 ? '|' + '__|'.repeat(n) : '' }
+  function boxes(n, repeated = false) {
+    if (n <= 0) return ''
+    return repeated ? '|__|'.repeat(n) : '|' + '__|'.repeat(n)
+  }
 
   if (field.field_type === '数值') {
     const ints = field.integer_digits || 10
     const decs = field.decimal_digits ?? 2
-    return boxes(ints) + (decs > 0 ? '.' + boxes(decs) : '') + unit
+    return boxes(ints, true) + (decs > 0 ? '.' + boxes(decs, true) : '') + unit
   }
 
   function renderDateFmt(fmt) {
@@ -512,16 +514,16 @@ export function renderCtrl(field) {
 
     const dateResult = hasDateChars ? renderPart(datePart, true) + '日' : renderPart(datePart, false)
     const timeResult = renderPart(timePart, false)
-    return (dateResult && timeResult) ? dateResult + ' ' + timeResult : dateResult || timeResult
+    return (dateResult && timeResult) ? dateResult + '  ' + timeResult : dateResult || timeResult
   }
 
   if (field.field_type === '日期') return renderDateFmt(field.date_format || 'yyyy-MM-dd')
   if (field.field_type === '日期时间') return renderDateFmt(field.date_format || 'yyyy-MM-dd HH:mm')
   if (field.field_type === '时间') return renderDateFmt(field.date_format || 'HH:mm')
-  if (field.field_type === '单选') return (opts.length ? opts.map(o => '○ ' + o) : ['○ 是', '○ 否']).join('  ')
-  if (field.field_type === '多选') return (opts.length ? opts.map(o => '□ ' + o) : ['□ 选项1', '□ 选项2']).join('  ')
-  if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○ ' + o) : ['○ 是', '○ 否']).join('\n')
-  if (field.field_type === '多选（纵向）') return (opts.length ? opts.map(o => '□ ' + o) : ['□ 选项1', '□ 选项2']).join('\n')
+  if (field.field_type === '单选') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('  ')
+  if (field.field_type === '多选') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('  ')
+  if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('\n')
+  if (field.field_type === '多选（纵向）') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('\n')
   if (field.field_type === '标签') return ''
   return '________________' + unit
 }

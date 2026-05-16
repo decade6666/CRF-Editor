@@ -463,17 +463,23 @@ const visible = computed({
 
 ---
 
-## Scenario: Word Preview ↔ Word Export Visual Parity (Fill-Line / Trailing Underscore)
+## Scenario: Word Preview ↔ Word Export Strict Table-Field Parity
 
 ### 1. Scope / Trigger
 
-- Trigger: any change to how the Word **preview** renders fill-lines (`____`),
-  choice options with `trailing_underscore`, table-cell row height, or any
-  field control whose output contains runs of `_` characters.
+- Trigger: any change to Word preview or Word export rendering for table-field
+  text, choice options, fill-lines, numeric/date placeholders, inline grouping,
+  or form section pagination.
 - Affected files:
-  - `frontend/src/composables/useCRFRenderer.js` (preview source of truth)
-  - `frontend/src/styles/main.css` (`.fill-line`, `.word-page` font size)
-  - `backend/src/services/export_service.py` (Word export, authoritative target)
+  - `frontend/src/composables/useCRFRenderer.js` (control text + HTML rendering)
+  - `frontend/src/composables/formFieldPresentation.js` (display label and group segmentation)
+  - `frontend/src/components/FormDesignerTab.vue` (designer preview and inline rows)
+  - `frontend/src/components/VisitsTab.vue` (visit preview and inline rows)
+  - `frontend/src/components/TemplatePreviewDialog.vue` (template preview inline rows)
+  - `frontend/src/styles/main.css` (`.fill-line`, `.word-page`, title and table rhythm)
+  - `backend/src/services/export_service.py` (authoritative `.docx` export)
+  - `backend/src/services/width_planning.py` (planner weight contract)
+  - `backend/src/services/word_table_parity.py` and `backend/scripts/compare_word_table_parity.py` (strict comparator)
 - Mandatory cross-stack contract — see
   `.trellis/spec/guides/cross-stack-contracts.md` → "Word Preview / Export Visual Parity".
 
@@ -481,25 +487,48 @@ const visible = computed({
 
 ```javascript
 // frontend/src/composables/useCRFRenderer.js
-const FILL_LINE_WEIGHT = 6              // planner weight (cross-stack contract)
-function buildFillLineHtml(length = 20) // 0.5em/char to match SimSun 10.5pt
-function renderCtrl(field): string      // path A: returns plain text with `_`
-function renderCtrlHtml(field): string  // path B: returns sanitized HTML
-function renderChoiceHtml(fieldType, rawOptions): string  // called by path B
-function toHtml(text): string           // converts `_{4,}` → buildFillLineHtml(n)
+const FILL_LINE_WEIGHT = 6
+function buildFillLineHtml(length = 20): string
+function renderCtrl(field): string
+function renderCtrlHtml(field): string
+function renderChoiceHtml(fieldType, rawOptions): string
+function toHtml(text): string
+function isDefaultValueSupported(fieldType, inlineMark): boolean
+function normalizeDefaultValue(value, singleLine = false): string
+```
+
+```javascript
+// frontend preview table builders
+function buildFormDesignerRenderGroups(fields): Array<Group>
+function buildFormDesignerUnifiedSegments(fields): Array<Segment>
+function getFormFieldDisplayLabel(formField): string
 ```
 
 ```python
-# backend/src/services/export_service.py — authoritative target
-WIDTH_OF_TRAILING_UNDERSCORE = 6   # "_" * 6 — written into the DOCX run
-WIDTH_OF_EMPTY_TEXT_PLACEHOLDER = 16  # "_" * 16 for default text fields
+# backend/src/services/export_service.py
+WIDTH_OF_TRAILING_UNDERSCORE = 6
+WIDTH_OF_EMPTY_TEXT_PLACEHOLDER = 16
+
+def _render_choice_field(paragraph, field_type, options): None: ...
+def _get_control_text(field_definition): str: ...
+def _group_form_fields(form_fields): list[list[FormField]]: ...
+```
+
+```python
+# backend/src/services/word_table_parity.py
+@dataclass(frozen=True)
+class TableFieldForm:
+    name: str
+    tables: list[list[list[str]]]
+
+def extract_docx_form_table_fields(docx_path: Path): list[TableFieldForm]: ...
+def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): TableFieldParityReport: ...
 ```
 
 ```css
-/* main.css */
 .word-page { font-size: 10.5pt; font-family: 'SimSun', serif; }
 .word-page td { padding: 5.25pt 6px; line-height: 1.0; }
-/* C-01 red line: .fill-line class / styling logic must not change */
+.word-page .wp-form-title { font-size: 14pt; font-weight: bold; text-align: left; }
 .fill-line { display: inline-block; border-bottom: 1px solid #333; min-width: 3em; }
 ```
 
@@ -507,95 +536,105 @@ WIDTH_OF_EMPTY_TEXT_PLACEHOLDER = 16  # "_" * 16 for default text fields
 
 | Aspect | Preview (FE) | Export (BE) | Rule |
 |---|---|---|---|
-| Trailing-underscore literal | `${text}______` (6 `_`) — `useCRFRenderer.js:458` | `label + " " + "_" * 6` — `export_service.py` `_render_choice_field` | Same character count: **6** |
-| Default text fill-line | `'________________'` (16 `_`) — `renderCtrl` ASCII fallback | `"_" * 16` placeholder | Same character count: **16** |
-| Fill-line min-width estimator | `safeLength * 0.5em` — `buildFillLineHtml:327` | N/A (real chars) | `0.5em` is calibrated against SimSun 10.5pt `_` glyph |
-| Page font size | `.word-page { font-size: 10.5pt }` | Word run `Pt(10.5)` | Must stay aligned; do NOT switch to `px`/`rem` |
-| Table-cell vertical rhythm | `.word-page td { padding: 5.25pt 6px; line-height: 1.0 }` | Paragraph spacing `space_before=5.25pt`, `space_after=5.25pt`, `line_spacing=1.0` | Preview row height should track exported Word rows; horizontal padding is not part of this rhythm contract |
-| Choice atom non-breaking | preview: `display:inline-flex; white-space:nowrap` | export: NBSP ` ` joins label + line | Both keep label + line as one unbreakable token |
-| Column-width weight | `FILL_LINE_WEIGHT = 6` (JS) | `FILL_LINE_WEIGHT = 6` (PY) | **Frontend-only visual changes (e.g. `0.5em` factor) MUST NOT change this constant.** Weight is the planner contract; visual `min-width` is the preview-only estimator. |
+| Choice marker-label spacing | `○有尾线`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
+| Choice option separator | horizontal choices join with two ASCII spaces | same | The two spaces separate options, not marker and label. |
+| Trailing underscore | `label______` (6 `_`) and `buildFillLineHtml(6)` for HTML | `label + "_" * 6` | No NBSP and no extra separator between label and underscores. |
+| Default text fill-line | `________________` (16 `_`) | `"_" * 16` | Character count stays 16. |
+| Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
+| Datetime placeholder | date + two ASCII spaces + time | same | Date/time separator is exactly two spaces. |
+| Inline default fallback | repeat full `renderCtrl(field)` when no scoped default exists | same exported control text | Do not collapse fallback controls to six underscores. |
+| Inline scoped default | multiline defaults expand rows; missing later rows fall back to full control text | same row text model | Empty trailing default rows are trimmed before row expansion. |
+| Group ordering | continuous normal/inline segments preserve `order_index` | `_group_form_fields` preserves the same segments | Never aggregate all normal fields before/after inline blocks. |
+| Form section pagination | preview form order matches export form order | portrait forms use next-page section breaks | No plain page break should replace a section break between portrait forms. |
+| Page font/title/rhythm | SimSun 10.5pt, left title, `5.25pt / 1.0` row rhythm | python-docx `Pt(10.5)`, Heading-1 default left alignment, paragraph spacing `5.25pt / 1.0` | Geometry changes require both style tests and export checks. |
+| Column-width weight | `FILL_LINE_WEIGHT = 6` | `FILL_LINE_WEIGHT = 6` | The planner constant tracks demand weight, not HTML visual estimator width. |
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected Behavior |
 |---|---|
-| User toggles `trailing_underscore=1` on an option | Both preview (path A and B) and export render exactly 6 `_` worth of width; tested visually side-by-side with the same form |
-| Field is empty text (no default) | Preview shows fill-line ≈8em; export emits 16 `_` characters; visually equivalent |
-| Page is exported to DOCX and opened in Word | Choice option width matches the preview rendered in browser at A4 zoom 100% within ~1mm |
-| Developer changes `.word-page td` vertical padding or line-height | Must compare against backend paragraph spacing and update `wordPageGeometry.test.js`; otherwise preview row density drifts from exported Word |
-| Developer changes `0.5em` factor in `buildFillLineHtml` | Only the **visual** estimator moves; planner contract `FILL_LINE_WEIGHT = 6` stays unchanged; both FE and BE column widths remain identical |
-| Developer changes the literal `______` (6) in `renderCtrl` | BOTH `_render_choice_field` (`"_" * 6`) and `_get_option_labels` (`"______"`) must change to the same count, otherwise preview ↔ export diverge |
+| Choice option has `trailing_underscore=1` | Preview path A, preview path B, inline preview, and export all render marker + label with no internal space and exactly six trailing underscores. |
+| Horizontal choice has two options | Output is `○A  ○B` / `□A  □B`; there is no `○ A` or `□ A`. |
+| Text field has no default | Preview and export both use 16 underscores as the plain-text placeholder. |
+| Numeric field uses `integer_digits=3`, `decimal_digits=1` | Preview and export emit `|__||__||__|.|__|`. |
+| Datetime field includes date and time | Preview and export separate date and time placeholders with two ASCII spaces. |
+| Inline field lacks a scoped default | Inline preview rows repeat the full control fallback (`renderCtrl`), not a shortened fill-line. |
+| Inline field has multiline default | Preview and export produce the same row count and fallback cells for shorter columns. |
+| Normal and inline fields are interleaved by `order_index` | Preview and export tables preserve the same segment order. |
+| DOCX contains merged heading/log cells | Comparator collapses duplicated `python-docx` merged cells by underlying XML identity before counting. |
+| Developer changes `.word-page td`, title alignment, font, or section behavior | Must update geometry/export tests and rerun strict comparator evidence; otherwise preview/export can drift visually or structurally. |
 
 ### 5. Good/Base/Bad Cases
 
-- **Good**: a choice option `本研究疾病相关` with `trailing_underscore=1`. Preview shows `○ 本研究疾病相关` followed by a ~3em fill-line; export shows the same label + NBSP + `______` of comparable on-page width.
-- **Base**: a plain text field with no default. Both preview and export render a ~8em fill-line (preview: span; export: 16 `_` chars).
-- **Bad**: developer changes `buildFillLineHtml(6)` to `buildFillLineHtml(12)` in `renderChoiceHtml` — fill-line in preview becomes ~6em (double width), no longer matches export.
-- **Bad**: developer changes `.word-page td` back to `padding: 4px 6px` or removes `line-height: 1.0` — preview rows become shorter than exported Word rows because Word export uses `space_before/after=5.25pt` with single line spacing.
+- **Good**: `单选` option `有尾线` with `trailing_underscore=1` renders as `○有尾线______` in exported table text and as marker + label + a 6-character fill-line in preview HTML.
+- **Good**: an interleaved form `normal A → inline B/C → normal D` appears in the same order in designer preview, visit preview, template preview, and exported DOCX.
+- **Base**: a plain text field with no default renders `________________` on both sides.
+- **Base**: an empty default-control inline cell repeats its full field-specific placeholder on every generated inline row.
+- **Bad**: using `label + " " + "_" * 6` in export or `○ label` in preview creates strict cell-text mismatches.
+- **Bad**: shortening inline fallback controls to `______` makes preview cells differ from exported default placeholders such as `________________`.
+- **Bad**: replacing portrait section breaks with `doc.add_page_break()` keeps visual pages apart but loses section parity and can change downstream page geometry.
 
 ### 6. Tests Required
 
-| Test | Assertion |
+| Test / Check | Assertion |
 |---|---|
-| `frontend/tests/columnWidthPlanning.test.js` | Inline choice with `trailing_underscore` adds `FILL_LINE_WEIGHT = 6` to the column demand (existing case 9.3) |
-| `frontend/tests/columnWidthPlanning.pbt.test.js` | Property: changing the visual `min-width` estimator never changes planner fractions |
-| `frontend/tests/wordPageGeometry.test.js` | `.word-page td` keeps `padding: 5.25pt 6px` and `line-height: 1.0` to mirror Word paragraph rhythm |
-| `backend/tests/test_width_planning.py` | `FILL_LINE_WEIGHT = 6` and the cross-stack `planner_cases.json` round-trip |
-| Manual A4-zoom side-by-side | Open the preview at A4 zoom 100% in Chromium, export the same form to DOCX, open in Word at 100% zoom — fill-line widths overlap within ~1mm |
+| `backend/tests/test_export_unified.py` | Choice marker runs use SimSun and marker-label text has no internal space or NBSP. |
+| `backend/tests/test_export_service.py` | Portrait forms use next-page section breaks; mixed normal/inline groups preserve order. |
+| `backend/tests/test_width_planning.py` | Choice atom demand excludes marker-label internal space and keeps `FILL_LINE_WEIGHT = 6`. |
+| `backend/tests/test_word_table_parity.py` | Comparator counts rows/cells exactly and collapses merged cells. |
+| `frontend/tests/columnWidthPlanning.test.js` | Choice literals, numeric boxes, datetime spacing, and width demands match backend. |
+| `frontend/tests/wordPageGeometry.test.js` | Word page font, title alignment, table fixed layout, and row rhythm stay aligned. |
+| `backend/scripts/compare_word_table_parity.py` | Real preview JSON vs exported DOCX returns `exact_cell_ratio = 1.0`, `exact_row_ratio = 1.0`, and `mismatches = []`. |
+| Manual A4-zoom side-by-side | Browser preview at A4 100% and Word/WPS at 100% have matching table text and expected geometry. |
 
 ### 7. Wrong vs Correct
 
-#### Wrong: forgot the second render path
+#### Wrong: keep NBSP and marker-label spaces
 
-```javascript
-// useCRFRenderer.js — only renderChoiceHtml fixed
-function renderChoiceHtml(fieldType, rawOptions) {
-  // ...
-  const suffixHtml = option.trailingUnderscore ? buildFillLineHtml(6) : ''  // ✓ aligned
-  // ...
-}
-
-export function renderCtrl(field) {
-  // BUG: this path feeds VisitsTab.getInlineRows and FormDesignerTab.getInlineRows
-  // via `renderCtrl(field) → toHtml()`. If left at 20 `_`, the inline-table
-  // rows still render a too-wide fill-line.
-  const opts = normalizeChoiceOptions(field.options).map(option => (
-    option.trailingUnderscore ? `${option.text}____________________` : option.text  // ✗ 20 `_`
-  ))
-  // ...
-}
+```python
+# export_service.py
+atom_text = label + " " + "_" * 6
 ```
-
-Symptom: the designer top preview and `SimulatedCRFForm` look correct, but the
-**`访视` (Visits) tab inline table** and the **designer's own `getInlineRows`** still
-show the wide fill-line. User reports "preview not changing" after the fix.
-
-#### Correct: fix BOTH paths and the visual estimator together
 
 ```javascript
 // useCRFRenderer.js
-
-// 1) renderChoiceHtml — path B (renderCtrlHtml)
-const suffixHtml = option.trailingUnderscore ? buildFillLineHtml(6) : ''
-
-// 2) renderCtrl — path A (renderCtrl + toHtml, used by getInlineRows)
-const opts = normalizeChoiceOptions(field.options).map(option => (
-  option.trailingUnderscore ? `${option.text}______` : option.text  // 6 `_`, matches export
-))
-
-// 3) buildFillLineHtml — visual estimator calibrated to SimSun 10.5pt
-function buildFillLineHtml(length = 20) {
-  const safeLength = Math.max(4, Number(length) || 20)
-  const minWidth = (safeLength * 0.5).toFixed(1)   // 0.5em/char, not 0.55
-  return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
-}
+return options.map(option => `○ ${option.text}`).join('  ')
 ```
 
-> **Why three changes**: the preview has **two independent render pipelines**
-> that both reach the DOM (`renderCtrlHtml → renderChoiceHtml` vs `renderCtrl →
-> toHtml`), and the visual width is governed by a separate em-estimator.
-> Touching only one of the three leaves the other paths visibly inconsistent
-> with the Word export.
+This renders `○ 有尾线` in preview and joins label/underscores with NBSP in export,
+while the strict table-text contract expects `○有尾线______`.
+
+#### Correct: keep only the option separator spaces
+
+```python
+# export_service.py
+atom_text = label + "_" * WIDTH_OF_TRAILING_UNDERSCORE
+```
+
+```javascript
+// useCRFRenderer.js
+return options.map(option => '○' + option.text).join('  ')
+```
+
+#### Wrong: collapse inline fallback controls
+
+```javascript
+return { lines: ['______'], repeat: true, fallback: '______' }
+```
+
+The six-underscore fallback only fits trailing choice options. It breaks empty text,
+numeric, date, datetime, and default choice controls.
+
+#### Correct: preserve the full renderer fallback
+
+```javascript
+const ctrl = toHtml(renderCtrl(formField.field_definition))
+return { lines: [ctrl], repeat: true, fallback: ctrl }
+```
+
+`renderCtrl` remains the single preview source for field-specific placeholder text,
+and strict comparator evidence must confirm the generated preview JSON and exported
+DOCX are structurally identical.
 
 ---
 

@@ -29,13 +29,13 @@ const NETWORK_PRESET = {
   uploadThroughput: 750 * 1024 / 8,
   connectionType: 'cellular4g',
 }
-const chromiumCandidates = [
-  process.env.CHROMIUM_PATH,
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-  '/usr/bin/google-chrome',
-  '/usr/bin/google-chrome-stable',
-].filter(Boolean)
+const explicitChromiumPath = process.env.CHROMIUM_PATH || ''
+const chromiumCommands = [
+  'chromium',
+  'chromium-browser',
+  'google-chrome',
+  'google-chrome-stable',
+]
 const SCENARIOS = [
   'app_project_load',
   'tab_designer_first_activate',
@@ -95,12 +95,28 @@ async function getOutputFiles() {
   }
 }
 
+async function canRunCommand(command) {
+  const child = spawn(command, ['--version'], {
+    stdio: ['ignore', 'ignore', 'ignore'],
+  })
+  return await new Promise(resolve => {
+    child.on('error', () => resolve(false))
+    child.on('exit', code => resolve(code === 0))
+  })
+}
+
 async function resolveChromiumPath() {
-  for (const candidate of chromiumCandidates) {
+  if (explicitChromiumPath) {
     try {
-      await access(candidate)
-      return candidate
+      await access(explicitChromiumPath)
+      return explicitChromiumPath
     } catch {}
+  }
+
+  for (const command of chromiumCommands) {
+    if (await canRunCommand(command)) {
+      return command
+    }
   }
   return null
 }

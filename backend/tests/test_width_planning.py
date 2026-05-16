@@ -88,19 +88,19 @@ class TestChoiceAtomWeight:
 
     def test_choice_atom_without_trailing(self):
         """无尾部填写线的选项原子权重"""
-        # 符号 + 空格 + 标签 = 2 + 2 = 4（假设标签为空）
+        # 符号 + 标签；marker-label 内部无空格
         weight = compute_choice_atom_weight("", False)
-        assert weight == 2
+        assert weight == 1
 
-        # 符号 + 空格 + 标签 = 2 + 4 = 6（标签"选项"）
+        # 符号 + 标签 = 1 + 4 = 5（标签"选项"）
         weight = compute_choice_atom_weight("选项", False)
-        assert weight == 6
+        assert weight == 5
 
     def test_choice_atom_with_trailing(self):
         """有尾部填写线的选项原子权重"""
-        # 符号 + 空格 + 标签 + 填写线 = 2 + 4 + 6 = 12（标签"选项"）
+        # 符号 + 标签 + 填写线 = 1 + 4 + 6 = 11（标签"选项"）
         weight = compute_choice_atom_weight("选项", True)
-        assert weight == 12
+        assert weight == 11
 
     def test_trailing_adds_constant_weight(self):
         """尾部填写线增加固定权重"""

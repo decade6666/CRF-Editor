@@ -678,7 +678,7 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
 
     rendered = ExportService(session)._render_field_control(field_definition)
 
-    assert rendered == "□ 恶心\n□ 呕吐"
+    assert rendered == "□恶心\n□呕吐"
 
 
 

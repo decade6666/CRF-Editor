@@ -1140,7 +1140,7 @@ class ExportService:
 
                     else:
 
-                        doc.add_page_break()
+                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
 
 
@@ -1879,7 +1879,7 @@ class ExportService:
 
     def _group_form_fields(self, form_fields):
 
-        """按普通字段组与 inline 组拆分表单字段。非 inline 字段统一合入同一组，保持单表格输出。"""
+        """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""
 
         if not form_fields:
 
@@ -1887,47 +1887,39 @@ class ExportService:
 
 
 
-        regular_group = []
+        groups = []
 
-        inline_groups = []
+        current_group = []
 
-        current_inline = []
+        current_inline = None
 
 
 
         for form_field in form_fields:
 
-            if form_field.inline_mark == 1:
+            is_inline = form_field.inline_mark == 1
 
-                current_inline.append(form_field)
+            if current_inline is None or is_inline == current_inline:
+
+                current_group.append(form_field)
 
             else:
 
-                if current_inline:
+                groups.append(current_group)
 
-                    inline_groups.append(current_inline)
+                current_group = [form_field]
 
-                    current_inline = []
-
-                regular_group.append(form_field)
+            current_inline = is_inline
 
 
 
-        if current_inline:
+        if current_group:
 
-            inline_groups.append(current_inline)
+            groups.append(current_group)
 
 
 
-        result = []
-
-        if regular_group:
-
-            result.append(regular_group)
-
-        result.extend(inline_groups)
-
-        return result or [[]]
+        return groups or [[]]
 
 
 
@@ -2479,7 +2471,7 @@ class ExportService:
 
             return "________________"
 
-        return "  ".join([f"○ {opt}" for opt in options])
+        return "  ".join([f"○{opt}" for opt in options])
 
 
 
@@ -2493,7 +2485,7 @@ class ExportService:
 
             return "________________"
 
-        return "\n".join([f"○ {opt}" for opt in options])
+        return "\n".join([f"○{opt}" for opt in options])
 
 
 
@@ -2507,7 +2499,7 @@ class ExportService:
 
             return "________________"
 
-        return "  ".join([f"□ {opt}" for opt in options])
+        return "  ".join([f"□{opt}" for opt in options])
 
 
 
@@ -2521,7 +2513,7 @@ class ExportService:
 
             return "________________"
 
-        return "\n".join([f"□ {opt}" for opt in options])
+        return "\n".join([f"□{opt}" for opt in options])
 
 
 
@@ -2579,7 +2571,7 @@ class ExportService:
 
 
 
-            symbol_run = para.add_run(symbol + " ")
+            symbol_run = para.add_run(symbol)
 
             self._set_run_font(symbol_run, size=Pt(10.5))
 
@@ -2601,9 +2593,7 @@ class ExportService:
 
             if has_trailing:
 
-                # 使用不换行空格连接文本和填写线，保证不可拆行
-
-                atom_text = label + "\u00A0" + "_" * 6
+                atom_text = label + "_" * 6
 
                 atom_run = para.add_run(atom_text)
 
@@ -2663,7 +2653,7 @@ class ExportService:
 
             # 添加符号run，使用宋体
 
-            symbol_run = paragraph.add_run(symbol + " ")
+            symbol_run = paragraph.add_run(symbol)
 
             self._set_run_font(symbol_run, size=Pt(10.5))
 
@@ -2687,9 +2677,7 @@ class ExportService:
 
             if has_trailing:
 
-                # 使用不换行空格连接文本和填写线，保证不可拆行
-
-                atom_text = label + "\u00A0" + "_" * 6
+                atom_text = label + "_" * 6
 
                 atom_run = paragraph.add_run(atom_text)
 
