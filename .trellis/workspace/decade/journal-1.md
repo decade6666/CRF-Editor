@@ -558,3 +558,57 @@ PRD 中 R1-R5 全部满足, Acceptance Criteria 全部勾选, DoD 全部达成; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: 完成 Word 预览与导出视觉一致性修复
+
+**Date**: 2026-05-15
+**Task**: 完成 Word 预览与导出视觉一致性修复
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Summary |
+| --- | --- |
+| Word preview trailing underline | Aligned frontend trailing_underscore preview paths with backend export: six literal underscores in text path, six-underscore-equivalent HTML fill line, and 0.5em fill-line estimator. |
+| Preview/export visual rhythm | Adjusted `.word-page td` to `padding: 5.25pt 6px` and `line-height: 1.0` to mirror backend Word paragraph spacing. |
+| Column width and orientation | Preserved/exported form paper orientation across preview/export/import paths and documented the remaining lazy-mount risk in the column-width override chain. |
+| Backend export | Updated Word export width handling and regression coverage for paper orientation, inline/unified widths, and override application. |
+| Specs and task record | Added the Trellis PRD and synchronized preview-export parity contracts in frontend component guidelines and cross-stack contracts. |
+
+**Validation**:
+- `cd frontend && npm run lint -- --quiet` -> passed, 0 errors
+- `cd frontend && npm run type-check --if-present` -> passed/no-op because no script is defined
+- `cd frontend && npm run build` -> passed
+- `cd frontend && node --test tests/*.test.js` -> 190 passed
+- `cd backend && python3 -m pytest -q` -> 458 passed, 4 xfailed
+- `git diff --check` -> passed
+
+**Known follow-up / risks**:
+- Browser A4 100% vs Word/WPS 100% manual visual comparison was provided by the user as tested OK, but not rerun by Claude in-browser.
+- Export column-width overrides can still be missed if the designer tab has never been activated; this was traced and documented but intentionally not fixed in this slice.
+- Local/unrelated working-tree leftovers remain outside the committed work: `.claude/settings.local.json`, `.gitignore`, and the archived performance evidence timestamp JSON.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `374bd8e` | (see git log) |
+| `af0253a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
