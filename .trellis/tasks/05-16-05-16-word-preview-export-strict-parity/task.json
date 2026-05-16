@@ -46,7 +46,6 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "05-16-word-choice-rendering-contract",
     "05-16-word-export-section-breaks-marker-fonts",
     "05-16-word-table-field-remaining-parity"
   ],
