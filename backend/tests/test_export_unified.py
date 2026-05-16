@@ -889,8 +889,18 @@ def test_export_unified_multi_blocks_share_table_level_width(session: Session, t
 # ========== Task 4.3: trailing_underscore 横向与纵向原子 token 测试 ==========
 
 
-def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
-    """验证横向单选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+def _assert_marker_runs_use_simsun(runs, marker: str) -> None:
+    marker_runs = [run for run in runs if run.text == marker]
+    assert marker_runs, f"应存在独立的 {marker} marker run"
+    for run in marker_runs:
+        r_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        assert r_fonts.get(qn("w:ascii")) == "SimSun"
+        assert r_fonts.get(qn("w:hAnsi")) == "SimSun"
+        assert r_fonts.get(qn("w:eastAsia")) == "SimSun"
+
+
+def test_export_horizontal_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
+    """验证横向单选 marker-label 与 label-fill 都没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -934,17 +944,19 @@ def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path:
 
     # 检查选择字段单元格内的 run 文本
     choice_cell = form_tables[0].cell(0, 1)
-    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
+    all_runs_text = [run.text for run in all_runs]
     joined = "".join(all_runs_text)
+    _assert_marker_runs_use_simsun(all_runs, "○")
 
-    # 有尾线的选项应包含 NBSP + 下划线
-    assert "有尾线\u00A0______" in joined, f"横向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
-    # 无尾线的选项不应有下划线
-    assert "无尾线\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+    assert "○有尾线______" in joined, f"横向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
+    assert "○ 有尾线" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
+    assert "有尾线\u00A0______" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
+    assert "○无尾线" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
 
 
-def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
-    """验证纵向多选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+def test_export_vertical_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
+    """验证纵向多选 marker-label 与 label-fill 都没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -987,12 +999,15 @@ def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: P
     assert len(form_tables) >= 1
 
     choice_cell = form_tables[0].cell(0, 1)
-    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
+    all_runs_text = [run.text for run in all_runs]
     joined = "".join(all_runs_text)
+    _assert_marker_runs_use_simsun(all_runs, "□")
 
-    # 纵向选项也应使用 NBSP 连接
-    assert "确诊\u00A0______" in joined, f"纵向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
-    assert "排除\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+    assert "□确诊______" in joined, f"纵向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
+    assert "□ 确诊" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
+    assert "确诊\u00A0______" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
+    assert "□排除" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
 
 
 # ========== Task 4.4: 多行 default_value 回归测试 ==========

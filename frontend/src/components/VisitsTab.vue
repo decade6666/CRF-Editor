@@ -229,14 +229,15 @@ function getInlineRows(fields) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition))),
       }
     }
-    const ctrl = renderCtrl(toRendererField(ff.field_definition)).replace(/_{8,}/, '______')
-    return { lines: [toHtml(ctrl)], repeat: true }
+    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition)))
+    return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) =>
-    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? ''))
+    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))
   )
 }
 

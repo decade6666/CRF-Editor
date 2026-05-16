@@ -4,9 +4,10 @@ from pathlib import Path
 import os
 import re
 import tempfile
+from unittest.mock import patch
 
 from docx import Document
-from docx.enum.section import WD_ORIENT
+from docx.enum.section import WD_ORIENT, WD_SECTION
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -207,6 +208,72 @@ def test_export_project_sorts_form_headings_by_order_index_then_id(
         "3. LaterById",
         "4. LastById",
     ]
+
+
+
+def test_export_project_uses_next_page_section_break_between_portrait_forms(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    first = create_form(session, project.id, name="生命体征", order_index=1)
+    second = create_form(session, project.id, name="实验室", order_index=2)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, first.id, sequence=1)
+    create_visit_form(session, visit.id, second.id, sequence=2)
+
+    first_field = create_field_definition(session, project.id, variable_name="SYSBP", label="收缩压")
+    second_field = create_field_definition(session, project.id, variable_name="ALT", label="谷丙转氨酶")
+    create_form_field(session, first.id, first_field.id, order_index=1)
+    create_form_field(session, second.id, second_field.id, order_index=1)
+
+    output_path = tmp_path / "sections.docx"
+    switch_calls: list[WD_ORIENT] = []
+    original_switch = ExportService._switch_section
+
+    def _spy(self, doc, orientation, project_arg):
+        switch_calls.append(orientation)
+        return original_switch(self, doc, orientation, project_arg)
+
+    with patch.object(ExportService, "_switch_section", _spy):
+        ok = ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    assert ok is True
+    doc = Document(output_path)
+    assert switch_calls.count(WD_ORIENT.PORTRAIT) >= 2
+    assert len(doc.sections) >= 4
+    assert all(section.start_type == WD_SECTION.NEW_PAGE for section in doc.sections[1:])
+
+
+
+def test_export_project_preserves_mixed_normal_inline_group_order(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="12导联心电图", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+
+    date_field = create_field_definition(session, project.id, variable_name="ECG_DATE", label="检查日期")
+    item_field = create_field_definition(session, project.id, variable_name="ECG_ITEM", label="项目")
+    result_field = create_field_definition(session, project.id, variable_name="ECG_RESULT", label="结果")
+    judgement_field = create_field_definition(session, project.id, variable_name="ECG_JUDGE", label="综合判定结果")
+    create_form_field(session, form.id, date_field.id, order_index=1)
+    inline_item = create_form_field(session, form.id, item_field.id, order_index=2)
+    inline_result = create_form_field(session, form.id, result_field.id, order_index=3)
+    inline_item.inline_mark = 1
+    inline_result.inline_mark = 1
+    create_form_field(session, form.id, judgement_field.id, order_index=4)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    form_tables = doc.tables[2:]
+    assert len(form_tables) == 3
+    assert form_tables[0].cell(0, 0).text.strip() == "检查日期"
+    assert form_tables[1].cell(0, 0).text.strip() == "项目"
+    assert form_tables[1].cell(0, 1).text.strip() == "结果"
+    assert form_tables[2].cell(0, 0).text.strip() == "综合判定结果"
 
 
 

@@ -85,6 +85,7 @@ test('9.3b preview_choice_trailing_underscore: HTML 路径使用 6 个下划线�
   assert.match(html, /有尾线/)
   assert.match(html, /min-width:3\.0em/)
   assert.doesNotMatch(html, /min-width:6\.[0-9]em/)
+  assert.doesNotMatch(html, /gap:0\.2em/)
 })
 
 test('9.3c preview_choice_trailing_underscore: plain-text 路径输出 6 个 literal underscore', () => {
@@ -96,7 +97,12 @@ test('9.3c preview_choice_trailing_underscore: plain-text 路径输出 6 个 lit
     ],
   })
 
-  assert.equal(text, '○ 有尾线______  ○ 无尾线')
+  assert.equal(text, '○有尾线______  ○无尾线')
+})
+
+test('9.3c2 preview_choice_marker_label_spacing: default options have no internal marker-label space', () => {
+  assert.equal(renderCtrl({ field_type: '单选', options: [] }), '○是  ○否')
+  assert.equal(renderCtrl({ field_type: '多选', options: [] }), '□选项1  □选项2')
 })
 
 test('9.3d fill-line estimator: 6 个下划线映射为 3.0em', () => {
@@ -117,6 +123,18 @@ test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {
   assert.ok(demands[0].weight >= expected, `w=${demands[0].weight} expected>=${expected}`)
   assert.ok(demands[0].weight >= computeTextWeight('short'))
 })
+
+test('9.4a numeric_placeholder_matches_word_export_literal_boxes', () => {
+  const text = renderCtrl({ field_type: '数值', integer_digits: 3, decimal_digits: 1 })
+  assert.equal(text, '|__||__||__|.|__|')
+})
+
+
+test('9.4a2 datetime_placeholder_matches_word_export_spacing', () => {
+  const text = renderCtrl({ field_type: '日期时间', date_format: 'yyyy-MM-dd HH:mm' })
+  assert.equal(text, '|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分')
+})
+
 
 test('9.4b control_weight_dates_use_visible_placeholder_width: 日期控件按占位符宽度估算', () => {
   const field = {

@@ -151,73 +151,100 @@ POST /api/forms/{form_id}/fields/reorder
 
 ---
 
-### 4. Word Preview / Export Visual Parity
+### 4. Word Preview / Export Strict Table-Field Parity
 
 **Contract ID**: `preview-export-parity`
 
 | Aspect | Backend (Word export) | Frontend (Word preview) |
 |--------|----------------------|-------------------------|
-| **File** | `backend/src/services/export_service.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/styles/main.css` |
-| **Purpose** | Render the authoritative Word document | Render an on-screen preview that matches what the user will get in `.docx` |
+| **Files** | `backend/src/services/export_service.py`, `backend/src/services/width_planning.py`, `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/composables/formFieldPresentation.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue`, `frontend/src/components/TemplatePreviewDialog.vue`, `frontend/src/styles/main.css` |
+| **Purpose** | Render the authoritative `.docx` and expose a strict comparator for exported table fields | Render on-screen table fields with the same form/table/row/cell text model |
 | **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, table-cell vertical rhythm **5.25pt / 1.0** | Same |
 
-**Shared Literals** (must be kept in lock-step):
+**Scope / Trigger**: any change to Word preview or Word export table-field text, choice options, fill-lines, numeric/date placeholders, inline grouping, form section pagination, or strict parity extraction.
+
+**Strict comparator signatures**:
 
 ```python
-# Backend (export_service.py)
-# trailing_underscore option:
-atom_text = label + " " + "_" * 6           # _render_choice_field
-return f"{label}______" if has_trailing ...      # _get_option_labels
-# default text placeholder:
-run = paragraph.add_run("________________")      # 16 `_`
-# planner weight:
-FILL_LINE_WEIGHT = 6                              # width_planning.py
+@dataclass(frozen=True)
+class TableFieldForm:
+    name: str
+    tables: list[list[list[str]]]
+
+def extract_docx_form_table_fields(docx_path: Path) -> list[TableFieldForm]: ...
+def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) -> TableFieldParityReport: ...
+```
+
+**Contracts**:
+
+| Rule | Preview | Export | Required behavior |
+|------|---------|--------|-------------------|
+| Choice marker-label spacing | `○有尾线`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
+| Choice option separator | horizontal choices join with two ASCII spaces | same | The two spaces separate options, not marker and label. |
+| Trailing underscore | `label______` and `buildFillLineHtml(6)` | `label + "_" * 6` | No NBSP and no extra separator between label and underscores. |
+| Default text fill-line | `________________` | `"_" * 16` | Character count stays 16. |
+| Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
+| Datetime placeholder | date + two ASCII spaces + time | same | Date/time separator is exactly two spaces. |
+| Inline default fallback | repeat full `renderCtrl(field)` when no scoped default exists | same exported control text | Do not collapse fallback controls to six underscores. |
+| Inline scoped default | multiline defaults expand rows; missing later rows fall back to full control text | same row text model | Empty trailing default rows are trimmed before row expansion. |
+| Group ordering | continuous normal/inline segments preserve `order_index` | `_group_form_fields` preserves the same segments | Never aggregate all normal fields before or after inline blocks. |
+| Merged export cells | preview has one logical cell | comparator collapses duplicate `python-docx` merged-cell aliases by `cell._tc` identity | Row/cell denominators must count logical cells. |
+| Form section pagination | preview form order matches export form order | portrait forms use next-page section breaks | Do not replace portrait section breaks with plain page breaks. |
+| Title and table geometry | `.wp-form-title` left-aligned; `.word-page td` keeps 5.25pt / 1.0 rhythm | `python-docx` Heading-1 default left alignment and matching paragraph spacing | CSS geometry tests lock the visual baseline. |
+
+**Validation & Error Matrix**:
+
+| Change | Required validation |
+|--------|---------------------|
+| Choice markers/options/trailing fill-lines | Backend export tests, frontend renderer tests, strict comparator on real fixture |
+| Numeric/date placeholder literals | Backend export tests and `frontend/tests/columnWidthPlanning.test.js` |
+| Inline fallback/default row expansion | Component preview source tests plus strict comparator |
+| Normal/inline grouping or ordering | `backend/tests/test_export_service.py` and preview grouping tests |
+| Merged/log-row table extraction | `backend/tests/test_word_table_parity.py` |
+| Section break or Word geometry | `backend/tests/test_export_service.py`, `frontend/tests/wordPageGeometry.test.js`, manual A4 side-by-side if browser/Word is available |
+
+**Synchronization Checklist**:
+- [ ] Update `export_service.py` `_render_choice_field`, `_get_option_labels`, `_group_form_fields`, and section-break logic when export behavior changes
+- [ ] Update `useCRFRenderer.js` `renderCtrl` (plain text) and `renderCtrlHtml → renderChoiceHtml` (HTML) together
+- [ ] Update all preview table paths: `FormDesignerTab.vue`, `VisitsTab.vue`, and `TemplatePreviewDialog.vue`
+- [ ] If changing planner weight, update both `FILL_LINE_WEIGHT` constants and width-planning tests
+- [ ] If changing extraction semantics, update `word_table_parity.py` and comparator tests
+- [ ] Run `backend/tests/test_export_unified.py`, `backend/tests/test_export_service.py`, `backend/tests/test_width_planning.py`, `backend/tests/test_word_table_parity.py`
+- [ ] Run `frontend/tests/columnWidthPlanning.test.js`, `frontend/tests/wordPageGeometry.test.js`, `frontend/tests/formFieldPresentation.test.js`
+- [ ] For release evidence, run `backend/scripts/compare_word_table_parity.py` against preview JSON and exported `.docx`; expected strict evidence is 54/54 forms, 480/480 rows, 1181/1181 cells, mismatches 0 for the current fixture
+- [ ] Manual: side-by-side A4 zoom 100% preview vs exported `.docx` at Word/WPS 100% zoom when GUI tools are available
+
+**Wrong vs Correct**:
+
+```python
+# Wrong
+atom_text = label + " " + "_" * 6
+
+# Correct
+atom_text = label + "_" * 6
 ```
 
 ```javascript
-// Frontend (useCRFRenderer.js)
-const FILL_LINE_WEIGHT = 6                                       // planner weight
-option.trailingUnderscore ? `${option.text}______` : option.text // 6 `_` literal
-return '________________' + unit                                  // 16 `_` placeholder
-const minWidth = (safeLength * 0.5).toFixed(1)                    // 0.5em/char visual estimator
+// Wrong
+return options.map(option => `○ ${option.text}`).join('  ')
+
+// Correct
+return options.map(option => '○' + option.text).join('  ')
 ```
 
-```css
-/* main.css — page font that calibrates the 0.5em estimator */
-.word-page { font-size: 10.5pt; font-family: 'SimSun', serif; }
-.word-page td { padding: 5.25pt 6px; line-height: 1.0; }
+```javascript
+// Wrong
+return { lines: ['______'], repeat: true, fallback: '______' }
 
-/* Heading-1 equivalent form title — MUST stay left-aligned to mirror
-   python-docx `add_heading(level=1)` default left alignment in the
-   exported .docx. Center-alignment in preview drifts visually from the
-   Word document and is forbidden. */
-.word-page .wp-form-title { font-size: 14pt; font-weight: bold; text-align: left; }
+// Correct
+const ctrl = toHtml(renderCtrl(formField.field_definition))
+return { lines: [ctrl], repeat: true, fallback: ctrl }
 ```
 
-**Contract Rules**:
-1. **Character counts are the contract**: trailing underscore = 6, default text fill-line = 16. Changing one side requires changing the other and the planner constant if it pulls weight from the count.
-2. **`FILL_LINE_WEIGHT = 6` is the planner contract**, not the visual width. Adjusting only the preview's em-estimator (e.g. `0.5em` factor) is a **frontend-only visual change** and MUST NOT bump the constant.
-3. **Page font size is part of the contract**: `.word-page { font-size: 10.5pt }` calibrates the `0.5em` factor. Switching to `px` / `rem` invalidates the calibration.
-4. **Two render paths on the frontend**: `renderCtrlHtml → renderChoiceHtml` and `renderCtrl → toHtml`. Both produce DOM and BOTH must be updated together. See `.trellis/spec/frontend/component-guidelines.md` → "Scenario: Word Preview ↔ Word Export Visual Parity".
-5. **Form title alignment**: `.wp-form-title` MUST be `text-align: left` to match `python-docx` `add_heading(level=1)` default. Reintroducing `text-align: center` (or `margin: 0 auto`) drifts preview from the exported `.docx`. Locked by `frontend/tests/wordPageGeometry.test.js`.
-6. **Table-cell vertical rhythm**: `.word-page td` MUST keep `padding: 5.25pt 6px` and `line-height: 1.0` to mirror export paragraph formatting (`space_before=5.25pt`, `space_after=5.25pt`, `line_spacing=1.0`). Changing it requires updating `frontend/tests/wordPageGeometry.test.js` and rechecking preview/export screenshots.
-
-**Synchronization Checklist**:
-- [ ] Update `export_service.py` `_render_choice_field` / `_get_option_labels` literals
-- [ ] Update `useCRFRenderer.js` `renderCtrl` literal (path A)
-- [ ] Update `useCRFRenderer.js` `renderChoiceHtml` `buildFillLineHtml(N)` (path B)
-- [ ] If changing the planner weight, update **both** `FILL_LINE_WEIGHT` constants
-- [ ] If retuning the visual estimator, **do not** touch any character count or planner weight
-- [ ] If changing preview table-cell spacing, compare against backend `space_before/after` and `line_spacing` values
-- [ ] Run `backend/tests/test_export_unified.py`, `tests/test_width_planning.py`
-- [ ] Run `frontend/tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js`
-- [ ] Manual: side-by-side A4 zoom 100% preview vs exported `.docx` at Word 100% zoom
-
-**Common Pitfall** (recorded incident):
-> Only `renderChoiceHtml` was patched; `renderCtrl` (path A) still produced 20 `_`,
-> so the `访视` (Visits) tab inline table and the designer's own `getInlineRows`
-> kept showing wide fill-lines. The user reported "硬刷新后无变化". Always check
-> BOTH render paths plus the visual estimator before declaring the fix done.
+**Common Pitfall** (recorded incidents):
+> Updating only `renderChoiceHtml` leaves the plain-text `renderCtrl → toHtml` path stale in Visits/designer inline previews.
+> Updating only frontend literals leaves `width_planning.py` and exported `.docx` widths/text out of sync.
+> Comparing `python-docx` `row.cells` directly overcounts merged cells unless duplicate `cell._tc` aliases are collapsed.
 
 ---
 
@@ -330,7 +357,7 @@ When creating a new cross-stack contract:
 | Width Planning | `services/width_planning.py` | `useCRFRenderer.js` | `planner_cases.json` |
 | Ordering | `services/order_service.py` | `useOrderableList.js` | None |
 | Auth Token | `services/auth_service.py` | `App.vue` | None |
-| Preview / Export Parity | `services/export_service.py` | `useCRFRenderer.js`, `styles/main.css` | None (manual A4 side-by-side) |
+| Preview / Export Parity | `services/export_service.py`, `services/width_planning.py`, `services/word_table_parity.py` | `useCRFRenderer.js`, `formFieldPresentation.js`, preview components, `styles/main.css` | Strict comparator JSON + exported `.docx` |
 | Form Paper Orientation | `models/form.py`, `schemas/form.py`, `database.py`, `routers/forms.py`, `services/export_service.py` (+ clone/import) | `components/FormDesignerTab.vue`, `components/VisitsTab.vue` | None |
 
 ---
@@ -381,5 +408,5 @@ When modifying cross-stack contracts, run:
 | Width Planning | `tests/test_width_planning.py` | `tests/columnWidthPlanning.test.js` |
 | Ordering | `tests/test_ordering.py` | Manual E2E verification |
 | Auth Token | `tests/test_auth.py` | `tests/App.test.js` |
-| Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_width_planning.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js` + manual A4 side-by-side |
+| Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_export_service.py`, `tests/test_width_planning.py`, `tests/test_word_table_parity.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js` + strict comparator + manual A4 side-by-side when available |
 | Form Paper Orientation | `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_project_copy.py` | `tests/visitPreviewLandscape.test.js`, `tests/wordPageGeometry.test.js` |
