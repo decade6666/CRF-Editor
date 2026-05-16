@@ -12,6 +12,8 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import Cm
+from docx.table import Table
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
@@ -95,6 +97,53 @@ def add_field_to_form(
     session.add(ff)
     session.flush()
     return ff
+
+
+def _find_table_by_column_count(doc: Document, col_count: int) -> Table | None:
+    return next((table for table in doc.tables[2:] if len(table.columns) == col_count), None)
+
+
+def _assert_width_total_cm(widths: list[int], expected_cm: float) -> None:
+    assert abs(sum(widths) - Cm(expected_cm).twips) <= Cm(0.1).twips
+
+
+def _assert_width_ratios(widths: list[int], expected: list[float]) -> None:
+    total = sum(widths)
+    assert total > 0
+    for actual, fraction in zip(widths, expected):
+        assert abs(actual / total - fraction) < 0.05
+
+
+def _create_inline_form_with_visit(
+    session: Session,
+    project: Project,
+    *,
+    paper_orientation: str = "auto",
+) -> tuple[Form, list[FormField]]:
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(
+        project_id=project.id,
+        name="横向Inline表单",
+        code="F_INLINE_LANDSCAPE",
+        order_index=1,
+        paper_orientation=paper_orientation,
+    )
+    session.add(form)
+    session.flush()
+
+    session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=1))
+    session.flush()
+
+    form_fields = []
+    for index, label in enumerate(["列A", "列B", "列C"], start=1):
+        field_def = create_text_field_def(session, project.id, label)
+        form_fields.append(
+            add_field_to_form(session, form.id, field_def.id, order_index=index, inline_mark=1)
+        )
+    return form, form_fields
 
 
 # ========== 测试 1：接口层透传（当前应失败，因为接口未实现 body 参数）==========
@@ -237,7 +286,54 @@ def test_export_inline_table_column_width_override(session: Session, tmp_path: P
             assert abs(ratios[2] - 0.2) < 0.05, f"第三列比例应为 0.2，实际为 {ratios[2]:.3f}"
 
 
-# ========== 测试 3：unified 表格列宽覆盖 ==========
+# ========== 测试 3：横向 inline 新格式列宽覆盖 ==========
+
+
+def test_export_landscape_inline_new_format_override_sets_fixed_cell_widths(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    """横向 inline 表格应使用前端新格式列宽，并写入固定表格与单元格宽度。"""
+    project, _ = create_minimal_project(session)
+    _, form_fields = _create_inline_form_with_visit(session, project, paper_orientation="landscape")
+    session.commit()
+
+    expected = [0.5, 0.3, 0.2]
+    table_instance_id = "inline:fieldIds=" + ",".join(str(field.id) for field in form_fields)
+    output_path = tmp_path / "landscape_inline_new_format_override.docx"
+
+    ok = ExportService(session).export_project_to_word(
+        project.id,
+        str(output_path),
+        column_width_overrides={table_instance_id: expected},
+    )
+
+    assert ok is True
+
+    doc = Document(str(output_path))
+    inline_table = _find_table_by_column_count(doc, 3)
+    assert inline_table is not None
+
+    tbl_layout = inline_table._tbl.tblPr.find(qn("w:tblLayout"))
+    assert tbl_layout is not None
+    assert tbl_layout.get(qn("w:type")) == "fixed"
+
+    grid_cols = inline_table._tbl.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
+    grid_widths = [int(col.get(qn("w:w"), "0")) for col in grid_cols]
+    _assert_width_total_cm(grid_widths, ExportService.LANDSCAPE_CONTENT_WIDTH_CM)
+    _assert_width_ratios(grid_widths, expected)
+
+    cell_widths = []
+    for cell in inline_table.rows[0].cells:
+        tc_pr = cell._tc.tcPr
+        tc_w = tc_pr.find(qn("w:tcW")) if tc_pr is not None else None
+        assert tc_w is not None
+        cell_widths.append(int(tc_w.get(qn("w:w"), "0")))
+    _assert_width_total_cm(cell_widths, ExportService.LANDSCAPE_CONTENT_WIDTH_CM)
+    _assert_width_ratios(cell_widths, expected)
+
+
+# ========== 测试 4：unified 表格列宽覆盖 ==========
 
 
 @pytest.mark.xfail(

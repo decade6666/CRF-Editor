@@ -38,7 +38,8 @@ def export_word(
     """生成 Word 文档并直接返回文件流
 
     Args:
-        column_width_overrides: 可选的列宽覆盖配置，格式：
+        column_width_overrides: 可选的列宽覆盖配置，支持两种格式：
+            { "inline:fieldIds=1,2,3": [0.5, 0.3, 0.2] }
             { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
             其中每个数组元素表示该列占总宽度的比例（0.0~1.0）
     """

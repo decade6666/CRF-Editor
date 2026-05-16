@@ -19,6 +19,9 @@ import {
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
+  renderCtrl,
+  renderCtrlHtml,
+  toHtml,
 } from '../src/composables/useCRFRenderer.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
@@ -68,6 +71,37 @@ test('9.3 inline_choice_with_trailing_underscore: trailing 增加 FILL_LINE_WEIG
   const demands = buildInlineColumnDemands(fields)
   assert.equal(demands.length, 1)
   assert.ok(demands[0].weight >= 6, `inline choice without options falls back to FILL_LINE_WEIGHT, got ${demands[0].weight}`)
+})
+
+test('9.3b preview_choice_trailing_underscore: HTML 路径使用 6 个下划线等效宽度', () => {
+  const html = renderCtrlHtml({
+    field_type: '单选',
+    options: [
+      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
+      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+    ],
+  })
+
+  assert.match(html, /有尾线/)
+  assert.match(html, /min-width:3\.0em/)
+  assert.doesNotMatch(html, /min-width:6\.[0-9]em/)
+})
+
+test('9.3c preview_choice_trailing_underscore: plain-text 路径输出 6 个 literal underscore', () => {
+  const text = renderCtrl({
+    field_type: '单选',
+    options: [
+      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
+      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+    ],
+  })
+
+  assert.equal(text, '○ 有尾线______  ○ 无尾线')
+})
+
+test('9.3d fill-line estimator: 6 个下划线映射为 3.0em', () => {
+  assert.match(toHtml('______'), /min-width:3\.0em/)
+  assert.match(toHtml('________________'), /min-width:8\.0em/)
 })
 
 test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {

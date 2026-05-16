@@ -95,3 +95,22 @@ test('wp-form-title does not use auto-centering margin', () => {
     }
   }
 })
+
+test('word preview table cells mirror Word paragraph vertical rhythm', () => {
+  const body = extractRuleBody(readMainCss(), '.word-page td')
+  assert.ok(body, '.word-page td rule must exist in main.css')
+
+  const padding = extractDeclaration(body, 'padding')
+  assert.equal(
+    padding,
+    '5.25pt 6px',
+    `.word-page td vertical padding should mirror Word space_before/after=5.25pt, got ${padding}`,
+  )
+
+  const lineHeight = extractDeclaration(body, 'line-height')
+  assert.equal(
+    lineHeight,
+    '1.0',
+    `.word-page td line-height should mirror Word line_spacing=1.0, got ${lineHeight}`,
+  )
+})

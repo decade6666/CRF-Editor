@@ -569,6 +569,7 @@ class ImportService:
                 code=generate_code("FORM"),
                 domain=sf.domain,
                 order_index=max_form_order + form_idx,
+                paper_orientation=getattr(sf, "paper_orientation", "auto") or "auto",
             )
             s.add(new_form)
             s.flush()  # 拿到 new_form.id

@@ -334,7 +334,7 @@ function escapeHtml(text) {
 
 function buildFillLineHtml(length = 20) {
   const safeLength = Math.max(4, Number(length) || 20)
-  const minWidth = (safeLength * 0.55).toFixed(1)
+  const minWidth = (safeLength * 0.5).toFixed(1)
   return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
 }
 
@@ -406,7 +406,7 @@ function renderChoiceHtml(fieldType, rawOptions) {
     const optionTextHtml = `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
     // 下划线后缀：对齐到底部
     const suffixHtml = option.trailingUnderscore
-      ? buildFillLineHtml(12)
+      ? buildFillLineHtml(6)
       : ''
     // 整个选项不拆行，对齐到底部
     return `<span style="display:inline-flex;align-items:flex-end;gap:0.2em;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
@@ -418,7 +418,7 @@ export function toHtml(text) {
   // 转义 HTML 特殊字符（防止 XSS），保留换行
   const escaped = escapeHtml(text)
   // 将连续 4 个或以上的下划线替换为 border-bottom span
-  // 每个 _ 约 0.6em 宽度
+  // 每个 _ 约 0.5em 宽度
   const html = escaped.replace(/_{4,}/g, (match) => buildFillLineHtml(match.length))
   // 将紧跟在 fill-line span 之后的单位/文字包裹为 vertical-align:bottom 的 span
   // 使单位与填写线底边对齐，避免 inline-block 撑高行框导致单位偏上
@@ -465,7 +465,7 @@ export function renderCtrlHtml(field) {
 export function renderCtrl(field) {
   if (!field) return '________________'
   const opts = normalizeChoiceOptions(field.options).map(option => (
-    option.trailingUnderscore ? `${option.text}____________________` : option.text
+    option.trailingUnderscore ? `${option.text}______` : option.text
   ))
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 

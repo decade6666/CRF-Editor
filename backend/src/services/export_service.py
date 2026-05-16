@@ -195,6 +195,10 @@ class ExportService:
 
     FONT_ASCII = "Times New Roman"
 
+    PORTRAIT_CONTENT_WIDTH_CM = 14.66
+
+    LANDSCAPE_CONTENT_WIDTH_CM = 23.36
+
 
 
     def __init__(self, session: Session):
@@ -217,7 +221,8 @@ class ExportService:
         Args:
             project_id: 项目 ID
             output_path: 输出文件路径
-            column_width_overrides: 列宽覆盖参数，格式：
+            column_width_overrides: 列宽覆盖参数，支持两种格式：
+                { "inline:fieldIds=1,2,3": [0.5, 0.3, 0.2] }
                 { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
                 fraction 值为 0.0~1.0，表示该列占总宽度的比例
         """
@@ -969,15 +974,31 @@ class ExportService:
 
                     if first_field.inline_mark == 1:
 
-                        self._add_inline_table(doc, group, True, form_id=form.id)
+                        self._add_inline_table(
+                            doc,
+                            group,
+                            True,
+                            form_id=form.id,
+                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                        )
 
                     else:
 
-                        self._build_form_table(doc, group, form_id=form.id)
+                        self._build_form_table(
+                            doc,
+                            group,
+                            form_id=form.id,
+                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                        )
 
                 if not groups:
 
-                    self._build_form_table(doc, [], form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        [],
+                        form_id=form.id,
+                        available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                    )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -999,7 +1020,13 @@ class ExportService:
 
                 segments = self._build_unified_segments(form_fields)
 
-                self._build_unified_table(doc, segments, layout, form_id=form.id)
+                self._build_unified_table(
+                    doc,
+                    segments,
+                    layout,
+                    form_id=form.id,
+                    available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -1045,19 +1072,30 @@ class ExportService:
 
                     if first_field.inline_mark == 1:
 
-                        is_wide = len(group) > 4 and not layout.force_portrait
+                        needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
 
-                        if is_wide and not layout.force_landscape:
+                        if needs_temporary_landscape and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
 
 
-                        self._add_inline_table(doc, group, is_wide, form_id=form.id)
+                        inline_available_cm = (
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape or needs_temporary_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        )
+                        self._add_inline_table(
+                            doc,
+                            group,
+                            needs_temporary_landscape,
+                            form_id=form.id,
+                            available_cm=inline_available_cm,
+                        )
 
 
 
-                        if is_wide and not layout.force_landscape:
+                        if needs_temporary_landscape and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
@@ -1065,12 +1103,30 @@ class ExportService:
 
 
 
-                    self._build_form_table(doc, group, form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        group,
+                        form_id=form.id,
+                        available_cm=(
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        ),
+                    )
 
 
 
                 if not groups:
-                    self._build_form_table(doc, [], form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        [],
+                        form_id=form.id,
+                        available_cm=(
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        ),
+                    )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -1361,11 +1417,20 @@ class ExportService:
 
 
 
-    def _build_unified_table(self, doc: Document, segments, layout: LayoutDecision, form_id=None):
+    def _build_unified_table(
+        self,
+        doc: Document,
+        segments,
+        layout: LayoutDecision,
+        form_id=None,
+        *,
+        available_cm: float = LANDSCAPE_CONTENT_WIDTH_CM,
+    ):
         """创建 unified landscape 表格并按片段顺序渲染。
 
         Args:
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         N = layout.column_count
         table = doc.add_table(rows=1, cols=N)
@@ -1403,13 +1468,12 @@ class ExportService:
         )
         if overrides:
             # 直接使用覆盖的 fraction 转换为 cm
-            total_cm = 23.36
-            col_widths = [overrides[i] * total_cm for i in range(N)]
+            col_widths = [overrides[i] * available_cm for i in range(N)]
         else:
             # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
             col_widths = plan_unified_table_width(
                 segment_data,
-                23.36,
+                available_cm,
                 column_count=N,
                 block_demands=all_block_demands,
                 regular_field_demands=regular_field_demands,
@@ -1417,14 +1481,15 @@ class ExportService:
 
         if col_widths and len(col_widths) == N:
             # 应用规划的列宽
-            for col_idx, col in enumerate(table.columns):
-                col.width = Cm(col_widths[col_idx])
+            final_col_widths = [Cm(col_widths[col_idx]) for col_idx in range(N)]
         else:
             # 回退到等宽分配
-            avail = Cm(23.36)
+            avail = Cm(available_cm)
             col_w = int(avail / N)
-            for col in table.columns:
-                col.width = col_w
+            final_col_widths = [col_w] * N
+
+        for col_idx, col in enumerate(table.columns):
+            col.width = final_col_widths[col_idx]
 
         table._tbl.remove(table.rows[0]._tr)
 
@@ -1445,6 +1510,14 @@ class ExportService:
                 self._add_unified_inline_band(table, segment.fields, N)
 
 
+
+        # 行添加完成后，同步 cell 的 tcW，避免 python-docx 默认 1234 twips 覆盖 gridCol
+        # 让 Word 渲染时 col 与 cell 宽度对齐（与 _add_inline_table 同等契约）。
+        for col_idx, col in enumerate(table.columns):
+            if col_idx >= len(final_col_widths):
+                break
+            for cell in col.cells:
+                cell.width = final_col_widths[col_idx]
 
         self._apply_grid_table_style(table)
 
@@ -1858,19 +1931,26 @@ class ExportService:
 
 
 
-    def _build_form_table(self, doc: Document, fields, form_id=None):
+    def _build_form_table(
+        self,
+        doc: Document,
+        fields,
+        form_id=None,
+        *,
+        available_cm: float = PORTRAIT_CONTENT_WIDTH_CM,
+    ):
         """将一组普通字段渲染为单张表格。
 
         Args:
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         row_count = len(fields) if fields else 1
         table = doc.add_table(rows=row_count, cols=2)
         table.autofit = False
 
         # 内容驱动列宽：与前端 planNormalColumnFractions / 横向/统一表格语义一致。
-        # available_cm=14.66 对齐原硬编码 Cm(7.2)+Cm(7.4)=14.6cm 的页面预算。
-        normal_widths = plan_normal_table_width(fields or [], available_cm=14.66)
+        normal_widths = plan_normal_table_width(fields or [], available_cm=available_cm)
 
         # 应用列宽覆盖（如果有）- 使用 table_instance_id
         table_instance_id = self._build_table_instance_id("normal", fields)
@@ -1878,8 +1958,7 @@ class ExportService:
             table_instance_id, 2, form_id=form_id, table_kind="normal"
         )
         if overrides:
-            total_cm = 14.66
-            normal_widths = [overrides[i] * total_cm for i in range(2)]
+            normal_widths = [overrides[i] * available_cm for i in range(2)]
 
         table.columns[0].width = Cm(normal_widths[0])
         table.columns[1].width = Cm(normal_widths[1])
@@ -2107,11 +2186,21 @@ class ExportService:
 
 
 
-    def _add_inline_table(self, doc: Document, marked_fields, is_wide=False, form_id=None):
+    def _add_inline_table(
+        self,
+        doc: Document,
+        marked_fields,
+        is_wide=False,
+        form_id=None,
+        *,
+        available_cm: float | None = None,
+    ):
         """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划
 
         Args:
+            is_wide: 兼容旧调用的横向宽表标记；显式传入 available_cm 时仅保留语义。
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         if not marked_fields:
             return
@@ -2121,10 +2210,14 @@ class ExportService:
 
         # 创建表格：1+max_rows行，N列
         table = doc.add_table(rows=1 + len(row_values), cols=len(marked_fields))
+        table.autofit = False
         self._apply_grid_table_style(table)
 
         # 使用内容驱动的宽度规划替代等宽分配
-        avail_cm = 23.36 if is_wide else 14.66
+        if available_cm is None:
+            avail_cm = self.LANDSCAPE_CONTENT_WIDTH_CM if is_wide else self.PORTRAIT_CONTENT_WIDTH_CM
+        else:
+            avail_cm = available_cm
 
         # 检查是否有列宽覆盖配置 - 使用 table_instance_id
         table_instance_id = self._build_table_instance_id("inline", marked_fields)
@@ -2142,10 +2235,13 @@ class ExportService:
         # 应用列宽
         for col_idx, col in enumerate(table.columns):
             if col_idx < len(col_widths):
-                col.width = Cm(col_widths[col_idx])
+                width = Cm(col_widths[col_idx])
             else:
                 # 回退到等宽分配
-                col.width = int(Cm(avail_cm) / len(marked_fields))
+                width = int(Cm(avail_cm) / len(marked_fields))
+            col.width = width
+            for cell in col.cells:
+                cell.width = width
 
 
 
