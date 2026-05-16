@@ -612,3 +612,36 @@ PRD 中 R1-R5 全部满足, Acceptance Criteria 全部勾选, DoD 全部达成; 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: 忽略本地设置并刷新性能证据
+
+**Date**: 2026-05-15
+**Task**: 忽略本地设置并刷新性能证据
+**Branch**: `draft`
+
+### Summary
+
+将 Claude 本地设置文件加入 .gitignore，并刷新性能约束归档中的 evidence-summary 生成时间。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `74d0b0e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
