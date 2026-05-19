@@ -920,3 +920,16 @@
   - 修复 frontend browser baseline 产出 placeholder 的问题，缺 Chromium 时改为明确 blocked；perf hook 事件 schema 与 ID 脱敏恢复与 spec 对齐。
 - **Files**: 16 changed (+1599/-480)
 - **Tests**: 4
+
+## docs: 刷新 AI 上下文索引并补写 form-paper-orientation 跨栈契约
+
+- **ID**: 4e1d702c-9101-4f94-9b2f-56a526072380
+- **Branch**: draft
+- **Timestamp**: 2026-05-12T17:42:57+08:00
+- **Decisions**:
+  - 前端测试 21→22：登记 wordPageGeometry.test.js（Word 预览 A4 几何契约：21cm×29.7cm portrait / 翻转 landscape、--word-page-margin-x/y、@media print 回退、.designer-scaled-word-page 保持 A4 几何、table-layout:fixed 与 inline <colgroup>）
+  - .claude/index.json bump 至 1.3.1，时间戳与根/模块 CLAUDE.md 同步至 2026-05-12 17:42:57
+  - 在 cross-stack-contracts.md 新增第 5 条契约 form-paper-orientation，与根级 CLAUDE.md 跨栈契约段对齐：覆盖 paper_orientation 枚举（auto/landscape/portrait）、resolveLandscape 语义双端一致、.word-page.landscape / .designer-scaled-word-page.landscape CSS 类名契约、legacy crf_forceLandscape 一次性迁移、clone/import 路径字段保留
+  - 同步 spec 内 Quick Reference 与 Tests Required 表格各加一行（后端 test_form_paper_orientation/test_export_paper_orientation/test_project_copy；前端 visitPreviewLandscape/wordPageGeometry）
+- **Files**: 4 changed (+128/-7)
+- **Tests**: 0

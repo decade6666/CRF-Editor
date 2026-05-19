@@ -96,6 +96,29 @@ class ImportService:
             conn.close()
 
     @staticmethod
+    def _ensure_template_paper_orientation(db_path: str) -> None:
+        """模板库可能来自旧版本，缺少 form.paper_orientation 列时就地补齐，默认 'auto'。
+
+        与 _check_template_compatibility 不同，这里仅添加新增的可选列，避免逼迫用户重跑迁移脚本。
+        """
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+            if "form" not in tables:
+                return
+            existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+            if "paper_orientation" not in existing_cols:
+                conn.execute(
+                    "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
+                    "NOT NULL DEFAULT 'auto'"
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
     def _open_template_session(template_path: str) -> Session:
         """打开模板库只读 Session
 
@@ -110,6 +133,9 @@ class ImportService:
 
         # Task 3.4: 检查兼容性，不兼容模板返回稳定错误（只读访问，不修改源库）
         ImportService._check_template_compatibility(db_path)
+
+        # 仅自动补齐 paper_orientation 这类后续新增的可选列，避免破坏旧模板的可用性
+        ImportService._ensure_template_paper_orientation(db_path)
 
 
         # 创建只读 Engine（移除迁移逻辑，防止修改外部数据库）
@@ -543,6 +569,7 @@ class ImportService:
                 code=generate_code("FORM"),
                 domain=sf.domain,
                 order_index=max_form_order + form_idx,
+                paper_orientation=getattr(sf, "paper_orientation", "auto") or "auto",
             )
             s.add(new_form)
             s.flush()  # 拿到 new_form.id

@@ -283,6 +283,105 @@ def test_open_template_session_allows_template_path_inside_upload_dir(tmp_path: 
     assert len(fields) == 1
 
 
+def _build_template_db_with_orientation(
+    tmp_path: Path,
+    *,
+    paper_orientation: str,
+) -> tuple[Path, int, int]:
+    """构造一份模板库，含 1 个项目 + 1 张指定 paper_orientation 的表单 + 1 个字段。"""
+    db_path = tmp_path / f"template_{paper_orientation}.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with session_factory() as template_session:
+        project = create_project(template_session, name="模板项目")
+        form = Form(
+            project_id=project.id,
+            name="带方向表单",
+            code="ORIENT_FORM",
+            paper_orientation=paper_orientation,
+        )
+        template_session.add(form)
+        template_session.flush()
+
+        field_definition = create_field_definition(
+            template_session,
+            project.id,
+            variable_name="ORIENT_FIELD",
+            label="方向字段",
+        )
+        create_form_field(
+            template_session,
+            form.id,
+            field_definition.id,
+            inline_mark=0,
+        )
+        template_session.commit()
+        result = (db_path, project.id, form.id)
+
+    engine.dispose()
+    return result
+
+
+def test_import_forms_preserves_landscape_paper_orientation(tmp_path: Path, session: Session) -> None:
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path, paper_orientation="landscape"
+    )
+    target_project = create_project(session, name="目标项目-横向")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "landscape"
+
+
+def test_import_forms_preserves_portrait_paper_orientation(tmp_path: Path, session: Session) -> None:
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path, paper_orientation="portrait"
+    )
+    target_project = create_project(session, name="目标项目-纵向")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "portrait"
+
+
+def test_import_forms_defaults_to_auto_when_source_missing(tmp_path: Path, session: Session) -> None:
+    """老模板库已通过 _ensure_template_paper_orientation 补齐为 'auto'，导入后目标 form 也应是 'auto'。"""
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path, paper_orientation="auto"
+    )
+    target_project = create_project(session, name="目标项目-默认")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "auto"
+
+
 def test_update_inline_mark_preserves_default_value_when_disabling(session: Session) -> None:
     project = create_project(session)
     form = create_form(session, project.id)
@@ -579,7 +678,7 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
 
     rendered = ExportService(session)._render_field_control(field_definition)
 
-    assert rendered == "□ 恶心\n□ 呕吐"
+    assert rendered == "□恶心\n□呕吐"
 
 
 

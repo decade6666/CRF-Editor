@@ -57,6 +57,14 @@ These guides help you **ask the right questions before coding**.
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
 
+### When to Think About Local vs Shared Config
+
+- [ ] Changing `.gitignore`, IDE settings, AI tool settings, or local harness files
+- [ ] A file contains developer-local state, absolute paths, secrets, or per-machine preferences
+- [ ] A generated evidence or baseline file changed only because reproducible metadata was refreshed
+
+→ Treat developer-local settings as ignored/local-only; commit only shared configuration or reproducible evidence outputs.
+
 ---
 
 ## Pre-Modification Rule (CRITICAL)

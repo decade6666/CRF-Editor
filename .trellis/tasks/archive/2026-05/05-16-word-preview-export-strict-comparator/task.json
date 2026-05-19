@@ -1,0 +1,53 @@
+{
+  "id": "word-preview-export-strict-comparator",
+  "name": "word-preview-export-strict-comparator",
+  "title": "strict comparator: word preview export table fields",
+  "description": "Build or formalize repeatable strict table-field comparison and baseline reporting for TEST before changing renderer behavior.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-05-16",
+  "completedAt": "2026-05-16",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "05-16-05-16-word-preview-export-strict-parity",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

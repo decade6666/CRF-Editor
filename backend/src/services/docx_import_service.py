@@ -1596,7 +1596,7 @@ class DocxImportService:
 
 
 
-        return {"name": form_name, "field_count": field_count}
+        return {"name": form_name, "field_count": field_count, "form_id": new_form.id}
 
 
 

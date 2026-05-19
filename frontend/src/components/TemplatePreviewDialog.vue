@@ -180,13 +180,17 @@ function getInlineRows(fields) {
     if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
       const lines = normalizeDefaultValue(defaultValue, true).split('\n')
       while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
-      return { lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')), repeat: false }
+      return {
+        lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
+        repeat: false,
+        fallback: renderCtrlHtml(ff),
+      }
     }
-    const ctrl = renderCtrlHtml(ff).replace(/_{8,}/, '______')
-    return { lines: [ctrl], repeat: true }
+    const ctrl = renderCtrlHtml(ff)
+    return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
-  return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? '')))
+  return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback)))
 }
 
 // 只读读取设计器持久化的列宽比例；格式不合法或与当前列数不匹配时返回 null

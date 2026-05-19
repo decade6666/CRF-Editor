@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { reactive, ref, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, getAuthHeaders } from '../composables/useApi'
 
@@ -16,6 +16,7 @@ const screeningNumberFormatTouched = ref(false)
 
 async function fetchLogo(projectId) {
   if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
+  if (!projectId) return
   try {
     const r = await fetch(`/api/projects/${projectId}/logo`, { headers: getAuthHeaders() })
     if (r.ok) logoUrl.value = URL.createObjectURL(await r.blob())
@@ -33,8 +34,17 @@ watch(() => props.project, (p) => {
     sponsor: p.sponsor || '',
     data_management_unit: p.data_management_unit || '',
   })
-  if (p.company_logo_path) fetchLogo(p.id)
+  if (p.company_logo_path) {
+    fetchLogo(p.id)
+  } else if (logoUrl.value) {
+    URL.revokeObjectURL(logoUrl.value)
+    logoUrl.value = null
+  }
 }, { immediate: true })
+
+onUnmounted(() => {
+  if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
+})
 
 async function save() {
   try {

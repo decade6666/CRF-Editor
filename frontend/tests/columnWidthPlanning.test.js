@@ -19,6 +19,9 @@ import {
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
+  renderCtrl,
+  renderCtrlHtml,
+  toHtml,
 } from '../src/composables/useCRFRenderer.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
@@ -70,6 +73,43 @@ test('9.3 inline_choice_with_trailing_underscore: trailing 增加 FILL_LINE_WEIG
   assert.ok(demands[0].weight >= 6, `inline choice without options falls back to FILL_LINE_WEIGHT, got ${demands[0].weight}`)
 })
 
+test('9.3b preview_choice_trailing_underscore: HTML 路径使用 6 个下划线等效宽度', () => {
+  const html = renderCtrlHtml({
+    field_type: '单选',
+    options: [
+      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
+      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+    ],
+  })
+
+  assert.match(html, /有尾线/)
+  assert.match(html, /min-width:3\.0em/)
+  assert.doesNotMatch(html, /min-width:6\.[0-9]em/)
+  assert.doesNotMatch(html, /gap:0\.2em/)
+})
+
+test('9.3c preview_choice_trailing_underscore: plain-text 路径输出 6 个 literal underscore', () => {
+  const text = renderCtrl({
+    field_type: '单选',
+    options: [
+      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
+      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+    ],
+  })
+
+  assert.equal(text, '○有尾线______  ○无尾线')
+})
+
+test('9.3c2 preview_choice_marker_label_spacing: default options have no internal marker-label space', () => {
+  assert.equal(renderCtrl({ field_type: '单选', options: [] }), '○是  ○否')
+  assert.equal(renderCtrl({ field_type: '多选', options: [] }), '□选项1  □选项2')
+})
+
+test('9.3d fill-line estimator: 6 个下划线映射为 3.0em', () => {
+  assert.match(toHtml('______'), /min-width:3\.0em/)
+  assert.match(toHtml('________________'), /min-width:8\.0em/)
+})
+
 test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {
   const fields = [
     {
@@ -83,6 +123,18 @@ test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {
   assert.ok(demands[0].weight >= expected, `w=${demands[0].weight} expected>=${expected}`)
   assert.ok(demands[0].weight >= computeTextWeight('short'))
 })
+
+test('9.4a numeric_placeholder_matches_word_export_literal_boxes', () => {
+  const text = renderCtrl({ field_type: '数值', integer_digits: 3, decimal_digits: 1 })
+  assert.equal(text, '|__||__||__|.|__|')
+})
+
+
+test('9.4a2 datetime_placeholder_matches_word_export_spacing', () => {
+  const text = renderCtrl({ field_type: '日期时间', date_format: 'yyyy-MM-dd HH:mm' })
+  assert.equal(text, '|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分')
+})
+
 
 test('9.4b control_weight_dates_use_visible_placeholder_width: 日期控件按占位符宽度估算', () => {
   const field = {
@@ -150,6 +202,68 @@ test('9.7 rare_cjk_extension_char: 𠮷吉 权重 = 4（code point 正确）', (
   assert.equal(text.length, 3)
   // 使用 codePointAt：两个 CJK 字符 × WEIGHT_CHINESE(2) = 4
   assert.equal(computeTextWeight(text), 4)
+})
+
+// ─── 9.12：inline 短表头不可压缩 floor（PRD R2 表头不换行契约） ────────────
+//
+// 跨栈契约：当 inline 表头为 ≤4 字中文短文本（label_weight ≤ 4，如"未查/项目/单位"）
+// 且字段控件本身权重不超过 FILL_LINE_WEIGHT 时，列 demand 必须高于
+// FILL_LINE_WEIGHT，避免被长邻居列归一化稀释到 < 单行所需宽度。
+//
+// 与后端 backend/src/services/field_rendering.py build_inline_column_demands /
+// backend/src/services/width_planning.py 共享同一 floor 常量；具体数值由
+// PR2 fixture 反推（≥ WEIGHT_CHINESE × 4 = 8 是预期下界，但 PR1 红灯只锁
+// 「严格大于 FILL_LINE_WEIGHT」的契约边界，避免提前固化数值）。
+
+test('9.12 inline_short_header_floor: 短表头 demand 高于 FILL_LINE_WEIGHT 不可压缩 floor', () => {
+  const FILL_LINE_WEIGHT = 6 // 与 useCRFRenderer.js / width_planning.py 常量一致
+
+  // 案例 1：纯文本短表头（label_weight=4，control 走 FILL_LINE_WEIGHT 兜底）
+  // 当前实现：max(4, 6) = 6；期望（PR2 修复后）：> 6
+  const shortLabelField = {
+    field_definition: { field_type: '文本', label: '未查' },
+  }
+  const demands = buildInlineColumnDemands([shortLabelField])
+  assert.equal(demands.length, 1)
+  assert.ok(
+    demands[0].weight > FILL_LINE_WEIGHT,
+    `短表头 '未查' demand=${demands[0].weight} 必须 > FILL_LINE_WEIGHT(${FILL_LINE_WEIGHT})，` +
+      `否则在长邻居列下会被归一化压缩到 < 单行所需宽度`,
+  )
+
+  // 案例 2：另一个常见 2 字短表头（'项目'）
+  const otherShort = [
+    { field_definition: { field_type: '文本', label: '项目' } },
+  ]
+  const otherDemands = buildInlineColumnDemands(otherShort)
+  assert.ok(
+    otherDemands[0].weight > FILL_LINE_WEIGHT,
+    `短表头 '项目' demand=${otherDemands[0].weight} 必须 > FILL_LINE_WEIGHT(${FILL_LINE_WEIGHT})`,
+  )
+})
+
+test('9.12b inline_short_header_floor: 短表头与长邻居共存时 fraction 保留单行可见水位', () => {
+  // 复刻 PRD '生命体征' 截图证据的简化版：≤4 字短表头 + 邻接长 label 列
+  const fields = [
+    { field_definition: { field_type: '文本', label: '未查' } },
+    {
+      field_definition: {
+        field_type: '文本',
+        label: '异常有临床意义请详细说明本次检查的具体表现与判读依据',
+      },
+    },
+  ]
+  const fractions = planInlineColumnFractions(fields)
+  assert.equal(fractions.length, 2)
+
+  // 短表头列归一化后的权重份额 = fractions[0]
+  // PR2 floor 修复后，短表头 weight 应高于 FILL_LINE_WEIGHT，且总权重不变量条件下
+  // fractions[0] > 当前实现下的 FILL_LINE_WEIGHT / (FILL_LINE_WEIGHT + 长 label weight)
+  // 当前 buggy: 6/(6+~50) ≈ 0.107；期望（PR2 后）：≥ 0.12 锁住单行水位
+  assert.ok(
+    fractions[0] >= 0.12,
+    `短表头 '未查' fraction=${fractions[0].toFixed(4)} < 0.12 阈值（长邻居稀释导致换行）`,
+  )
 })
 
 // ─── 9.8–9.11：useColumnResize 持久化行为 ────────────────────────────────
