@@ -189,9 +189,9 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   transition: max-width 0.3s ease;
 }
 .word-page.landscape { max-width: 1300px; } /* 从 1050px 放大 */
-.word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 24px; text-align: center; }
+.word-page .wp-form-title { font-size: 14pt; font-weight: bold; margin-bottom: 24px; text-align: left; }
 .word-page table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-.word-page td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; word-break: break-word; }
+.word-page td { border: 1px solid #000; padding: 5.25pt 6px; line-height: 1.0; vertical-align: middle; word-break: break-word; }
 .word-page .wp-label { font-weight: bold; background: transparent; }
 .word-page .wp-ctrl { font-family: 'SimSun', serif; color: #000; }
 .word-page .wp-inline-header { background: var(--preview-structure-bg); font-weight: bold; text-align: center; }
@@ -212,7 +212,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .choice-atom { display: inline-flex; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
 .word-page .choice-atom .fill-line { vertical-align: bottom; }
 
-/* 预览正文与备注布局 */
+/* 预览正文与备注布局（VisitsTab 访视预览仍保留右侧 aside；FormDesignerTab 已迁移至顶栏） */
 .wp-body { display: flex; gap: 32px; align-items: flex-start; }
 .wp-main { flex: 1 1 auto; min-width: 0; }
 .wp-body--with-notes .wp-main { flex: 0 1 calc(100% - 272px); max-width: calc(100% - 272px); }

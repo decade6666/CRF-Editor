@@ -5,7 +5,7 @@ import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrderableList } from '../composables/useOrderableList'
-import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import { isDefaultValueSupported, normalizeDefaultValue, planInlineColumnFractions, planNormalColumnFractions, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -32,6 +32,8 @@ const showFormPreview = ref(false)
 const formPreviewTitle = ref('')
 const formPreviewDesignNotes = ref('')
 const formPreviewFields = ref([])
+const formPreviewPaperOrientation = ref('auto')
+const formPreviewFormId = ref(null)
 const formPreviewLoading = ref(false)
 const formPreviewError = ref('')
 let formPreviewRequestSeq = 0
@@ -227,15 +229,57 @@ function getInlineRows(fields) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition))),
       }
     }
-    const ctrl = renderCtrl(toRendererField(ff.field_definition)).replace(/_{8,}/, '______')
-    return { lines: [toHtml(ctrl)], repeat: true }
+    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition)))
+    return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) =>
-    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? ''))
+    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))
   )
+}
+
+function readPersistedColRatios(kind, fields) {
+  const formId = formPreviewFormId.value
+  if (!formId || !fields.length) return null
+  const fieldIds = fields.map(f => f.id).filter(id => id != null).join(',')
+  if (!fieldIds) return null
+  const key = `crf:designer:col-widths:${formId}:${kind}:fieldIds=${fieldIds}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    if (!parsed.every(r => Number.isFinite(r) && r > 0 && r < 1)) return null
+    const sum = parsed.reduce((a, b) => a + b, 0)
+    if (Math.abs(sum - 1) > 0.02) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+// inline 表：优先读设计器持久化的列宽；缺失则用 planInlineColumnFractions 出与导出一致的内容驱动默认；
+// planner 异常时回退到等宽。返回值始终是一个长度等于 fields.length 的数组，模板可以直接迭代。
+function resolveInlineColRatios(fields) {
+  if (!fields || !fields.length) return []
+  const persisted = readPersistedColRatios('inline', fields)
+  if (persisted && persisted.length === fields.length) return persisted
+  const planned = planInlineColumnFractions(fields)
+  if (planned.length === fields.length) return planned
+  return Array.from({ length: fields.length }, () => 1 / fields.length)
+}
+
+// normal 表：固定两列（label / control），同样优先持久化、缺失走 planNormalColumnFractions、兜底 50/50。
+function resolveNormalColRatios(fields) {
+  if (!fields || !fields.length) return [0.5, 0.5]
+  const persisted = readPersistedColRatios('normal', fields)
+  if (persisted && persisted.length === 2) return persisted
+  const planned = planNormalColumnFractions(fields)
+  if (planned.length === 2) return planned
+  return [0.5, 0.5]
 }
 
 const previewRenderGroups = computed(() => {
@@ -260,12 +304,21 @@ const previewRenderGroups = computed(() => {
 const previewNeedsLandscape = computed(() =>
   shouldUseLandscapePreview(previewRenderGroups.value)
 )
-const previewLandscapeMode = computed(() => previewNeedsLandscape.value)
+function resolvePreviewLandscape(orientation, autoFlag) {
+  if (orientation === 'landscape') return true
+  if (orientation === 'portrait') return false
+  return autoFlag
+}
+const previewLandscapeMode = computed(() =>
+  resolvePreviewLandscape(formPreviewPaperOrientation.value, previewNeedsLandscape.value),
+)
 
 async function openFormPreview(form) {
   const seq = ++formPreviewRequestSeq
   formPreviewTitle.value = form.name || '表单预览'
   formPreviewDesignNotes.value = form.design_notes || ''
+  formPreviewPaperOrientation.value = form.paper_orientation || 'auto'
+  formPreviewFormId.value = form.id
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewLoading.value = true
@@ -289,6 +342,8 @@ function resetFormPreviewState() {
   formPreviewLoading.value = false
   formPreviewError.value = ''
   formPreviewFields.value = []
+  formPreviewPaperOrientation.value = 'auto'
+  formPreviewFormId.value = null
 }
 
 // 更新访视中表单的 sequence
@@ -491,6 +546,9 @@ async function toggleCell(visitId, formId) {
           <div class="wp-main">
             <template v-for="(group, gi) in previewRenderGroups" :key="gi">
               <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
+                <colgroup>
+                  <col v-for="(ratio, ci) in resolveNormalColRatios(group.fields)" :key="ci" :style="{ width: (ratio * 100) + '%' }">
+                </colgroup>
                 <template v-for="ff in group.fields" :key="ff.id">
                   <tr v-if="ff.field_definition?.field_type === '标签'">
                     <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
@@ -505,6 +563,13 @@ async function toggleCell(visitId, formId) {
                 </template>
               </table>
               <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
+                <colgroup>
+                  <col
+                    v-for="(ratio, ci) in resolveInlineColRatios(group.fields)"
+                    :key="ci"
+                    :style="{ width: (ratio * 100) + '%' }"
+                  >
+                </colgroup>
                 <tr>
                   <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
                     {{ ff.label_override || ff.field_definition?.label }}

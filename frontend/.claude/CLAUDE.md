@@ -2,7 +2,7 @@
 
 # frontend 模块说明
 
-> 最近更新：2026年4月28日 星期二 08:31:55 PDT
+> 最近更新：2026年5月12日 17:42:57
 
 ## 模块职责
 - 提供 CRF 编辑器的 Vue 3 单页界面。
@@ -23,7 +23,8 @@
 - `src/components/`（12 个 Vue 组件）：项目、字典、单位、字段、表单设计、访视、登录、管理、导入预览、CRF 模拟渲染等页面组件。
 - `src/composables/`（11 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、导出下载状态、列宽拖拽、访视预览方向、标签页懒加载、性能基线等共享逻辑。
 - `src/styles/`：全局样式与主题变量。
-- `tests/`（20 个测试文件）：基于 `node:test` 的前端回归与契约测试。
+- `scripts/`（3 个脚本）：fixture 生成（`generatePlannerFixtures.mjs`）、构建指标采集（`collectBuildMetrics.mjs`）、浏览器性能基线（`runBrowserPerfBaseline.mjs`）。
+- `tests/`（22 个测试文件）：基于 `node:test` 的前端回归与契约测试。
 
 ## 关键组件与流程
 - `components/LoginView.vue`：账号 + 密码登录表单；development 下展示迁移提示，production 下显示通用认证失败文案。
@@ -51,15 +52,18 @@
 - 字段预览与 HTML 渲染统一复用 `useCRFRenderer.js`。
 - 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
 - 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
+- `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
+- 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
 - 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
 
 ## 预览列宽（内容驱动）
 - `useCRFRenderer.js` 暴露 `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` 作为三类表格的统一 planner 入口。
-- 字符权重常量与 CJK 码点范围与后端 `backend/src/services/width_planning.py` 共享契约，任一端改动需同步另一端。
+- 字符权重常量与 CJK 码点范围与后端 `backend/src/services/width_planning.py` 共享契约，任一端改动需同步另一端。共享常量包含 `WEIGHT_CHINESE=2`、`WEIGHT_ASCII=1`、`FILL_LINE_WEIGHT=6`、`INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8`（仅作用于 inline 表，保护 ≤4 字短表头如 `未查` / `项目` / `单位` 与长邻居共存时不被挤压到不可单行）、`AVAILABLE_CM=14.66`。
 - `FormDesignerTab.vue` 使用 `useColumnResize` 管理拖拽；默认值源接受数组/工厂函数/Ref，切换 `formId` 或 `tableKind` 时自动 rehydrate。
 - localStorage 键：`crf:designer:col-widths:<form_id>:<table_kind>`；只有设计器写入，`TemplatePreviewDialog` / `SimulatedCRFForm` 仅读取。
 - 读取列宽缓存失败（非数组/元素越界/和不为 1）时回退内容驱动默认值。
-- 跨栈 fixture：`backend/tests/fixtures/planner_cases.json` 同时被前端 `columnWidthPlanning.test.js` 与后端 `test_width_planning.py` 加载；新增用例通过 `frontend/scripts/generatePlannerFixtures.mjs` 重新生成。
+- 跨栈 fixture：`backend/tests/fixtures/planner_cases.json` 同时被前端 `columnWidthPlanning.test.js` 与后端 `test_width_planning.py` 加载；**唯一权威生成器** `frontend/scripts/generatePlannerFixtures.mjs`，新增/修改 case 必须改 generator 后重跑。
+- `.wp-form-title` 必须保持 `text-align: left` 与 Word 导出 `add_heading(level=1)` 默认左对齐对齐，由 `frontend/tests/wordPageGeometry.test.js` 锁住，禁止改回 `center` 或引入 `margin: 0 auto` 触发块居中。
 
 ## 认证与管理员交互
 - 登录后由 `App.vue` 调用 `/api/auth/me` 获取 `username` 与 `is_admin`，再分流到管理员工作台或普通项目工作台。
@@ -82,6 +86,8 @@
 - `appTabLazyLoad.test.js`：标签页懒加载。
 - `sidebarCopyButtonScope.test.js`：侧边栏复制按钮作用域。
 - `browserPerfBaselineScript.test.js`、`perfBaselineHelpers.test.js`：性能基线相关。
+- `wordPageGeometry.test.js`：Word 预览 A4 几何契约——`.word-page` 21cm×29.7cm、`.word-page.landscape` 翻转、`--word-page-margin-x/y` 变量、`@media print` 回退、`.designer-scaled-word-page` 保持 A4 几何而非 100% 宽度，以及 `inline-table` / `unified-table` 的 `table-layout: fixed` 与 `<colgroup>` 契约。
+- `testProperty.js`：属性测试工具库（seeded 随机生成器、`forAll` runner），为契约与属性测试提供轻量替代 fast-check 的基础设施。
 
 ## 相关文件清单
 | 类别 | 文件 |
@@ -93,5 +99,8 @@
 | 配置 | `package.json`、`vite.config.js` |
 
 ## 变更记录
+- `2026年5月12日 17:42:57`：增量扫描刷新。测试 21→22 文件（新增 `wordPageGeometry.test.js`，固化 Word 预览/导出的 A4 页面几何与表格布局 CSS 契约）；同步更新测试关注点列表。
+- `2026年5月8日 18:26:34`：增量扫描刷新。测试 20→21 文件（新增 `testProperty.js`）；补充 `scripts/` 目录条目与测试工具说明。
+- `2026年5月8日`：FormDesignerTab 备注展示迁移到顶栏/section-title、新增 per-form `paper_orientation` 控制与旧 `forceLandscape` 迁移；同步更新前端测试与样式。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 26 文件（组件 12、composables 11、样式 1、入口 2）、测试 20 文件。补充完整测试关注点列表与文件清单。
 - `2026年4月27日 星期一 05:45:45 PDT`：初始生成。

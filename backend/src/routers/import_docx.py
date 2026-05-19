@@ -164,6 +164,8 @@ class DocxFormResult(BaseModel):
 
     field_count: int
 
+    form_id: int
+
 
 
 

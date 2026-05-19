@@ -18,6 +18,7 @@ __pycache__/
 # ==========================================
 /crf_editor.db
 database/
+data/
 backend/crf_editor.db
 *.db
 uploads/
@@ -54,6 +55,7 @@ node_modules/
 .ace-tool/
 .playwright-mcp/
 .obsidian/
+.claude/settings.local.json
 
 # ==========================================
 # 临时与调试文件
