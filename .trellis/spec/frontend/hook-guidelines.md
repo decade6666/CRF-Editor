@@ -178,19 +178,35 @@ async function loadData() {
 ### 401 Handling (Global)
 
 ```javascript
-// In App.vue - listen for auth expiration
-window.addEventListener('crf:auth-expired', () => {
-  localStorage.removeItem('token')
-  router.push('/login')
-  ElMessage.warning('登录已过期，请重新登录')
-})
-
-// In useApi.js - dispatch event on 401
+// In useApi.js - dispatch event on 401 and keep the thrown status
 if (response.status === 401) {
+  localStorage.removeItem('crf_token')
   window.dispatchEvent(new CustomEvent('crf:auth-expired'))
-  throw { status: 401, message: '认证失败' }
+  throw _createHttpError('登录已过期，请重新登录', response.status)
+}
+
+// In App.vue - listen for auth expiration and clear shell state
+window.addEventListener('crf:auth-expired', () => {
+  rememberUsername()
+  resetSessionState()
+})
+```
+
+### Sliding Token Refresh (Protected Responses)
+
+```javascript
+// In useApi.js - all successful protected responses may carry a renewed token
+const refreshedToken = response.headers.get('x-refreshed-token')
+if (refreshedToken) {
+  localStorage.setItem('crf_token', refreshedToken)
 }
 ```
+
+**Contract**:
+- Token storage key is `localStorage['crf_token']`
+- 401 is still the single global auth-expiry signal
+- Successful protected responses may extend the session via `X-Refreshed-Token`
+- Components should keep using `getAuthHeaders()` instead of caching token values locally
 
 ---
 

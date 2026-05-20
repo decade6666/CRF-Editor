@@ -128,30 +128,71 @@ POST /api/forms/{form_id}/fields/reorder
 
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
-| **File** | `backend/src/services/auth_service.py` | `frontend/src/App.vue` |
-| **Purpose** | JWT generation/validation | Token storage and API attachment |
+| **File** | `backend/src/services/auth_service.py`, `backend/src/dependencies.py` | `frontend/src/composables/useApi.js`, `frontend/src/App.vue`, `frontend/src/components/LoginView.vue` |
+| **Purpose** | JWT generation/validation and protected-response refresh | Token storage, API attachment, 401 shell reset |
 
 **Token Payload**:
 
 ```python
 # Backend JWT payload
 {
-    "sub": "username",      # Subject (username)
-    "user_id": 1,           # User ID
-    "auth_version": 1,      # For token invalidation
-    "exp": 1714022400       # Expiration timestamp
+    "sub": "1",            # User ID as string
+    "username": "DECADE",  # Username snapshot
+    "ver": 5,               # auth_version snapshot
+    "exp": 1779265459       # Expiration timestamp
 }
 ```
 
 **Contract Rules**:
-1. Frontend stores token in `localStorage`
-2. Frontend attaches token as `Authorization: Bearer <token>`
-3. Backend validates token on protected routes
-4. Backend rejects token if `auth_version` mismatched
+1. Frontend stores the access token in `localStorage['crf_token']`
+2. Frontend attaches the token as `Authorization: Bearer <token>` via `getAuthHeaders()`
+3. Backend validates `sub → user.id`、`username` and `ver → user.auth_version` in `get_current_user()`
+4. On any 401, `useApi.js` removes `crf_token` and dispatches `crf:auth-expired`; `App.vue` clears session shell state
+5. Successful protected responses may carry `X-Refreshed-Token`; `useApi.js` must overwrite `localStorage['crf_token']` when present
+6. Password change or admin password reset still invalidates old tokens by incrementing `auth_version`
+
+**Validation**:
+- Backend: `backend/tests/test_auth.py`
+- Frontend: `frontend/tests/appSettingsShell.test.js`
 
 ---
 
-### 4. Word Preview / Export Strict Table-Field Parity
+### 4. Word Import Screenshot Evidence Preview
+
+**Contract ID**: `docx-screenshot-evidence`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **File** | `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` | `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue` |
+| **Purpose** | Start screenshot job, expose status/page payload, fail fast on unsupported runtime | Show left evidence panel, poll status, and react to field clicks |
+
+**Status Payload**:
+
+```json
+{
+  "status": "starting | running | done | failed",
+  "page_count": 0,
+  "error": null,
+  "page_ranges": {},
+  "field_pages": {}
+}
+```
+
+**Contracts**:
+1. `DocxCompareDialog.vue` must render the left screenshot panel together with the right CRF preview panel
+2. `DocxScreenshotPanel.vue` starts `/screenshots/start` and polls `/screenshots/status`
+3. Field click uses `field_pages[currentFormName][field.index]` as the primary evidence locator
+4. If a field has no concrete page mapping, frontend shows a gentle `未定位到原文页` hint and must not force-jump to the form's first page
+5. On unsupported runtime (for example missing `pythoncom` / no Windows Word COM), backend task status must transition to `failed` with a user-visible Chinese error message instead of remaining stuck at `starting`
+
+**Validation**:
+- Backend: `backend/tests/test_docx_screenshot_service.py`
+- Frontend: `frontend/tests/docxBimodalPreview.test.js`
+- Browser/manual: open Word import preview and confirm the dialog contains both `原始文档截图` and `导入效果`
+
+---
+
+### 5. Word Preview / Export Strict Table-Field Parity
 
 **Contract ID**: `preview-export-parity`
 
@@ -248,7 +289,7 @@ return { lines: [ctrl], repeat: true, fallback: ctrl }
 
 ---
 
-### 5. Form Paper Orientation
+### 6. Form Paper Orientation
 
 **Contract ID**: `form-paper-orientation`
 

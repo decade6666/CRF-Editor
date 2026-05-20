@@ -1,19 +1,21 @@
 """共享 FastAPI 依赖"""
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from src.database import get_session
 from src.models.user import User
-from src.services.auth_service import decode_token
+from src.services.auth_service import create_access_token, decode_token
 
+_REFRESHED_TOKEN_HEADER = "X-Refreshed-Token"
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def get_current_user(
     token: str = Depends(_oauth2_scheme),
     session: Session = Depends(get_session),
+    response: Response = None,
 ) -> User:
     """从 Bearer token 解码并返回当前用户，失败返回 401。"""
     try:
@@ -26,6 +28,10 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="未授权")
     if user.auth_version != identity.auth_version:
         raise HTTPException(status_code=401, detail="未授权")
+    if response is not None:
+        response.headers[_REFRESHED_TOKEN_HEADER] = create_access_token(
+            user.id, user.username, user.auth_version
+        )
     return user
 
 
