@@ -1,5 +1,7 @@
 <template>
   <div class="screenshot-panel">
+    <div v-if="locateHint" class="locate-hint" aria-live="polite">{{ locateHint }}</div>
+
     <!-- 状态：加载中 / 生成中 -->
     <div v-if="status === 'idle' || status === 'starting'" class="status-view">
       <div class="spinner-wrap">
@@ -28,7 +30,7 @@
       <img
         v-for="p in displayPages"
         :key="p"
-        :ref="el => pageRefs[p] = el"
+        :ref="(el) => (pageRefs[p] = el)"
         :src="pageUrl(p)"
         :class="['page-img', { 'page-highlight': p === highlightPage }]"
         :alt="`第 ${p} 页`"
@@ -44,168 +46,184 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { api } from '../composables/useApi'
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { api } from '../composables/useApi';
 
 const props = defineProps({
   tempId: { type: String, default: '' },
   projectId: { type: Number, required: true },
-  formNames: { type: Array, default: () => [] },       // 所有表单名（传给 start 接口）
-  currentFormName: { type: String, default: '' },      // 当前表单名（用于过滤页码）
-  highlightedField: { type: Object, default: null },   // 高亮的字段
-  allFormsData: { type: Array, default: () => [] },    // 所有表单的完整数据（包含字段列表）
-})
+  formNames: { type: Array, default: () => [] }, // 所有表单名（传给 start 接口）
+  currentFormName: { type: String, default: '' }, // 当前表单名（用于过滤页码）
+  highlightedField: { type: Object, default: null }, // 高亮的字段
+  allFormsData: { type: Array, default: () => [] }, // 所有表单的完整数据（包含字段列表）
+});
 
-console.log('[DocxScreenshotPanel] 组件加载！tempId:', props.tempId, 'currentFormName:', props.currentFormName)
+const status = ref('idle');
+const pageCount = ref(0);
+const errorMsg = ref('');
+const locateHint = ref('');
+const pageRanges = ref({}); // {表单名: [start, end]}
+const fieldPages = ref({}); // {表单名: {字段索引: 页码}}
+const pageRefs = ref({}); // 页面元素引用
+const highlightPage = ref(null); // 当前高亮的页码
 
-const status = ref('idle')
-const pageCount = ref(0)
-const errorMsg = ref('')
-const pageRanges = ref({})  // {表单名: [start, end]}
-const fieldPages = ref({})  // {表单名: {字段索引: 页码}}
-const pageRefs = ref({})     // 页面元素引用
-const highlightPage = ref(null)  // 当前高亮的页码
-
-let pollTimer = null
-let retryCount = 0
-const MAX_RETRIES = 60
+let pollTimer = null;
+let hintTimer = null;
+let retryCount = 0;
+const MAX_RETRIES = 60;
 
 // 当前表单要显示的页码列表（1-based）
 const displayPages = computed(() => {
-  if (status.value !== 'done') return []
-  const range = pageRanges.value[props.currentFormName]
-  console.log('[DocxScreenshotPanel] 当前表单:', props.currentFormName)
-  console.log('[DocxScreenshotPanel] pageRanges:', pageRanges.value)
-  console.log('[DocxScreenshotPanel] 匹配到的range:', range)
+  if (status.value !== 'done') return [];
+  const range = pageRanges.value[props.currentFormName];
   // 仅在范围有效时（start <= end）精确展示，否则降级显示全部
   if (range && range[0] <= range[1]) {
-    const pages = []
-    for (let i = range[0]; i <= range[1]; i++) pages.push(i)
-    console.log('[DocxScreenshotPanel] 显示页码:', pages)
-    return pages
+    const pages = [];
+    for (let i = range[0]; i <= range[1]; i++) pages.push(i);
+    return pages;
   }
   // 未检测到范围 或 范围无效（start > end）→ 显示全部页面
-  const allPages = Array.from({ length: pageCount.value }, (_, i) => i + 1)
-  console.warn('[DocxScreenshotPanel] 未找到范围，显示全部页面:', allPages)
-  return allPages
-})
+  return Array.from({ length: pageCount.value }, (_, i) => i + 1);
+});
 
-watch(() => props.tempId, (id) => {
-  if (id) kickoff()
-  else reset()
-}, { immediate: true })
+watch(
+  () => props.tempId,
+  (id) => {
+    if (id) kickoff();
+    else reset();
+  },
+  { immediate: true },
+);
 
 // 监听字段点击，滚动到对应页面并高亮
-watch(() => props.highlightedField, (field) => {
-  if (!field || status.value !== 'done') return
+watch(
+  () => props.highlightedField,
+  (field) => {
+    if (!field || status.value !== 'done') return;
 
-  // 优先使用字段级页码
-  const formFieldPages = fieldPages.value[props.currentFormName]
-  let targetPage = null
+    clearLocateHint();
 
-  if (formFieldPages && field.index !== undefined) {
-    targetPage = formFieldPages[field.index]
-  }
+    // 优先使用字段级页码
+    const formFieldPages = fieldPages.value[props.currentFormName];
+    const targetPage = formFieldPages && field.index !== undefined ? formFieldPages[field.index] : null;
 
-  // 降级：使用表单级页码范围的第一页
-  if (!targetPage) {
-    const range = pageRanges.value[props.currentFormName]
-    if (range && range[0] <= range[1]) {
-      targetPage = range[0]
+    if (!targetPage) {
+      showLocateHint('未定位到原文页');
+      return;
     }
-  }
 
-  if (targetPage) {
-    highlightPage.value = targetPage
+    highlightPage.value = targetPage;
     // 滚动到目标页面
     setTimeout(() => {
-      const el = pageRefs.value[targetPage]
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 100)
+      const el = pageRefs.value[targetPage];
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
     // 3秒后取消高亮
     setTimeout(() => {
-      highlightPage.value = null
-    }, 3000)
-  }
-})
+      highlightPage.value = null;
+    }, 3000);
+  },
+);
 
-onUnmounted(stopPoll)
+onUnmounted(() => {
+  stopPoll();
+  clearLocateHint();
+});
 
 function reset() {
-  stopPoll()
-  status.value = 'idle'
-  pageCount.value = 0
-  errorMsg.value = ''
-  pageRanges.value = {}
-  retryCount = 0
+  stopPoll();
+  clearLocateHint();
+  status.value = 'idle';
+  pageCount.value = 0;
+  errorMsg.value = '';
+  pageRanges.value = {};
+  fieldPages.value = {};
+  pageRefs.value = {};
+  highlightPage.value = null;
+  retryCount = 0;
+}
+
+function clearLocateHint() {
+  if (hintTimer) {
+    clearTimeout(hintTimer);
+    hintTimer = null;
+  }
+  locateHint.value = '';
+}
+
+function showLocateHint(message) {
+  clearLocateHint();
+  locateHint.value = message;
+  hintTimer = setTimeout(() => {
+    locateHint.value = '';
+    hintTimer = null;
+  }, 3000);
 }
 
 async function kickoff() {
-  reset()
-  if (!props.tempId || !props.projectId) return
+  reset();
+  if (!props.tempId || !props.projectId) return;
 
-  status.value = 'starting'
+  status.value = 'starting';
   try {
     // 构建forms_data：只包含name和fields，过滤掉不必要的字段
-    const formsData = props.allFormsData.map(form => ({
+    const formsData = props.allFormsData.map((form) => ({
       name: form.name,
-      fields: (form.fields || []).map(f => ({
+      fields: (form.fields || []).map((f) => ({
         label: f.label,
         field_type: f.field_type,
-        type: f.type
-      }))
-    }))
+        type: f.type,
+      })),
+    }));
 
-    await api.post(
-      `/api/projects/${props.projectId}/import-docx/${props.tempId}/screenshots/start`,
-      {
-        form_names: props.formNames,
-        forms_data: formsData.length > 0 ? formsData : null
-      },
-    )
+    await api.post(`/api/projects/${props.projectId}/import-docx/${props.tempId}/screenshots/start`, {
+      form_names: props.formNames,
+      forms_data: formsData.length > 0 ? formsData : null,
+    });
   } catch (e) {
-    status.value = 'failed'
-    errorMsg.value = e?.message || '启动截图任务失败'
-    return
+    status.value = 'failed';
+    errorMsg.value = e?.message || '启动截图任务失败';
+    return;
   }
 
-  status.value = 'running'
-  startPoll()
+  status.value = 'running';
+  startPoll();
 }
 
 function startPoll() {
-  stopPoll()
-  pollTimer = setInterval(poll, 3000)
-  poll()
+  stopPoll();
+  pollTimer = setInterval(poll, 3000);
+  poll();
 }
 
 function stopPoll() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 async function poll() {
   if (retryCount >= MAX_RETRIES) {
-    stopPoll()
-    status.value = 'failed'
-    errorMsg.value = '截图生成超时（超过3分钟）'
-    return
+    stopPoll();
+    status.value = 'failed';
+    errorMsg.value = '截图生成超时（超过3分钟）';
+    return;
   }
-  retryCount++
+  retryCount++;
 
   try {
-    const res = await api.get(
-      `/api/projects/${props.projectId}/import-docx/${props.tempId}/screenshots/status`,
-    )
+    const res = await api.get(`/api/projects/${props.projectId}/import-docx/${props.tempId}/screenshots/status`);
     if (res.status === 'done') {
-      stopPoll()
-      pageCount.value = res.page_count || 0
-      pageRanges.value = res.page_ranges || {}
-      fieldPages.value = res.field_pages || {}
-      status.value = 'done'
+      stopPoll();
+      pageCount.value = res.page_count || 0;
+      pageRanges.value = res.page_ranges || {};
+      fieldPages.value = res.field_pages || {};
+      status.value = 'done';
     } else if (res.status === 'failed') {
-      stopPoll()
-      status.value = 'failed'
-      errorMsg.value = res.error || '截图生成失败'
+      stopPoll();
+      status.value = 'failed';
+      errorMsg.value = res.error || '截图生成失败';
     }
   } catch {
     // 网络抖动，继续等
@@ -213,7 +231,7 @@ async function poll() {
 }
 
 function pageUrl(page) {
-  return `/api/projects/${props.projectId}/import-docx/${props.tempId}/screenshots/pages/${page}`
+  return `/api/projects/${props.projectId}/import-docx/${encodeURIComponent(props.tempId)}/screenshots/pages/${page}`;
 }
 </script>
 
@@ -226,6 +244,20 @@ function pageUrl(page) {
   align-items: center;
   background: var(--color-bg-hover);
   overflow-y: auto;
+}
+
+.locate-hint {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--color-warning) 12%, white);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--color-border));
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 /* 状态视图 */
@@ -285,7 +317,9 @@ function pageUrl(page) {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 图片展示区 */
