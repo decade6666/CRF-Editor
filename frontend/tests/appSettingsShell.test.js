@@ -1,132 +1,190 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
-const loginSource = readFileSync(path.resolve(currentDir, '../src/components/LoginView.vue'), 'utf8')
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8');
+const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8');
+const loginSource = readFileSync(path.resolve(currentDir, '../src/components/LoginView.vue'), 'utf8');
 
 test('settings dialog provides logout entry and only saves admin settings', () => {
-  assert.match(appSource, /<el-button type="danger" plain @click="logout">退出登录<\/el-button>/)
-  assert.match(appSource, /<el-button v-if="isAdmin" type="primary" @click="saveSettings">保存<\/el-button>/)
-  assert.match(appSource, /if \(!isAdmin\.value\) return/)
-})
+  assert.match(appSource, /<el-button type="danger" plain @click="logout">退出登录<\/el-button>/);
+  assert.match(appSource, /<el-button v-if="isAdmin" type="primary" @click="saveSettings">保存<\/el-button>/);
+  assert.match(appSource, /if \(!isAdmin\.value\) return/);
+});
 
 test('settings dialog routes database export by user role', () => {
-  assert.match(appSource, /const exportUrl = isAdmin\.value \? '\/api\/export\/database' : '\/api\/projects\/export\/database'/)
-  assert.match(appSource, /导出所有项目/)
-})
-
+  assert.match(
+    appSource,
+    /const exportUrl = isAdmin\.value \? '\/api\/export\/database' : '\/api\/projects\/export\/database'/,
+  );
+  assert.match(appSource, /导出所有项目/);
+});
 
 test('word export uses a single loading guard without rate-limit workaround', () => {
-  assert.match(appSource, /const exportWordLoading = ref\(false\)/)
-  assert.match(appSource, /if \(!selectedProject\.value \|\| exportWordLoading\.value\) return/)
-  assert.match(appSource, /exportWordLoading\.value = true/)
-  assert.doesNotMatch(appSource, /MAX_EXPORT_WORD_TRIGGERS/)
-  assert.doesNotMatch(appSource, /EXPORT_WORD_TRIGGER_WINDOW_MS/)
-  assert.doesNotMatch(appSource, /exportWordTriggerCount/)
-  assert.doesNotMatch(appSource, /exportWordResetTimer/)
-  assert.doesNotMatch(appSource, /setTimeout\(resolve, 1000\)/)
-})
-
+  assert.match(appSource, /const exportWordLoading = ref\(false\)/);
+  assert.match(appSource, /if \(!selectedProject\.value \|\| exportWordLoading\.value\) return/);
+  assert.match(appSource, /exportWordLoading\.value = true/);
+  assert.doesNotMatch(appSource, /MAX_EXPORT_WORD_TRIGGERS/);
+  assert.doesNotMatch(appSource, /EXPORT_WORD_TRIGGER_WINDOW_MS/);
+  assert.doesNotMatch(appSource, /exportWordTriggerCount/);
+  assert.doesNotMatch(appSource, /exportWordResetTimer/);
+  assert.doesNotMatch(appSource, /setTimeout\(resolve, 1000\)/);
+});
 
 test('settings dialog uses inline prompt edit mode copy', () => {
-  assert.match(appSource, /<el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要"\s*\/>/)
-  assert.match(appSource, /关闭时保留基础浏览与设计入口，开启后显示完整编辑能力/)
-  assert.doesNotMatch(appSource, /开启后显示选项\/单位\/字段标签及表单编辑按钮/)
-  assert.match(appSource, /const ADVANCED_EDIT_TABS = new Set\(\['codelists', 'units', 'fields'\]\)/)
-  assert.match(appSource, /watch\(editMode, \(v\) => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) resetLazyTabs\('info'\)/)
-})
+  assert.match(appSource, /<el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要"\s*\/>/);
+  assert.match(appSource, /关闭时保留基础浏览与设计入口，开启后显示完整编辑能力/);
+  assert.doesNotMatch(appSource, /开启后显示选项\/单位\/字段标签及表单编辑按钮/);
+  assert.match(appSource, /const ADVANCED_EDIT_TABS = new Set\(\['codelists', 'units', 'fields'\]\)/);
+  assert.match(
+    appSource,
+    /watch\(editMode, \(v\) => \{[\s\S]*if \(!v && ADVANCED_EDIT_TABS\.has\(activeTab\.value\)\) resetLazyTabs\('info'\)/,
+  );
+});
 
 test('header keeps template import and word export only', () => {
-  const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || ''
-  assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/)
-  assert.match(headerSection, /@click="exportWord"[\s\S]*>导出Word<\/el-button\s*>/)
-  assert.doesNotMatch(headerSection, /导入Word/)
-  assert.match(appSource, /<el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板<\/el-button>/)
-})
+  const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || '';
+  assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/);
+  assert.match(headerSection, /@click="exportWord"[\s\S]*>导出Word<\/el-button\s*>/);
+  assert.doesNotMatch(headerSection, /导入Word/);
+  assert.match(
+    appSource,
+    /<el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板<\/el-button>/,
+  );
+});
 
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {
-  assert.match(appSource, /<el-tabs[\s\S]*class="main-content-tabs"[\s\S]*v-model="activeTab"/)
-  assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/)
-  assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/)
-  const actionsSection = appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || ''
-  assert.match(actionsSection, /导出所有项目/)
-  assert.match(actionsSection, /导出当前项目/)
-  assert.match(actionsSection, /:loading="importProjectLoading"[\s\S]*导入项目/s)
-  assert.match(actionsSection, /:disabled="!selectedProject" @click="openImportWordDialog">导入Word<\/el-button>/)
-  assert.ok(actionsSection.indexOf('导入项目') < actionsSection.indexOf('导入Word'))
-  assert.match(appSource, /\.settings-transfer-actions\s*\{[\s\S]*width:\s*100%/)
-  assert.match(appSource, /\.settings-transfer-actions\s*:deep\(\.el-button\)\s*\{[\s\S]*width:\s*100%/)
-  assert.match(appSource, /\.main-content-tabs[\s\S]*padding-left:\s*20px/)
-})
+  assert.match(appSource, /<el-tabs[\s\S]*class="main-content-tabs"[\s\S]*v-model="activeTab"/);
+  assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/);
+  assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/);
+  const actionsSection =
+    appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || '';
+  assert.match(actionsSection, /导出所有项目/);
+  assert.match(actionsSection, /导出当前项目/);
+  assert.match(actionsSection, /:loading="importProjectLoading"[\s\S]*导入项目/s);
+  assert.match(actionsSection, /:disabled="!selectedProject" @click="openImportWordDialog">导入Word<\/el-button>/);
+  assert.ok(actionsSection.indexOf('导入项目') < actionsSection.indexOf('导入Word'));
+  assert.match(appSource, /\.settings-transfer-actions\s*\{[\s\S]*width:\s*100%/);
+  assert.match(appSource, /\.settings-transfer-actions\s*:deep\(\.el-button\)\s*\{[\s\S]*width:\s*100%/);
+  assert.match(appSource, /\.main-content-tabs[\s\S]*padding-left:\s*20px/);
+});
 
 test('settings dialog shows self password button only for ordinary users', () => {
-  assert.match(appSource, /<div class="settings-current-user-row">[\s\S]*<span>\{\{ currentUser\.username \|\| '未登录' \}\}<\/span>[\s\S]*<el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/)
-  assert.doesNotMatch(appSource, /<el-button v-if="isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/)
-})
+  assert.match(
+    appSource,
+    /<div class="settings-current-user-row">[\s\S]*<span>\{\{ currentUser\.username \|\| '未登录' \}\}<\/span>[\s\S]*<el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/,
+  );
+  assert.doesNotMatch(
+    appSource,
+    /<el-button v-if="isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/,
+  );
+});
 
 test('self password dialog includes three fields and submits backend contract only', () => {
-  assert.match(appSource, /<el-dialog[\s\S]*v-model="showSelfPasswordDialog"[\s\S]*title="修改密码"/)
-  assert.match(appSource, /<el-form-item label="当前密码">[\s\S]*v-model="selfPasswordForm\.current_password"/)
-  assert.match(appSource, /<el-form-item label="新密码">[\s\S]*v-model="selfPasswordForm\.new_password"/)
-  assert.match(appSource, /<el-form-item label="确认新密码">[\s\S]*v-model="selfPasswordForm\.confirm_new_password"/)
-  assert.match(appSource, /if \(selfPasswordForm\.new_password !== selfPasswordForm\.confirm_new_password\) \{[\s\S]*ElMessage\.error\('新密码与确认新密码不一致'\)[\s\S]*return/)
-  const submitSection = appSource.match(/async function submitSelfPasswordChange\(\) \{([\s\S]*?)\n\}/)?.[1] || ''
-  const requestPayload = submitSection.match(/await api\.put\('\/api\/auth\/me\/password', \{([\s\S]*?)\}\)/)?.[1] || ''
-  assert.match(requestPayload, /current_password: selfPasswordForm\.current_password/)
-  assert.match(requestPayload, /new_password: selfPasswordForm\.new_password/)
-  assert.doesNotMatch(requestPayload, /confirm_new_password/)
-})
+  assert.match(appSource, /<el-dialog[\s\S]*v-model="showSelfPasswordDialog"[\s\S]*title="修改密码"/);
+  assert.match(appSource, /<el-form-item label="当前密码">[\s\S]*v-model="selfPasswordForm\.current_password"/);
+  assert.match(appSource, /<el-form-item label="新密码">[\s\S]*v-model="selfPasswordForm\.new_password"/);
+  assert.match(appSource, /<el-form-item label="确认新密码">[\s\S]*v-model="selfPasswordForm\.confirm_new_password"/);
+  assert.match(
+    appSource,
+    /if \(selfPasswordForm\.new_password !== selfPasswordForm\.confirm_new_password\) \{[\s\S]*ElMessage\.error\('新密码与确认新密码不一致'\)[\s\S]*return/,
+  );
+  const submitSection = appSource.match(/async function submitSelfPasswordChange\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  const requestPayload =
+    submitSection.match(/await api\.put\('\/api\/auth\/me\/password', \{([\s\S]*?)\}\)/)?.[1] || '';
+  assert.match(requestPayload, /current_password: selfPasswordForm\.current_password/);
+  assert.match(requestPayload, /new_password: selfPasswordForm\.new_password/);
+  assert.doesNotMatch(requestPayload, /confirm_new_password/);
+});
 
 test('self password success shows message then clears session flow', () => {
-  assert.match(appSource, /ElMessage\.success\('密码修改成功，请重新登录'\)[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
-  assert.match(appSource, /catch \(e\) \{[\s\S]*if \(e\.status !== 401\) ElMessage\.error\(e\.message\)/)
-  assert.match(appSource, /function closeSelfPasswordDialog\(\) \{[\s\S]*showSelfPasswordDialog\.value = false[\s\S]*resetSelfPasswordForm\(\)/)
-})
+  assert.match(
+    appSource,
+    /ElMessage\.success\('密码修改成功，请重新登录'\)[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/,
+  );
+  assert.match(appSource, /catch \(e\) \{[\s\S]*if \(e\.status !== 401\) ElMessage\.error\(e\.message\)/);
+  assert.match(
+    appSource,
+    /function closeSelfPasswordDialog\(\) \{[\s\S]*showSelfPasswordDialog\.value = false[\s\S]*resetSelfPasswordForm\(\)/,
+  );
+});
 
 test('app remembers username on logout and auth expiry', () => {
-  assert.match(appSource, /localStorage\.setItem\('crf_last_username', normalized\)/)
-  assert.match(appSource, /function resetSessionState\(\) \{[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*showSettings\.value = false[\s\S]*currentUser\.value = getEmptyUser\(\)/)
-  assert.match(appSource, /function logout\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
-  assert.match(appSource, /function handleAuthExpired\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/)
-})
+  assert.match(appSource, /localStorage\.setItem\('crf_last_username', normalized\)/);
+  assert.match(
+    appSource,
+    /function resetSessionState\(\) \{[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*showSettings\.value = false[\s\S]*currentUser\.value = getEmptyUser\(\)/,
+  );
+  assert.match(appSource, /function logout\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/);
+  assert.match(appSource, /function handleAuthExpired\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/);
+});
+
+test('useApi stores refreshed token from response headers', () => {
+  assert.match(apiSource, /const _REFRESHED_TOKEN_HEADER = 'x-refreshed-token'/);
+  assert.match(
+    apiSource,
+    /function _storeRefreshedToken\(r\) \{[\s\S]*r\.headers\.get\(_REFRESHED_TOKEN_HEADER\)[\s\S]*localStorage\.setItem\('crf_token', refreshedToken\)/,
+  );
+  assert.match(
+    apiSource,
+    /async function _checkStatus\(r\) \{[\s\S]*if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)[\s\S]*_storeRefreshedToken\(r\)/,
+  );
+});
 
 test('login view restores and persists the last username', () => {
-  assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/)
-  assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/)
-})
+  assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/);
+  assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/);
+});
 
 test('login view uses account password login and preserves username memory', () => {
-  assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/)
-  assert.match(loginSource, /const password = ref\(''\)/)
-  assert.match(loginSource, /fetch\('\/api\/auth\/login'/)
-  assert.match(loginSource, /body: JSON\.stringify\(\{[\s\S]*username: username\.value\.trim\(\),[\s\S]*password: password\.value/s)
-  assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/)
-})
+  assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/);
+  assert.match(loginSource, /const password = ref\(''\)/);
+  assert.match(loginSource, /fetch\('\/api\/auth\/login'/);
+  assert.match(
+    loginSource,
+    /body: JSON\.stringify\(\{[\s\S]*username: username\.value\.trim\(\),[\s\S]*password: password\.value/s,
+  );
+  assert.match(loginSource, /localStorage\.setItem\('crf_last_username', username\.value\.trim\(\)\)/);
+});
 
 test('login view distinguishes development migration hints from generic auth failures', () => {
-  assert.match(loginSource, /const isDevelopment = import\.meta\.env\.DEV/)
-  assert.match(loginSource, /if \(status === 401\) \{[\s\S]*return isDevelopment && detail \? detail : '用户名或密码错误'/)
-  assert.match(loginSource, /if \(status === 429\) \{[\s\S]*return detail \|\| '操作过于频繁，请稍后重试'/)
-})
+  assert.match(loginSource, /const isDevelopment = import\.meta\.env\.DEV/);
+  assert.match(
+    loginSource,
+    /if \(status === 401\) \{[\s\S]*return isDevelopment && detail \? detail : '用户名或密码错误'/,
+  );
+  assert.match(loginSource, /if \(status === 429\) \{[\s\S]*return detail \|\| '操作过于频繁，请稍后重试'/);
+});
 
 test('admin workspace mounts before normal project shell content', () => {
-  assert.match(appSource, /async function onLoginSuccess\(\) \{[\s\S]*await loadMe\(\)[\s\S]*if \(isAdmin\.value\) \{[\s\S]*projects\.value = \[\]/)
-  assert.match(appSource, /onMounted\(async \(\) => \{[\s\S]*window\.addEventListener\('crf:auth-expired', handleAuthExpired\)[\s\S]*await restoreSession\(\)/)
-  assert.match(appSource, /<template v-else-if="isAdmin">/)
-})
+  assert.match(
+    appSource,
+    /async function onLoginSuccess\(\) \{[\s\S]*await loadMe\(\)[\s\S]*if \(isAdmin\.value\) \{[\s\S]*projects\.value = \[\]/,
+  );
+  assert.match(
+    appSource,
+    /onMounted\(async \(\) => \{[\s\S]*window\.addEventListener\('crf:auth-expired', handleAuthExpired\)[\s\S]*await restoreSession\(\)/,
+  );
+  assert.match(appSource, /<template v-else-if="isAdmin">/);
+});
 
 test('app verifies saved token before rendering authenticated workspaces', () => {
-  assert.match(appSource, /const isCheckingAuth = ref\(!!localStorage\.getItem\('crf_token'\)\)/)
-  assert.match(appSource, /<div v-if="isCheckingAuth" class="auth-loading" aria-live="polite">/)
-  assert.match(appSource, /<LoginView v-else-if="!isLoggedIn" @login-success="onLoginSuccess" \/>/)
-  assert.match(appSource, /<template v-else-if="isAdmin">/)
-})
+  assert.match(appSource, /const isCheckingAuth = ref\(!!localStorage\.getItem\('crf_token'\)\)/);
+  assert.match(appSource, /<div v-if="isCheckingAuth" class="auth-loading" aria-live="polite">/);
+  assert.match(appSource, /<LoginView v-else-if="!isLoggedIn" @login-success="onLoginSuccess" \/>/);
+  assert.match(appSource, /<template v-else-if="isAdmin">/);
+});
 
 test('app clears invalid saved token before loading projects', () => {
-  assert.match(appSource, /async function loadMe\(\) \{[\s\S]*currentUser\.value = await api\.get\('\/api\/auth\/me'\)[\s\S]*return true[\s\S]*catch \{[\s\S]*currentUser\.value = getEmptyUser\(\)[\s\S]*return false[\s\S]*\}/)
-  assert.match(appSource, /async function restoreSession\(\) \{[\s\S]*const hasToken = !!localStorage\.getItem\('crf_token'\)[\s\S]*if \(!hasToken\) \{[\s\S]*isLoggedIn\.value = false[\s\S]*return[\s\S]*\}[\s\S]*const authenticated = await loadMe\(\)[\s\S]*if \(!authenticated\) \{[\s\S]*resetSessionState\(\)[\s\S]*return[\s\S]*\}[\s\S]*isLoggedIn\.value = true[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)[\s\S]*\}/)
-})
+  assert.match(
+    appSource,
+    /async function loadMe\(\) \{[\s\S]*currentUser\.value = await api\.get\('\/api\/auth\/me'\)[\s\S]*return true[\s\S]*catch \{[\s\S]*currentUser\.value = getEmptyUser\(\)[\s\S]*return false[\s\S]*\}/,
+  );
+  assert.match(
+    appSource,
+    /async function restoreSession\(\) \{[\s\S]*const hasToken = !!localStorage\.getItem\('crf_token'\)[\s\S]*if \(!hasToken\) \{[\s\S]*isLoggedIn\.value = false[\s\S]*return[\s\S]*\}[\s\S]*const authenticated = await loadMe\(\)[\s\S]*if \(!authenticated\) \{[\s\S]*resetSessionState\(\)[\s\S]*return[\s\S]*\}[\s\S]*isLoggedIn\.value = true[\s\S]*if \(!isAdmin\.value\) await loadProjects\(\)[\s\S]*\}/,
+  );
+});
