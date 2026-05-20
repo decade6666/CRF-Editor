@@ -10,8 +10,7 @@
   >
     <div v-if="formData" class="compare-container">
       <!-- 左侧：原始文档截图 -->
-      <!-- TODO: 临时屏蔽，待后续完善后恢复 -->
-      <div v-if="ENABLE_LEFT_PREVIEW" class="compare-panel compare-left">
+      <div class="compare-panel compare-left">
         <div class="panel-header">原始文档截图</div>
         <div class="panel-body panel-body-scroll">
           <DocxScreenshotPanel
@@ -29,11 +28,7 @@
       <div class="compare-panel compare-right">
         <div class="panel-header">导入效果</div>
         <div class="panel-body panel-body-scroll">
-          <SimulatedCRFForm
-            :fields="formData.fields || []"
-            view-mode="direct"
-            @field-click="handleFieldClick"
-          />
+          <SimulatedCRFForm :fields="formData.fields || []" view-mode="direct" @field-click="handleFieldClick" />
         </div>
       </div>
     </div>
@@ -47,13 +42,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import DocxScreenshotPanel from './DocxScreenshotPanel.vue'
-import SimulatedCRFForm from './SimulatedCRFForm.vue'
-
-// TODO: 临时屏蔽左侧预览面板，待后续完善其他部分后再恢复
-// 恢复方法：将 ENABLE_LEFT_PREVIEW 改为 true 即可
-const ENABLE_LEFT_PREVIEW = false
+import { ref } from 'vue';
+import DocxScreenshotPanel from './DocxScreenshotPanel.vue';
+import SimulatedCRFForm from './SimulatedCRFForm.vue';
 
 defineProps({
   modelValue: { type: Boolean, default: false },
@@ -61,17 +52,17 @@ defineProps({
   tempId: { type: String, default: '' },
   projectId: { type: Number, default: 0 },
   allFormNames: { type: Array, default: () => [] },
-  allFormsData: { type: Array, default: () => [] },  // 所有表单的完整数据
-})
+  allFormsData: { type: Array, default: () => [] }, // 所有表单的完整数据
+});
 
-defineEmits(['update:modelValue'])
+defineEmits(['update:modelValue']);
 
-const dialogWidth = 'min(92vw, 1200px)'
-const highlightedField = ref(null)
+const dialogWidth = 'min(92vw, 1200px)';
+const highlightedField = ref(null);
 
 // 处理字段点击
 function handleFieldClick(field) {
-  highlightedField.value = field
+  highlightedField.value = field;
 }
 </script>
 
