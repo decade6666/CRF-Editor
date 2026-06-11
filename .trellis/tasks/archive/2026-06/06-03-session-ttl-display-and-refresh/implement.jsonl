@@ -1,0 +1,12 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Composable lifecycle, API usage, and auth refresh patterns for useSessionTimer"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "SessionTimer component structure, Element Plus button/icon accessibility"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "localStorage auth token state and startup auth gate conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality and validation requirements"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "JavaScript type-safety and data parsing expectations"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Auth-token contract invariants for JWT exp display and GET /api/auth/me refresh"}
+{"file": "frontend/.claude/CLAUDE.md", "reason": "Frontend module conventions and test strategy"}
+{"file": "frontend/src/App.vue", "reason": "Existing topbar icon placement and auth-expired/logout handling patterns"}
+{"file": "frontend/src/composables/useApi.js", "reason": "Existing X-Refreshed-Token storage and 401 dispatch behavior to consume without editing"}
+{"file": "frontend/tests/appSettingsShell.test.js", "reason": "node:test source-level test style example"}
