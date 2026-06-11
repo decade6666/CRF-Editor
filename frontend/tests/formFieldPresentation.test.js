@@ -13,9 +13,14 @@ import {
 } from '../src/composables/formFieldPresentation.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const useCRFRendererSource = readFileSync(path.resolve(currentDir, '../src/composables/useCRFRenderer.js'), 'utf8');
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
 const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
+  'utf8',
+);
+const visitsSource = readFileSync(
+  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
   'utf8',
 );
 const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
@@ -81,7 +86,7 @@ test('preview groups switch to inline when inline_mark changes', () => {
   assert.deepEqual(groups[1].fields.map(getFormFieldDisplayLabel), ['快捷编辑标签', '同组字段']);
 });
 
-test('mixed wide inline and regular fields keep separate width groups', () => {
+test('mixed wide inline and regular fields keep segmented groups before component-level unified rendering', () => {
   const groups = buildFormDesignerRenderGroups([
     createField({ id: 1, order_index: 1, inline_mark: 0, label_override: '普通字段' }),
     ...Array.from({ length: 5 }, (_, idx) =>
@@ -180,13 +185,34 @@ test('preview structural colors are unified across designer and template preview
     /\.word-page \.wp-inline-header \{ background: var\(--preview-structure-bg\); font-weight: bold; text-align: center; \}/,
   );
   assert.match(mainCssSource, /\.word-page \.wp-label \{ font-weight: bold; background: transparent; \}/);
-  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000; \}/);
+  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000;[\s\S]*\}/);
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/);
   assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/);
   assert.match(formDesignerSource, /background:var\(--preview-structure-bg\);/);
   assert.match(templatePreviewSource, /background:var\(--preview-structure-bg\);/);
   assert.match(templatePreviewSource, /\.wp-inline-header \{\s*background: var\(--preview-structure-bg\);/s);
   assert.doesNotMatch(mainCssSource, /#fafafa|#f5f5f5|#d9d9d9/);
+});
+
+test('preview choice labels may wrap inside a single long option without overflowing', () => {
+  assert.match(useCRFRendererSource, /class="choice-group"/);
+  assert.match(useCRFRendererSource, /class="choice-atom"/);
+  assert.match(useCRFRendererSource, /class="choice-label/);
+  assert.doesNotMatch(useCRFRendererSource, /class="choice-atom" style="[^"]*white-space:nowrap/);
+  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{[\s\S]*word-break: break-word;[\s\S]*\}/);
+  assert.match(mainCssSource, /\.word-page \.choice-atom \{[^}]*display: inline-flex;[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*\}/s);
+  assert.match(mainCssSource, /\.word-page \.choice-label \{[^}]*overflow-wrap: anywhere;[^}]*\}/s);
+});
+
+test('designer and visits Word previews both expose row height resize handles', () => {
+  assert.match(formDesignerSource, /class="wp-ctrl row-resize-anchor"/);
+  assert.match(visitsSource, /useRowResize/);
+  assert.match(visitsSource, /function getPreviewRowResizer/);
+  assert.match(visitsSource, /class="wp-ctrl row-resize-anchor"/);
+  assert.match(visitsSource, /class="row-resizer-handle"/);
+  assert.match(visitsSource, /onResizeStart\(getNormalRowKey\(ff\)/);
+  assert.match(visitsSource, /onResizeStart\(getUnifiedRegularRowKey\(seg\.fields\[0\]\)/);
+  assert.match(mainCssSource, /\.word-page \.row-resizer-handle \{/);
 });
 
 test('label preview rows preserve multiline text through dedicated class', () => {
@@ -199,6 +225,8 @@ test('label preview rows preserve multiline text through dedicated class', () =>
 });
 
 test('designer preview uses full-width static layout without scale logic', () => {
+  assert.match(formDesignerSource, /renderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
+  assert.match(formDesignerSource, /designerRenderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
   assert.match(formDesignerSource, /class="designer-workspace-bottom"[\s\S]*class="designer-preview-pane"/);
   assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/);
   assert.match(
@@ -212,14 +240,9 @@ test('designer preview uses full-width static layout without scale logic', () =>
   assert.doesNotMatch(formDesignerSource, /ref="previewViewportRef"/);
   assert.doesNotMatch(formDesignerSource, /ref="previewPageRef"/);
   assert.doesNotMatch(formDesignerSource, /translateX\(-50%\) scale/);
-  assert.match(
-    formDesignerSource,
-    /<div class="designer-section-title">[\s\S]*?<span>实时预览<\/span>[\s\S]*?<\/div>[\s\S]*?<template v-else>[\s\S]*?<div v-if="!designerPreviewFields.length" class="wp-empty">暂无字段<\/div>/,
-  );
-  assert.doesNotMatch(
-    formDesignerSource,
-    /<div class="designer-section-title">实时预览<\/div>[\s\S]*?<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/,
-  );
+  assert.match(formDesignerSource, /<span>实时预览<\/span>/);
+  assert.match(formDesignerSource, /<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/);
+  assert.match(visitsSource, /<div class="wp-form-title">\{\{ formPreviewTitle \}\}<\/div>/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 
@@ -239,6 +262,7 @@ test('designer preview page keeps A4 geometry and stretches the stage container'
   assert.ok(landscapeBlock, '.designer-scaled-word-page.landscape rule should exist')
   assert.doesNotMatch(landscapeBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page.landscape must not force width:100% (use A4 landscape geometry)')
 });
+
 
 test('notes autosave failures keep main preview on persisted notes', () => {
   assert.match(
