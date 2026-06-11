@@ -89,6 +89,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 /* 头部 */
 .header { background: var(--color-header-bg); color: var(--color-header-text); padding: 8px 20px; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
 .header-left { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.header-right-group { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .header-right { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
 .header h1 { font-size: 18px; }
 
@@ -99,8 +100,13 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   }
 
   .header-left,
+  .header-right-group,
   .header-right {
     width: 100%;
+  }
+
+  .header-right-group {
+    margin-left: 0;
   }
 
   .header-right {

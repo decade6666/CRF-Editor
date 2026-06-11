@@ -150,6 +150,8 @@ POST /api/forms/{form_id}/fields/reorder
 4. On any 401, `useApi.js` removes `crf_token` and dispatches `crf:auth-expired`; `App.vue` clears session shell state
 5. Successful protected responses may carry `X-Refreshed-Token`; `useApi.js` must overwrite `localStorage['crf_token']` when present
 6. Password change or admin password reset still invalidates old tokens by incrementing `auth_version`
+7. Frontend MAY decode JWT payload `exp` for display purposes; this decode MUST NOT be treated as authoritative — backend `get_current_user` remains the only authority for token validity.
+8. Frontend MAY trigger `GET /api/auth/me` solely to request a fresh `X-Refreshed-Token`; this MUST NOT bypass the standard rate-limit or 401 handling.
 
 **Validation**:
 - Backend: `backend/tests/test_auth.py`

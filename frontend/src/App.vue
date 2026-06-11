@@ -1,5 +1,15 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, provide, defineAsyncComponent, nextTick } from 'vue';
+import {
+  ref,
+  reactive,
+  computed,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  provide,
+  defineAsyncComponent,
+  nextTick,
+} from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   Delete,
@@ -24,6 +34,7 @@ import { clearPerfEvents, markPerfEnd, markPerfStart, recordPerfEvent } from './
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
+import SessionTimer from './components/SessionTimer.vue';
 import { useOrderableList } from './composables/useOrderableList';
 
 const VisitsTab = defineAsyncComponent(() => import('./components/VisitsTab.vue'));
@@ -837,19 +848,22 @@ function startResize(e) {
     <div class="header">
       <div class="header-left">
         <h1>CRF编辑器</h1>
-        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" title="设置" @click="openSettings"
           ><el-icon aria-hidden="true"><Setting /></el-icon
         ></el-button>
         <el-button
           class="header-icon-btn"
           text
           circle
-          @click="toggleTheme"
           :title="isDark ? '切换到浅色模式' : '切换到暗色模式'"
           :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+          @click="toggleTheme"
         >
           <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
         </el-button>
+      </div>
+      <div class="header-right-group">
+        <SessionTimer />
       </div>
     </div>
     <div class="admin-shell">
@@ -872,28 +886,31 @@ function startResize(e) {
         >
           <el-icon aria-hidden="true"><Expand /></el-icon>
         </el-button>
-        <el-button class="header-icon-btn" text circle aria-label="刷新数据" @click="handleRefresh" title="刷新数据"
+        <el-button class="header-icon-btn" text circle aria-label="刷新数据" title="刷新数据" @click="handleRefresh"
           ><el-icon aria-hidden="true"><RefreshRight /></el-icon
         ></el-button>
-        <el-button class="header-icon-btn" text circle aria-label="打开设置" @click="openSettings" title="设置"
+        <el-button class="header-icon-btn" text circle aria-label="打开设置" title="设置" @click="openSettings"
           ><el-icon aria-hidden="true"><Setting /></el-icon
         ></el-button>
         <el-button
           class="header-icon-btn"
           text
           circle
-          @click="toggleTheme"
           :title="isDark ? '切换到浅色模式' : '切换到暗色模式'"
           :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'"
+          @click="toggleTheme"
         >
           <el-icon aria-hidden="true"><Moon v-if="!isDark" /><Sunny v-else /></el-icon>
         </el-button>
       </div>
-      <div class="header-right">
-        <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
-        <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord"
-          >导出Word</el-button
-        >
+      <div class="header-right-group">
+        <div class="header-right">
+          <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
+          <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord"
+            >导出Word</el-button
+          >
+        </div>
+        <SessionTimer />
       </div>
     </div>
 
@@ -908,7 +925,7 @@ function startResize(e) {
         <div class="sidebar-content" v-show="!isCollapsed">
           <div class="sidebar-header">
             <span>项目列表</span>
-            <el-button type="primary" size="small" circle @click="showCreateProject = true" title="新建项目"
+            <el-button type="primary" size="small" circle title="新建项目" @click="showCreateProject = true"
               ><el-icon><Plus /></el-icon
             ></el-button>
           </div>
@@ -987,8 +1004,8 @@ function startResize(e) {
           <el-tabs
             class="main-content-tabs"
             v-model="activeTab"
-            @tab-change="onMainTabChange"
             style="height: 100%; display: flex; flex-direction: column"
+            @tab-change="onMainTabChange"
           >
             <el-tab-pane label="项目信息" name="info">
               <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
@@ -1047,7 +1064,6 @@ function startResize(e) {
           show-checkbox
           node-key="id"
           :props="{ label: 'label', children: 'children' }"
-          @check="handleImportTreeCheck"
           style="
             max-height: 400px;
             overflow-y: auto;
@@ -1055,6 +1071,7 @@ function startResize(e) {
             border-radius: 4px;
             padding: 8px;
           "
+          @check="handleImportTreeCheck"
         >
           <template #default="{ node, data }">
             <span style="flex: 1">{{ node.label }}</span>
@@ -1124,9 +1141,9 @@ function startResize(e) {
             <p class="form-select-prompt">请勾选要导入的表单：</p>
             <el-button
               size="small"
-              @click="toggleSelectAllImportWordForms"
               :disabled="importedFormsPreview.length === 0"
               aria-controls="import-word-forms-list"
+              @click="toggleSelectAllImportWordForms"
             >
               {{
                 selectedFormsToImport.length === importedFormsPreview.length && importedFormsPreview.length > 0
@@ -1183,7 +1200,14 @@ function startResize(e) {
             :title="`导入成功，共 ${importedResults.length} 个表单`"
             style="margin-bottom: 12px"
           />
-          <el-table :data="importedResults" size="small" border style="width: 100%" max-height="360" aria-label="导入结果">
+          <el-table
+            :data="importedResults"
+            size="small"
+            border
+            style="width: 100%"
+            max-height="360"
+            aria-label="导入结果"
+          >
             <el-table-column type="index" label="#" width="50" />
             <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
             <el-table-column prop="field_count" label="字段数" width="90" align="center" />
@@ -1198,13 +1222,10 @@ function startResize(e) {
         </div>
       </template>
       <template #footer>
-        <el-button
-          v-if="importWordStep !== 3"
-          @click="showImportWordDialog = false"
-          :disabled="importWordLoading"
+        <el-button v-if="importWordStep !== 3" :disabled="importWordLoading" @click="showImportWordDialog = false"
           >取消</el-button
         >
-        <el-button v-if="importWordStep === 2" @click="goBackToImportWordStep1" :disabled="importWordLoading"
+        <el-button v-if="importWordStep === 2" :disabled="importWordLoading" @click="goBackToImportWordStep1"
           >上一步</el-button
         >
         <el-button
@@ -1222,8 +1243,8 @@ function startResize(e) {
     <!-- Word导入预览对话框 -->
     <DocxCompareDialog
       v-if="compareFormData"
-      v-model="showDocxCompare"
       :key="compareFormData?.index"
+      v-model="showDocxCompare"
       :form-data="compareFormData"
       :temp-id="tempDocxId || ''"
       :project-id="selectedProject?.id || 0"
@@ -1256,7 +1277,7 @@ function startResize(e) {
       <div v-if="!isAdmin" class="settings-transfer-actions">
         <el-button @click="exportFullDatabase">导出所有项目</el-button>
         <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-        <el-button @click="triggerImportProject" :loading="importProjectLoading">导入项目</el-button>
+        <el-button :loading="importProjectLoading" @click="triggerImportProject">导入项目</el-button>
         <el-button :disabled="!selectedProject" @click="openImportWordDialog">导入Word</el-button>
       </div>
 
@@ -1297,8 +1318,8 @@ function startResize(e) {
         <el-form-item v-if="settingsForm.ai_enabled">
           <el-button
             :loading="aiTestLoading"
-            @click="testAiConnection"
             :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model"
+            @click="testAiConnection"
           >
             测试连接
           </el-button>
@@ -1368,8 +1389,8 @@ function startResize(e) {
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="closeSelfPasswordDialog" :disabled="selfPasswordSaving">取消</el-button>
-      <el-button type="primary" @click="submitSelfPasswordChange" :loading="selfPasswordSaving">确认修改</el-button>
+      <el-button :disabled="selfPasswordSaving" @click="closeSelfPasswordDialog">取消</el-button>
+      <el-button type="primary" :loading="selfPasswordSaving" @click="submitSelfPasswordChange">确认修改</el-button>
     </template>
   </el-dialog>
 </template>
