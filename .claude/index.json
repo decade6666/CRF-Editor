@@ -78,8 +78,7 @@
       "scripts": [
         "backend/scripts/migrate_template_db.py",
         "backend/scripts/generate_perf_fixture.py",
-        "backend/scripts/run_perf_baseline.py",
-        "backend/scripts/summarize_perf_evidence.py"
+        "backend/scripts/run_perf_baseline.py"
       ],
       "tests": [
         "backend/tests/conftest.py",
@@ -112,7 +111,6 @@
         "backend/tests/test_perf_baseline.py",
         "backend/tests/test_perf_harness.py",
         "backend/tests/test_perf_contracts.py",
-        "backend/tests/test_perf_evidence_summary.py",
         "backend/tests/test_perf_redaction.py",
         "backend/tests/test_perf_reorder_spans.py",
         "backend/tests/test_perf_busy_wait_metric.py",
