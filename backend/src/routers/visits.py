@@ -27,6 +27,7 @@ from src.schemas import BatchDeleteRequest
 from src.perf import perf_span
 
 from src.services.order_service import OrderService
+from src.models.visit_form import VisitForm
 
 
 
@@ -201,7 +202,7 @@ def reorder_visits(project_id: int, id_list: List[int], session: Session = Depen
 
 def copy_visit(visit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
-    """复制访视，name 加 _copy 后缀（冲突时追加数字），sequence 取当前最大值+1"""
+    """复制访视，name 加 _copy 后缀（冲突时追加数字），并复制访视内表单关联。"""
 
     from sqlalchemy import select
 
@@ -235,7 +236,26 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
 
     new_visit = Visit(project_id=src.project_id, name=candidate, code=generate_code("VISIT"), sequence=OrderService.get_next_sequence(session, Visit, Visit.project_id == src.project_id))
 
-    return repo.create(new_visit)
+    created_visit = repo.create(new_visit)
+
+    source_visit_forms = list(
+        session.scalars(
+            select(VisitForm)
+            .where(VisitForm.visit_id == src.id)
+            .order_by(VisitForm.sequence, VisitForm.id)
+        ).all()
+    )
+    for source_visit_form in source_visit_forms:
+        session.add(
+            VisitForm(
+                visit_id=created_visit.id,
+                form_id=source_visit_form.form_id,
+                sequence=source_visit_form.sequence,
+            )
+        )
+
+    session.flush()
+    return created_visit
 
 
 
