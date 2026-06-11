@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
+from docx.oxml.ns import qn
+from docx.shared import Cm
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -21,7 +23,7 @@ from src.models.form_field import FormField
 from src.models.project import Project
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
-from src.services.export_service import ExportService
+from src.services.export_service import ExportService, LayoutDecision, Segment
 
 
 @pytest.fixture
@@ -145,6 +147,17 @@ def export_document(session: Session, project_id: int, tmp_path: Path) -> Docume
 
 
 
+def assert_table_rows_exactly_one_centimeter(table) -> None:
+    for row in table.rows:
+        tr_pr = row._tr.trPr
+        assert tr_pr is not None
+        tr_height = tr_pr.find(qn('w:trHeight'))
+        assert tr_height is not None
+        assert tr_height.get(qn('w:hRule')) == 'exact'
+        assert tr_height.get(qn('w:val')) == str(Cm(1).twips)
+
+
+
 def extract_form_headings(doc: Document) -> list[str]:
     headings: list[str] = []
     for paragraph in doc.paragraphs:
@@ -246,6 +259,58 @@ def test_export_project_uses_next_page_section_break_between_portrait_forms(
 
 
 
+def test_export_project_sets_form_table_rows_to_exactly_one_centimeter(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="生命体征", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+
+    systolic = create_field_definition(
+        session,
+        project.id,
+        variable_name="SYSBP",
+        label="收缩压",
+    )
+    diastolic = create_field_definition(
+        session,
+        project.id,
+        variable_name="DIABP",
+        label="舒张压",
+    )
+    section_label = create_field_definition(
+        session,
+        project.id,
+        variable_name="SECTION_LABEL",
+        label="给药后记录",
+        field_type="标签",
+    )
+    create_form_field(session, form.id, systolic.id, order_index=1, default_value="120")
+    session.add(
+        FormField(
+            form_id=form.id,
+            field_definition_id=None,
+            is_log_row=1,
+            order_index=2,
+            label_override="日志记录",
+        )
+    )
+    session.flush()
+    create_form_field(session, form.id, section_label.id, order_index=3)
+    create_form_field(session, form.id, diastolic.id, order_index=4, default_value="80")
+
+    doc = export_document(session, project.id, tmp_path)
+
+    cover_table = doc.tables[0]
+    assert_table_rows_exactly_one_centimeter(cover_table)
+
+    form_table = doc.tables[2]
+    assert len(form_table.rows) == 4
+    assert_table_rows_exactly_one_centimeter(form_table)
+
+
 def test_export_project_preserves_mixed_normal_inline_group_order(
     session: Session,
     tmp_path: Path,
@@ -303,6 +368,7 @@ def test_export_project_visit_flow_uses_cross_marks_and_order_index_sorting(
     assert visit_flow_table.cell(2, 1).text.strip() == "×"
     assert visit_flow_table.cell(3, 1).text.strip() == "×"
     assert visit_flow_table.cell(4, 1).text.strip() == "×"
+    assert_table_rows_exactly_one_centimeter(visit_flow_table)
 
 
 def _find_tbl_headers(tr) -> list:
@@ -450,6 +516,76 @@ def test_export_project_groups_adjacent_inline_fields_into_one_table(
     assert inline_table.cell(1, 0).text.strip() == "第一行"
     assert inline_table.cell(1, 1).text.strip() == "仅一行"
     assert inline_table.cell(2, 0).text.strip() == "第二行"
+    assert_table_rows_exactly_one_centimeter(inline_table)
+
+
+def test_build_unified_table_sets_all_rows_to_exactly_one_centimeter(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="统一横向表", order_index=1)
+    regular_def = create_field_definition(
+        session,
+        project.id,
+        variable_name="REGULAR",
+        label="普通字段",
+    )
+    label_def = create_field_definition(
+        session,
+        project.id,
+        variable_name="SECTION",
+        label="分区标签",
+        field_type="标签",
+    )
+    inline_a_def = create_field_definition(
+        session,
+        project.id,
+        variable_name="INLINE_A",
+        label="内联A",
+    )
+    inline_b_def = create_field_definition(
+        session,
+        project.id,
+        variable_name="INLINE_B",
+        label="内联B",
+    )
+    regular = create_form_field(session, form.id, regular_def.id, order_index=1)
+    full_row = create_form_field(session, form.id, label_def.id, order_index=2)
+    inline_a = create_form_field(
+        session,
+        form.id,
+        inline_a_def.id,
+        order_index=3,
+        default_value="第一行\n第二行",
+    )
+    inline_b = create_form_field(
+        session,
+        form.id,
+        inline_b_def.id,
+        order_index=4,
+        default_value="仅一行",
+    )
+    inline_a.inline_mark = 1
+    inline_b.inline_mark = 1
+    session.flush()
+
+    service = ExportService(session)
+    service._column_width_overrides = {}
+    doc = Document()
+    service._apply_document_style(doc)
+    table = service._build_unified_table(
+        doc,
+        [
+            Segment("regular_field", [regular]),
+            Segment("full_row", [full_row]),
+            Segment("inline_block", [inline_a, inline_b]),
+        ],
+        LayoutDecision("unified_landscape", 4, 1, 3),
+        form_id=form.id,
+    )
+
+    assert len(table.rows) == 5
+    assert_table_rows_exactly_one_centimeter(table)
 
 
 def test_export_project_renders_cover_table_with_three_rows_two_cols(

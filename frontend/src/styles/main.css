@@ -199,7 +199,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page table { border-collapse: collapse; width: 100%; table-layout: fixed; }
 .word-page td { border: 1px solid #000; padding: 5.25pt 6px; line-height: 1.0; vertical-align: middle; word-break: break-word; }
 .word-page .wp-label { font-weight: bold; background: transparent; }
-.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #000; }
+.word-page .wp-ctrl { font-family: 'SimSun', serif; color: #000; word-break: break-word; overflow-wrap: anywhere; }
 .word-page .wp-inline-header { background: var(--preview-structure-bg); font-weight: bold; text-align: center; }
 /* inline-table 和 unified-table 允许内容驱动的列宽 */
 .word-page .inline-table { width: 100%; table-layout: auto; }
@@ -214,9 +214,41 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .unified-value { font-family: 'SimSun', serif; color: #000; }
 .word-page .wp-structure-label--multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
 .word-page .wp-empty { color: #909399; font-size: 12px; text-align: center; padding: 40px 0; }
-/* choice atom 不换行包装 */
-.word-page .choice-atom { display: inline-flex; align-items: flex-end; gap: 0.2em; white-space: nowrap; }
+/* choice marker 贴紧标签；标签本身可在窄单元格内换行 */
+.word-page .choice-group { display: inline; white-space: normal; }
+.word-page .choice-atom { display: inline-flex; align-items: flex-end; max-width: 100%; white-space: normal; vertical-align: bottom; }
+.word-page .choice-marker { flex: 0 0 auto; }
+.word-page .choice-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.word-page .choice-label--aligned { display: inline-block; min-width: min(var(--choice-label-min), 100%); }
 .word-page .choice-atom .fill-line { vertical-align: bottom; }
+
+.word-page .row-resize-host { position: relative; }
+.word-page .row-resize-anchor { position: relative; }
+.word-page .row-resizer-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 10px;
+  cursor: row-resize;
+  z-index: 2;
+  touch-action: none;
+  display: block;
+}
+.word-page .row-resizer-handle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.word-page .row-resizer-handle:hover::after,
+.word-page .row-resizer-handle:active::after {
+  background: var(--color-primary);
+}
 
 /* 预览正文与备注布局（VisitsTab 访视预览仍保留右侧 aside；FormDesignerTab 已迁移至顶栏） */
 .wp-body { display: flex; gap: 32px; align-items: flex-start; }

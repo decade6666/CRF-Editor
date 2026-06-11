@@ -6,6 +6,17 @@ import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable';
 import { useColumnResize } from '../composables/useColumnResize';
 import {
+  buildTableInstanceId,
+  useRowResize,
+  getNormalRowKey,
+  getInlineHeaderRowKey,
+  getInlineDataRowKey,
+  getUnifiedRegularRowKey,
+  getUnifiedFullRowKey,
+  getUnifiedInlineHeaderRowKey,
+  getUnifiedInlineDataRowKey,
+} from '../composables/useRowResize';
+import {
   renderCtrl as renderCtrlBase,
   renderCtrlHtml,
   toHtml,
@@ -650,26 +661,14 @@ const designerLandscapeMode = computed(() =>
 // defaultsSource 使用工厂闭包，基于内容驱动的 planner 计算默认比例（与 width_planning.py 对齐）。
 const formIdRef = computed(() => selectedForm.value?.id);
 const resizerCache = new Map();
+const rowResizerCache = new Map();
 watch(
   () => selectedForm.value?.id,
   () => {
     resizerCache.clear();
+    rowResizerCache.clear();
   },
 );
-
-/**
- * 构建规范的 table_instance_id。
- * 格式：kind:fieldIds=<ordered-field-ids>
- * 示例：normal:fieldIds=1,2,3 / inline:fieldIds=4,5 / unified:fieldIds=6,7,8,9
- * 该标识符稳定于字段排序变化（groupIndex 不稳定），保证持久化一致性。
- */
-function buildTableInstanceId(kind, fields) {
-  const fieldIds = (fields || [])
-    .map((f) => f.id)
-    .filter((id) => id != null)
-    .join(',');
-  return `${kind}:fieldIds=${fieldIds}`;
-}
 
 /**
  * 旧键格式正则：匹配 <groupIndex>-<kind>-<colCount> 格式
@@ -743,6 +742,22 @@ function cumRatio(ratios, boundaryIdx) {
   let sum = 0;
   for (let i = 0; i <= boundaryIdx; i += 1) sum += ratios[i];
   return sum;
+}
+
+function getRowResizer(kind, group) {
+  if (selectedForm.value?.id == null || !group) return null;
+  const tableInstanceId = buildTableInstanceId(kind, group.fields || []);
+  if (!rowResizerCache.has(tableInstanceId)) {
+    rowResizerCache.set(
+      tableInstanceId,
+      useRowResize(formIdRef, computed(() => tableInstanceId)),
+    );
+  }
+  return rowResizerCache.get(tableInstanceId);
+}
+
+function getRowHeightStyle(rowResizer, rowKey) {
+  return rowResizer?.getRowHeightStyle(rowKey) || null;
 }
 
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240);
@@ -1762,7 +1777,12 @@ function openAddForm() {
                           />
                         </colgroup>
                         <template v-for="seg in buildFormDesignerUnifiedSegments(g.fields)" :key="seg.fields[0]?.id">
-                          <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
+                          <tr
+                            v-if="seg.type === 'regular_field'"
+                            class="row-resize-host"
+                            :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedRegularRowKey(seg.fields[0]))"
+                            @dblclick="openQuickEdit(seg.fields[0])"
+                          >
                             <td
                               class="unified-label"
                               :colspan="computeLabelValueSpans(g.colCount).labelSpan"
@@ -1771,13 +1791,23 @@ function openAddForm() {
                               {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                             </td>
                             <td
-                              class="unified-value"
+                              class="unified-value row-resize-anchor"
                               :colspan="computeLabelValueSpans(g.colCount).valueSpan"
                               :style="getFormFieldPreviewStyle(seg.fields[0])"
-                              v-html="renderCellHtml(seg.fields[0])"
-                            ></td>
+                            >
+                              <span v-html="renderCellHtml(seg.fields[0])"></span>
+                              <span
+                                class="row-resizer-handle"
+                                @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                              ></span>
+                            </td>
                           </tr>
-                          <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
+                          <tr
+                            v-else-if="seg.type === 'full_row'"
+                            class="row-resize-host"
+                            :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedFullRowKey(seg.fields[0]))"
+                            @dblclick="openQuickEdit(seg.fields[0])"
+                          >
                             <td
                               :class="{
                                 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签',
@@ -1789,31 +1819,55 @@ function openAddForm() {
                               "
                             >
                               {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
+                              <span
+                                class="row-resizer-handle"
+                                @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
+                              ></span>
                             </td>
                           </tr>
                           <template v-else-if="seg.type === 'inline_block'">
-                            <tr>
+                            <tr
+                              class="row-resize-host"
+                              :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedInlineHeaderRowKey(seg.fields))"
+                            >
                               <td
                                 v-for="(ff, idx) in seg.fields"
                                 :key="ff.id"
-                                class="wp-inline-header"
+                                class="wp-inline-header row-resize-anchor"
                                 :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]"
                                 :style="getFormFieldPreviewStyle(ff)"
                                 @dblclick="openQuickEdit(ff)"
                               >
                                 {{ getFormFieldDisplayLabel(ff) }}
+                                <span
+                                  v-if="idx === seg.fields.length - 1"
+                                  class="row-resizer-handle"
+                                  @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
+                                ></span>
                               </td>
                             </tr>
-                            <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                            <tr
+                              v-for="(row, ri) in getInlineRows(seg.fields)"
+                              :key="ri"
+                              class="row-resize-host"
+                              :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedInlineDataRowKey(seg.fields, ri))"
+                            >
                               <td
                                 v-for="(cell, ci) in row"
                                 :key="ci"
                                 class="wp-ctrl"
+                                :class="{ 'row-resize-anchor': ci === row.length - 1 }"
                                 :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]"
                                 :style="getFormFieldPreviewStyle(seg.fields[ci])"
                                 @dblclick="openQuickEdit(seg.fields[ci])"
-                                v-html="cell"
-                              ></td>
+                              >
+                                <span v-html="cell"></span>
+                                <span
+                                  v-if="ci === row.length - 1"
+                                  class="row-resizer-handle"
+                                  @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
+                                ></span>
+                              </td>
                             </tr>
                           </template>
                         </template>
@@ -1848,34 +1902,61 @@ function openAddForm() {
                           />
                         </colgroup>
                         <template v-for="ff in g.fields" :key="ff.id">
-                          <tr v-if="ff.field_definition?.field_type === '标签'" @dblclick="openQuickEdit(ff)">
+                          <tr
+                            v-if="ff.field_definition?.field_type === '标签'"
+                            class="row-resize-host"
+                            :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
+                            @dblclick="openQuickEdit(ff)"
+                          >
                             <td
-                              class="wp-structure-label--multiline"
+                              class="wp-structure-label--multiline row-resize-anchor"
                               colspan="2"
                               :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)"
                             >
                               {{ getFormFieldDisplayLabel(ff) }}
+                              <span
+                                class="row-resizer-handle"
+                                @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                              ></span>
                             </td>
                           </tr>
                           <tr
                             v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"
+                            class="row-resize-host"
+                            :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
                             @dblclick="openQuickEdit(ff)"
                           >
                             <td
                               colspan="2"
+                              class="row-resize-anchor"
                               :style="
                                 'font-weight:bold;' +
                                 getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')
                               "
                             >
                               {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                              <span
+                                class="row-resizer-handle"
+                                @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                              ></span>
                             </td>
                           </tr>
-                          <tr v-else @dblclick="openQuickEdit(ff)">
+                          <tr
+                            v-else
+                            class="row-resize-host"
+                            :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
+                            @dblclick="openQuickEdit(ff)"
+                          >
                             <td class="wp-label" :style="getFormFieldPreviewStyle(ff)">
                               {{ getFormFieldDisplayLabel(ff) }}
                             </td>
-                            <td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td>
+                            <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                              <span v-html="renderCellHtml(ff)"></span>
+                              <span
+                                class="row-resizer-handle"
+                                @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                              ></span>
+                            </td>
                           </tr>
                         </template>
                       </table>
@@ -1905,26 +1986,46 @@ function openAddForm() {
                             :style="{ width: r * 100 + '%' }"
                           />
                         </colgroup>
-                        <tr>
+                        <tr
+                          class="row-resize-host"
+                          :style="getRowHeightStyle(getRowResizer('inline', g), getInlineHeaderRowKey(g.fields))"
+                        >
                           <td
                             v-for="ff in g.fields"
                             :key="ff.id"
-                            class="wp-inline-header"
+                            class="wp-inline-header row-resize-anchor"
                             :style="getFormFieldPreviewStyle(ff)"
                             @dblclick="openQuickEdit(ff)"
                           >
                             {{ getFormFieldDisplayLabel(ff) }}
+                            <span
+                              v-if="ff.id === g.fields[g.fields.length - 1]?.id"
+                              class="row-resizer-handle"
+                              @pointerdown="(e) => getRowResizer('inline', g).onResizeStart(getInlineHeaderRowKey(g.fields), e)"
+                            ></span>
                           </td>
                         </tr>
-                        <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                        <tr
+                          v-for="(row, ri) in getInlineRows(g.fields)"
+                          :key="ri"
+                          class="row-resize-host"
+                          :style="getRowHeightStyle(getRowResizer('inline', g), getInlineDataRowKey(g.fields, ri))"
+                        >
                           <td
                             v-for="(cell, ci) in row"
                             :key="ci"
                             class="wp-ctrl"
+                            :class="{ 'row-resize-anchor': ci === row.length - 1 }"
                             :style="getFormFieldPreviewStyle(g.fields[ci])"
                             @dblclick="openQuickEdit(g.fields[ci])"
-                            v-html="cell"
-                          ></td>
+                          >
+                            <span v-html="cell"></span>
+                            <span
+                              v-if="ci === row.length - 1"
+                              class="row-resizer-handle"
+                              @pointerdown="(e) => getRowResizer('inline', g).onResizeStart(getInlineDataRowKey(g.fields, ri), e)"
+                            ></span>
+                          </td>
                         </tr>
                       </table>
                       <template v-if="getResizer('inline', g.fields.length, gi, g, 'main')"
@@ -2077,7 +2178,12 @@ function openAddForm() {
                                     v-for="seg in buildFormDesignerUnifiedSegments(g.fields)"
                                     :key="seg.fields[0]?.id"
                                   >
-                                    <tr v-if="seg.type === 'regular_field'" @dblclick="openQuickEdit(seg.fields[0])">
+                                    <tr
+                                      v-if="seg.type === 'regular_field'"
+                                      class="row-resize-host"
+                                      :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedRegularRowKey(seg.fields[0]))"
+                                      @dblclick="openQuickEdit(seg.fields[0])"
+                                    >
                                       <td
                                         class="unified-label"
                                         :colspan="computeLabelValueSpans(g.colCount).labelSpan"
@@ -2086,17 +2192,28 @@ function openAddForm() {
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                                       </td>
                                       <td
-                                        class="unified-value"
+                                        class="unified-value row-resize-anchor"
                                         :colspan="computeLabelValueSpans(g.colCount).valueSpan"
                                         :style="getFormFieldPreviewStyle(seg.fields[0])"
-                                        v-html="renderCellHtml(seg.fields[0])"
-                                      ></td>
+                                      >
+                                        <span v-html="renderCellHtml(seg.fields[0])"></span>
+                                        <span
+                                          class="row-resizer-handle"
+                                          @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                                        ></span>
+                                      </td>
                                     </tr>
-                                    <tr v-else-if="seg.type === 'full_row'" @dblclick="openQuickEdit(seg.fields[0])">
+                                    <tr
+                                      v-else-if="seg.type === 'full_row'"
+                                      class="row-resize-host"
+                                      :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedFullRowKey(seg.fields[0]))"
+                                      @dblclick="openQuickEdit(seg.fields[0])"
+                                    >
                                       <td
                                         :class="{
                                           'wp-structure-label--multiline':
                                             seg.fields[0].field_definition?.field_type === '标签',
+                                          'row-resize-anchor': true,
                                         }"
                                         :colspan="g.colCount"
                                         :style="
@@ -2108,31 +2225,56 @@ function openAddForm() {
                                         "
                                       >
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
+                                        <span
+                                          class="row-resizer-handle"
+                                          @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
+                                        ></span>
                                       </td>
                                     </tr>
                                     <template v-else-if="seg.type === 'inline_block'"
-                                      ><tr>
+                                      ><tr
+                                        class="row-resize-host"
+                                        :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedInlineHeaderRowKey(seg.fields))"
+                                      >
                                         <td
                                           v-for="(ff, idx) in seg.fields"
                                           :key="ff.id"
                                           class="wp-inline-header"
+                                          :class="{ 'row-resize-anchor': idx === seg.fields.length - 1 }"
                                           :colspan="computeMergeSpans(g.colCount, seg.fields.length)[idx]"
                                           :style="getFormFieldPreviewStyle(ff)"
                                           @dblclick="openQuickEdit(ff)"
                                         >
                                           {{ getFormFieldDisplayLabel(ff) }}
+                                          <span
+                                            v-if="idx === seg.fields.length - 1"
+                                            class="row-resizer-handle"
+                                            @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
+                                          ></span>
                                         </td>
                                       </tr>
-                                      <tr v-for="(row, ri) in getInlineRows(seg.fields)" :key="ri">
+                                      <tr
+                                        v-for="(row, ri) in getInlineRows(seg.fields)"
+                                        :key="ri"
+                                        class="row-resize-host"
+                                        :style="getRowHeightStyle(getRowResizer('unified', g), getUnifiedInlineDataRowKey(seg.fields, ri))"
+                                      >
                                         <td
                                           v-for="(cell, ci) in row"
                                           :key="ci"
                                           class="wp-ctrl"
+                                          :class="{ 'row-resize-anchor': ci === row.length - 1 }"
                                           :colspan="computeMergeSpans(g.colCount, seg.fields.length)[ci]"
                                           :style="getFormFieldPreviewStyle(seg.fields[ci])"
-                                          v-html="cell"
                                           @dblclick="openQuickEdit(seg.fields[ci])"
-                                        ></td></tr
+                                        >
+                                          <span v-html="cell"></span>
+                                          <span
+                                            v-if="ci === row.length - 1"
+                                            class="row-resizer-handle"
+                                            @pointerdown="(e) => getRowResizer('unified', g).onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
+                                          ></span>
+                                        </td></tr
                                     ></template>
                                   </template>
                                 </table>
@@ -2177,39 +2319,62 @@ function openAddForm() {
                                   <template v-for="ff in g.fields" :key="ff.id"
                                     ><tr
                                       v-if="ff.field_definition?.field_type === '标签'"
+                                      class="row-resize-host"
+                                      :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
                                       @dblclick="openQuickEdit(ff)"
                                     >
                                       <td
-                                        class="wp-structure-label--multiline"
+                                        class="wp-structure-label--multiline row-resize-anchor"
                                         colspan="2"
                                         :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)"
                                       >
                                         {{ getFormFieldDisplayLabel(ff) }}
+                                        <span
+                                          class="row-resizer-handle"
+                                          @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                                        ></span>
                                       </td>
                                     </tr>
                                     <tr
                                       v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"
+                                      class="row-resize-host"
+                                      :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
                                       @dblclick="openQuickEdit(ff)"
                                     >
                                       <td
                                         colspan="2"
+                                        class="row-resize-anchor"
                                         :style="
                                           'font-weight:bold;' +
                                           getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')
                                         "
                                       >
                                         {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                                        <span
+                                          class="row-resizer-handle"
+                                          @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                                        ></span>
                                       </td>
                                     </tr>
-                                    <tr v-else @dblclick="openQuickEdit(ff)">
+                                    <tr
+                                      v-else
+                                      class="row-resize-host"
+                                      :style="getRowHeightStyle(getRowResizer('normal', g), getNormalRowKey(ff))"
+                                      @dblclick="openQuickEdit(ff)"
+                                    >
                                       <td class="wp-label" :style="getFormFieldPreviewStyle(ff)">
                                         {{ getFormFieldDisplayLabel(ff) }}
                                       </td>
                                       <td
-                                        class="wp-ctrl"
+                                        class="wp-ctrl row-resize-anchor"
                                         :style="getFormFieldPreviewStyle(ff)"
-                                        v-html="renderCellHtml(ff)"
-                                      ></td></tr
+                                      >
+                                        <span v-html="renderCellHtml(ff)"></span>
+                                        <span
+                                          class="row-resizer-handle"
+                                          @pointerdown="(e) => getRowResizer('normal', g).onResizeStart(getNormalRowKey(ff), e)"
+                                        ></span>
+                                      </td></tr
                                   ></template>
                                 </table>
                                 <template v-if="getResizer('normal', 2, gi, g, 'designer')"
@@ -2243,26 +2408,47 @@ function openAddForm() {
                                       :style="{ width: r * 100 + '%' }"
                                     />
                                   </colgroup>
-                                  <tr>
+                                  <tr
+                                    class="row-resize-host"
+                                    :style="getRowHeightStyle(getRowResizer('inline', g), getInlineHeaderRowKey(g.fields))"
+                                  >
                                     <td
                                       v-for="ff in g.fields"
                                       :key="ff.id"
                                       class="wp-inline-header"
+                                      :class="{ 'row-resize-anchor': ff.id === g.fields[g.fields.length - 1]?.id }"
                                       :style="getFormFieldPreviewStyle(ff)"
                                       @dblclick="openQuickEdit(ff)"
                                     >
                                       {{ getFormFieldDisplayLabel(ff) }}
+                                      <span
+                                        v-if="ff.id === g.fields[g.fields.length - 1]?.id"
+                                        class="row-resizer-handle"
+                                        @pointerdown="(e) => getRowResizer('inline', g).onResizeStart(getInlineHeaderRowKey(g.fields), e)"
+                                      ></span>
                                     </td>
                                   </tr>
-                                  <tr v-for="(row, ri) in getInlineRows(g.fields)" :key="ri">
+                                  <tr
+                                    v-for="(row, ri) in getInlineRows(g.fields)"
+                                    :key="ri"
+                                    class="row-resize-host"
+                                    :style="getRowHeightStyle(getRowResizer('inline', g), getInlineDataRowKey(g.fields, ri))"
+                                  >
                                     <td
                                       v-for="(cell, ci) in row"
                                       :key="ci"
                                       class="wp-ctrl"
+                                      :class="{ 'row-resize-anchor': ci === row.length - 1 }"
                                       :style="getFormFieldPreviewStyle(g.fields[ci])"
                                       @dblclick="openQuickEdit(g.fields[ci])"
-                                      v-html="cell"
-                                    ></td>
+                                    >
+                                      <span v-html="cell"></span>
+                                      <span
+                                        v-if="ci === row.length - 1"
+                                        class="row-resizer-handle"
+                                        @pointerdown="(e) => getRowResizer('inline', g).onResizeStart(getInlineDataRowKey(g.fields, ri), e)"
+                                      ></span>
+                                    </td>
                                   </tr>
                                 </table>
                                 <template v-if="getResizer('inline', g.fields.length, gi, g, 'designer')"

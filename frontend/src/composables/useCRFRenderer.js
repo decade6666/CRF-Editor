@@ -400,16 +400,16 @@ function renderChoiceHtml(fieldType, rawOptions) {
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
   const separator = vertical ? '<br>' : '&nbsp;&nbsp;'
 
-  return options.map(option => {
+  return `<span class="choice-group">${options.map(option => {
     const labelHtml = escapeHtml(option.text)
     const optionTextHtml = option.trailingUnderscore
-      ? `<span style="white-space:nowrap">${labelHtml}</span>`
-      : `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
+      ? `<span class="choice-label">${labelHtml}</span>`
+      : `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
     const suffixHtml = option.trailingUnderscore
       ? buildFillLineHtml(6)
       : ''
-    return `<span style="display:inline-flex;align-items:flex-end;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
-  }).join(separator)
+    return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+  }).join(separator)}</span>`
 }
 
 export function toHtml(text) {
