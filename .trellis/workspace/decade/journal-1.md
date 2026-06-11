@@ -683,3 +683,60 @@ Implemented strict preview/export table-field parity for Word output, added comp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Session TTL display and refresh
+
+**Date**: 2026-06-10
+**Task**: Session TTL display and refresh
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Summary |
+| --- | --- |
+| Session timer UI | Added a top-bar `SessionTimer` component for both admin and ordinary workspaces. It displays `会话剩余 N 分钟`, `会话即将过期`, or `已过期`, and hides when no valid token display text exists. |
+| Session refresh | Added `useSessionTimer` composable that decodes JWT payload `exp` for display only, recalculates every 30s, warns once at <=5 minutes, and calls `GET /api/auth/me` on click to reuse `X-Refreshed-Token`. 401 handling remains delegated to `useApi.js`. |
+| Tests | Added `frontend/tests/sessionTimer.test.js` for JWT `exp` parsing, warning dedupe, display text boundaries, 30s interval, and manual refresh behavior. |
+| Contract docs | Extended `.trellis/spec/guides/cross-stack-contracts.md` `auth-token` invariants for frontend display-only `exp` decoding and `/api/auth/me` refresh triggering. |
+| Task archive | Archived completed Trellis task `06-03-session-ttl-display-and-refresh`. |
+
+**Validation**:
+- `node --test tests/sessionTimer.test.js` -> 4 passed
+- `npm run lint -- --quiet` -> passed
+- `npm run type-check --if-present` -> passed/no-op because no script is defined
+- `npm run build` -> passed
+- `node --test tests/*.test.js` -> 207 passed
+- `python3 -m pytest tests/test_export_service.py tests/test_permission_guards.py -q` -> 70 passed
+- `git diff --check` -> passed
+- Code review agent -> no blocking session timer issues found
+
+**Known unrelated blocker**:
+- Backend full `python3 -m pytest -q` was run and failed with 3 failures in `tests/test_perf_evidence_summary.py` because the current working tree has unrelated `openspec/` deletions, so `openspec/changes/research-performance-constraints/baselines/evidence-summary.json` cannot be written. This is outside the session timer task.
+
+**Unrelated working-tree changes left untouched**:
+- Existing backend/export/visit/form designer/row-resize/Word preview and large `openspec/` deletion changes remain outside the session timer commit.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2b0baed` | (see git log) |
+| `7ae81ef` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
