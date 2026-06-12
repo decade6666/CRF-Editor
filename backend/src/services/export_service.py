@@ -200,6 +200,11 @@ class ExportService:
     LANDSCAPE_CONTENT_WIDTH_CM = 23.36
     FORM_TABLE_ROW_HEIGHT_CM = 1
 
+    # 纵向选项之间的段前间距（pt）。跨栈契约：与前端 main.css
+    # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
+    # 保证 Word 预览与导出文档的纵向选项间距一致。
+    VERTICAL_OPTION_GAP_PT = 3
+
 
 
     def __init__(self, session: Session):
@@ -2582,7 +2587,8 @@ class ExportService:
 
                 para = cell.add_paragraph()
 
-                para.paragraph_format.space_before = Pt(0)
+                # 非首项加段前间距，使纵向选项之间留出与预览一致的间隔
+                para.paragraph_format.space_before = Pt(self.VERTICAL_OPTION_GAP_PT)
 
                 para.paragraph_format.space_after = Pt(0)
 
