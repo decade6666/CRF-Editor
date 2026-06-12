@@ -398,7 +398,9 @@ function renderChoiceHtml(fieldType, rawOptions) {
   const symbol = getChoiceSymbol(fieldType)
   const vertical = isVerticalChoice(fieldType)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
-  const separator = vertical ? '<br>' : '&nbsp;&nbsp;'
+  // 横向分隔符用普通空格（可断），配合 .choice-group 的 word-spacing 留白，
+  // 使横向多选项在窄单元格内能在选项之间折行，避免挤出框线（marker-label 内部仍不断行）
+  const separator = vertical ? '<br>' : ' '
 
   return `<span class="choice-group">${options.map(option => {
     const labelHtml = escapeHtml(option.text)

@@ -204,6 +204,22 @@ test('preview choice labels may wrap inside a single long option without overflo
   assert.match(mainCssSource, /\.word-page \.choice-label \{[^}]*overflow-wrap: anywhere;[^}]*\}/s);
 });
 
+test('choice marker stays on first line and labels never overflow the cell border', () => {
+  // 回归③：marker 顶对齐，标签换行成多行时 ○/□ 留在第一行而非掉到末行
+  assert.match(mainCssSource, /\.word-page \.choice-atom \{[^}]*align-items: flex-start;[^}]*\}/s);
+  // 回归（溢出）：对齐用 min-width 上限扣除 marker 宽度，避免 marker+label 越过右框线
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-label--aligned \{[^}]*min-width: min\(var\(--choice-label-min\), calc\(100% - 1\.25em\)\);[^}]*\}/s,
+  )
+  // 尾部填写线仍底对齐
+  assert.match(mainCssSource, /\.word-page \.choice-atom \.fill-line \{[^}]*align-self: flex-end;[^}]*\}/s);
+  // 回归②：横向分隔符为可断空格（非 &nbsp;），配合 choice-group 的 word-spacing 留白
+  assert.match(useCRFRendererSource, /const separator = vertical \? '<br>' : ' '/);
+  assert.doesNotMatch(useCRFRendererSource, /const separator = vertical \? '<br>' : '&nbsp;&nbsp;'/);
+  assert.match(mainCssSource, /\.word-page \.choice-group \{[^}]*word-spacing: 0\.5em;[^}]*\}/s);
+});
+
 test('designer and visits Word previews both expose row height resize handles', () => {
   assert.match(formDesignerSource, /class="wp-ctrl row-resize-anchor"/);
   assert.match(visitsSource, /useRowResize/);
@@ -307,10 +323,13 @@ test('notes autosave failures keep main preview on persisted notes', () => {
   assert.match(formDesignerSource, /v-model="formDesignNotes"/);
   assert.match(formDesignerSource, /class="designer-notes-input"/);
   assert.match(formDesignerSource, /@input="onNotesInput"/);
-  assert.match(formDesignerSource, /<div :class="\['word-page', \{ landscape: landscapeMode \}\]">/);
+  // 行内预览与模态设计器预览统一使用 A4 缩放几何（form-designer-word-page + designer-scaled-word-page）
   assert.match(formDesignerSource, /'form-designer-word-page'/);
   assert.match(formDesignerSource, /'designer-scaled-word-page'/);
+  assert.match(formDesignerSource, /landscape: landscapeMode/);
   assert.match(formDesignerSource, /landscape: designerLandscapeMode/);
+  // 行内预览不再使用裸 .word-page（不带 A4 缩放类）的旧绑定
+  assert.doesNotMatch(formDesignerSource, /:class="\['word-page', \{ landscape: landscapeMode \}\]"/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 
