@@ -1759,7 +1759,14 @@ function openAddForm() {
           >
         </div>
         <div class="word-preview">
-          <div :class="['word-page', { landscape: landscapeMode }]">
+          <div
+            :class="[
+              'word-page',
+              'form-designer-word-page',
+              'designer-scaled-word-page',
+              { landscape: landscapeMode },
+            ]"
+          >
             <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
             <template v-else>
               <div class="wp-form-title">{{ selectedForm.name }}</div>
