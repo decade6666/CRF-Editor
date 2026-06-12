@@ -217,6 +217,11 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 /* choice marker 贴紧标签；标签本身可在窄单元格内换行 */
 /* 选项之间用 word-spacing 留白（分隔符为可断空格，保证横向多选项能在选项间折行） */
 .word-page .choice-group { display: inline; white-space: normal; word-spacing: 0.5em; }
+/* 纵向选项：每个 choice-atom 独占一行，选项之间用 margin-top 留白 */
+/* 间距与 Word 导出 export_service.VERTICAL_OPTION_GAP_PT 同值，保证预览与导出一致 */
+.word-page .choice-group--vertical { display: block; word-spacing: normal; }
+.word-page .choice-group--vertical .choice-atom { display: flex; }
+.word-page .choice-group--vertical .choice-atom + .choice-atom { margin-top: 3pt; }
 /* marker 顶对齐：标签换行成多行时，○/□ 始终留在第一行而非掉到末行 */
 .word-page .choice-atom { display: inline-flex; align-items: flex-start; max-width: 100%; white-space: normal; vertical-align: bottom; word-spacing: normal; }
 .word-page .choice-marker { flex: 0 0 auto; }

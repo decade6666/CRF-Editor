@@ -1010,6 +1010,66 @@ def test_export_vertical_choice_trailing_touches_fill_line(session: Session, tmp
     assert "□排除" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
 
 
+def test_export_vertical_choice_options_have_inter_option_gap(
+    session: Session, tmp_path: Path
+) -> None:
+    """纵向选项之间留出段前间距：首项段前为 0，其余项段前为 VERTICAL_OPTION_GAP_PT。
+
+    与前端预览 `.choice-group--vertical .choice-atom + .choice-atom { margin-top }`
+    构成跨栈契约，保证 Word 预览与导出文档的纵向选项间距一致。
+    """
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="纵向间距", code="F_VGAP", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    codelist = CodeList(project_id=project.id, name="纵向间距选项", code="CL_VGAP")
+    session.add(codelist)
+    session.flush()
+
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="选项一", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="选项二", order_index=2),
+            CodeListOption(codelist_id=codelist.id, code="3", decode="选项三", order_index=3),
+        ]
+    )
+    session.flush()
+
+    fd = create_choice_field_def(session, project.id, "纵向间距测试", codelist.id, "单选（纵向）")
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "v_choice_gap.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    choice_cell = doc.tables[2].cell(0, 1)
+    option_paras = [p for p in choice_cell.paragraphs if p.runs]
+    assert len(option_paras) == 3, f"应有 3 个纵向选项段落，实际: {len(option_paras)}"
+
+    expected_gap = ExportService.VERTICAL_OPTION_GAP_PT
+    first_gap = option_paras[0].paragraph_format.space_before
+    assert (first_gap is None) or (first_gap.pt == 0), f"首项不应有段前间距，实际: {first_gap}"
+    for para in option_paras[1:]:
+        gap = para.paragraph_format.space_before
+        assert gap is not None and gap.pt == expected_gap, (
+            f"非首项段前间距应为 {expected_gap}pt，实际: {gap}"
+        )
+
+
 # ========== Task 4.4: 多行 default_value 回归测试 ==========
 
 

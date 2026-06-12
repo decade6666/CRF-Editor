@@ -195,7 +195,7 @@ test('preview structural colors are unified across designer and template preview
 });
 
 test('preview choice labels may wrap inside a single long option without overflowing', () => {
-  assert.match(useCRFRendererSource, /class="choice-group"/);
+  assert.match(useCRFRendererSource, /'choice-group choice-group--vertical' : 'choice-group'/);
   assert.match(useCRFRendererSource, /class="choice-atom"/);
   assert.match(useCRFRendererSource, /class="choice-label/);
   assert.doesNotMatch(useCRFRendererSource, /class="choice-atom" style="[^"]*white-space:nowrap/);
@@ -215,9 +215,22 @@ test('choice marker stays on first line and labels never overflow the cell borde
   // 尾部填写线仍底对齐
   assert.match(mainCssSource, /\.word-page \.choice-atom \.fill-line \{[^}]*align-self: flex-end;[^}]*\}/s);
   // 回归②：横向分隔符为可断空格（非 &nbsp;），配合 choice-group 的 word-spacing 留白
-  assert.match(useCRFRendererSource, /const separator = vertical \? '<br>' : ' '/);
+  assert.match(useCRFRendererSource, /const separator = vertical \? '' : ' '/);
   assert.doesNotMatch(useCRFRendererSource, /const separator = vertical \? '<br>' : '&nbsp;&nbsp;'/);
   assert.match(mainCssSource, /\.word-page \.choice-group \{[^}]*word-spacing: 0\.5em;[^}]*\}/s);
+});
+
+test('vertical choice options render as spaced block atoms mirroring Word paragraph gap', () => {
+  // 纵向：分组带 choice-group--vertical 修饰类，每个选项块级独占一行
+  assert.match(useCRFRendererSource, /vertical \? 'choice-group choice-group--vertical' : 'choice-group'/);
+  // 块级布局：纵向组 display:block，choice-atom 改为块级 flex
+  assert.match(mainCssSource, /\.word-page \.choice-group--vertical \{[^}]*display: block;[^}]*\}/s);
+  assert.match(mainCssSource, /\.word-page \.choice-group--vertical \.choice-atom \{[^}]*display: flex;[^}]*\}/s);
+  // 选项之间用 margin-top: 3pt 留白，与 Word 导出 VERTICAL_OPTION_GAP_PT=3 同值
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-group--vertical \.choice-atom \+ \.choice-atom \{[^}]*margin-top: 3pt;[^}]*\}/s,
+  );
 });
 
 test('designer and visits Word previews both expose row height resize handles', () => {
