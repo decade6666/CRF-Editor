@@ -62,7 +62,7 @@ test('formats session timer display text by remaining lifetime', () => {
     clearIntervalFn: () => {},
   });
 
-  assert.equal(timer.displayText.value, '会话剩余 1 分钟');
+  assert.equal(timer.displayText.value, '会话剩余 1:00');
 
   nowMs = 1700000001000;
   timer.recalculateRemainingTime({ notify: false });
@@ -72,7 +72,6 @@ test('formats session timer display text by remaining lifetime', () => {
   timer.recalculateRemainingTime({ notify: false });
   assert.equal(timer.displayText.value, '已过期');
 });
-
 
 test('refresh action calls auth me once and recalculates local remaining time', async () => {
   const nowMs = 1700000000000;
@@ -106,14 +105,14 @@ test('refresh action calls auth me once and recalculates local remaining time', 
   });
 
   assert.equal(timer.remainingSeconds.value, 1800);
-  assert.equal(timer.displayText.value, '会话剩余 30 分钟');
-  assert.deepEqual(intervalCalls, [30000]);
+  assert.equal(timer.displayText.value, '会话剩余 30:00');
+  assert.deepEqual(intervalCalls, [1000]);
 
   await timer.refreshSession();
 
   assert.deepEqual(calls, ['/api/auth/me']);
   assert.equal(timer.remainingSeconds.value, 3600);
-  assert.equal(timer.displayText.value, '会话剩余 60 分钟');
+  assert.equal(timer.displayText.value, '会话剩余 60:00');
   assert.deepEqual(successMessages, ['会话已续期']);
   assert.equal(timer.loading.value, false);
 });
