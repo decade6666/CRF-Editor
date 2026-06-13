@@ -789,3 +789,36 @@ Implemented strict preview/export table-field parity for Word output, added comp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: 性能优化：预览视图模型缓存 + 后端 reorder/批量删除批量化
+
+**Date**: 2026-06-13
+**Task**: 性能优化：预览视图模型缓存 + 后端 reorder/批量删除批量化
+**Branch**: `draft`
+
+### Summary
+
+前端 FormDesignerTab/TemplatePreviewDialog 预览改 computed 视图模型并消除合并列 O(M²)；后端 reorder 回填改单条 CASE、批量删除改单条 IN、新增幂等 FK 索引。前端 219 测试 / 后端 477 测试全绿，浏览器验证无回归。两个 perf 提交已 push draft 并创建 PR #13(draft→main)。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4ddeab3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
