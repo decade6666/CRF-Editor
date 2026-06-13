@@ -612,8 +612,12 @@ async function toggleCell(visitId, formId) {
                     v-if="seg.type === 'regular_field'"
                     :style="getPreviewRowHeightStyle(group, getUnifiedRegularRowKey(seg.fields[0]))"
                   >
-                    <td class="unified-label" :colspan="computeLabelValueSpans(group.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                    <td class="unified-label row-resize-anchor" :colspan="computeLabelValueSpans(group.colCount).labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
                       {{ getFormFieldDisplayLabel(seg.fields[0]) }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                      ></span>
                     </td>
                     <td class="unified-value row-resize-anchor" :colspan="computeLabelValueSpans(group.colCount).valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
                       <span v-html="renderCellHtml(seg.fields[0])"></span>
@@ -647,14 +651,12 @@ async function toggleCell(visitId, formId) {
                       <td
                         v-for="(ff, idx) in seg.fields"
                         :key="ff.id"
-                        class="wp-inline-header"
-                        :class="{ 'row-resize-anchor': idx === seg.fields.length - 1 }"
+                        class="wp-inline-header row-resize-anchor"
                         :colspan="computeMergeSpans(group.colCount, seg.fields.length)[idx]"
                         :style="getFormFieldPreviewStyle(ff)"
                       >
                         {{ getFormFieldDisplayLabel(ff) }}
                         <span
-                          v-if="idx === seg.fields.length - 1"
                           class="row-resizer-handle"
                           @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
                         ></span>
@@ -668,14 +670,12 @@ async function toggleCell(visitId, formId) {
                       <td
                         v-for="(cell, ci) in row"
                         :key="ci"
-                        class="wp-ctrl"
-                        :class="{ 'row-resize-anchor': ci === row.length - 1 }"
+                        class="wp-ctrl row-resize-anchor"
                         :colspan="computeMergeSpans(group.colCount, seg.fields.length)[ci]"
                         :style="getFormFieldPreviewStyle(seg.fields[ci])"
                       >
                         <span v-html="cell"></span>
                         <span
-                          v-if="ci === row.length - 1"
                           class="row-resizer-handle"
                           @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
                         ></span>
@@ -714,7 +714,13 @@ async function toggleCell(visitId, formId) {
                     </td>
                   </tr>
                   <tr v-else :style="getPreviewRowHeightStyle(group, getNormalRowKey(ff))">
-                    <td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td>
+                    <td class="wp-label row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                      {{ getFormFieldDisplayLabel(ff) }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getNormalRowKey(ff), e)"
+                      ></span>
+                    </td>
                     <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
                       <span v-html="renderCellHtml(ff)"></span>
                       <span
@@ -735,15 +741,13 @@ async function toggleCell(visitId, formId) {
                 </colgroup>
                 <tr :style="getPreviewRowHeightStyle(group, getInlineHeaderRowKey(group.fields))">
                   <td
-                    v-for="(ff, idx) in group.fields"
+                    v-for="ff in group.fields"
                     :key="ff.id"
-                    class="wp-inline-header"
-                    :class="{ 'row-resize-anchor': idx === group.fields.length - 1 }"
+                    class="wp-inline-header row-resize-anchor"
                     :style="getFormFieldPreviewStyle(ff)"
                   >
                     {{ getFormFieldDisplayLabel(ff) }}
                     <span
-                      v-if="idx === group.fields.length - 1"
                       class="row-resizer-handle"
                       @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getInlineHeaderRowKey(group.fields), e)"
                     ></span>
@@ -757,13 +761,11 @@ async function toggleCell(visitId, formId) {
                   <td
                     v-for="(cell, ci) in row"
                     :key="ci"
-                    class="wp-ctrl"
-                    :class="{ 'row-resize-anchor': ci === row.length - 1 }"
+                    class="wp-ctrl row-resize-anchor"
                     :style="getFormFieldPreviewStyle(group.fields[ci])"
                   >
                     <span v-html="cell"></span>
                     <span
-                      v-if="ci === row.length - 1"
                       class="row-resizer-handle"
                       @pointerdown="(e) => getPreviewRowResizer(group)?.onResizeStart(getInlineDataRowKey(group.fields, ri), e)"
                     ></span>

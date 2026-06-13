@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 function createLocalStorageStub() {
   const store = new Map()
@@ -105,3 +107,29 @@ test('row height helper exports stable row keys for inline and unified rows', as
   assert.equal(helpers.getUnifiedInlineHeaderRowKey([{ id: 7 }, { id: 8 }]), 'unified-inline-header:7,8')
   assert.equal(helpers.getUnifiedInlineDataRowKey([{ id: 7 }, { id: 8 }], 1), 'unified-inline-row:7,8:1')
 })
+
+function readComponentSource(relativePath) {
+  return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
+}
+
+const previewComponents = [
+  ['FormDesignerTab', '../src/components/FormDesignerTab.vue'],
+  ['VisitsTab', '../src/components/VisitsTab.vue'],
+]
+
+for (const [name, relativePath] of previewComponents) {
+  // 行高手柄需覆盖整行：表格字段（横向表格）每个单元格、非表格字段左右两列都要可拖拽。
+  test(`${name} row resize handle covers every cell of a row`, () => {
+    const source = readComponentSource(relativePath)
+
+    // 非表格字段左侧 label 列也要成为拖拽锚点并带手柄。
+    assert.match(source, /class="wp-label row-resize-anchor"/)
+    assert.match(source, /class="unified-label row-resize-anchor"/)
+
+    // 表格字段不再把手柄限制在最后一列：旧的“仅末列”守卫必须移除。
+    assert.doesNotMatch(source, /v-if="ci === row\.length - 1"/)
+    assert.doesNotMatch(source, /v-if="idx === seg\.fields\.length - 1"/)
+    assert.doesNotMatch(source, /'row-resize-anchor': ci === row\.length - 1/)
+    assert.doesNotMatch(source, /'row-resize-anchor': idx === seg\.fields\.length - 1/)
+  })
+}
