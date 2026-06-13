@@ -997,6 +997,17 @@ def _ensure_form_field_rowid_compatibility(engine):
         )
 
 
+def _migrate_add_performance_fk_indexes(engine):
+    """为高频外键列补建非唯一索引，加速 selectinload 的 IN 子查询。
+
+    纯性能结构，不改变任何查询结果或排序；幂等（IF NOT EXISTS）。
+    """
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_codelist_id ON field_definition(codelist_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_unit_id ON field_definition(unit_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
+
+
 def init_db():
 
     engine = get_engine()
@@ -1032,6 +1043,8 @@ def init_db():
     _heal_reserved_admin_account(engine)
 
     _move_orphan_projects_to_recycle_bin(engine)
+
+    _migrate_add_performance_fk_indexes(engine)
 
 
 

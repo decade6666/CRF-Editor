@@ -10,7 +10,7 @@
 
 """
 
-from sqlalchemy import func, update, select
+from sqlalchemy import case, func, update, select
 
 from sqlalchemy.orm import Session
 
@@ -521,13 +521,20 @@ class OrderService:
             session.flush()
 
         with perf_span("order_final_update"):
-            for idx, record_id in enumerate(id_order_list, start=1):
-                session.execute(
-                    update(model_class)
-                    .where(model_class.id == record_id)
-                    .where(scope_filter)
-                    .values(order_index=idx)
-                )
+            if not id_order_list:
+                return
+            # 单条批量回填：按 id 映射 order_index（1..n），等价于逐条赋值，
+            # WHERE 仍带 scope_filter，越权 id 不会被命中。
+            order_case = case(
+                {record_id: idx for idx, record_id in enumerate(id_order_list, start=1)},
+                value=model_class.id,
+            )
+            session.execute(
+                update(model_class)
+                .where(scope_filter)
+                .where(model_class.id.in_(id_order_list))
+                .values(order_index=order_case)
+            )
 
 
 
@@ -754,13 +761,20 @@ class OrderService:
             session.flush()
 
         with perf_span("order_final_update"):
-            for idx, record_id in enumerate(id_order_list, start=1):
-                session.execute(
-                    update(model_class)
-                    .where(model_class.id == record_id)
-                    .where(scope_filter)
-                    .values(sequence=idx)
-                )
+            if not id_order_list:
+                return
+            # 单条批量回填：按 id 映射 sequence（1..n），等价于逐条赋值，
+            # WHERE 仍带 scope_filter，越权 id 不会被命中。
+            sequence_case = case(
+                {record_id: idx for idx, record_id in enumerate(id_order_list, start=1)},
+                value=model_class.id,
+            )
+            session.execute(
+                update(model_class)
+                .where(scope_filter)
+                .where(model_class.id.in_(id_order_list))
+                .values(sequence=sequence_case)
+            )
 
 
 
