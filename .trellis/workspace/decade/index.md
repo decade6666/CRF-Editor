@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-06-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~791 | Active |
+| `journal-1.md` | ~824 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-06-13 | 性能优化：预览视图模型缓存 + 后端 reorder/批量删除批量化 | `4ddeab3` | `draft` |
 | 14 | 2026-06-13 | 会话计时器 mm:ss 倒计时 + 访视表单同步 | `1e927d1`, `ff77b0e` | `draft` |
 | 13 | 2026-06-10 | Session TTL display and refresh | `2b0baed`, `7ae81ef` | `draft` |
 | 12 | 2026-05-16 | Word preview/export strict table-field parity | `4266c31`, `013fba9`, `2d49a3d`, `fb8e4ab`, `c891cea`, `9e37ed1` | `draft` |
