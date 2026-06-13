@@ -429,6 +429,7 @@ async function toggleCell(visitId, formId) {
     if (has) await api.del(`/api/visits/${visitId}/forms/${formId}`)
     else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message || '操作失败') }
 }
 </script>
