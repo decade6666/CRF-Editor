@@ -4,7 +4,7 @@ import { api } from './useApi.js';
 export const TOKEN_STORAGE_KEY = 'crf_token';
 const WARNING_THRESHOLD_SECONDS = 5 * 60;
 const SESSION_REFRESH_URL = '/api/auth/me';
-const TIMER_INTERVAL_MS = 30000;
+const TIMER_INTERVAL_MS = 1000;
 
 function decodeBase64Url(value) {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
@@ -32,7 +32,9 @@ function formatRemainingSeconds(remainingSeconds) {
   if (!Number.isFinite(remainingSeconds)) return '';
   if (remainingSeconds <= 0) return '已过期';
   if (remainingSeconds < 60) return '会话即将过期';
-  return `会话剩余 ${Math.floor(remainingSeconds / 60)} 分钟`;
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `会话剩余 ${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function resolveTimerStatus(remainingSeconds) {
