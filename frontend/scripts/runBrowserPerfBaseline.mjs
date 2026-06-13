@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,10 +9,9 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(currentDir, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const backendRoot = path.resolve(repoRoot, 'backend')
-const changeName = 'research-performance-constraints'
+// perf 证据基础设施已退役；基线目录默认写入本地 perf-baselines，可用 CRF_PERF_BASELINE_DIR 覆盖。
 const explicitBaselineDir = process.env.CRF_PERF_BASELINE_DIR || ''
-const activeBaselineDir = path.resolve(frontendRoot, `../openspec/changes/${changeName}/baselines`)
-const archiveRoot = path.resolve(frontendRoot, '../openspec/changes/archive')
+const defaultBaselineDir = path.resolve(frontendRoot, 'perf-baselines')
 const FIXTURE_ID = 'heavy-1600-seed-20260425'
 const FIXTURE_SCHEMA_VERSION = 1
 const FIXTURE_USERNAME = 'PERF_owner_20260425'
@@ -70,20 +69,7 @@ function delay(ms) {
 }
 
 async function resolveBaselineDir() {
-  if (explicitBaselineDir) {
-    return path.resolve(explicitBaselineDir)
-  }
-  try {
-    await access(activeBaselineDir)
-    return activeBaselineDir
-  } catch {}
-
-  const entries = await readdir(archiveRoot, { withFileTypes: true }).catch(() => [])
-  const matches = entries
-    .filter(entry => entry.isDirectory() && entry.name.endsWith(`-${changeName}`))
-    .map(entry => path.join(archiveRoot, entry.name, 'baselines'))
-    .sort()
-  return matches.at(-1) || activeBaselineDir
+  return explicitBaselineDir ? path.resolve(explicitBaselineDir) : defaultBaselineDir
 }
 
 async function getOutputFiles() {

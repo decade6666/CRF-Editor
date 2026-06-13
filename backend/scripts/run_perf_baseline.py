@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -45,18 +44,12 @@ from src.models.unit import Unit
 from src.services.docx_import_service import DocxImportService
 from tests.helpers import auth_headers, login_as
 
-CHANGE_NAME = "research-performance-constraints"
-
-
 def _resolve_baseline_dir() -> Path:
-    active_dir = REPO_ROOT / "openspec" / "changes" / CHANGE_NAME / "baselines"
-    if active_dir.exists():
-        return active_dir
-    archive_root = REPO_ROOT / "openspec" / "changes" / "archive"
-    archived_dirs = sorted(archive_root.glob(f"*-{CHANGE_NAME}/baselines"))
-    if archived_dirs:
-        return archived_dirs[-1]
-    return active_dir
+    # perf 证据基础设施已退役；默认写入 backend/perf-baselines，可用 CRF_PERF_BASELINE_DIR 覆盖。
+    explicit = os.environ.get("CRF_PERF_BASELINE_DIR", "").strip()
+    if explicit:
+        return Path(explicit)
+    return BACKEND_ROOT / "perf-baselines"
 
 
 BASELINE_DIR = _resolve_baseline_dir()

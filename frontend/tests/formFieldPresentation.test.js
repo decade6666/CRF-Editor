@@ -13,9 +13,14 @@ import {
 } from '../src/composables/formFieldPresentation.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const useCRFRendererSource = readFileSync(path.resolve(currentDir, '../src/composables/useCRFRenderer.js'), 'utf8');
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
 const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
+  'utf8',
+);
+const visitsSource = readFileSync(
+  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
   'utf8',
 );
 const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
@@ -81,7 +86,7 @@ test('preview groups switch to inline when inline_mark changes', () => {
   assert.deepEqual(groups[1].fields.map(getFormFieldDisplayLabel), ['快捷编辑标签', '同组字段']);
 });
 
-test('mixed wide inline and regular fields keep separate width groups', () => {
+test('mixed wide inline and regular fields keep segmented groups before component-level unified rendering', () => {
   const groups = buildFormDesignerRenderGroups([
     createField({ id: 1, order_index: 1, inline_mark: 0, label_override: '普通字段' }),
     ...Array.from({ length: 5 }, (_, idx) =>
@@ -180,13 +185,63 @@ test('preview structural colors are unified across designer and template preview
     /\.word-page \.wp-inline-header \{ background: var\(--preview-structure-bg\); font-weight: bold; text-align: center; \}/,
   );
   assert.match(mainCssSource, /\.word-page \.wp-label \{ font-weight: bold; background: transparent; \}/);
-  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000; \}/);
+  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000;[\s\S]*\}/);
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/);
   assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/);
   assert.match(formDesignerSource, /background:var\(--preview-structure-bg\);/);
   assert.match(templatePreviewSource, /background:var\(--preview-structure-bg\);/);
   assert.match(templatePreviewSource, /\.wp-inline-header \{\s*background: var\(--preview-structure-bg\);/s);
   assert.doesNotMatch(mainCssSource, /#fafafa|#f5f5f5|#d9d9d9/);
+});
+
+test('preview choice labels may wrap inside a single long option without overflowing', () => {
+  assert.match(useCRFRendererSource, /'choice-group choice-group--vertical' : 'choice-group'/);
+  assert.match(useCRFRendererSource, /class="choice-atom"/);
+  assert.match(useCRFRendererSource, /class="choice-label/);
+  assert.doesNotMatch(useCRFRendererSource, /class="choice-atom" style="[^"]*white-space:nowrap/);
+  assert.match(mainCssSource, /\.word-page \.wp-ctrl \{[\s\S]*word-break: break-word;[\s\S]*\}/);
+  assert.match(mainCssSource, /\.word-page \.choice-atom \{[^}]*display: inline-flex;[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*\}/s);
+  assert.match(mainCssSource, /\.word-page \.choice-label \{[^}]*overflow-wrap: anywhere;[^}]*\}/s);
+});
+
+test('choice marker stays on first line and labels never overflow the cell border', () => {
+  // 回归③：marker 顶对齐，标签换行成多行时 ○/□ 留在第一行而非掉到末行
+  assert.match(mainCssSource, /\.word-page \.choice-atom \{[^}]*align-items: flex-start;[^}]*\}/s);
+  // 回归（溢出）：对齐用 min-width 上限扣除 marker 宽度，避免 marker+label 越过右框线
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-label--aligned \{[^}]*min-width: min\(var\(--choice-label-min\), calc\(100% - 1\.25em\)\);[^}]*\}/s,
+  )
+  // 尾部填写线仍底对齐
+  assert.match(mainCssSource, /\.word-page \.choice-atom \.fill-line \{[^}]*align-self: flex-end;[^}]*\}/s);
+  // 回归②：横向分隔符为可断空格（非 &nbsp;），配合 choice-group 的 word-spacing 留白
+  assert.match(useCRFRendererSource, /const separator = vertical \? '' : ' '/);
+  assert.doesNotMatch(useCRFRendererSource, /const separator = vertical \? '<br>' : '&nbsp;&nbsp;'/);
+  assert.match(mainCssSource, /\.word-page \.choice-group \{[^}]*word-spacing: 0\.5em;[^}]*\}/s);
+});
+
+test('vertical choice options render as spaced block atoms mirroring Word paragraph gap', () => {
+  // 纵向：分组带 choice-group--vertical 修饰类，每个选项块级独占一行
+  assert.match(useCRFRendererSource, /vertical \? 'choice-group choice-group--vertical' : 'choice-group'/);
+  // 块级布局：纵向组 display:block，choice-atom 改为块级 flex
+  assert.match(mainCssSource, /\.word-page \.choice-group--vertical \{[^}]*display: block;[^}]*\}/s);
+  assert.match(mainCssSource, /\.word-page \.choice-group--vertical \.choice-atom \{[^}]*display: flex;[^}]*\}/s);
+  // 选项之间用 margin-top: 3pt 留白，与 Word 导出 VERTICAL_OPTION_GAP_PT=3 同值
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-group--vertical \.choice-atom \+ \.choice-atom \{[^}]*margin-top: 3pt;[^}]*\}/s,
+  );
+});
+
+test('designer and visits Word previews both expose row height resize handles', () => {
+  assert.match(formDesignerSource, /class="wp-ctrl row-resize-anchor"/);
+  assert.match(visitsSource, /useRowResize/);
+  assert.match(visitsSource, /function getPreviewRowResizer/);
+  assert.match(visitsSource, /class="wp-ctrl row-resize-anchor"/);
+  assert.match(visitsSource, /class="row-resizer-handle"/);
+  assert.match(visitsSource, /onResizeStart\(getNormalRowKey\(ff\)/);
+  assert.match(visitsSource, /onResizeStart\(getUnifiedRegularRowKey\(seg\.fields\[0\]\)/);
+  assert.match(mainCssSource, /\.word-page \.row-resizer-handle \{/);
 });
 
 test('label preview rows preserve multiline text through dedicated class', () => {
@@ -199,6 +254,8 @@ test('label preview rows preserve multiline text through dedicated class', () =>
 });
 
 test('designer preview uses full-width static layout without scale logic', () => {
+  assert.match(formDesignerSource, /renderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
+  assert.match(formDesignerSource, /designerRenderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
   assert.match(formDesignerSource, /class="designer-workspace-bottom"[\s\S]*class="designer-preview-pane"/);
   assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/);
   assert.match(
@@ -212,14 +269,9 @@ test('designer preview uses full-width static layout without scale logic', () =>
   assert.doesNotMatch(formDesignerSource, /ref="previewViewportRef"/);
   assert.doesNotMatch(formDesignerSource, /ref="previewPageRef"/);
   assert.doesNotMatch(formDesignerSource, /translateX\(-50%\) scale/);
-  assert.match(
-    formDesignerSource,
-    /<div class="designer-section-title">[\s\S]*?<span>实时预览<\/span>[\s\S]*?<\/div>[\s\S]*?<template v-else>[\s\S]*?<div v-if="!designerPreviewFields.length" class="wp-empty">暂无字段<\/div>/,
-  );
-  assert.doesNotMatch(
-    formDesignerSource,
-    /<div class="designer-section-title">实时预览<\/div>[\s\S]*?<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/,
-  );
+  assert.match(formDesignerSource, /<span>实时预览<\/span>/);
+  assert.match(formDesignerSource, /<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/);
+  assert.match(visitsSource, /<div class="wp-form-title">\{\{ formPreviewTitle \}\}<\/div>/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 
@@ -239,6 +291,7 @@ test('designer preview page keeps A4 geometry and stretches the stage container'
   assert.ok(landscapeBlock, '.designer-scaled-word-page.landscape rule should exist')
   assert.doesNotMatch(landscapeBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page.landscape must not force width:100% (use A4 landscape geometry)')
 });
+
 
 test('notes autosave failures keep main preview on persisted notes', () => {
   assert.match(
@@ -283,10 +336,13 @@ test('notes autosave failures keep main preview on persisted notes', () => {
   assert.match(formDesignerSource, /v-model="formDesignNotes"/);
   assert.match(formDesignerSource, /class="designer-notes-input"/);
   assert.match(formDesignerSource, /@input="onNotesInput"/);
-  assert.match(formDesignerSource, /<div :class="\['word-page', \{ landscape: landscapeMode \}\]">/);
+  // 行内预览与模态设计器预览统一使用 A4 缩放几何（form-designer-word-page + designer-scaled-word-page）
   assert.match(formDesignerSource, /'form-designer-word-page'/);
   assert.match(formDesignerSource, /'designer-scaled-word-page'/);
+  assert.match(formDesignerSource, /landscape: landscapeMode/);
   assert.match(formDesignerSource, /landscape: designerLandscapeMode/);
+  // 行内预览不再使用裸 .word-page（不带 A4 缩放类）的旧绑定
+  assert.doesNotMatch(formDesignerSource, /:class="\['word-page', \{ landscape: landscapeMode \}\]"/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 

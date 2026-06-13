@@ -105,7 +105,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 
 from docx.enum.section import WD_SECTION, WD_ORIENT
 
-from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE
 
 from docx.oxml.ns import qn
 
@@ -198,6 +198,12 @@ class ExportService:
     PORTRAIT_CONTENT_WIDTH_CM = 14.66
 
     LANDSCAPE_CONTENT_WIDTH_CM = 23.36
+    FORM_TABLE_ROW_HEIGHT_CM = 1
+
+    # 纵向选项之间的段前间距（pt）。跨栈契约：与前端 main.css
+    # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
+    # 保证 Word 预览与导出文档的纵向选项间距一致。
+    VERTICAL_OPTION_GAP_PT = 3
 
 
 
@@ -491,7 +497,7 @@ class ExportService:
 
             row = table.rows[row_idx]
 
-            row.height = Cm(1)
+            self._apply_exact_row_height(row)
 
             left_cell = table.cell(row_idx, 0)
 
@@ -814,6 +820,8 @@ class ExportService:
         table = doc.add_table(rows=row_count, cols=col_count)
 
         self._apply_grid_table_style(table)
+        for row in table.rows:
+            self._apply_exact_row_height(row)
 
         header_tr = table.rows[0]._tr
         tr_pr = header_tr.trPr
@@ -1540,6 +1548,7 @@ class ExportService:
         N = layout.column_count
 
         row = table.add_row()
+        self._apply_exact_row_height(row)
 
         left_cell = row.cells[0]
 
@@ -1664,6 +1673,7 @@ class ExportService:
         """在 unified table 中添加全宽行。"""
 
         row = table.add_row()
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0]
 
@@ -1758,6 +1768,7 @@ class ExportService:
 
 
         header_row = table.add_row()
+        self._apply_exact_row_height(header_row)
 
         start_col = 0
 
@@ -1798,6 +1809,7 @@ class ExportService:
         for row_values_item in row_values:
 
             data_row = table.add_row()
+            self._apply_exact_row_height(data_row)
 
             start_col = 0
 
@@ -1923,6 +1935,13 @@ class ExportService:
 
 
 
+    def _apply_exact_row_height(self, row, height_cm: Optional[float] = None):
+
+        """为导出表格行设置固定 1cm 行高。"""
+
+        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        row.height = Cm(height_cm if height_cm is not None else self.FORM_TABLE_ROW_HEIGHT_CM)
+
     def _build_form_table(
         self,
         doc: Document,
@@ -1991,6 +2010,7 @@ class ExportService:
         """添加日志行。"""
 
         row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
@@ -2025,6 +2045,7 @@ class ExportService:
         """添加标签字段行。"""
 
         row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
@@ -2058,6 +2079,9 @@ class ExportService:
 
         """添加普通字段行。"""
 
+        row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
+
         field_def = form_field.field_definition
 
         if not field_def:
@@ -2065,8 +2089,6 @@ class ExportService:
             return
 
 
-
-        row = table.rows[row_idx]
 
         left_cell = row.cells[0]
 
@@ -2239,6 +2261,8 @@ class ExportService:
 
         # 第一行：表头（字段名称）
 
+        self._apply_exact_row_height(table.rows[0])
+
         for col_idx, label in enumerate(headers):
 
             field_def = field_defs[col_idx]
@@ -2286,6 +2310,8 @@ class ExportService:
         # 内容行：根据row_values生成
 
         for row_idx, row in enumerate(row_values):
+
+            self._apply_exact_row_height(table.rows[row_idx + 1])
 
             for col_idx, cell_value in enumerate(row):
 
@@ -2561,7 +2587,8 @@ class ExportService:
 
                 para = cell.add_paragraph()
 
-                para.paragraph_format.space_before = Pt(0)
+                # 非首项加段前间距，使纵向选项之间留出与预览一致的间隔
+                para.paragraph_format.space_before = Pt(self.VERTICAL_OPTION_GAP_PT)
 
                 para.paragraph_format.space_after = Pt(0)
 

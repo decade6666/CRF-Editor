@@ -150,6 +150,8 @@ POST /api/forms/{form_id}/fields/reorder
 4. On any 401, `useApi.js` removes `crf_token` and dispatches `crf:auth-expired`; `App.vue` clears session shell state
 5. Successful protected responses may carry `X-Refreshed-Token`; `useApi.js` must overwrite `localStorage['crf_token']` when present
 6. Password change or admin password reset still invalidates old tokens by incrementing `auth_version`
+7. Frontend MAY decode JWT payload `exp` for display purposes; this decode MUST NOT be treated as authoritative — backend `get_current_user` remains the only authority for token validity.
+8. Frontend MAY trigger `GET /api/auth/me` solely to request a fresh `X-Refreshed-Token`; this MUST NOT bypass the standard rate-limit or 401 handling.
 
 **Validation**:
 - Backend: `backend/tests/test_auth.py`
@@ -200,7 +202,7 @@ POST /api/forms/{form_id}/fields/reorder
 |--------|----------------------|-------------------------|
 | **Files** | `backend/src/services/export_service.py`, `backend/src/services/width_planning.py`, `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/composables/formFieldPresentation.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue`, `frontend/src/components/TemplatePreviewDialog.vue`, `frontend/src/styles/main.css` |
 | **Purpose** | Render the authoritative `.docx` and expose a strict comparator for exported table fields | Render on-screen table fields with the same form/table/row/cell text model |
-| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, table-cell vertical rhythm **5.25pt / 1.0** | Same |
+| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, table-cell vertical rhythm **5.25pt / 1.0**, vertical-choice inter-option gap `VERTICAL_OPTION_GAP_PT = 3` | Same; vertical gap mirrored by `.choice-group--vertical .choice-atom + .choice-atom { margin-top: 3pt }` |
 
 **Scope / Trigger**: any change to Word preview or Word export table-field text, choice options, fill-lines, numeric/date placeholders, inline grouping, form section pagination, or strict parity extraction.
 
@@ -222,6 +224,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 |------|---------|--------|-------------------|
 | Choice marker-label spacing | `○有尾线`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
 | Choice option separator | horizontal choices join with two ASCII spaces | same | The two spaces separate options, not marker and label. |
+| Vertical choice option gap | `.choice-group--vertical` blocks with `margin-top: 3pt` between atoms; renderer joins with empty separator (no `<br>`) | each option is its own paragraph; non-first paragraph `space_before = Pt(VERTICAL_OPTION_GAP_PT)` (=3), first stays `Pt(0)`, `line_spacing = 1.0` | Inter-option gap value (3pt) must stay identical on both sides; font 10.5pt + line 1.0 already aligned. |
 | Trailing underscore | `label______` and `buildFillLineHtml(6)` | `label + "_" * 6` | No NBSP and no extra separator between label and underscores. |
 | Default text fill-line | `________________` | `"_" * 16` | Character count stays 16. |
 | Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
@@ -238,6 +241,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Change | Required validation |
 |--------|---------------------|
 | Choice markers/options/trailing fill-lines | Backend export tests, frontend renderer tests, strict comparator on real fixture |
+| Vertical-choice inter-option gap | `backend/tests/test_export_unified.py::test_export_vertical_choice_options_have_inter_option_gap` (asserts first `space_before=0`, others `=VERTICAL_OPTION_GAP_PT`) and `frontend/tests/formFieldPresentation.test.js` vertical block/margin assertions |
 | Numeric/date placeholder literals | Backend export tests and `frontend/tests/columnWidthPlanning.test.js` |
 | Inline fallback/default row expansion | Component preview source tests plus strict comparator |
 | Normal/inline grouping or ordering | `backend/tests/test_export_service.py` and preview grouping tests |

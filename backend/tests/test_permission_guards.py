@@ -19,6 +19,7 @@ from src.models.unit import Unit
 from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
+from src.repositories.base_repository import BaseRepository
 
 
 @pytest.fixture
@@ -90,6 +91,28 @@ def _request(client: TestClient, method: str, url: str, *, headers=None, json=No
     if json is not None:
         kwargs["json"] = json
     return caller(url, **kwargs)
+
+
+def _create_visit_with_forms(session: Session, owner_id: int) -> tuple[int, list[int]]:
+    project = Project(name="复制访视项目", version="1.0", owner_id=owner_id, order_index=1)
+    session.add(project)
+    session.flush()
+
+    visit = Visit(project_id=project.id, name="基线访视", code="VISIT_COPY", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form_ids = []
+    for idx in range(1, 3):
+        form = Form(project_id=project.id, name=f"表单{idx}", code=f"FORM_COPY_{idx}", order_index=idx)
+        session.add(form)
+        session.flush()
+        form_ids.append(form.id)
+        session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=idx))
+
+    session.flush()
+    session.commit()
+    return visit.id, form_ids
 
 
 def test_settings_endpoints_require_login(client: TestClient) -> None:
@@ -242,6 +265,33 @@ def test_admin_update_settings_accepts_db_file_inside_db_parent(client: TestClie
     assert resp.status_code == 200, resp.text
     assert resp.json()["template_path"] == str(template_path)
 
+
+
+def test_copy_visit_duplicates_associated_forms(client: TestClient, engine) -> None:
+    token = login_as(client, "alice")
+
+    with Session(engine) as session:
+        alice = session.scalar(select(User).where(User.username == "alice"))
+        assert alice is not None
+        visit_id, source_form_ids = _create_visit_with_forms(session, alice.id)
+
+    resp = client.post(f"/api/visits/{visit_id}/copy", headers=auth_headers(token))
+    assert resp.status_code == 201, resp.text
+    copied_visit_id = resp.json()["id"]
+    assert copied_visit_id != visit_id
+
+    with Session(engine) as session:
+        copied_visit = session.get(Visit, copied_visit_id)
+        assert copied_visit is not None
+        copied_visit_forms = list(
+            session.scalars(
+                select(VisitForm)
+                .where(VisitForm.visit_id == copied_visit_id)
+                .order_by(VisitForm.sequence)
+            ).all()
+        )
+        assert [visit_form.form_id for visit_form in copied_visit_forms] == source_form_ids
+        assert [visit_form.sequence for visit_form in copied_visit_forms] == [1, 2]
 
 
 def test_authenticated_user_can_export_owned_projects_database(client: TestClient, engine) -> None:
