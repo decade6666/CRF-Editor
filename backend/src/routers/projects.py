@@ -2,6 +2,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
@@ -355,12 +356,17 @@ def batch_delete_projects(
 ):
     """当前用户批量软删除自己的项目。"""
     from datetime import datetime
-    repo = ProjectRepository(session)
-    for pid in data.project_ids:
-        project = repo.get_by_id(pid)
-        if project and project.owner_id == current_user.id:
-            project.deleted_at = datetime.now()
-            repo.update(project)
+    if not data.project_ids:
+        return
+    # 单条带 owner 过滤的批量软删除：仅命中本人项目，他人/不存在 id 被 WHERE 静默排除，
+    # 行为与原逐条「get_by_id + owner 校验 + 重写 deleted_at」等价；deleted_at 绑定
+    # datetime 对象（ORM 序列化，非 isoformat 字符串），不加 deleted_at IS NULL 过滤以保持等价。
+    session.execute(
+        update(Project)
+        .where(Project.id.in_(data.project_ids))
+        .where(Project.owner_id == current_user.id)
+        .values(deleted_at=datetime.now())
+    )
 
 
 @router.post("/{project_id}/logo", response_model=ProjectResponse)

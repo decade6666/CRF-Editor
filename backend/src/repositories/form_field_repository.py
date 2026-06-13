@@ -1,7 +1,7 @@
 """FormField Repository"""
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from src.models.form_field import FormField
@@ -78,10 +78,10 @@ class FormFieldRepository(BaseRepository[FormField]):
 
     def batch_delete(self, form_field_ids: List[int]) -> int:
         """批量删除表单字段"""
-        deleted_count = 0
-        for field_id in form_field_ids:
-            form_field = self.get_by_id(field_id)
-            if form_field:
-                self.delete(form_field)
-                deleted_count += 1
-        return deleted_count
+        if not form_field_ids:
+            return 0
+        result = self.session.execute(
+            delete(FormField).where(FormField.id.in_(form_field_ids))
+        )
+        self.session.flush()
+        return result.rowcount

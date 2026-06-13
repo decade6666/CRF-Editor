@@ -25,6 +25,19 @@ class FakeItem(ModelBase):
     scope_id: Mapped[int] = mapped_column(Integer, nullable=False)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+class FakeSequenceItem(ModelBase):
+    """用于验证 sequence 重排行为的最小模型。"""
+
+    __tablename__ = "fake_sequence_item"
+    __table_args__ = (
+        UniqueConstraint("scope_id", "sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
 
 @pytest.fixture
 def session() -> Session:
@@ -59,6 +72,28 @@ def get_scope_items(session: Session, scope_id: int = 1) -> list[FakeItem]:
 
 def get_scope_orders(session: Session, scope_id: int = 1) -> list[int]:
     return [item.order_index for item in get_scope_items(session, scope_id)]
+
+def seed_sequence_items(session: Session, sequences: list[Optional[int]], scope_id: int = 1) -> list[FakeSequenceItem]:
+    items = [
+        FakeSequenceItem(scope_id=scope_id, sequence=sequence)
+        for sequence in sequences
+    ]
+    session.add_all(items)
+    session.flush()
+    return items
+
+
+def get_scope_sequence_items(session: Session, scope_id: int = 1) -> list[FakeSequenceItem]:
+    stmt = (
+        select(FakeSequenceItem)
+        .where(FakeSequenceItem.scope_id == scope_id)
+        .order_by(FakeSequenceItem.sequence, FakeSequenceItem.id)
+    )
+    return list(session.scalars(stmt).all())
+
+
+def get_scope_sequences(session: Session, scope_id: int = 1) -> list[int]:
+    return [item.sequence for item in get_scope_sequence_items(session, scope_id)]
 
 
 def test_delete_compact_null_order(session: Session) -> None:
@@ -159,3 +194,85 @@ def test_reorder_batch_validates_duplicate_ids(session: Session) -> None:
 
     # 状态不变
     assert get_scope_orders(session) == original_orders
+
+
+def test_reorder_batch_assigns_sequential_order(session: Session) -> None:
+    """批量回填后，order_index 按 id_order_list 的位置赋 1..n（CASE 批量与逐条等价）。"""
+    items = seed_items(session, [3, 1, 2])
+    new_order = [items[2].id, items[0].id, items[1].id]
+
+    OrderService.reorder_batch(session, FakeItem, FakeItem.scope_id == 1, new_order)
+    session.flush()
+
+    by_id = {item.id: item.order_index for item in get_scope_items(session)}
+    assert by_id[items[2].id] == 1
+    assert by_id[items[0].id] == 2
+    assert by_id[items[1].id] == 3
+
+
+def test_reorder_batch_isolated_by_scope(session: Session) -> None:
+    """重排 scope 1 不应改动 scope 2（批量 UPDATE 仍带 scope_filter）。"""
+    scope1 = seed_items(session, [1, 2, 3], scope_id=1)
+    scope2 = seed_items(session, [1, 2], scope_id=2)
+    scope2_before = {item.id: item.order_index for item in get_scope_items(session, scope_id=2)}
+
+    OrderService.reorder_batch(
+        session,
+        FakeItem,
+        FakeItem.scope_id == 1,
+        [scope1[2].id, scope1[1].id, scope1[0].id],
+    )
+    session.flush()
+
+    scope2_after = {item.id: item.order_index for item in get_scope_items(session, scope_id=2)}
+    assert scope2_after == scope2_before
+    assert get_scope_orders(session, scope_id=1) == [1, 2, 3]
+
+
+def test_reorder_batch_accepts_empty_scope(session: Session) -> None:
+    """空作用域 + 空 id 列表应与旧逐条回填一样直接成功。"""
+    OrderService.reorder_batch(session, FakeItem, FakeItem.scope_id == 404, [])
+    session.flush()
+
+    assert get_scope_items(session, scope_id=404) == []
+
+
+def test_reorder_batch_sequence_assigns_sequential_sequence(session: Session) -> None:
+    """sequence 批量回填后，按 id_order_list 的位置赋 1..n（CASE 批量与逐条等价）。"""
+    items = seed_sequence_items(session, [3, 1, 2])
+    new_order = [items[2].id, items[0].id, items[1].id]
+
+    OrderService.reorder_batch_sequence(session, FakeSequenceItem, FakeSequenceItem.scope_id == 1, new_order)
+    session.flush()
+
+    by_id = {item.id: item.sequence for item in get_scope_sequence_items(session)}
+    assert by_id[items[2].id] == 1
+    assert by_id[items[0].id] == 2
+    assert by_id[items[1].id] == 3
+
+
+def test_reorder_batch_sequence_isolated_by_scope(session: Session) -> None:
+    """重排 scope 1 的 sequence 不应改动 scope 2。"""
+    scope1 = seed_sequence_items(session, [1, 2, 3], scope_id=1)
+    seed_sequence_items(session, [1, 2], scope_id=2)
+    scope2_before = {item.id: item.sequence for item in get_scope_sequence_items(session, scope_id=2)}
+
+    OrderService.reorder_batch_sequence(
+        session,
+        FakeSequenceItem,
+        FakeSequenceItem.scope_id == 1,
+        [scope1[2].id, scope1[1].id, scope1[0].id],
+    )
+    session.flush()
+
+    scope2_after = {item.id: item.sequence for item in get_scope_sequence_items(session, scope_id=2)}
+    assert scope2_after == scope2_before
+    assert get_scope_sequences(session, scope_id=1) == [1, 2, 3]
+
+
+def test_reorder_batch_sequence_accepts_empty_scope(session: Session) -> None:
+    """空 sequence 作用域 + 空 id 列表应直接成功。"""
+    OrderService.reorder_batch_sequence(session, FakeSequenceItem, FakeSequenceItem.scope_id == 404, [])
+    session.flush()
+
+    assert get_scope_sequence_items(session, scope_id=404) == []
