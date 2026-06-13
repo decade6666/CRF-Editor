@@ -269,8 +269,10 @@ test('useSortableTable reloads after reorder to align with backend truth', () =>
 test('FormDesignerTab keeps main preview and designer preview resizers scoped separately', () => {
   assert.match(formsSource, /function getResizer\(kind, colCount, groupIndex, group, scope = 'main'\)/);
   assert.match(formsSource, /const mapKey = `\$\{scope\}:\$\{kind\}:\$\{colCount\}:\$\{tableInstanceId\}`/);
-  assert.match(formsSource, /getResizer\('normal', 2, gi, g, 'main'\)/);
-  assert.match(formsSource, /getResizer\('normal', 2, gi, g, 'designer'\)/);
-  assert.match(formsSource, /getResizer\('inline', g\.fields\.length, gi, g, 'main'\)/);
-  assert.match(formsSource, /getResizer\('inline', g\.fields\.length, gi, g, 'designer'\)/);
+  // 预览模板遍历派生视图模型 gv（与原始 renderGroups/designerRenderGroups 等价），
+  // 主预览与设计器预览仍分别传入 'main' / 'designer' 作用域，保持 resizer 隔离。
+  assert.match(formsSource, /getResizer\('normal', 2, gi, gv, 'main'\)/);
+  assert.match(formsSource, /getResizer\('normal', 2, gi, gv, 'designer'\)/);
+  assert.match(formsSource, /getResizer\('inline', gv\.fields\.length, gi, gv, 'main'\)/);
+  assert.match(formsSource, /getResizer\('inline', gv\.fields\.length, gi, gv, 'designer'\)/);
 });
