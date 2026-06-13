@@ -740,3 +740,52 @@ Implemented strict preview/export table-field parity for Word output, added comp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: 会话计时器 mm:ss 倒计时 + 访视表单同步
+
+**Date**: 2026-06-13
+**Task**: 会话计时器 mm:ss 倒计时 + 访视表单同步
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 变更 | 说明 |
+|------|------|
+| fix(visits) | 切换访视表单后调用 syncVisitForms 同步本地表单视图（toggleCell 刷新 matrixData 后） |
+| feat(session) | 会话计时器显示由调试态 `60(s)`/1s 原始秒改为可读 mm:ss 实时倒计时；保留 <60s「会话即将过期」文案；1s 轮询保留（仅本地 JWT 解码，无网络开销） |
+
+**判定**：finish-work 发现 useSessionTimer 改动为调试残留（1s 轮询 + 原始秒显示），用户选择「打磨成正式实现」而非回退。
+
+**验证**：前端 212/212、后端 468 passed+4 xfailed；eslint 改动文件 0 错误。
+
+**交付**：PR #12（draft→main）已合并为 merge commit 3b6ce6e；本地与远程 draft 已快进对齐。
+
+**更新文件**：
+- `frontend/src/components/VisitsTab.vue`
+- `frontend/src/composables/useSessionTimer.js`
+- `frontend/tests/sessionTimer.test.js`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1e927d1` | (see git log) |
+| `ff77b0e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
