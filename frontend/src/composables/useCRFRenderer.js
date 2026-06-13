@@ -398,18 +398,23 @@ function renderChoiceHtml(fieldType, rawOptions) {
   const symbol = getChoiceSymbol(fieldType)
   const vertical = isVerticalChoice(fieldType)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
-  const separator = vertical ? '<br>' : '&nbsp;&nbsp;'
+  // 纵向：每个选项作为块级 choice-atom 独占一行，由 .choice-group--vertical 的
+  // margin-top 提供选项间距（与 Word 导出的段前间距同值，见 main.css / export_service）。
+  // 横向：分隔符用普通空格（可断），配合 .choice-group 的 word-spacing 留白，
+  // 使横向多选项在窄单元格内能在选项之间折行，避免挤出框线（marker-label 内部仍不断行）。
+  const groupClass = vertical ? 'choice-group choice-group--vertical' : 'choice-group'
+  const separator = vertical ? '' : ' '
 
-  return options.map(option => {
+  return `<span class="${groupClass}">${options.map(option => {
     const labelHtml = escapeHtml(option.text)
     const optionTextHtml = option.trailingUnderscore
-      ? `<span style="white-space:nowrap">${labelHtml}</span>`
-      : `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
+      ? `<span class="choice-label">${labelHtml}</span>`
+      : `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
     const suffixHtml = option.trailingUnderscore
       ? buildFillLineHtml(6)
       : ''
-    return `<span style="display:inline-flex;align-items:flex-end;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
-  }).join(separator)
+    return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+  }).join(separator)}</span>`
 }
 
 export function toHtml(text) {

@@ -1,0 +1,12 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Verify composable lifecycle, API usage, and auth refresh patterns"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify component structure and accessibility"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify localStorage and auth state handling"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify frontend quality requirements"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify JWT parsing and public API type safety"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Verify auth-token contract documentation and behavior"}
+{"file": "frontend/.claude/CLAUDE.md", "reason": "Verify frontend module conventions"}
+{"file": "frontend/src/App.vue", "reason": "Verify topbar insertion and auth flow remains unchanged"}
+{"file": "frontend/src/composables/useApi.js", "reason": "Verify useApi refresh/401 paths were not changed"}
+{"file": "frontend/tests/appSettingsShell.test.js", "reason": "Verify new tests follow existing node:test style"}

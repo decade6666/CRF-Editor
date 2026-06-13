@@ -1,28 +1,18 @@
 import { createGzip } from 'node:zlib'
 import { createReadStream } from 'node:fs'
-import { access, mkdir, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(currentDir, '..')
 const assetsDir = path.resolve(frontendRoot, 'dist/assets')
-const changeName = 'research-performance-constraints'
-const activeBaselineDir = path.resolve(frontendRoot, `../openspec/changes/${changeName}/baselines`)
-const archiveRoot = path.resolve(frontendRoot, '../openspec/changes/archive')
+// perf 证据基础设施已退役；基线目录默认写入本地 perf-baselines，可用 CRF_PERF_BASELINE_DIR 覆盖。
+const explicitBaselineDir = process.env.CRF_PERF_BASELINE_DIR || ''
+const defaultBaselineDir = path.resolve(frontendRoot, 'perf-baselines')
 
 async function resolveBaselineDir() {
-  try {
-    await access(activeBaselineDir)
-    return activeBaselineDir
-  } catch {}
-
-  const entries = await readdir(archiveRoot, { withFileTypes: true }).catch(() => [])
-  const matches = entries
-    .filter(entry => entry.isDirectory() && entry.name.endsWith(`-${changeName}`))
-    .map(entry => path.join(archiveRoot, entry.name, 'baselines'))
-    .sort()
-  return matches.at(-1) || activeBaselineDir
+  return explicitBaselineDir ? path.resolve(explicitBaselineDir) : defaultBaselineDir
 }
 
 function classifyAsset(fileName) {
