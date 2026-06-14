@@ -254,6 +254,8 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   background: transparent;
   transition: background 0.15s;
 }
+.word-page tr:has(.row-resizer-handle:hover) .row-resizer-handle::after,
+.word-page tr:has(.row-resizer-handle:active) .row-resizer-handle::after,
 .word-page .row-resizer-handle:hover::after,
 .word-page .row-resizer-handle:active::after {
   background: var(--color-primary);
