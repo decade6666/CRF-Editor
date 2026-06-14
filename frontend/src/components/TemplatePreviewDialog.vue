@@ -136,6 +136,8 @@ import {
   planUnifiedColumnFractions,
   toHtml,
 } from '../composables/useCRFRenderer'
+import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
+import { buildTableInstanceId } from '../composables/useRowResize'
 import { api } from '../composables/useApi'
 
 const props = defineProps({
@@ -206,44 +208,40 @@ function getInlineRows(fields) {
   return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback)))
 }
 
-// 只读读取设计器持久化的列宽比例；格式不合法或与当前列数不匹配时返回 null
-// 注意：本组件仅消费比例，不写回 localStorage
-function readSharedRatios(formId, tableKind, expectedLength) {
-  if (formId == null || tableKind == null) return null
-  try {
-    const raw = localStorage.getItem(`crf:designer:col-widths:${formId}:${tableKind}`)
-    if (!raw) return null
-    const arr = JSON.parse(raw)
-    if (!Array.isArray(arr) || arr.length !== expectedLength) return null
-    if (!arr.every(r => Number.isFinite(r) && r >= 0.1 && r <= 0.9)) return null
-    const sum = arr.reduce((a, b) => a + b, 0)
-    if (Math.abs(sum - 1) > 1e-3) return null
-    return arr
-  } catch {
-    return null
-  }
-}
-
 // 计算预览表格的列宽比例：优先设计器保存值，否则回退内容驱动 planner 结果
 function getColumnFractions(g, groupIndex) {
   if (g.type === 'unified') {
     const colCount = g.colCount
-    const segments = buildFormDesignerUnifiedSegments(g.fields)
-    const shared = readSharedRatios(props.formId, `${groupIndex}-unified-${colCount}`, colCount)
+    const shared = readColumnWidthRatiosWithFallback(
+      props.formId,
+      buildTableInstanceId('unified', g.fields),
+      colCount,
+      `${groupIndex}-unified-${colCount}`,
+    )
     if (shared) return shared
-    const plannerFractions = planUnifiedColumnFractions(segments, colCount)
+    const plannerFractions = planUnifiedColumnFractions(g.segments, colCount)
     return plannerFractions.length === colCount
       ? plannerFractions
       : Array.from({ length: colCount }, () => 1 / colCount)
   }
   if (g.type === 'normal') {
-    const shared = readSharedRatios(props.formId, `${groupIndex}-normal-2`, 2)
+    const shared = readColumnWidthRatiosWithFallback(
+      props.formId,
+      buildTableInstanceId('normal', g.fields),
+      2,
+      `${groupIndex}-normal-2`,
+    )
     if (shared) return shared
     const plannerFractions = planNormalColumnFractions(g.fields)
     return plannerFractions.length === 2 ? plannerFractions : [0.5, 0.5]
   }
   const colCount = g.fields.length
-  const shared = readSharedRatios(props.formId, `${groupIndex}-inline-${colCount}`, colCount)
+  const shared = readColumnWidthRatiosWithFallback(
+    props.formId,
+    buildTableInstanceId('inline', g.fields),
+    colCount,
+    `${groupIndex}-inline-${colCount}`,
+  )
   if (shared) return shared
   const plannerFractions = planInlineColumnFractions(g.fields)
   return plannerFractions.length === colCount

@@ -23,8 +23,24 @@ import {
   renderCtrlHtml,
   toHtml,
 } from '../src/composables/useCRFRenderer.js'
+import {
+  readColumnWidthRatios,
+  readColumnWidthRatiosWithFallback,
+} from '../src/composables/useColumnResize.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const templatePreviewSource = readFileSync(
+  path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
+  'utf8',
+)
+const simulatedCrfFormSource = readFileSync(
+  path.resolve(currentDir, '../src/components/SimulatedCRFForm.vue'),
+  'utf8',
+)
+const visitsSource = readFileSync(
+  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+  'utf8',
+)
 
 // ─── 9.1–9.7：planner 纯函数用例 ────────────────────────────────────────────
 
@@ -578,6 +594,88 @@ test('16.1.5d legacy_key_no_overwrite: 新键已有值时不迁移', async () =>
   assert.equal(ls.getItem(legacyKey), null, 'legacy key should be deleted')
 
   delete globalThis.localStorage
+})
+
+test('16.1.5e readColumnWidthRatiosWithFallback prefers designer field-id key before legacy map key', () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.35, 0.65]))
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
+
+  assert.deepEqual(
+    readColumnWidthRatiosWithFallback(42, 'normal:fieldIds=1,2', 2, '0-normal-2'),
+    [0.35, 0.65],
+    'new field-id key should win over the legacy group-index key',
+  )
+
+  delete globalThis.localStorage
+})
+
+test('16.1.5f readColumnWidthRatiosWithFallback reads legacy key when designer field-id key is absent', () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
+
+  assert.deepEqual(
+    readColumnWidthRatiosWithFallback(42, 'normal:fieldIds=1,2', 2, '0-normal-2'),
+    [0.7, 0.3],
+    'legacy group-index key remains a compatibility fallback before migration',
+  )
+  assert.equal(readColumnWidthRatios(42, 'normal:fieldIds=1,2', 2), null)
+
+  delete globalThis.localStorage
+})
+
+test('16.1.5g preview consumers read designer field-id column width keys', () => {
+  assert.match(
+    templatePreviewSource,
+    /import \{ buildTableInstanceId \} from '..\/composables\/useRowResize'/,
+    'TemplatePreviewDialog should build the same table instance id as FormDesignerTab',
+  )
+  assert.match(
+    templatePreviewSource,
+    /readColumnWidthRatiosWithFallback\(\s*props\.formId,\s*buildTableInstanceId\('unified', g\.fields\),\s*colCount,\s*`\$\{groupIndex\}-unified-\$\{colCount\}`,\s*\)/,
+  )
+  assert.match(
+    templatePreviewSource,
+    /readColumnWidthRatiosWithFallback\(\s*props\.formId,\s*buildTableInstanceId\('normal', g\.fields\),\s*2,\s*`\$\{groupIndex\}-normal-2`,\s*\)/,
+  )
+  assert.match(
+    templatePreviewSource,
+    /readColumnWidthRatiosWithFallback\(\s*props\.formId,\s*buildTableInstanceId\('inline', g\.fields\),\s*colCount,\s*`\$\{groupIndex\}-inline-\$\{colCount\}`,\s*\)/,
+  )
+  assert.match(
+    simulatedCrfFormSource,
+    /import \{ buildTableInstanceId \} from '..\/composables\/useRowResize'/,
+    'SimulatedCRFForm should also use the field-id key written by the designer',
+  )
+  assert.match(
+    simulatedCrfFormSource,
+    /readColumnWidthRatiosWithFallback\(\s*props\.formId,\s*buildTableInstanceId\('normal', displayFields\.value\),\s*2,\s*'0-normal-2',\s*\)/,
+  )
+})
+
+test('16.1.5h preview hot paths require precomputed segments and do not silently rebuild them', () => {
+  assert.doesNotMatch(
+    templatePreviewSource,
+    /g\.segments\s*\|\|\s*buildFormDesignerUnifiedSegments/,
+    'TemplatePreviewDialog should not keep a raw-group fallback that hides repeated segment rebuilding',
+  )
+  assert.doesNotMatch(
+    visitsSource,
+    /group\.segments\s*\|\|\s*buildFormDesignerUnifiedSegments/,
+    'VisitsTab should not keep a raw-group fallback that hides repeated segment rebuilding',
+  )
+})
+
+test('16.1.5i visits inline column fractions reuse the resolved ratios once', () => {
+  assert.doesNotMatch(
+    visitsSource,
+    /resolveInlineColRatios\(group\.fields\)\.length[\s\S]{0,120}\?\s*resolveInlineColRatios\(group\.fields\)/,
+    'getPreviewColumnFractions should not call resolveInlineColRatios twice for the same fields',
+  )
 })
 
 // ─── Phase 16.2：Export Column Width Override Contract 测试 ──────────────────

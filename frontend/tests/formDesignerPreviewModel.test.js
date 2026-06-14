@@ -19,6 +19,10 @@ const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
   'utf8',
 )
+const visitsSource = readFileSync(
+  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+  'utf8',
+)
 
 // ---------------------------------------------------------------------------
 // 原 FormDesignerTab.vue 模板里使用的纯函数副本（逐字符对照源码 516-547 行）。
@@ -245,4 +249,25 @@ test('template preview dialog derives a view model and stops calling pure fns in
   assert.doesNotMatch(templatePreviewSource, /computeMergeSpans\(g\.colCount, seg\.fields\.length\)\[/)
   assert.doesNotMatch(templatePreviewSource, /computeLabelValueSpans\(g\.colCount\)/)
   assert.doesNotMatch(templatePreviewSource, /v-for="\(row, ri\) in getInlineRows\(/)
+})
+
+test('visits tab form preview derives a view model and stops calling pure fns in template', () => {
+  assert.match(visitsSource, /import \{ buildPreviewGroupViewModels \} from '..\/composables\/formDesignerPreviewModel'/)
+  assert.match(
+    visitsSource,
+    /const previewGroupsView = computed\(\([\s\S]*buildPreviewGroupViewModels\(previewRenderGroups\.value, previewModelHelpers\)/,
+  )
+  assert.match(visitsSource, /v-for="\(gv, gi\) in previewGroupsView"/)
+  assert.match(visitsSource, /v-for="seg in gv\.segments"/)
+  assert.match(visitsSource, /:colspan="seg\.mergeSpans\[idx\]"/)
+  assert.match(visitsSource, /:colspan="seg\.mergeSpans\[ci\]"/)
+  assert.match(visitsSource, /:colspan="gv\.labelValueSpans\.labelSpan"/)
+  assert.match(visitsSource, /:colspan="gv\.labelValueSpans\.valueSpan"/)
+  assert.match(visitsSource, /v-for="\(row, ri\) in seg\.inlineRows"/)
+  assert.match(visitsSource, /v-for="\(row, ri\) in gv\.inlineRows"/)
+  // 模板表达式不再逐单元格调用纯函数重建数组（getPreviewColumnFractions 内部仍可调用，与单元格级渲染无关）
+  assert.doesNotMatch(visitsSource, /v-for="seg in buildFormDesignerUnifiedSegments\(group\.fields\)"/)
+  assert.doesNotMatch(visitsSource, /computeMergeSpans\(group\.colCount, seg\.fields\.length\)\[/)
+  assert.doesNotMatch(visitsSource, /computeLabelValueSpans\(group\.colCount\)/)
+  assert.doesNotMatch(visitsSource, /v-for="\(row, ri\) in getInlineRows\(/)
 })

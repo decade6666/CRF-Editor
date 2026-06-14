@@ -65,7 +65,61 @@ const theme = ref(localStorage.getItem('theme') || 'light')
 sessionStorage.setItem('returnUrl', '/projects')
 ```
 
-### 4. Server State (API cache)
+### 4. Column Width Persistence Contract
+
+**Scope / Trigger**: any change to CRF preview column widths, column-resize persistence, `useColumnResize`, `buildTableInstanceId`, or preview consumers that read `localStorage['crf:designer:col-widths:*']`.
+
+**Files and signatures**:
+
+```javascript
+// frontend/src/composables/useColumnResize.js
+export function readColumnWidthRatios(formId, tableKind, expectedLength)
+export function readColumnWidthRatiosWithFallback(formId, tableKind, expectedLength, legacyTableKind)
+export function useColumnResize(formIdRef, tableKindRef, defaultsSource)
+```
+
+```javascript
+// frontend/src/composables/useRowResize.js
+export function buildTableInstanceId(kind, fields)
+// Returns: `${kind}:fieldIds=${fields.map(f => f.id).filter(id => id != null).join(',')}`
+```
+
+**Storage contract**:
+
+| Producer / Consumer | Path | Key format | Notes |
+|---|---|---|---|
+| Producer | `frontend/src/components/FormDesignerTab.vue` via `useColumnResize` | `crf:designer:col-widths:<form_id>:<kind>:fieldIds=<ids>` | Current authoritative format. |
+| Legacy producer | old designer builds | `crf:designer:col-widths:<form_id>:<groupIndex>-<kind>-<colCount>` | Migrated by `migrateLegacyKeyIfNeeded`; old key is deleted after migration. |
+| Consumers | `TemplatePreviewDialog.vue`, `SimulatedCRFForm.vue` | Prefer current format, fallback to legacy format | Use `readColumnWidthRatiosWithFallback`; do not copy local validation logic in components. |
+| Export collector | `frontend/src/App.vue` | Scans `crf:designer:col-widths:<form_id>:<table_instance_id>` | Sends `table_instance_id` keys to backend export payload. |
+
+**Validation matrix**:
+
+| Condition | Expected behavior |
+|---|---|
+| New field-id key exists and legacy key also exists | `readColumnWidthRatiosWithFallback` returns the new field-id key value. |
+| New key is absent and legacy key exists | Consumer reads the legacy key as compatibility fallback. |
+| Stored value is not an array, has wrong length, ratios are outside `[0.1, 0.9]`, or sum differs from 1 by more than `1e-3` | Consumer returns `null` and falls back to planner defaults. |
+| Designer opens a table with only a legacy key | `FormDesignerTab.vue:migrateLegacyKeyIfNeeded` copies it to the new key when the new key is absent, then deletes the legacy key. |
+| `fields` changes | Callers must pass a rebuilt fields array; `buildTableInstanceId` may cache by fields reference. Do not mutate field ids in place. |
+
+**Good / Base / Bad cases**:
+
+- Good: designer writes `normal:fieldIds=1,2`; template preview reads the same key and mirrors the adjusted column widths.
+- Base: no persisted key exists; previews use `planNormalColumnFractions` / `planInlineColumnFractions` / `planUnifiedColumnFractions` defaults.
+- Bad: preview reads only `0-normal-2`; after designer migration deletes the legacy key, saved widths disappear from preview.
+- Bad: caller mutates `fields[0].id` in place while reusing the same array reference; cached `buildTableInstanceId` can point at stale field ids.
+
+**Required tests**:
+
+- `frontend/tests/columnWidthPlanning.test.js`
+  - `16.1.5e`: new field-id key wins over legacy key.
+  - `16.1.5f`: legacy key fallback still works when the new key is absent.
+  - `16.1.5g`: preview consumers use `buildTableInstanceId` and `readColumnWidthRatiosWithFallback`.
+- `frontend/tests/rowHeightResize.test.js`
+  - `buildTableInstanceId documents immutable fields reference cache contract`.
+
+### 5. Server State (API cache)
 
 ```javascript
 // In useApi.js
