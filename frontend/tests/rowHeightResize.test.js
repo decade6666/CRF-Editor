@@ -112,10 +112,24 @@ function readComponentSource(relativePath) {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
 }
 
+const mainCssSource = readComponentSource('../src/styles/main.css')
+
 const previewComponents = [
   ['FormDesignerTab', '../src/components/FormDesignerTab.vue'],
   ['VisitsTab', '../src/components/VisitsTab.vue'],
 ]
+test('row height hover guideline spans the full preview row', () => {
+  assert.match(
+    mainCssSource,
+    /\.word-page tr:has\(\.row-resizer-handle:hover\) \.row-resizer-handle::after/s,
+    'row resize hover must promote every cell handle in the hovered row, not only the hovered cell segment',
+  )
+  assert.match(
+    mainCssSource,
+    /\.word-page tr:has\(\.row-resizer-handle:active\) \.row-resizer-handle::after/s,
+    'row resize drag state should keep the full-row guideline visible while active',
+  )
+})
 
 for (const [name, relativePath] of previewComponents) {
   // 行高手柄需覆盖整行：表格字段（横向表格）每个单元格、非表格字段左右两列都要可拖拽。
