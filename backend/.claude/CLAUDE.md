@@ -2,7 +2,7 @@
 
 # backend 模块说明
 
-> 最近更新：2026年5月8日 18:26:34
+> 最近更新：2026年6月14日
 
 ## 模块职责
 - 提供 REST API 与前端静态资源入口。
@@ -22,12 +22,12 @@
 
 ## 核心目录
 - `src/routers/`（12 个路由模块）：认证、管理员、项目、访视、表单、字段、字典、单位、导入导出、设置接口。
-- `src/services/`（12 个服务模块）：认证、用户管理、导入、导出、排序、项目克隆、项目导入、AI 复核、Docx 截图缓存、列宽规划、字段渲染等重逻辑。
+- `src/services/`（13 个服务模块）：认证、用户管理、导入、导出、排序、项目克隆、项目导入、AI 复核、Docx 截图缓存、列宽规划、字段渲染、Word 表格一致性对比等重逻辑。
 - `src/models/`（10 个 ORM 模型）：Project、Visit、Form、VisitForm、FieldDefinition、FormField、CodeList、CodeListOption、Unit、User。
 - `src/schemas/`（6 个 Pydantic 模块）：项目、访视、表单、字段、字典、单位等请求/响应结构。
 - `src/repositories/`（5 个仓储模块）：基础仓储、项目、字段定义、字段实例、表单字段等数据库访问封装。
-- `tests/`（37 个测试文件）：认证、管理员、权限、项目隔离、导入导出、排序、配置、WAL、限流、列宽规划、性能基线、表单方向、Word 导入契约等 pytest 用例。
-- `scripts/`（3 个脚本）：模板数据库迁移、性能 fixture 生成、性能基线运行。
+- `tests/`（39 个测试文件）：认证、管理员、权限、项目隔离、批量删除隔离、导入导出、排序、配置、WAL、限流、列宽规划、性能基线、性能 FK 索引、表单方向、Word 导入契约、Docx 截图失败语义与 Word 表格一致性等 pytest 用例。
+- `scripts/`（4 个脚本）：模板数据库迁移、性能 fixture 生成、性能基线运行、预览/导出表格字段一致性对比。
 
 ## 路由概览
 - `routers/auth.py`：登录、当前用户、普通用户改密与认证错误语义。
@@ -44,9 +44,10 @@
 - `import_service.py`、`project_import_service.py`、`docx_import_service.py`：模板、项目库与 Word 导入。
 - `export_service.py`：Word 文档渲染与导出。
 - `width_planning.py`：后端列宽规划，与前端 `useCRFRenderer.js` 共享 fixture 契约。
+- `word_table_parity.py`：读取浏览器预览 JSON 与导出 `.docx` 表格文本，生成 strict parity 报告。
 - `order_service.py`：访视、表单、字段等排序写入逻辑。
 - `project_clone_service.py`：项目深拷贝与 Logo 联动。
-- `docx_screenshot_service.py`：Word 导入截图缓存生命周期。
+- `docx_screenshot_service.py`：Word 导入截图缓存生命周期与不支持运行时的失败状态。
 - `ai_review_service.py`：AI 导入建议/复核调用。
 - `field_rendering.py`：字段渲染辅助逻辑。
 
@@ -70,6 +71,7 @@
 - `available_cm=14.66` 与原页面预算对齐；字符权重与 CJK 扩展区覆盖与前端 `useCRFRenderer.js` 共享契约。
 - inline 表表头权重下限 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8`（`width_planning.py`），由 `field_rendering.build_inline_column_demands` 写入 max chain，保护 ≤4 字短表头（如 `未查` / `项目` / `单位`）与长邻居共存时不被压到不可单行；常量与前端 `useCRFRenderer.js` 严格同名同值。
 - 跨栈 fixture 位于 `backend/tests/fixtures/planner_cases.json`，**唯一权威生成器**是 `frontend/scripts/generatePlannerFixtures.mjs`；新增/修改 case 必须改 generator 后重跑，再让 `backend/tests/test_width_planning.py` 与 `frontend/tests/columnWidthPlanning.test.js` 同时绿。
+- Strict preview/export parity 由 `word_table_parity.py` 与 `scripts/compare_word_table_parity.py` 收口：输入浏览器预览 JSON 与导出的 `.docx`，输出表单顺序、行数、单元格数、精确命中率与 mismatch 列表；修改 Word 预览 / 导出文本模型时必须同步更新相关测试。
 
 ## 常用命令
 ```bash
@@ -77,6 +79,7 @@ cd backend && python main.py
 cd backend && python -m pytest
 cd backend && python -m pytest tests/test_config.py -q
 cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
+cd backend && python scripts/compare_word_table_parity.py <preview.json> <export.docx>
 ```
 
 ## 开发约定
@@ -94,13 +97,14 @@ cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 | 入口 | `main.py`、`app_launcher.py` |
 | 基础设施 | `src/config.py`、`src/database.py`、`src/dependencies.py`、`src/rate_limit.py`、`src/perf.py`、`src/utils.py` |
 | 路由 | `src/routers/auth.py`、`src/routers/admin.py`、`src/routers/projects.py`、`src/routers/visits.py`、`src/routers/forms.py`、`src/routers/fields.py`、`src/routers/codelists.py`、`src/routers/units.py`、`src/routers/export.py`、`src/routers/settings.py`、`src/routers/import_template.py`、`src/routers/import_docx.py` |
-| 服务 | `src/services/auth_service.py`、`src/services/user_admin_service.py`、`src/services/import_service.py`、`src/services/project_import_service.py`、`src/services/docx_import_service.py`、`src/services/export_service.py`、`src/services/width_planning.py`、`src/services/order_service.py`、`src/services/project_clone_service.py`、`src/services/docx_screenshot_service.py`、`src/services/ai_review_service.py`、`src/services/field_rendering.py` |
+| 服务 | `src/services/auth_service.py`、`src/services/user_admin_service.py`、`src/services/import_service.py`、`src/services/project_import_service.py`、`src/services/docx_import_service.py`、`src/services/export_service.py`、`src/services/width_planning.py`、`src/services/word_table_parity.py`、`src/services/order_service.py`、`src/services/project_clone_service.py`、`src/services/docx_screenshot_service.py`、`src/services/ai_review_service.py`、`src/services/field_rendering.py` |
 | 模型 | `src/models/project.py`、`src/models/visit.py`、`src/models/form.py`、`src/models/visit_form.py`、`src/models/field_definition.py`、`src/models/field.py`、`src/models/form_field.py`、`src/models/codelist.py`、`src/models/unit.py`、`src/models/user.py` |
 | Schema | `src/schemas/project.py`、`src/schemas/visit.py`、`src/schemas/form.py`、`src/schemas/field.py`、`src/schemas/codelist.py`、`src/schemas/unit.py` |
 | 仓储 | `src/repositories/base_repository.py`、`src/repositories/project_repository.py`、`src/repositories/field_definition_repository.py`、`src/repositories/field_repository.py`、`src/repositories/form_field_repository.py` |
-| 测试（新增） | `tests/test_form_paper_orientation.py`、`tests/test_export_paper_orientation.py`、`tests/test_docx_import_contract.py` |
+| 测试（新增/近期） | `tests/test_batch_delete_isolation.py`、`tests/test_docx_screenshot_service.py`、`tests/test_perf_fk_indexes.py`、`tests/test_word_table_parity.py`、`tests/test_form_paper_orientation.py`、`tests/test_export_paper_orientation.py`、`tests/test_docx_import_contract.py` |
 
 ## 变更记录
+- `2026年6月14日`：文档同步刷新。服务模块 12→13（新增 `word_table_parity.py`），测试 37→39，脚本 3→4（新增 `compare_word_table_parity.py`）；补充批量删除属主隔离、Docx 截图不支持运行时失败态、性能 FK 索引幂等迁移、strict preview/export parity 相关说明。
 - `2026年5月8日 18:26:34`：增量扫描刷新。测试 34→37 文件，新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`；补充相关文件清单与目录条目。
 - `2026年5月8日`：新增 `form.paper_orientation` 字段、轻量迁移、复制/导入兼容与 Word 导出方向覆写；补充同主题后端测试。
 - `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 53 文件（routers 12、services 12、models 10、schemas 6、repositories 5、基础设施 8）、测试 34 文件、脚本 4 文件。补充基础设施与服务条目。

@@ -1,6 +1,6 @@
 # CRF 编辑器 -- 项目 AI 上下文
 
-> 最近更新：2026年5月12日 17:42:57
+> 最近更新：2026年6月14日
 > 根级文档保持简明；实现细节优先进入模块级文档。
 
 ## 项目概览
@@ -16,16 +16,16 @@
 graph TD
     A["(根) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (12)"];
-    B --> B2["src/services (12)"];
+    B --> B2["src/services (13)"];
     B --> B3["src/models (10)"];
     B --> B4["src/schemas (6)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (37)"];
+    B --> B6["tests (39)"];
     A --> C["frontend"];
-    C --> C1["src/components (12)"];
-    C --> C2["src/composables (11)"];
+    C --> C1["src/components (13)"];
+    C --> C2["src/composables (14)"];
     C --> C3["src/styles"];
-    C --> C4["tests (22)"];
+    C --> C4["tests (26)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "查看 backend 模块文档"
@@ -35,17 +35,17 @@ graph TD
 ## 模块索引
 | 模块 | 路径 | 技术栈 | 职责 | 关键入口 | 测试 |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI、SQLAlchemy、SQLite、Pydantic、PyJWT、passlib、python-docx | API、认证、管理员、项目隔离、轻量迁移、导入导出、桌面发行入口 | `backend/main.py`、`backend/app_launcher.py` | `backend/tests/`（37 文件） |
-| frontend | `frontend/` | Vue 3、Vite、Element Plus、sortablejs、vuedraggable | 登录、项目工作台、管理员工作台、表单设计器、导入导出、主题与预览交互 | `frontend/src/main.js`、`frontend/src/App.vue` | `frontend/tests/`（22 文件） |
+| backend | `backend/` | FastAPI、SQLAlchemy、SQLite、Pydantic、PyJWT、passlib、python-docx | API、认证、管理员、项目隔离、轻量迁移、导入导出、桌面发行入口、预览/导出严格一致性对比 | `backend/main.py`、`backend/app_launcher.py` | `backend/tests/`（39 文件） |
+| frontend | `frontend/` | Vue 3、Vite、Element Plus、sortablejs、vuedraggable | 登录、会话倒计时、项目工作台、管理员工作台、表单设计器、导入导出、主题与预览交互 | `frontend/src/main.js`、`frontend/src/App.vue` | `frontend/tests/`（26 文件，含 25 个 `.test.js`） |
 | assets | `assets/logos/` | 静态资源 | Logo 示例资源说明；运行时上传不写入该目录 | `assets/logos/README.md` | 无 |
 
 ## 核心能力
 - 项目、访视、表单、字段、单位、选项字典管理
 - 用户认证、管理员用户管理、项目隔离、普通用户自助改密
-- 模板库 `.db` 导入、项目 `.db` 导入 / 整库合并、Word `.docx` 导入对比
-- 表单设计器实时预览、字段实例快编、CRF 模拟渲染
-- 项目复制、项目 Logo 管理、Word 导出、数据库导出
-- AI 配置测试、主题切换、桌面打包发行
+- 模板库 `.db` 导入、项目 `.db` 导入 / 整库合并、Word `.docx` 导入对比与截图证据面板
+- 表单设计器实时预览、字段实例快编、CRF 模拟渲染、列宽与行高拖拽
+- 项目复制、项目 Logo 管理、Word 导出、数据库导出、预览/导出严格表格字段一致性校验
+- AI 配置测试、会话倒计时与点击续期、主题切换、桌面打包发行
 
 ## 关键入口
 - 后端开发入口：`backend/main.py`
@@ -54,6 +54,7 @@ graph TD
 - 后端数据库：`backend/src/database.py`（SQLite PRAGMA、Session 与轻量迁移）
 - 后端路由：`backend/src/routers/`
 - 后端服务：`backend/src/services/`
+- 后端预览/导出对比：`backend/src/services/word_table_parity.py`、`backend/scripts/compare_word_table_parity.py`
 - 前端入口：`frontend/src/main.js`
 - 前端应用壳层：`frontend/src/App.vue`
 - 前端开发配置：`frontend/vite.config.js`
@@ -93,17 +94,18 @@ cd frontend && node --test tests/*.test.js
 - 排序契约：后端 `backend/src/services/order_service.py` 与前端 `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` 需要保持接口语义一致。
 - 认证契约：后端 `backend/src/routers/auth.py`、`backend/src/services/auth_service.py` 与前端 `frontend/src/App.vue`、`frontend/src/components/LoginView.vue`、`frontend/src/components/AdminView.vue` 需要同步检查。
 - 表单方向契约：后端 `backend/src/models/form.py`、`backend/src/schemas/form.py`、`backend/src/database.py`、`backend/src/routers/forms.py`、`backend/src/services/project_clone_service.py`、`backend/src/services/project_import_service.py`、`backend/src/services/export_service.py` 需与前端 `frontend/src/components/FormDesignerTab.vue` 同步；`paper_orientation` 改动时同步校验 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_project_copy.py` 与前端源码级测试。
-- 预览与导出视觉一致性：前端 `frontend/src/styles/main.css` `.wp-form-title` 必须保持 `text-align: left`（与后端 `export_service.add_heading(level=1)` 的 python-docx 默认左对齐对齐），由 `frontend/tests/wordPageGeometry.test.js` 锁住；详见 `.trellis/spec/guides/cross-stack-contracts.md` §4。
+- Word 导入截图证据契约：后端 `backend/src/routers/import_docx.py`、`backend/src/services/docx_screenshot_service.py` 与前端 `frontend/src/components/DocxCompareDialog.vue`、`frontend/src/components/DocxScreenshotPanel.vue` 需要保持任务状态、页码定位与失败提示语义一致。
+- 预览与导出严格一致性：前端 `frontend/src/styles/main.css` `.wp-form-title` 必须保持 `text-align: left`；`backend/src/services/word_table_parity.py` 与 `backend/scripts/compare_word_table_parity.py` 用于对比浏览器预览 JSON 与导出 `.docx` 的表单 / 行 / 单元格文本；详见 `.trellis/spec/guides/cross-stack-contracts.md` §5。
 
 ## 测试策略
-- 后端测试使用 `pytest`，包含认证、权限、导入导出、排序、列宽规划、WAL、安全响应头、项目隔离等用例。
-- 前端测试使用 `node:test`，并引入 `fast-check` 做属性/契约校验；覆盖应用壳层、管理员结构、主题、侧边栏、设计器列宽、字段展示与导出状态。
+- 后端测试使用 `pytest`，包含认证、权限、导入导出、排序、列宽规划、WAL、安全响应头、项目隔离、批量删除隔离、性能 FK 索引、Docx 截图失败语义与 Word 表格一致性等用例。
+- 前端测试使用 `node:test`，并引入自研轻量属性测试工具（`testProperty.js`）做属性与契约校验；覆盖应用壳层、管理员结构、主题、侧边栏、设计器列宽/行高、字段展示、会话倒计时、Docx 双栏预览与导出状态。
 - 本轮扫描未发现浏览器级 E2E 套件；当前回归以 API 与源码级测试为主。
 
 ## AI 使用指引
 - 先看本文件确认模块边界，再进入对应模块 `CLAUDE.md` 深读。
 - 涉及认证、JWT、管理员权限、限流或普通用户改密时，至少同步检查：`backend/src/routers/auth.py`、`backend/src/routers/admin.py`、`backend/src/services/auth_service.py`、`backend/src/services/user_admin_service.py`、`backend/src/rate_limit.py`、`frontend/src/App.vue`、`frontend/src/components/AdminView.vue`。
-- 涉及导入导出或 Word 预览时，至少同步检查：`backend/src/routers/import_docx.py`、`backend/src/routers/projects.py`、`backend/src/services/import_service.py`、`backend/src/services/project_import_service.py`、`backend/src/services/export_service.py`、`frontend/src/components/TemplatePreviewDialog.vue`、`frontend/src/components/DocxCompareDialog.vue`、`frontend/src/components/SimulatedCRFForm.vue`。
+- 涉及导入导出或 Word 预览时，至少同步检查：`backend/src/routers/import_docx.py`、`backend/src/routers/projects.py`、`backend/src/services/import_service.py`、`backend/src/services/project_import_service.py`、`backend/src/services/export_service.py`、`backend/src/services/word_table_parity.py`、`frontend/src/components/TemplatePreviewDialog.vue`、`frontend/src/components/DocxCompareDialog.vue`、`frontend/src/components/DocxScreenshotPanel.vue`、`frontend/src/components/SimulatedCRFForm.vue`。
 - 涉及列宽 / 预览改动时，必须同步检查并更新：`backend/src/services/width_planning.py`、`frontend/src/composables/useCRFRenderer.js`、`backend/tests/test_width_planning.py`、`frontend/tests/columnWidthPlanning.test.js`。
 - 涉及项目隔离或权限边界时，优先检查 `backend/src/dependencies.py`、`backend/tests/test_isolation.py`、`backend/tests/test_subresource_isolation.py`、`backend/tests/test_permission_guards.py`。
 
@@ -123,6 +125,7 @@ cd frontend && node --test tests/*.test.js
 - `draft` 分支可直接 push 到远程；`main` 分支仅接受 PR 合并。
 
 ## 变更记录
+- `2026年6月14日`：文档同步刷新。后端服务 12→13（新增 `word_table_parity.py`），后端测试 37→39（当前包含批量删除隔离、Docx 截图失败语义、性能 FK 索引与 Word 表格一致性等新增回归），脚本 3→4（新增 `compare_word_table_parity.py`）。前端组件 12→13（新增 `SessionTimer.vue`），composables 11→14（新增 `useSessionTimer.js`、`useRowResize.js`、`formDesignerPreviewModel.js`），前端测试目录 22→26（25 个 `.test.js` + `testProperty.js`，新增会话倒计时、行高拖拽、预览视图模型与 Docx 双栏证据面板相关回归）。
 - `2026年5月12日`（任务 `05-12-word-preview-export-parity`）：跨栈引入 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8` 常量到 `backend/src/services/width_planning.py` + `frontend/src/composables/useCRFRenderer.js`，并在双端 `build_inline_column_demands` / `buildInlineColumnDemands` 的 max chain 应用，解决 ≤4 字短表头（如"未查/项目/单位"）与长邻居共存时被压缩到不可单行的红线；`.wp-form-title` 由 `text-align: center` 改为 `left` 与 Word 导出 Heading-1 默认左对齐对齐；`generatePlannerFixtures.mjs` 补齐遗漏的 `unified_mixed_inline_and_regular`、`unified_regular_date_control_weight_spans_value_columns` 与新增 `inline_short_header_floor` 共 3 个 case，fixture 由 generator 单一来源重新生成（11 cases）。新增前端测试 `wordPageGeometry.test.js` 中 `.wp-form-title` 三个断言；前端 `columnWidthPlanning.test.js` 新增 9.12 / 9.12b；后端 `test_width_planning.py` 新增 `TestInlineHeaderFloor` 三测试。
 - `2026年5月12日 17:42:57`：增量扫描刷新。前端测试 21→22（新增 `wordPageGeometry.test.js`，覆盖 Word 预览 A4 几何契约、`.designer-scaled-word-page` 尺寸、`.word-page.landscape` 翻转、`table-layout: fixed` 与 inline `<colgroup>` 契约）；后端测试与源码文件计数无变化。同步刷新 Mermaid 图与模块索引。同步在 `.trellis/spec/guides/cross-stack-contracts.md` 中补写第 5 条契约 `form-paper-orientation`，与根级跨栈契约对齐。
 - `2026年5月8日 18:26:34`：增量扫描刷新。后端测试 34→37（新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`）；前端测试 20→21（新增 `testProperty.js` 属性测试工具库）；同步更新 Mermaid 图、模块索引与文件计数。
