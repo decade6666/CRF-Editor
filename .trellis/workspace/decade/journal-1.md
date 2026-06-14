@@ -822,3 +822,53 @@ Implemented strict preview/export table-field parity for Word output, added comp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 文档审查：修正不实的 fast-check 测试依赖声明
+
+**Date**: 2026-06-14
+**Task**: 文档审查：修正不实的 fast-check 测试依赖声明
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+审查 6 个未提交文档（根/模块 CLAUDE.md、index.json、README.md/en），核对刷新内容与代码库一致性，修正唯一实质错误并经 PR #15 合并到 main。
+
+| 项 | 内容 |
+|---|---|
+| 核对正确 | 文件计数（services 13 / tests 39 / scripts 4 / components 13 / composables 14 / frontend tests 26）、index.json 显式路径、hypothesis 真实依赖、跨栈契约 §4/§5 编号 |
+| 实质问题 | README、根与前端 CLAUDE.md 称前端测试依赖 fast-check，实则项目不依赖该库，使用自研 frontend/tests/testProperty.js（前端 CLAUDE.md 自身已称其为"轻量替代 fast-check"，自相矛盾） |
+| 修正 | 4 个文件 6 处 fast-check 表述改为 testProperty.js；保留 frontend/.claude/CLAUDE.md:101 "轻量替代 fast-check" 的正确描述 |
+| 验证 | 前端 lint 0 errors；node:test 全套 220/220 通过；grep fast-check 仅余 1 处正确描述 |
+| 交付 | 提交 28d12af 推送 draft，创建并合并 PR #15（draft→main，含前置 06a9330 行高拖拽 hover 修复） |
+
+**Updated Files**:
+- `.claude/CLAUDE.md`
+- `.claude/index.json`
+- `README.md`
+- `README.en.md`
+- `backend/.claude/CLAUDE.md`
+- `frontend/.claude/CLAUDE.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28d12af` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
