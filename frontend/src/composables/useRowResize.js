@@ -33,12 +33,26 @@ function readHeightMap(storageKey) {
   }
 }
 
+// 按 fields 数组引用缓存 table-instance-id。预览渲染会对同一 group 的 fields 引用
+// 反复调用本函数（FormDesignerTab 单帧 ~49 次），而 fields 数组由上游 computed 不可变重建，
+// 同一引用的 field ids 不变，故按引用缓存安全且可消除每帧的全字段 map/filter/join。
+// WeakMap 在 fields 被替换后自动回收旧引用，不会持有过期数据。
+const tableInstanceIdCache = new WeakMap()
+
 export function buildTableInstanceId(kind, fields) {
-  const fieldIds = (fields || [])
-    .map((field) => field?.id)
-    .filter((id) => id != null)
-    .join(',')
-  return `${kind}:fieldIds=${fieldIds}`
+  if (fields && typeof fields === 'object') {
+    let byKind = tableInstanceIdCache.get(fields)
+    if (!byKind) {
+      byKind = new Map()
+      tableInstanceIdCache.set(fields, byKind)
+    }
+    const cached = byKind.get(kind)
+    if (cached !== undefined) return cached
+    const id = `${kind}:fieldIds=${fieldIdList(fields)}`
+    byKind.set(kind, id)
+    return id
+  }
+  return `${kind}:fieldIds=${fieldIdList(fields)}`
 }
 
 export function buildRowHeightStorageKey(formId, tableInstanceId) {

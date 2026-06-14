@@ -108,6 +108,54 @@ test('row height helper exports stable row keys for inline and unified rows', as
   assert.equal(helpers.getUnifiedInlineDataRowKey([{ id: 7 }, { id: 8 }], 1), 'unified-inline-row:7,8:1')
 })
 
+test('buildTableInstanceId stays equivalent and caches by fields reference', async () => {
+  const { buildTableInstanceId } = await import('../src/composables/useRowResize.js')
+
+  const fields = [{ id: 1 }, { id: 2 }, { id: 3 }]
+
+  // 与原实现逐字符等价：kind:fieldIds=<逗号分隔 id>
+  assert.equal(buildTableInstanceId('inline', fields), 'inline:fieldIds=1,2,3')
+  // 同一引用 + 同 kind 重复调用结果稳定（命中按引用缓存）
+  assert.equal(buildTableInstanceId('inline', fields), 'inline:fieldIds=1,2,3')
+
+  // 同一引用、不同 kind 互不串扰
+  assert.equal(buildTableInstanceId('unified', fields), 'unified:fieldIds=1,2,3')
+  assert.equal(buildTableInstanceId('inline', fields), 'inline:fieldIds=1,2,3')
+
+  // 不同引用但相同 id 序列 → 相同 id 字符串（缓存不影响等价性）
+  const sameIdsNewRef = [{ id: 1 }, { id: 2 }, { id: 3 }]
+  assert.equal(buildTableInstanceId('inline', sameIdsNewRef), 'inline:fieldIds=1,2,3')
+
+  // 新数组（字段增删）→ id 反映新的 id 序列，不会复用旧引用结果
+  const added = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
+  assert.equal(buildTableInstanceId('inline', added), 'inline:fieldIds=1,2,3,4')
+
+  // null / 空值兜底：与原实现一致，不抛错
+  assert.equal(buildTableInstanceId('normal', null), 'normal:fieldIds=')
+  assert.equal(buildTableInstanceId('normal', []), 'normal:fieldIds=')
+})
+
+test('buildTableInstanceId documents immutable fields reference cache contract', async () => {
+  const { buildTableInstanceId } = await import('../src/composables/useRowResize.js')
+
+  const fields = [{ id: 1 }, { id: 2 }]
+  assert.equal(buildTableInstanceId('normal', fields), 'normal:fieldIds=1,2')
+
+  // 缓存按 fields 数组引用命中；调用方若改变字段 id，必须用新数组表达，不能原地改。
+  fields[0] = { id: 9 }
+  assert.equal(
+    buildTableInstanceId('normal', fields),
+    'normal:fieldIds=1,2',
+    'same fields reference keeps the cached table instance id by contract',
+  )
+
+  assert.equal(
+    buildTableInstanceId('normal', [...fields]),
+    'normal:fieldIds=9,2',
+    'a rebuilt fields array recomputes the table instance id',
+  )
+})
+
 function readComponentSource(relativePath) {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
 }
