@@ -967,3 +967,61 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: 表单设计器内存撤销/恢复（最近20步）
+
+**Date**: 2026-06-15
+**Task**: 表单设计器内存撤销/恢复（最近20步）
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+为表单设计器新增「撤回」「恢复」能力，前端内存维护 undo/redo 双栈（上限 20，刷新即清空，无后端持久化），后端无改动。
+
+| 范围 | 内容 |
+|------|------|
+| 新增 composable | `useDesignerHistory.js`：双栈、上限裁剪、新操作清空 redo、id 重映射、busy 锁；回放失败快照还原本条 ids 防栈污染 |
+| 设计器接入 | 顶栏「撤回/恢复」按钮 + Ctrl+Z/Y（输入框内让出原生撤销）；切换表单清空历史 |
+| 六类操作 | 属性编辑、排序（拖拽+键盘两路径经 recordReorderHistory）、新增已有字段、新建字段、删除、批量删除 |
+| 逆操作 | 删除/批量删除按删除前快照（含 order_index+全属性）重建并回写新 id；新建字段撤销对称删定义（409 降级保留）；属性回放对日志行也回放颜色 |
+
+**三轮 GPT 评审闭环**：
+- 失败后 remap 污染栈 → undo/redo 快照还原本条 ids
+- 键盘排序未入栈 → 抽 recordReorderHistory，拖拽+键盘共用
+- 日志行颜色撤销缺失 → 颜色 PATCH 改为无条件执行
+
+**验证**：node --test 240/240；build 成功；eslint 0 error；浏览器实测（5173/8888）空栈禁用、增/删/撤销/恢复、Ctrl+Z/Y、删除 id 重映射全通过。PR #19（draft→main）。
+
+**已知边界**：非事务 REST 的回放幂等（create 成功但刷新失败可能重试重复）未处理；toggleInline 等快编未入栈。
+
+**Updated Files**:
+- `frontend/src/composables/useDesignerHistory.js`（新增）
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/tests/designerHistory.test.js`（新增，11 例）
+- `frontend/tests/orderingStructure.test.js`
+- `frontend/tests/formDesignerPropertyEditor.runtime.test.js`
+- `frontend/.claude/CLAUDE.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7eb7594` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
