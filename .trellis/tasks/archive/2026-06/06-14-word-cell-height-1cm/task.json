@@ -3,7 +3,7 @@
   "name": "word-cell-height-1cm",
   "title": "fix: Word 导出按单行文本=1cm 设置单元格上下间距（不裁切多行）",
   "description": "把 Word 导出表格行高从固定 EXACTLY 1cm 改为 AT_LEAST 下限 + 段落上下间距，使单行文本单元格视觉高度恰为 1cm，多行内容（纵向单选/多选、多 default_lines）自然增高且不被裁切。仅改 backend/src/services/export_service.py 高度与间距逻辑，并补行高/间距回归测试；不动文本内容与 strict parity 契约。",
-  "status": "done",
+  "status": "completed",
   "dev_type": "backend",
   "scope": null,
   "package": null,
