@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-06-14
+- **Total Sessions**: 18
+- **Last Active**: 2026-06-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~913 | Active |
+| `journal-1.md` | ~969 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-06-15 | Word 导出表格行高改 AT_LEAST 下限 + 单行 1cm 间距 | `785e3ee` | `draft` |
 | 17 | 2026-06-14 | Session timer seconds display | `01002c4` | `draft` |
 | 16 | 2026-06-14 | 文档审查：修正不实的 fast-check 测试依赖声明 | `28d12af` | `draft` |
 | 15 | 2026-06-13 | 性能优化：预览视图模型缓存 + 后端 reorder/批量删除批量化 | `4ddeab3` | `draft` |
