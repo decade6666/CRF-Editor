@@ -1,10 +1,11 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUpdate, nextTick, inject, defineExpose } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onBeforeUpdate, nextTick, inject, defineExpose } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { useSortableTable } from '../composables/useSortableTable';
 import { useColumnResize } from '../composables/useColumnResize';
+import { useDesignerHistory } from '../composables/useDesignerHistory';
 import {
   buildTableInstanceId,
   useRowResize,
@@ -83,6 +84,7 @@ const editFormTarget = ref(null);
 const dragSrcId = ref(null);
 const dragOverIdx = ref(null);
 const deletingFieldIds = ref(new Set());
+const designerHistory = useDesignerHistory();
 let formFieldsLoadSession = 0;
 let formSelectionSession = 0;
 
@@ -166,6 +168,13 @@ async function loadFormFields(formId = selectedForm.value?.id ?? null) {
   if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return;
   formFields.value = sortFormFieldsByOrder(loadedFields);
 }
+watch(
+  () => selectedForm.value?.id ?? null,
+  () => {
+    // 撤销栈按表单维度，切换表单即清空，避免跨表单回放到错误目标。
+    designerHistory.clear();
+  },
+);
 watch(selectedForm, (form) => {
   void loadFormFields(form?.id ?? null);
 });
@@ -325,11 +334,129 @@ async function confirmFormChange() {
   }
 }
 
+// ── 撤销 / 恢复回放辅助 ────────────────────────────────────────────────────
+// 由删除前的字段实例构造可直接 POST 重建的 payload（含 order_index 与全部属性）。
+function buildFormFieldCreatePayload(ff) {
+  return {
+    field_definition_id: ff.field_definition_id ?? null,
+    is_log_row: ff.is_log_row ?? 0,
+    order_index: ff.order_index ?? null,
+    required: ff.required ?? 0,
+    label_override: ff.label_override ?? null,
+    help_text: ff.help_text ?? null,
+    default_value: ff.default_value ?? null,
+    inline_mark: ff.inline_mark ?? 0,
+    bg_color: ff.bg_color ?? null,
+    text_color: ff.text_color ?? null,
+  };
+}
+
+// 抓取属性编辑前/后的字段定义 + 实例状态，用于属性编辑的正/逆回放。
+function snapshotFieldPropState(ff) {
+  if (!ff) return null;
+  const fd = ff.field_definition || {};
+  return {
+    is_log_row: !!ff.is_log_row,
+    label_override: ff.label_override ?? null,
+    default_value: ff.default_value ?? null,
+    bg_color: ff.bg_color ?? null,
+    text_color: ff.text_color ?? null,
+    fd: {
+      label: fd.label ?? null,
+      variable_name: fd.variable_name ?? null,
+      field_type: fd.field_type ?? null,
+      integer_digits: fd.integer_digits ?? null,
+      decimal_digits: fd.decimal_digits ?? null,
+      date_format: fd.date_format ?? null,
+      codelist_id: fd.codelist_id ?? null,
+      unit_id: fd.unit_id ?? null,
+    },
+  };
+}
+
+function sameFieldPropState(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+// 重新加载列表与预览，并在被影响字段仍选中时同步属性编辑器。
+async function reloadAfterReplay(formId, { defs = false, focusFieldId = null } = {}) {
+  if (formId) api.invalidateCache(`/api/forms/${formId}/fields`);
+  if (defs) {
+    api.invalidateCache(`/api/projects/${props.projectId}/field-definitions`);
+    await loadFieldDefs();
+  }
+  await loadFormFields(formId);
+  if (focusFieldId && selectedFieldId.value === focusFieldId) {
+    const fresh = formFields.value.find((f) => f.id === focusFieldId);
+    if (fresh) selectField(fresh);
+  }
+}
+
+// 回放一份属性状态（字段定义 + 实例 + 颜色），undo / redo 共用。
+async function applyFieldPropState(ctx, state) {
+  const { formId, projectId, ffId, fieldDefinitionId } = ctx;
+  if (state.is_log_row) {
+    await api.put(`/api/form-fields/${ffId}`, { label_override: state.label_override });
+  } else {
+    await api.put(`/api/projects/${projectId}/field-definitions/${fieldDefinitionId}`, { ...state.fd });
+    await api.put(`/api/form-fields/${ffId}`, { default_value: state.default_value });
+  }
+  // 颜色对日志行与普通字段都适用，与正向保存 saveFieldProp 的无条件 PATCH 对齐。
+  await api.patch(`/api/form-fields/${ffId}/colors`, { bg_color: state.bg_color, text_color: state.text_color });
+  await reloadAfterReplay(formId, { defs: true, focusFieldId: ffId });
+}
+
+// 记录一次排序命令（拖拽与键盘排序共用）。
+function recordReorderHistory(formId, previousOrder, nextOrder) {
+  designerHistory.record({
+    label: '排序',
+    ids: { previousOrder, nextOrder },
+    undo: async (ids) => {
+      await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: ids.previousOrder });
+      await reloadAfterReplay(formId);
+    },
+    redo: async (ids) => {
+      await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: ids.nextOrder });
+      await reloadAfterReplay(formId);
+    },
+  });
+}
+
+// 统一执行撤销 / 恢复：失败时提示并保持栈状态，不静默吞错。
+async function runHistory(direction) {
+  try {
+    await (direction === 'undo' ? designerHistory.undo() : designerHistory.redo());
+  } catch (e) {
+    ElMessage.error(`${direction === 'undo' ? '撤回' : '恢复'}失败：${e?.message || '后端回放出错'}`);
+    if (selectedForm.value) loadFormFields();
+  }
+}
+function handleUndo() {
+  if (designerHistory.canUndo.value) void runHistory('undo');
+}
+function handleRedo() {
+  if (designerHistory.canRedo.value) void runHistory('redo');
+}
+
 async function addField(fd) {
   if (!selectedForm.value) return ElMessage.warning('请先选择表单');
+  const formId = selectedForm.value.id;
   try {
-    await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id });
-    loadFormFields();
+    const created = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: fd.id });
+    await loadFormFields(formId);
+    designerHistory.record({
+      label: '新增字段',
+      ids: { ffId: created.id, fdId: fd.id },
+      undo: async (ids) => {
+        await api.del(`/api/form-fields/${ids.ffId}`);
+        await reloadAfterReplay(formId);
+      },
+      redo: async (ids, { remapId }) => {
+        const recreated = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: ids.fdId });
+        remapId(ids.ffId, recreated.id);
+        await reloadAfterReplay(formId);
+      },
+    });
   } catch (e) {
     ElMessage.error(e.message);
   }
@@ -337,13 +464,27 @@ async function addField(fd) {
 
 async function removeField(ff) {
   if (deletingFieldIds.value.has(ff.id)) return;
+  const formId = selectedForm.value?.id;
+  const snapshot = buildFormFieldCreatePayload(ff);
   try {
     await confirmFormChange();
     deletingFieldIds.value = new Set([...deletingFieldIds.value, ff.id]);
     await api.del(`/api/form-fields/${ff.id}`);
     formFields.value = formFields.value.filter((f) => f.id !== ff.id);
-    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
-    loadFormFields();
+    await reloadAfterReplay(formId);
+    designerHistory.record({
+      label: '删除字段',
+      ids: { ffId: ff.id },
+      undo: async (ids, { remapId }) => {
+        const recreated = await api.post(`/api/forms/${formId}/fields`, snapshot);
+        remapId(ids.ffId, recreated.id);
+        await reloadAfterReplay(formId);
+      },
+      redo: async (ids) => {
+        await api.del(`/api/form-fields/${ids.ffId}`);
+        await reloadAfterReplay(formId);
+      },
+    });
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
   } finally {
@@ -355,11 +496,33 @@ async function removeField(ff) {
 
 async function batchDelete() {
   if (!selectedIds.value.length) return;
+  const formId = selectedForm.value?.id;
+  const ids = [...selectedIds.value];
+  const snapshots = formFields.value
+    .filter((f) => ids.includes(f.id))
+    .map((f) => ({ ffId: f.id, payload: buildFormFieldCreatePayload(f) }));
   try {
     await confirmFormChange();
-    await api.post(`/api/forms/${selectedForm.value.id}/fields/batch-delete`, { ids: selectedIds.value });
+    await api.post(`/api/forms/${formId}/fields/batch-delete`, { ids });
     selectedIds.value = [];
-    loadFormFields();
+    await reloadAfterReplay(formId);
+    designerHistory.record({
+      label: '批量删除',
+      ids: { ffIds: ids },
+      undo: async (entryIds, { remapId }) => {
+        // 逐条重建（按原 order_index 携带全部属性），并回写新 id。
+        for (let i = 0; i < snapshots.length; i += 1) {
+          const recreated = await api.post(`/api/forms/${formId}/fields`, snapshots[i].payload);
+          remapId(snapshots[i].ffId, recreated.id);
+          snapshots[i].ffId = recreated.id;
+        }
+        await reloadAfterReplay(formId);
+      },
+      redo: async (entryIds) => {
+        await api.post(`/api/forms/${formId}/fields/batch-delete`, { ids: entryIds.ffIds });
+        await reloadAfterReplay(formId);
+      },
+    });
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
   }
@@ -391,15 +554,19 @@ async function onDrop(e, targetIdx) {
   });
   const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
   if (srcIdx === -1 || srcIdx === targetIdx) return;
+  const formId = selectedForm.value.id;
+  const previousOrder = formFields.value.map((f) => f.id);
   try {
     const arr = [...formFields.value];
     const [item] = arr.splice(srcIdx, 1);
     arr.splice(targetIdx, 0, item);
     const normalized = normalizeFormFieldOrder(arr);
+    const nextOrder = normalized.map((f) => f.id);
     formFields.value = normalized;
-    await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, { ordered_ids: normalized.map((f) => f.id) });
-    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
+    await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder });
+    api.invalidateCache(`/api/forms/${formId}/fields`);
     await loadFormFields();
+    recordReorderHistory(formId, previousOrder, nextOrder);
   } catch (e) {
     ElMessage.warning('排序保存失败，已恢复');
     loadFormFields();
@@ -429,18 +596,20 @@ async function handleFieldKeydown(event, field, index) {
   }
   const move = async (from, to) => {
     if (to < 0 || to >= formFields.value.length) return;
+    const formId = selectedForm.value.id;
+    const previousOrder = formFields.value.map((f) => f.id);
     try {
       const arr = [...formFields.value];
       const [item] = arr.splice(from, 1);
       arr.splice(to, 0, item);
       const normalized = normalizeFormFieldOrder(arr);
+      const nextOrder = normalized.map((f) => f.id);
       formFields.value = normalized;
-      await api.post(`/api/forms/${selectedForm.value.id}/fields/reorder`, {
-        ordered_ids: normalized.map((f) => f.id),
-      });
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
+      await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder });
+      api.invalidateCache(`/api/forms/${formId}/fields`);
       await loadFormFields();
       nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus());
+      recordReorderHistory(formId, previousOrder, nextOrder);
     } catch (e) {
       ElMessage.warning('排序保存失败，已恢复');
       loadFormFields();
@@ -1325,6 +1494,9 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   if (!ff || !formId || projectId !== props.projectId) throw new Error('自动保存上下文已变更');
   if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
     throw new Error('单选/多选字段必须选择选项字典');
+  const propEditFieldId = ff.id;
+  const propEditDefinitionId = ff.field_definition_id;
+  const beforePropState = snapshotFieldPropState(ff);
   if (ff.is_log_row) {
     const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label });
     if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
@@ -1365,21 +1537,73 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
     { syncEditor: false },
   );
   await loadFormFields();
+  const afterField = formFields.value.find((f) => f.id === propEditFieldId);
+  const afterPropState = snapshotFieldPropState(afterField);
+  if (afterPropState && beforePropState && !sameFieldPropState(beforePropState, afterPropState)) {
+    designerHistory.record({
+      label: '编辑属性',
+      ids: { ffId: propEditFieldId, fdId: propEditDefinitionId },
+      undo: async (ids) => {
+        await applyFieldPropState(
+          { formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId },
+          beforePropState,
+        );
+      },
+      redo: async (ids) => {
+        await applyFieldPropState(
+          { formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId },
+          afterPropState,
+        );
+      },
+    });
+  }
 }
 
 async function newField() {
   if (!selectedForm.value) return;
+  const formId = selectedForm.value.id;
+  const projectId = props.projectId;
   try {
-    const fd = await api.post(`/api/projects/${props.projectId}/field-definitions`, {
+    const fd = await api.post(`/api/projects/${projectId}/field-definitions`, {
       variable_name: genFieldVarName(),
       label: '新字段',
       field_type: '文本',
     });
-    const ff = await api.post(`/api/forms/${selectedForm.value.id}/fields`, { field_definition_id: fd.id });
+    const ff = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: fd.id });
     await loadFormFields();
     await loadFieldDefs();
     const newFf = formFields.value.find((f) => f.id === ff.id);
     if (newFf) selectField(newFf);
+    // 新建字段会同时创建字段定义；撤销时对称回滚（定义被其他表单引用则降级保留）。
+    const createPayload = {
+      variable_name: fd.variable_name,
+      label: fd.label,
+      field_type: fd.field_type,
+    };
+    designerHistory.record({
+      label: '新建字段',
+      ids: { ffId: ff.id, fdId: fd.id },
+      undo: async (ids) => {
+        await api.del(`/api/form-fields/${ids.ffId}`);
+        try {
+          await api.del(`/api/field-definitions/${ids.fdId}`);
+        } catch (err) {
+          if (Number(err?.status ?? err?.response?.status) === 409) {
+            ElMessage.warning('字段定义已被其他表单引用，已保留定义');
+          } else {
+            throw err;
+          }
+        }
+        await reloadAfterReplay(formId, { defs: true });
+      },
+      redo: async (ids, { remapId }) => {
+        const recreatedFd = await api.post(`/api/projects/${projectId}/field-definitions`, createPayload);
+        remapId(ids.fdId, recreatedFd.id);
+        const recreatedFf = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: recreatedFd.id });
+        remapId(ids.ffId, recreatedFf.id);
+        await reloadAfterReplay(formId, { defs: true });
+      },
+    });
   } catch (e) {
     ElMessage.error(e.message);
   }
@@ -1387,9 +1611,26 @@ async function newField() {
 
 async function addLogRow() {
   if (!selectedForm.value) return;
+  const formId = selectedForm.value.id;
   try {
-    await api.post(`/api/forms/${selectedForm.value.id}/fields`, { is_log_row: 1, label_override: '以下为log行' });
+    const created = await api.post(`/api/forms/${formId}/fields`, { is_log_row: 1, label_override: '以下为log行' });
     await loadFormFields();
+    designerHistory.record({
+      label: '添加log行提示',
+      ids: { ffId: created.id },
+      undo: async (ids) => {
+        await api.del(`/api/form-fields/${ids.ffId}`);
+        await reloadAfterReplay(formId);
+      },
+      redo: async (ids, { remapId }) => {
+        const recreated = await api.post(`/api/forms/${formId}/fields`, {
+          is_log_row: 1,
+          label_override: '以下为log行',
+        });
+        remapId(ids.ffId, recreated.id);
+        await reloadAfterReplay(formId);
+      },
+    });
   } catch (e) {
     ElMessage.error(e.message);
   }
@@ -1633,10 +1874,34 @@ async function ensureDesignerAuxiliaryDataLoaded() {
   }
 }
 
+// 焦点在文本输入控件内时让出 Ctrl+Z/Y 给浏览器原生撤销，避免与字段属性编辑冲突。
+function isEditableTarget(target) {
+  if (!target || typeof target.tagName !== 'string') return false;
+  const tag = target.tagName.toUpperCase();
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable === true;
+}
+function handleHistoryKeydown(event) {
+  if (!showDesigner.value) return;
+  if (!(event.ctrlKey || event.metaKey)) return;
+  if (isEditableTarget(event.target)) return;
+  const key = (event.key || '').toLowerCase();
+  if (key === 'z' && !event.shiftKey) {
+    event.preventDefault();
+    handleUndo();
+  } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+    event.preventDefault();
+    handleRedo();
+  }
+}
+
 onMounted(async () => {
+  if (typeof window !== 'undefined') window.addEventListener('keydown', handleHistoryKeydown);
   await loadForms();
   nextTick(() => initFormsSortable());
   void migrateLegacyForceLandscape(props.projectId);
+});
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') window.removeEventListener('keydown', handleHistoryKeydown);
 });
 watch(
   () => showDesigner.value,
@@ -2110,6 +2375,20 @@ function openAddForm() {
               <div class="fd-canvas-header">
                 <el-button size="small" type="primary" @click="newField">新建字段</el-button
                 ><el-button size="small" @click="addLogRow">添加“以下为log行”提示</el-button
+                ><el-button
+                  size="small"
+                  data-test="designer-undo"
+                  :disabled="!designerHistory.canUndo.value"
+                  :loading="designerHistory.busy.value"
+                  @click="handleUndo"
+                  >撤回</el-button
+                ><el-button
+                  size="small"
+                  data-test="designer-redo"
+                  :disabled="!designerHistory.canRedo.value"
+                  :loading="designerHistory.busy.value"
+                  @click="handleRedo"
+                  >恢复</el-button
                 ><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete"
                   >批量删除({{ selectedIds.length }})</el-button
                 ><span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto"

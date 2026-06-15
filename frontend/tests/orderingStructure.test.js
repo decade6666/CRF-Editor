@@ -128,13 +128,17 @@ test('FormDesignerTab has no imperative updateFormOrder handler after R1', () =>
 
 test('FormDesignerTab field reorder invalidates cached form fields in each reorder path', () => {
   // R1 删除了 updateFormFieldOrder 手动路径；仅剩 onDrop + keyboard move 两条路径
+  // 06-15 撤销/恢复：两条路径统一捕获 formId 并经 recordReorderHistory 入栈
   assert.match(formsSource, /async function onDrop\(/);
   assert.match(formsSource, /const move = async \(from, to\) => \{/);
-  assert.match(formsSource, /\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields\/reorder/);
-  assert.match(formsSource, /ordered_ids: normalized\.map\(\(f\) => f\.id\)/);
-  assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)/);
-  assert.match(formsSource, /await loadFormFields\(\)/);
+  assert.match(formsSource, /\/api\/forms\/\$\{formId\}\/fields\/reorder/);
+  assert.match(formsSource, /const nextOrder = normalized\.map\(\(f\) => f\.id\)/);
+  assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/);
+  assert.match(formsSource, /await loadFormFields\(/);
   assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/);
+  // 拖拽与键盘排序都必须记录撤销历史（Finding 2）
+  const reorderRecordCalls = (formsSource.match(/recordReorderHistory\(formId, previousOrder, nextOrder\);/g) || []).length;
+  assert.equal(reorderRecordCalls, 2);
 });
 
 test('FormDesignerTab keeps designer entry visible for selected form outside edit mode gate', () => {
