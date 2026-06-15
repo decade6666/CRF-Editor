@@ -31,10 +31,7 @@ function createEmptyMessage() {
 function formatRemainingSeconds(remainingSeconds) {
   if (!Number.isFinite(remainingSeconds)) return '';
   if (remainingSeconds <= 0) return '已过期';
-  if (remainingSeconds < 60) return '会话即将过期';
-  const minutes = Math.floor(remainingSeconds / 60);
-  const seconds = remainingSeconds % 60;
-  return `会话剩余 ${minutes}:${String(seconds).padStart(2, '0')}`;
+  return `${remainingSeconds}(s)`;
 }
 
 function resolveTimerStatus(remainingSeconds) {
