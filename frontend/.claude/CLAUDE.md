@@ -24,10 +24,10 @@
 
 ## 核心目录
 - `src/components/`（13 个 Vue 组件）：项目、字典、单位、字段、表单设计、访视、登录、管理、会话倒计时、导入预览、CRF 模拟渲染等页面组件。
-- `src/composables/`（14 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、预览视图模型、导出下载状态、列宽 / 行高拖拽、会话倒计时、访视预览方向、标签页懒加载、性能基线等共享逻辑。
+- `src/composables/`（15 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、预览视图模型、导出下载状态、列宽 / 行高拖拽、会话倒计时、设计器撤销/恢复历史、访视预览方向、标签页懒加载、性能基线等共享逻辑。
 - `src/styles/`：全局样式与主题变量。
 - `scripts/`（3 个脚本）：fixture 生成（`generatePlannerFixtures.mjs`）、构建指标采集（`collectBuildMetrics.mjs`）、浏览器性能基线（`runBrowserPerfBaseline.mjs`）。
-- `tests/`（26 个文件：25 个 `.test.js` + `testProperty.js`）：基于 `node:test` 的前端回归、契约测试与属性测试辅助工具。
+- `tests/`（27 个文件：26 个 `.test.js` + `testProperty.js`）：基于 `node:test` 的前端回归、契约测试与属性测试辅助工具。
 
 ## 关键组件与流程
 - `components/LoginView.vue`：账号 + 密码登录表单；development 下展示迁移提示，production 下显示通用认证失败文案。
@@ -36,7 +36,7 @@
 - `components/ProjectInfoTab.vue`：项目信息、元数据与 Logo 操作。
 - `components/VisitsTab.vue`：访视结构、访视表单矩阵、访视预览与排序。
 - `components/FieldsTab.vue`：字段库维护。
-- `components/FormDesignerTab.vue`：表单设计、字段实例编辑、实时预览、列宽拖拽与快编。
+- `components/FormDesignerTab.vue`：表单设计、字段实例编辑、实时预览、列宽拖拽、快编与内存撤销/恢复（撤回/恢复按钮 + Ctrl+Z / Ctrl+Y）。
 - `components/TemplatePreviewDialog.vue`：模板导入预览。
 - `components/DocxCompareDialog.vue`：Word 导入对比预览与 AI 建议应用。
 - `components/DocxScreenshotPanel.vue`：Word 导入截图展示。
@@ -57,6 +57,7 @@
 - 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
 - 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
 - `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
+- 设计器撤销/恢复为纯内存双栈（`useDesignerHistory.js`，上限 20，刷新即清空，不做后端持久化）。覆盖属性编辑、排序、新增（含 log 行）、新建字段、删除、批量删除六类操作；删除/批量删除的逆操作用删除前快照按原 `order_index` 重建并 `remapId` 回写新 id；新建字段撤销时对称删除自动创建的字段定义（被其他表单引用返回 409 则降级保留并提示）。切换表单清空历史；`toggleInline` 等其他快编路径暂不入栈。
 - 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
 - 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
 
@@ -95,6 +96,7 @@
 - `browserPerfBaselineScript.test.js`、`perfBaselineHelpers.test.js`：性能基线相关。
 - `sessionTimer.test.js`：JWT `exp` 解码、会话剩余时间展示、临期提醒与点击续期。
 - `rowHeightResize.test.js`：行高持久化、稳定行 key、整行 hover 指示线和设计器 / 访视预览拖拽锚点。
+- `designerHistory.test.js`：撤销/恢复双栈上限 20、新操作清空 redo、undo/redo 栈迁移、删除撤销后的 id 重映射、数组 id 重映射、回放失败保栈与清空语义。
 - `formDesignerPreviewModel.test.js`：表单设计器 / 模板预览派生视图模型与旧模板纯函数输出等价。
 - `docxBimodalPreview.test.js`：Word 导入双栏截图证据面板、温和定位提示与调试日志清理。
 - `wordPageGeometry.test.js`：Word 预览 A4 几何契约——`.word-page` 21cm×29.7cm、`.word-page.landscape` 翻转、`--word-page-margin-x/y` 变量、`@media print` 回退、`.designer-scaled-word-page` 保持 A4 几何而非 100% 宽度，以及 `inline-table` / `unified-table` 的 `table-layout: fixed` 与 `<colgroup>` 契约。
@@ -105,11 +107,12 @@
 |------|------|
 | 入口 | `src/main.js`、`src/App.vue` |
 | 组件 | `src/components/AdminView.vue`、`src/components/LoginView.vue`、`src/components/SessionTimer.vue`、`src/components/ProjectInfoTab.vue`、`src/components/CodelistsTab.vue`、`src/components/UnitsTab.vue`、`src/components/FieldsTab.vue`、`src/components/FormDesignerTab.vue`、`src/components/VisitsTab.vue`、`src/components/SimulatedCRFForm.vue`、`src/components/TemplatePreviewDialog.vue`、`src/components/DocxCompareDialog.vue`、`src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`、`src/composables/useCRFRenderer.js`、`src/composables/formFieldPresentation.js`、`src/composables/formDesignerPreviewModel.js`、`src/composables/useColumnResize.js`、`src/composables/useRowResize.js`、`src/composables/useSessionTimer.js`、`src/composables/useOrderableList.js`、`src/composables/useSortableTable.js`、`src/composables/formDesignerPropertyEditor.js`、`src/composables/exportDownloadState.js`、`src/composables/visitPreviewLandscape.js`、`src/composables/useLazyTabs.js`、`src/composables/usePerfBaseline.js` |
+| Composables | `src/composables/useApi.js`、`src/composables/useCRFRenderer.js`、`src/composables/formFieldPresentation.js`、`src/composables/formDesignerPreviewModel.js`、`src/composables/useColumnResize.js`、`src/composables/useRowResize.js`、`src/composables/useSessionTimer.js`、`src/composables/useDesignerHistory.js`、`src/composables/useOrderableList.js`、`src/composables/useSortableTable.js`、`src/composables/formDesignerPropertyEditor.js`、`src/composables/exportDownloadState.js`、`src/composables/visitPreviewLandscape.js`、`src/composables/useLazyTabs.js`、`src/composables/usePerfBaseline.js` |
 | 样式 | `src/styles/main.css` |
 | 配置 | `package.json`、`vite.config.js` |
 
 ## 变更记录
+- `2026年6月15日`（任务 `06-15-designer-undo-redo-20`）：新增设计器内存撤销/恢复。composables 14→15（新增 `useDesignerHistory.js`，undo/redo 双栈、上限 20、id 重映射、busy 锁），测试目录 26→27（新增 `designerHistory.test.js`，11 个用例）。`FormDesignerTab.vue` 顶栏新增「撤回」「恢复」按钮并绑定 Ctrl+Z / Ctrl+Y（焦点在输入控件内时让出原生撤销），六类操作（属性编辑/排序/新增/新建字段/删除/批量删除）接入历史；排序在拖拽与键盘两条路径均经 `recordReorderHistory` 入栈；属性回放对日志行与普通字段都回放颜色（与正向保存一致）；回放失败时快照还原本条记录 id 防止栈污染；后端无改动，删除逆操作复用现有 `POST /forms/{id}/fields`（携 `order_index` 与全属性）。
 - `2026年6月14日`：文档同步刷新。组件 12→13（新增 `SessionTimer.vue`），composables 11→14（新增 `useSessionTimer.js`、`useRowResize.js`、`formDesignerPreviewModel.js`），测试目录 22→26（25 个 `.test.js` + `testProperty.js`，新增会话倒计时、行高拖拽、预览视图模型与 Docx 双栏证据面板相关回归）；补充会话续期、行高拖拽与预览模型缓存约定。
 - `2026年5月12日 17:42:57`：增量扫描刷新。测试 21→22 文件（新增 `wordPageGeometry.test.js`，固化 Word 预览/导出的 A4 页面几何与表格布局 CSS 契约）；同步更新测试关注点列表。
 - `2026年5月8日 18:26:34`：增量扫描刷新。测试 20→21 文件（新增 `testProperty.js`）；补充 `scripts/` 目录条目与测试工具说明。

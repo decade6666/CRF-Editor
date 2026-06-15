@@ -24,6 +24,16 @@ const DEFAULT_DATE_FORMATS = {
   时间: 'HH:mm',
 }
 
+test('applyFieldPropState replays colors for both log rows and normal fields', () => {
+  // 撤销/恢复颜色对日志行与普通字段都需回放：颜色 PATCH 必须在 if/else 之外无条件执行
+  const body = /async function applyFieldPropState\(ctx, state\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
+  assert.ok(body, 'should locate applyFieldPropState body')
+  const colorPatches = body.match(/api\.patch\(`\/api\/form-fields\/\$\{ffId\}\/colors`/g) || []
+  assert.equal(colorPatches.length, 1, 'colors should be patched exactly once')
+  const elseBlock = /\} else \{([\s\S]*?)\n {2}\}/.exec(body)?.[1] || ''
+  assert.doesNotMatch(elseBlock, /\/colors`/, 'colors patch must not be confined to the non-log-row branch')
+})
+
 test('syncFieldTypeSpecificProps clears stale choice and unit references when type changes', () => {
   const next = syncFieldTypeSpecificProps({
     field_type: '单选',
