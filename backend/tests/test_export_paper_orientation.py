@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
+import zipfile
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.models import Base
 from src.models.field_definition import FieldDefinition
+from src.models.codelist import CodeList, CodeListOption
 from src.models.form import Form
 from src.models.form_field import FormField
 from src.models.project import Project
@@ -47,12 +50,21 @@ def _create_form(
     return form
 
 
-def _create_field_definition(session: Session, project_id: int, *, variable_name: str, label: str) -> FieldDefinition:
+def _create_field_definition(
+    session: Session,
+    project_id: int,
+    *,
+    variable_name: str,
+    label: str,
+    field_type: str = "文本",
+    codelist_id: int | None = None,
+) -> FieldDefinition:
     field_definition = FieldDefinition(
         project_id=project_id,
         variable_name=variable_name,
         label=label,
-        field_type="文本",
+        field_type=field_type,
+        codelist_id=codelist_id,
     )
     session.add(field_definition)
     session.flush()
@@ -104,6 +116,26 @@ def _add_standard_fields(session: Session, form: Form, *, count: int = 2) -> Non
             label=f"普通字段{idx}",
         )
         _create_form_field(session, form.id, field_definition_id=fd.id, order_index=idx)
+
+
+def _add_vertical_choice_field(session: Session, form: Form) -> None:
+    codelist = CodeList(project_id=form.project_id, name="是否字典", code="YN")
+    codelist.options = [
+        CodeListOption(code="1", decode="是", order_index=1),
+        CodeListOption(code="2", decode="否", order_index=2),
+        CodeListOption(code="3", decode="不适用", order_index=3),
+    ]
+    session.add(codelist)
+    session.flush()
+    fd = _create_field_definition(
+        session,
+        form.project_id,
+        variable_name="VC1",
+        label="纵向多选字段",
+        field_type="多选（纵向）",
+        codelist_id=codelist.id,
+    )
+    _create_form_field(session, form.id, field_definition_id=fd.id, order_index=1)
 
 
 def test_classify_layout_auto_returns_mixed_landscape_for_wide_inline_group() -> None:
@@ -356,3 +388,86 @@ def test_export_portrait_does_not_emit_landscape_section(tmp_path: Path) -> None
             "portrait override must not add extra LANDSCAPE switches beyond the visit-flow diagram, "
             f"got {switch_calls}"
         )
+
+
+_WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+
+def _read_document_xml(docx_path: Path) -> ET.Element:
+    with zipfile.ZipFile(docx_path) as docx_zip:
+        document_xml = docx_zip.read("word/document.xml")
+    return ET.fromstring(document_xml)
+
+
+def _paragraph_text(paragraph: ET.Element) -> str:
+    return "".join(node.text or "" for node in paragraph.findall(".//w:t", _WORD_NS))
+
+
+def _paragraph_spacing_for_text(root: ET.Element, expected_text: str) -> ET.Element:
+    for paragraph in root.findall(".//w:p", _WORD_NS):
+        if expected_text in _paragraph_text(paragraph):
+            spacing = paragraph.find("w:pPr/w:spacing", _WORD_NS)
+            assert spacing is not None, f"paragraph {expected_text!r} should define spacing"
+            return spacing
+    raise AssertionError(f"paragraph {expected_text!r} not found in exported document")
+
+
+def test_export_form_rows_use_at_least_one_cm_height_and_exact_line_spacing(tmp_path: Path) -> None:
+    with _build_session() as session:
+        project = _create_project(session)
+        form = _create_form(session, project.id, name="行高表单", paper_orientation="portrait")
+        _add_standard_fields(session, form, count=1)
+        output_path = tmp_path / "row_height.docx"
+
+        ok = ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    assert ok is True
+    root = _read_document_xml(output_path)
+    expected_height_twips = str(round(ExportService.FORM_TABLE_ROW_HEIGHT_CM * 28.3465 * 20))
+    expected_vpad_twips = str(round(ExportService.CELL_VPAD_PT * 20))
+    expected_line_twips = str(round(ExportService.SINGLE_LINE_HEIGHT_PT * 20))
+
+    row_heights = root.findall(".//w:trHeight", _WORD_NS)
+    assert row_heights, "exported tables should declare row heights"
+    assert all(height.get(f"{{{_WORD_NS['w']}}}hRule") == "atLeast" for height in row_heights)
+    assert all(height.get(f"{{{_WORD_NS['w']}}}val") == expected_height_twips for height in row_heights)
+
+    label_spacing = _paragraph_spacing_for_text(root, "普通字段1")
+    assert label_spacing.get(f"{{{_WORD_NS['w']}}}before") == expected_vpad_twips
+    assert label_spacing.get(f"{{{_WORD_NS['w']}}}after") == expected_vpad_twips
+    assert label_spacing.get(f"{{{_WORD_NS['w']}}}lineRule") == "exact"
+    assert label_spacing.get(f"{{{_WORD_NS['w']}}}line") == expected_line_twips
+
+
+def test_export_vertical_choice_rows_can_expand_without_extra_option_padding(tmp_path: Path) -> None:
+    with _build_session() as session:
+        project = _create_project(session)
+        form = _create_form(session, project.id, name="纵向选项表单", paper_orientation="portrait")
+        _add_vertical_choice_field(session, form)
+        output_path = tmp_path / "vertical_choice_height.docx"
+
+        ok = ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    assert ok is True
+    root = _read_document_xml(output_path)
+    expected_line_twips = str(round(ExportService.SINGLE_LINE_HEIGHT_PT * 20))
+    expected_gap_twips = str(round(ExportService.VERTICAL_OPTION_GAP_PT * 20))
+
+    option_spacings: dict[str, ET.Element] = {}
+    for paragraph in root.findall(".//w:p", _WORD_NS):
+        text = _paragraph_text(paragraph)
+        if text in {"□是", "□否", "□不适用"}:
+            spacing = paragraph.find("w:pPr/w:spacing", _WORD_NS)
+            assert spacing is not None, f"option paragraph {text!r} should define spacing"
+            option_spacings[text] = spacing
+
+    assert set(option_spacings) == {"□是", "□否", "□不适用"}
+    assert option_spacings["□是"].get(f"{{{_WORD_NS['w']}}}before") == "0"
+    assert option_spacings["□是"].get(f"{{{_WORD_NS['w']}}}after") == "0"
+    for text in ["□否", "□不适用"]:
+        spacing = option_spacings[text]
+        assert spacing.get(f"{{{_WORD_NS['w']}}}before") == expected_gap_twips
+        assert spacing.get(f"{{{_WORD_NS['w']}}}after") == "0"
+    for spacing in option_spacings.values():
+        assert spacing.get(f"{{{_WORD_NS['w']}}}lineRule") == "exact"
+        assert spacing.get(f"{{{_WORD_NS['w']}}}line") == expected_line_twips

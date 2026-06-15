@@ -147,13 +147,13 @@ def export_document(session: Session, project_id: int, tmp_path: Path) -> Docume
 
 
 
-def assert_table_rows_exactly_one_centimeter(table) -> None:
+def assert_table_rows_at_least_one_centimeter(table) -> None:
     for row in table.rows:
         tr_pr = row._tr.trPr
         assert tr_pr is not None
         tr_height = tr_pr.find(qn('w:trHeight'))
         assert tr_height is not None
-        assert tr_height.get(qn('w:hRule')) == 'exact'
+        assert tr_height.get(qn('w:hRule')) == 'atLeast'
         assert tr_height.get(qn('w:val')) == str(Cm(1).twips)
 
 
@@ -259,7 +259,7 @@ def test_export_project_uses_next_page_section_break_between_portrait_forms(
 
 
 
-def test_export_project_sets_form_table_rows_to_exactly_one_centimeter(
+def test_export_project_sets_form_table_rows_to_at_least_one_centimeter(
     session: Session,
     tmp_path: Path,
 ) -> None:
@@ -304,11 +304,11 @@ def test_export_project_sets_form_table_rows_to_exactly_one_centimeter(
     doc = export_document(session, project.id, tmp_path)
 
     cover_table = doc.tables[0]
-    assert_table_rows_exactly_one_centimeter(cover_table)
+    assert_table_rows_at_least_one_centimeter(cover_table)
 
     form_table = doc.tables[2]
     assert len(form_table.rows) == 4
-    assert_table_rows_exactly_one_centimeter(form_table)
+    assert_table_rows_at_least_one_centimeter(form_table)
 
 
 def test_export_project_preserves_mixed_normal_inline_group_order(
@@ -368,7 +368,7 @@ def test_export_project_visit_flow_uses_cross_marks_and_order_index_sorting(
     assert visit_flow_table.cell(2, 1).text.strip() == "×"
     assert visit_flow_table.cell(3, 1).text.strip() == "×"
     assert visit_flow_table.cell(4, 1).text.strip() == "×"
-    assert_table_rows_exactly_one_centimeter(visit_flow_table)
+    assert_table_rows_at_least_one_centimeter(visit_flow_table)
 
 
 def _find_tbl_headers(tr) -> list:
@@ -516,10 +516,10 @@ def test_export_project_groups_adjacent_inline_fields_into_one_table(
     assert inline_table.cell(1, 0).text.strip() == "第一行"
     assert inline_table.cell(1, 1).text.strip() == "仅一行"
     assert inline_table.cell(2, 0).text.strip() == "第二行"
-    assert_table_rows_exactly_one_centimeter(inline_table)
+    assert_table_rows_at_least_one_centimeter(inline_table)
 
 
-def test_build_unified_table_sets_all_rows_to_exactly_one_centimeter(
+def test_build_unified_table_sets_all_rows_to_at_least_one_centimeter(
     session: Session,
 ) -> None:
     project = create_project(session)
@@ -585,7 +585,7 @@ def test_build_unified_table_sets_all_rows_to_exactly_one_centimeter(
     )
 
     assert len(table.rows) == 5
-    assert_table_rows_exactly_one_centimeter(table)
+    assert_table_rows_at_least_one_centimeter(table)
 
 
 def test_export_project_renders_cover_table_with_three_rows_two_cols(
