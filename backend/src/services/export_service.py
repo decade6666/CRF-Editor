@@ -13,7 +13,7 @@ import tempfile
 
 from pathlib import Path
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import html
 
@@ -101,7 +101,12 @@ from docx import Document
 
 from docx.shared import Pt, RGBColor, Inches, Cm
 
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.enum.text import (
+    WD_ALIGN_PARAGRAPH,
+    WD_LINE_SPACING,
+    WD_TAB_ALIGNMENT,
+    WD_TAB_LEADER,
+)
 
 from docx.enum.section import WD_SECTION, WD_ORIENT
 
@@ -199,6 +204,8 @@ class ExportService:
 
     LANDSCAPE_CONTENT_WIDTH_CM = 23.36
     FORM_TABLE_ROW_HEIGHT_CM = 1
+    SINGLE_LINE_HEIGHT_PT = 15.6
+    CELL_VPAD_PT = (FORM_TABLE_ROW_HEIGHT_CM * 28.3465 - SINGLE_LINE_HEIGHT_PT) / 2
 
     # 纵向选项之间的段前间距（pt）。跨栈契约：与前端 main.css
     # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
@@ -212,6 +219,38 @@ class ExportService:
         self.session = session
 
         self.project_repo = ProjectRepository(session)
+
+
+
+    def _apply_exact_line_spacing(self, paragraph: Any) -> None:
+
+        """将单元格段落行距固定到 Word 网格单行高度。"""
+
+        paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+        paragraph.paragraph_format.line_spacing = Pt(self.SINGLE_LINE_HEIGHT_PT)
+
+
+
+    def _apply_cell_paragraph_metrics(
+        self,
+        paragraph: Any,
+        *,
+        space_before: bool = True,
+        space_after: bool = True,
+    ) -> None:
+
+        """应用单行 1cm 所需的单元格段落间距与固定行距。"""
+
+        if space_before:
+
+            paragraph.paragraph_format.space_before = Pt(self.CELL_VPAD_PT)
+
+        if space_after:
+
+            paragraph.paragraph_format.space_after = Pt(self.CELL_VPAD_PT)
+
+        self._apply_exact_line_spacing(paragraph)
 
 
 
@@ -523,9 +562,7 @@ class ExportService:
 
                 for cp in cell.paragraphs:
 
-                    cp.paragraph_format.space_after = Pt(0)
-
-                    cp.paragraph_format.line_spacing = 1.0
+                    self._apply_cell_paragraph_metrics(cp)
 
 
 
@@ -1576,11 +1613,7 @@ class ExportService:
 
         self._set_run_font(left_run, size=Pt(10.5), bold=True)
 
-        left_para.paragraph_format.space_before = Pt(5.25)
-
-        left_para.paragraph_format.space_after = Pt(5.25)
-
-        left_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(left_para)
 
         left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -1630,19 +1663,15 @@ class ExportService:
 
 
 
-        if not is_vertical_choice:
-
-            right_para.paragraph_format.space_before = Pt(5.25)
-
-        right_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_para, space_before=not is_vertical_choice, space_after=False
+        )
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        if not is_vertical_choice:
-
-            right_cell.paragraphs[-1].paragraph_format.space_after = Pt(5.25)
-
-        right_cell.paragraphs[-1].paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
+        )
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
@@ -1699,11 +1728,7 @@ class ExportService:
 
             self._set_run_font(run, size=Pt(10.5), bold=True)
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -1729,11 +1754,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5))
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -1790,11 +1811,7 @@ class ExportService:
 
             self._set_run_font(run, size=Pt(10.5), bold=True)
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -1831,6 +1848,16 @@ class ExportService:
 
 
 
+                is_vertical_choice = (
+
+                    cell_value is None
+
+                    and field_def
+
+                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
+
+                )
+
                 if cell_value is not None:
 
                     run = para.add_run(cell_value)
@@ -1839,7 +1866,7 @@ class ExportService:
 
                 elif field_def:
 
-                    if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+                    if is_vertical_choice:
 
                         self._render_vertical_choices(cell, field_def)
 
@@ -1855,11 +1882,9 @@ class ExportService:
 
 
 
-                para.paragraph_format.space_before = Pt(5.25)
-
-                para.paragraph_format.space_after = Pt(5.25)
-
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_cell_paragraph_metrics(
+                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
+                )
 
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -1937,9 +1962,9 @@ class ExportService:
 
     def _apply_exact_row_height(self, row, height_cm: Optional[float] = None):
 
-        """为导出表格行设置固定 1cm 行高。"""
+        """为导出表格行设置 1cm 最小行高，多行内容可自然增高。"""
 
-        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
         row.height = Cm(height_cm if height_cm is not None else self.FORM_TABLE_ROW_HEIGHT_CM)
 
     def _build_form_table(
@@ -2022,11 +2047,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5), bold=True)
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -2063,11 +2084,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5))
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2108,11 +2125,7 @@ class ExportService:
 
         self._set_run_font(left_run, size=Pt(10.5), bold=True)
 
-        left_para.paragraph_format.space_before = Pt(5.25)
-
-        left_para.paragraph_format.space_after = Pt(5.25)
-
-        left_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(left_para)
 
         left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2162,19 +2175,15 @@ class ExportService:
 
 
 
-        if not is_vertical_choice:
-
-            right_para.paragraph_format.space_before = Pt(5.25)
-
-        right_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_para, space_before=not is_vertical_choice, space_after=False
+        )
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        if not is_vertical_choice:
-
-            right_cell.paragraphs[-1].paragraph_format.space_after = Pt(5.25)
-
-        right_cell.paragraphs[-1].paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
+        )
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
@@ -2283,13 +2292,9 @@ class ExportService:
 
 
 
-            # 段落格式：5.25pt前后间距，单倍行距
+            # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -2331,6 +2336,16 @@ class ExportService:
 
                 # 有默认值则显示默认值，否则显示控件占位符
 
+                is_vertical_choice = (
+
+                    cell_value is None
+
+                    and field_def
+
+                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
+
+                )
+
                 if cell_value is not None:
 
                     run = para.add_run(cell_value)
@@ -2341,7 +2356,7 @@ class ExportService:
 
                     # 无默认值，显示控件占位符
 
-                    if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+                    if is_vertical_choice:
 
                         self._render_vertical_choices(cell, field_def)
 
@@ -2357,13 +2372,11 @@ class ExportService:
 
 
 
-                # 段落格式：5.25pt前后间距，单倍行距
+                # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
-                para.paragraph_format.space_before = Pt(5.25)
-
-                para.paragraph_format.space_after = Pt(5.25)
-
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_cell_paragraph_metrics(
+                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
+                )
 
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -2579,7 +2592,7 @@ class ExportService:
 
                 para.paragraph_format.space_after = Pt(0)
 
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_exact_line_spacing(para)
 
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2592,7 +2605,7 @@ class ExportService:
 
                 para.paragraph_format.space_after = Pt(0)
 
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_exact_line_spacing(para)
 
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2862,11 +2875,7 @@ class ExportService:
 
             cover_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            cover_style.paragraph_format.space_before = Pt(0)
-
-            cover_style.paragraph_format.space_after = Pt(0)
-
-            cover_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(cover_style)
 
 
 
@@ -2890,11 +2899,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            visit_style.paragraph_format.space_before = Pt(0)
-
-            visit_style.paragraph_format.space_after = Pt(0)
-
-            visit_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(visit_style)
 
 
 
@@ -2918,11 +2923,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            label_style.paragraph_format.space_before = Pt(5.25)
-
-            label_style.paragraph_format.space_after = Pt(5.25)
-
-            label_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(label_style)
 
 
 
@@ -2946,11 +2947,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            applicable_style.paragraph_format.space_before = Pt(5.25)
-
-            applicable_style.paragraph_format.space_after = Pt(5.25)
-
-            applicable_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(applicable_style)
 
             applicable_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
