@@ -1,0 +1,41 @@
+{
+  "id": "session-timer-seconds-display",
+  "name": "session-timer-seconds-display",
+  "title": "feat: 会话倒计时改为显示原始剩余秒数（如 3600(s)）",
+  "description": "把右上角会话计时器的展示从 '会话剩余 mm:ss' 改为原始剩余秒数 + (s) 后缀，例如 3600(s)。仅改前端展示函数 formatRemainingSeconds 与对应 node:test 断言；不动续期、限流、颜色状态与后端契约。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P3",
+  "creator": "decade",
+  "assignee": "gpt",
+  "createdAt": "2026-06-14",
+  "completedAt": "2026-06-14",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    }
+  ],
+  "commit": "01002c4",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/composables/useSessionTimer.js",
+    "frontend/tests/sessionTimer.test.js",
+    "frontend/src/components/SessionTimer.vue"
+  ],
+  "notes": "前置诊断：当前文案 '会话剩余 mm:ss' 并非被回退，而是用户期望版本从未进入版本库（全分支 -S 历史、工作区、stash、reflog 均无）。sessionTimer.test.js 的 5 处断言把旧文案锁死，是这类改动反复被拉回的根因——本任务必须同步改测试。",
+  "meta": {}
+}

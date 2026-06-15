@@ -872,3 +872,42 @@ Implemented strict preview/export table-field parity for Word output, added comp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Session timer seconds display
+
+**Date**: 2026-06-14
+**Task**: Session timer seconds display
+**Branch**: `draft`
+
+### Summary
+
+Changed the session timer display to raw remaining seconds with an (s) suffix and locked the behavior with session timer tests.
+
+### Main Changes
+
+- Updated `frontend/src/composables/useSessionTimer.js` so positive remaining time renders as `<seconds>(s)` while preserving empty output for invalid values and `已过期` for expired sessions.
+- Updated `frontend/tests/sessionTimer.test.js` display assertions for `60(s)`, `59(s)`, `1800(s)`, and `3600(s)` while keeping expiry behavior unchanged.
+- Verified the target test first failed after updating assertions, then passed after the implementation change.
+- Ran `cd frontend && node --test tests/sessionTimer.test.js` successfully.
+- Ran `cd frontend && node --test tests/*.test.js` successfully: 228/228 passed.
+- Code review agent confirmed the diff is limited to the PRD scope and found no required fixes.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `01002c4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

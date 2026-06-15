@@ -1,0 +1,4 @@
+{"file": "frontend/src/composables/useSessionTimer.js", "reason": "改写 formatRemainingSeconds 为原始秒数 + (s)；保留 finite/<=0 分支，删除 <60 分支与 minutes/seconds 变量"}
+{"file": "frontend/tests/sessionTimer.test.js", "reason": "同步 5 处 displayText 断言：60(s) / 59(s) / 已过期 / 1800(s) / 3600(s)，防止旧文案锁死导致回退"}
+{"file": "frontend/src/components/SessionTimer.vue", "reason": "确认 displayText 消费方与 buttonTitle 自动适配，无需改动"}
+{"file": "frontend/.claude/CLAUDE.md", "reason": "前端模块约定与会话计时器测试关注点"}

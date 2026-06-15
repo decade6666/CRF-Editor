@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-06-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~874 | Active |
+| `journal-1.md` | ~913 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-06-14 | Session timer seconds display | `01002c4` | `draft` |
 | 16 | 2026-06-14 | 文档审查：修正不实的 fast-check 测试依赖声明 | `28d12af` | `draft` |
 | 15 | 2026-06-13 | 性能优化：预览视图模型缓存 + 后端 reorder/批量删除批量化 | `4ddeab3` | `draft` |
 | 14 | 2026-06-13 | 会话计时器 mm:ss 倒计时 + 访视表单同步 | `1e927d1`, `ff77b0e` | `draft` |
