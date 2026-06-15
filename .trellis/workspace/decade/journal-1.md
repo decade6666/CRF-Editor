@@ -911,3 +911,59 @@ Changed the session timer display to raw remaining seconds with an (s) suffix an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Word 导出表格行高改 AT_LEAST 下限 + 单行 1cm 间距
+
+**Date**: 2026-06-15
+**Task**: Word 导出表格行高改 AT_LEAST 下限 + 单行 1cm 间距
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复。
+
+| 改动 | 说明 |
+|------|------|
+| 行高规则 | `EXACTLY` → `AT_LEAST`，保留 Cm(1) 下限；单行恰 1cm，多行不裁切 |
+| 新增常量 | `SINGLE_LINE_HEIGHT_PT=15.6`、`CELL_VPAD_PT≈6.35pt` |
+| 段落几何 | 抽出 `_apply_cell_paragraph_metrics`/`_apply_exact_line_spacing`，消除 11+ 处重复 |
+| 测试 | 补行高/间距/纵向选项回归；旧 `exact` 用例同步为 `atLeast` |
+
+**Review 发现并修复**：首轮 GPT 漏改 `test_export_service.py` 旧 `exact` 契约，全量套件 4 红；二轮按建议修复后转绿。
+
+**验证**：
+- 后端全量 `479 passed, 4 xfailed`
+- 浏览器端到端导出（TEST 项目/DECADE）：`trHeight hRule=atLeast val=567`（537 行）；单行 cell `before=127,after=127,exact,line=312` → 内容盒 566≈567 twips(1cm)，常量无需微调
+- strict parity 未受影响（仅改几何不动文本）
+
+**交付**：commit 785e3ee（draft）→ PR #18（draft→main，中文描述）
+
+**Updated Files**:
+- `backend/src/services/export_service.py`
+- `backend/tests/test_export_paper_orientation.py`
+- `backend/tests/test_export_service.py`
+- `backend/.claude/CLAUDE.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `785e3ee` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
