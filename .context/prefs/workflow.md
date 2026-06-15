@@ -39,6 +39,12 @@
 - 当单次改动超过 30 行时，优先执行 `/verify-change` 与 `/verify-quality`。
 - 涉及认证、授权、输入校验、导入导出、密钥、上传等安全敏感改动时，执行 `/verify-security`。
 
+## PR Rules
+
+- PR 面向项目维护者，标题可保留 Conventional Commits 格式，描述正文必须使用中文。
+- PR 描述需包含：摘要、变更内容、测试计划、后续事项；测试计划必须列出已运行命令与通过状态。
+- PR 正文末尾保留 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`。
+
 ## Context Logging (决策记录)
 
 当你做出以下决策时，MUST 追加到 `.context/current/branches/<当前分支>/session.log`：
