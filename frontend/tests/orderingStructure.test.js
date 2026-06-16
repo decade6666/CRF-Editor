@@ -178,7 +178,7 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.match(formsSource, /:draggable="true"/);
   assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/);
   assert.doesNotMatch(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/);
-  assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\)"/);
+  assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\) && !isDraftField\(ff\)"/);
   assert.doesNotMatch(
     formsSource,
     /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)"/,

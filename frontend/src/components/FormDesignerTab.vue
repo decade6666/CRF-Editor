@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onBeforeUpdate, nextTick, inject, defineExpose } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
+import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { useSortableTable } from '../composables/useSortableTable';
 import { useColumnResize } from '../composables/useColumnResize';
@@ -88,6 +88,15 @@ const deletingFieldIds = ref(new Set());
 const designerHistory = useDesignerHistory();
 let formFieldsLoadSession = 0;
 let formSelectionSession = 0;
+
+// 新增字段本地草稿：点「新建字段」先生成临时草稿对象（不落库），保存才 POST 建定义+建实例。
+// 草稿带完整本地 field_definition，预览/渲染按本地数据工作，仅在发起网络请求处按草稿短路。
+const DRAFT_FIELD_ID = '__draft__';
+const savingDraft = ref(false);
+function isDraftField(ff) {
+  return ff?.__draft === true || ff?.id === DRAFT_FIELD_ID;
+}
+const hasDraft = computed(() => formFields.value.some(isDraftField));
 
 function invalidateFormSelectionSession() {
   formSelectionSession += 1;
@@ -441,6 +450,10 @@ function handleRedo() {
 
 async function addField(fd) {
   if (!selectedForm.value) return ElMessage.warning('请先选择表单');
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!proceed) return;
+  }
   const formId = selectedForm.value.id;
   try {
     const created = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: fd.id });
@@ -464,6 +477,10 @@ async function addField(fd) {
 }
 
 async function removeField(ff) {
+  if (isDraftField(ff)) {
+    removeDraftFromState();
+    return;
+  }
   if (deletingFieldIds.value.has(ff.id)) return;
   const formId = selectedForm.value?.id;
   const snapshot = buildFormFieldCreatePayload(ff);
@@ -555,6 +572,7 @@ async function onDrop(e, targetIdx) {
   });
   const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
   if (srcIdx === -1 || srcIdx === targetIdx) return;
+  if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
   const formId = selectedForm.value.id;
   const previousOrder = formFields.value.map((f) => f.id);
   try {
@@ -589,6 +607,7 @@ async function handleFieldKeydown(event, field, index) {
     return;
   }
   if (key === ' ') {
+    if (isDraftField(field)) return;
     const id = field.id,
       idx = selectedIds.value.indexOf(id);
     if (idx > -1) selectedIds.value.splice(idx, 1);
@@ -597,6 +616,7 @@ async function handleFieldKeydown(event, field, index) {
   }
   const move = async (from, to) => {
     if (to < 0 || to >= formFields.value.length) return;
+    if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
     const formId = selectedForm.value.id;
     const previousOrder = formFields.value.map((f) => f.id);
     try {
@@ -1045,6 +1065,14 @@ async function selectForm(nextForm) {
   const eventName = currentForm ? 'designer_switch_form' : 'designer_select_form';
   markPerfStart(eventName, { project_id: props.projectId, form_id: nextForm?.id ?? null });
   if ((currentForm?.id ?? null) === (nextForm?.id ?? null)) return;
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (sessionId !== formSelectionSession) return;
+    if (!proceed) {
+      formsTableRef.value?.setCurrentRow(currentForm);
+      return;
+    }
+  }
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }));
   if (sessionId !== formSelectionSession) return;
   if (!flushSucceeded && currentForm?.id) {
@@ -1084,6 +1112,7 @@ const quickEditProp = reactive({
   default_value: '',
 });
 function openQuickEdit(ff) {
+  if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
   recordPerfEvent({
     type: 'instant',
     name: 'designer_edit_label',
@@ -1136,6 +1165,7 @@ async function saveQuickEdit() {
 }
 
 async function toggleInline(ff) {
+  if (isDraftField(ff)) return; // 草稿走属性编辑器写本地，不经真实实例 PATCH
   if (!selectedForm.value || !canToggleInline(ff)) return;
   recordPerfEvent({
     type: 'instant',
@@ -1423,6 +1453,12 @@ async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
 
 watch(currentFieldPropDraftKey, (draftKey) => {
   if (!draftKey || isHydratingFieldProp || draftKey === lastHydratedFieldPropDraftKey) return;
+  // 草稿态：编辑只写本地草稿对象，不入队、不发自动保存请求。
+  if (selectedFieldId.value === DRAFT_FIELD_ID) {
+    applyEditorToDraft();
+    lastHydratedFieldPropDraftKey = draftKey;
+    return;
+  }
   const snapshot = buildFieldPropSnapshot();
   if (!snapshot) return;
   fieldPropAutoSaveErrorShown = false;
@@ -1560,30 +1596,144 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   }
 }
 
+// 把当前属性编辑器的值不可变地写回本地草稿对象（含 field_definition 与实例属性）。
+function applyEditorToDraft() {
+  const draft = formFields.value.find(isDraftField);
+  if (!draft) return;
+  const updated = {
+    ...draft,
+    default_value: editProp.default_value || '',
+    inline_mark: editProp.inline_mark || 0,
+    bg_color: editProp.bg_color || null,
+    text_color: editProp.text_color || null,
+    field_definition: {
+      ...draft.field_definition,
+      label: editProp.label,
+      variable_name: editProp.variable_name,
+      field_type: editProp.field_type,
+      integer_digits: editProp.integer_digits,
+      decimal_digits: editProp.decimal_digits,
+      date_format: editProp.date_format,
+      codelist_id: editProp.codelist_id,
+      unit_id: editProp.unit_id ?? null,
+    },
+  };
+  formFields.value = formFields.value.map((f) => (isDraftField(f) ? updated : f));
+}
+
+// 仅移除本地草稿，不发任何请求；若草稿正被选中则清空编辑器。
+function removeDraftFromState() {
+  formFields.value = formFields.value.filter((f) => !isDraftField(f));
+  if (selectedFieldId.value === DRAFT_FIELD_ID) resetFieldPropAutoSaveState();
+}
+
+// 存在未保存草稿时切换/新建前的统一确认：保存 / 丢弃 / 取消。
+// 返回 true 表示可继续后续动作（已保存或已丢弃），false 表示取消。
+async function confirmDiscardDraft() {
+  if (!hasDraft.value) return true;
+  let action = 'save';
+  try {
+    await ElMessageBox.confirm('有未保存的新增字段草稿，是否先保存？', '未保存草稿', {
+      confirmButtonText: '保存',
+      cancelButtonText: '丢弃',
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    });
+  } catch (e) {
+    action = e === 'cancel' ? 'discard' : 'abort';
+  }
+  if (action === 'save') return await saveDraftField();
+  if (action === 'discard') {
+    removeDraftFromState();
+    return true;
+  }
+  return false;
+}
+
 async function newField() {
   if (!selectedForm.value) return;
-  const formId = selectedForm.value.id;
-  const projectId = props.projectId;
-  try {
-    const fd = await api.post(`/api/projects/${projectId}/field-definitions`, {
-      variable_name: genFieldVarName(),
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!proceed) return;
+  }
+  const maxOrder = formFields.value.reduce((m, f) => Math.max(m, f?.order_index ?? 0), 0);
+  const draft = {
+    id: DRAFT_FIELD_ID,
+    __draft: true,
+    form_id: selectedForm.value.id,
+    field_definition_id: null,
+    is_log_row: 0,
+    order_index: maxOrder + 1,
+    required: 0,
+    label_override: null,
+    help_text: null,
+    default_value: '',
+    inline_mark: 0,
+    bg_color: null,
+    text_color: null,
+    field_definition: {
+      id: DRAFT_FIELD_ID,
       label: '新字段',
+      variable_name: genFieldVarName(),
       field_type: '文本',
-    });
-    const ff = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: fd.id });
-    await loadFormFields();
-    await loadFieldDefs();
-    const newFf = formFields.value.find((f) => f.id === ff.id);
-    if (newFf) selectField(newFf);
-    // 新建字段会同时创建字段定义；撤销时对称回滚（定义被其他表单引用则降级保留）。
-    const createPayload = {
+      integer_digits: null,
+      decimal_digits: null,
+      date_format: null,
+      codelist_id: null,
+      unit_id: null,
+    },
+  };
+  formFields.value = [...formFields.value, draft];
+  selectField(draft);
+}
+
+// 保存草稿：依次 POST 建定义 + 建实例，成功后移除草稿并用真实记录刷新；失败保留草稿与编辑内容。
+// 返回 true 表示保存成功。
+async function saveDraftField() {
+  const draft = formFields.value.find(isDraftField);
+  if (!draft) return false;
+  if (savingDraft.value) return false;
+  const formId = selectedForm.value?.id;
+  const projectId = props.projectId;
+  if (!formId) return false;
+  const fd = draft.field_definition || {};
+  if (isChoiceField(fd.field_type) && !fd.codelist_id) {
+    ElMessage.error('单选/多选字段必须选择选项字典');
+    return false;
+  }
+  savingDraft.value = true;
+  try {
+    const definitionPayload = {
       variable_name: fd.variable_name,
       label: fd.label,
       field_type: fd.field_type,
+      integer_digits: fd.integer_digits ?? null,
+      decimal_digits: fd.decimal_digits ?? null,
+      date_format: fd.date_format ?? null,
+      codelist_id: fd.codelist_id ?? null,
+      unit_id: fd.unit_id ?? null,
     };
+    const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
+    const instancePayload = {
+      default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : '',
+      inline_mark: draft.inline_mark ? 1 : 0,
+      bg_color: draft.bg_color ?? null,
+      text_color: draft.text_color ?? null,
+    };
+    const createdFd = await api.post(`/api/projects/${projectId}/field-definitions`, definitionPayload);
+    const createdFf = await api.post(`/api/forms/${formId}/fields`, {
+      field_definition_id: createdFd.id,
+      ...instancePayload,
+    });
+    formFields.value = formFields.value.filter((f) => !isDraftField(f));
+    await loadFormFields(formId);
+    await loadFieldDefs();
+    const realFf = formFields.value.find((f) => f.id === createdFf.id);
+    if (realFf) selectField(realFf);
+    // 保存即一次「新建字段」，入撤销栈；撤销对称删除实例与定义（定义被其他表单引用则降级保留）。
     designerHistory.record({
       label: '新建字段',
-      ids: { ffId: ff.id, fdId: fd.id },
+      ids: { ffId: createdFf.id, fdId: createdFd.id },
       undo: async (ids) => {
         await api.del(`/api/form-fields/${ids.ffId}`);
         try {
@@ -1598,20 +1748,45 @@ async function newField() {
         await reloadAfterReplay(formId, { defs: true });
       },
       redo: async (ids, { remapId }) => {
-        const recreatedFd = await api.post(`/api/projects/${projectId}/field-definitions`, createPayload);
+        const recreatedFd = await api.post(`/api/projects/${projectId}/field-definitions`, definitionPayload);
         remapId(ids.fdId, recreatedFd.id);
-        const recreatedFf = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: recreatedFd.id });
+        const recreatedFf = await api.post(`/api/forms/${formId}/fields`, {
+          field_definition_id: recreatedFd.id,
+          ...instancePayload,
+        });
         remapId(ids.ffId, recreatedFf.id);
         await reloadAfterReplay(formId, { defs: true });
       },
     });
+    return true;
   } catch (e) {
     ElMessage.error(e.message);
+    return false;
+  } finally {
+    savingDraft.value = false;
   }
+}
+
+// 字段行点击选中入口：存在草稿且点击非草稿字段时先确认保存/丢弃。
+async function onSelectFieldClick(ff) {
+  if (isDraftField(ff) || selectedFieldId.value === ff.id) {
+    selectField(ff);
+    return;
+  }
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!proceed) return;
+  }
+  const fresh = formFields.value.find((f) => f.id === ff.id) || ff;
+  selectField(fresh);
 }
 
 async function addLogRow() {
   if (!selectedForm.value) return;
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!proceed) return;
+  }
   const formId = selectedForm.value.id;
   try {
     const created = await api.post(`/api/forms/${formId}/fields`, { is_log_row: 1, label_override: '以下为log行' });
@@ -2375,6 +2550,16 @@ function openAddForm() {
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header">
                 <el-button size="small" type="primary" aria-label="新建字段" title="新建字段" @click="newField"><el-icon aria-hidden="true"><Plus /></el-icon></el-button
+                ><el-button
+                  v-if="hasDraft"
+                  size="small"
+                  type="success"
+                  data-test="designer-save-draft"
+                  aria-label="保存新增字段"
+                  title="保存新增字段"
+                  :loading="savingDraft"
+                  @click="saveDraftField"
+                  ><el-icon aria-hidden="true"><Check /></el-icon></el-button
                 ><el-button size="small" aria-label="添加“以下为log行”提示" title="添加“以下为log行”提示" @click="addLogRow">log</el-button
                 ><el-button
                   size="small"
@@ -2414,20 +2599,21 @@ function openAddForm() {
                     (ff.bg_color ? 'border-left:4px solid #' + ff.bg_color + ';' : '')
                   "
                   tabindex="0"
-                  @click="selectField(ff)"
+                  @click="onSelectFieldClick(ff)"
                   @dragstart="onDragStart(ff)"
                   @dragover="onDragOver($event, idx)"
                   @dragleave="onDragLeave"
                   @drop="onDrop($event, idx)"
                   @keydown="handleFieldKeydown($event, ff, idx)"
                 >
-                  <el-checkbox v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox
+                  <el-checkbox v-if="!isDraftField(ff)" v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
                     getFormFieldDisplayLabel(ff)
                   }}</span
-                  ><el-tooltip v-if="canToggleInline(ff)" content="横向表格标记"
+                  ><el-tag v-if="isDraftField(ff)" size="small" type="success" effect="plain" style="margin-left: 4px">未保存</el-tag
+                  ><el-tooltip v-if="canToggleInline(ff) && !isDraftField(ff)" content="横向表格标记"
                     ><el-button
                       size="small"
                       link
