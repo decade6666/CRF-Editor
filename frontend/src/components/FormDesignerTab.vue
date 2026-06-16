@@ -2373,22 +2373,26 @@ function openAddForm() {
           <div class="designer-workspace-top">
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header">
-                <el-button size="small" type="primary" @click="newField">新建字段</el-button
-                ><el-button size="small" @click="addLogRow">添加“以下为log行”提示</el-button
+                <el-button size="small" type="primary" aria-label="新建字段" title="新建字段" @click="newField"><el-icon aria-hidden="true"><Plus /></el-icon></el-button
+                ><el-button size="small" aria-label="添加“以下为log行”提示" title="添加“以下为log行”提示" @click="addLogRow">log</el-button
                 ><el-button
                   size="small"
                   data-test="designer-undo"
+                  aria-label="撤回"
+                  title="撤回"
                   :disabled="!designerHistory.canUndo.value"
                   :loading="designerHistory.busy.value"
                   @click="handleUndo"
-                  >撤回</el-button
+                  ><el-icon aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" /></svg></el-icon></el-button
                 ><el-button
                   size="small"
                   data-test="designer-redo"
+                  aria-label="恢复"
+                  title="恢复"
                   :disabled="!designerHistory.canRedo.value"
                   :loading="designerHistory.busy.value"
                   @click="handleRedo"
-                  >恢复</el-button
+                  ><el-icon aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" /></svg></el-icon></el-button
                 ><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete"
                   >批量删除({{ selectedIds.length }})</el-button
                 ><span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto"
