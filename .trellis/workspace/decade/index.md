@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
+- **Total Sessions**: 21
 - **Last Active**: 2026-06-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1076 | Active |
+| `journal-1.md` | ~1131 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 21 | 2026-06-15 | 修复 Word 预览/导出结构行底色一致性 | `4e8d1b9` | `draft` |
 | 20 | 2026-06-15 | 表单设计器顶栏按钮文案改图标 | `56d9643` | `draft` |
 | 19 | 2026-06-15 | 表单设计器内存撤销/恢复（最近20步） | `7eb7594` | `draft` |
 | 18 | 2026-06-15 | Word 导出表格行高改 AT_LEAST 下限 + 单行 1cm 间距 | `785e3ee` | `draft` |

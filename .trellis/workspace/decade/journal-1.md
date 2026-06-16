@@ -1074,3 +1074,58 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: 修复 Word 预览/导出结构行底色一致性
+
+**Date**: 2026-06-15
+**Task**: 修复 Word 预览/导出结构行底色一致性
+**Branch**: `draft`
+
+### Summary
+
+对齐 Word 预览与导出在日志行/标签行上的底纹契约；日志行默认灰底、标签行默认不填充、自定义底纹统一改为实心渲染。
+
+### Main Changes
+
+| Feature | Description |
+|---------|-------------|
+| Preview shading parity | 前端预览改为与 Word 导出一致的结构行底纹规则：日志行默认 `#D9D9D9`，标签行默认不填充，自定义 `bg_color` 为实心色。 |
+| Shared presentation helper | 在 `frontend/src/composables/formFieldPresentation.js` 新增结构行样式 helper，统一 `FormDesignerTab.vue`、`VisitsTab.vue`、`TemplatePreviewDialog.vue` 三条预览路径。 |
+| Contract docs | 更新 `.trellis/spec/guides/cross-stack-contracts.md`，补充结构行底纹的跨栈契约与验证要求。 |
+
+**Updated Files**:
+- `.trellis/spec/guides/cross-stack-contracts.md`
+- `frontend/src/composables/formFieldPresentation.js`
+- `frontend/src/styles/main.css`
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/src/components/VisitsTab.vue`
+- `frontend/src/components/TemplatePreviewDialog.vue`
+- `frontend/tests/formFieldPresentation.test.js`
+
+**Testing**:
+- `cd frontend && node --test tests/formFieldPresentation.test.js`
+- `cd frontend && node --test tests/wordPageGeometry.test.js`
+- `cd frontend && npm run build`
+- `cd frontend && node --test tests/*.test.js`
+- `cd backend && python3 -m pytest tests/test_export_service.py::test_export_project_sets_form_table_rows_to_at_least_one_centimeter tests/test_export_service.py::test_export_project_preserves_mixed_normal_inline_group_order -q`
+- 人工测试：没有问题
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e8d1b9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
