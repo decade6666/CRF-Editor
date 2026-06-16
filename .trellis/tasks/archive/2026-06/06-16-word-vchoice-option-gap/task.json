@@ -1,0 +1,38 @@
+{
+  "id": "word-vchoice-option-gap",
+  "name": "word-vchoice-option-gap",
+  "title": "fix: Word 导出纵向选项关闭 snapToGrid，消除选项首项间距不均",
+  "description": "纵向单选/多选导出到 Word 时，首个选项与第二个选项之间的纵向间距明显大于后续选项。实测确认段落里存储的间距本就一致（首项 before=0、其余 before=3pt、after=0、EXACTLY 15.6pt，无多余空段落），可见不一致是 w:docGrid（type=lines, linePitch=312=15.6pt 行网格）+ Word 默认 snapToGrid=1 把 space_before 吸附到整行网格所致：首项正落网格线、其余项被吸附到下一条网格线。修复仅在 export_service._render_vertical_choices 对每个选项段落写入 snapToGrid=0（有序插入保证合法 CT_PPr 顺序），并补两处 XML 级回归断言；不动 VERTICAL_OPTION_GAP_PT=3 / SINGLE_LINE_HEIGHT_PT=15.6 / CELL_VPAD_PT 等既有跨栈契约，不动文本与 strict parity。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "claude",
+  "createdAt": "2026-06-16",
+  "completedAt": "2026-06-16",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 5,
+  "next_action": [
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": "2bd838c",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "backend/src/services/export_service.py",
+    "backend/tests/test_export_unified.py",
+    "backend/tests/test_export_paper_orientation.py",
+    "backend/.claude/CLAUDE.md"
+  ],
+  "notes": "前序任务 06-14-word-cell-height-1cm 在 Assumptions/notes 中已显式标注「SINGLE_LINE_HEIGHT_PT=15.6 基于 docGrid linePitch=312 推算、为消除 snapToGrid 不确定性改固定 EXACTLY 行距」——本任务即该 snapToGrid 遗留项的收口。代码与自动化已完成：窄测试 29 passed、全量 479 passed/4 xfailed；GPT 评审判定可接受（doc.tables[2] 与文本 key 为非阻塞低优先级测试脆弱点，暂留）。剩余：① 人工 Word 视觉验收（环境内无 Word 无法代替）；② 同步 backend/.claude/CLAUDE.md 导出小节与变更记录；③ 验收后按 Conventional Commits 提交。规划记录见 /root/.claude/plans/golden-questing-kazoo.md。",
+  "meta": {}
+}
