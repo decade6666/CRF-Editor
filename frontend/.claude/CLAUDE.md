@@ -2,7 +2,7 @@
 
 # frontend 模块说明
 
-> 最近更新：2026年6月14日
+> 最近更新：2026年6月15日
 
 ## 模块职责
 - 提供 CRF 编辑器的 Vue 3 单页界面。
@@ -27,7 +27,7 @@
 - `src/composables/`（15 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、预览视图模型、导出下载状态、列宽 / 行高拖拽、会话倒计时、设计器撤销/恢复历史、访视预览方向、标签页懒加载、性能基线等共享逻辑。
 - `src/styles/`：全局样式与主题变量。
 - `scripts/`（3 个脚本）：fixture 生成（`generatePlannerFixtures.mjs`）、构建指标采集（`collectBuildMetrics.mjs`）、浏览器性能基线（`runBrowserPerfBaseline.mjs`）。
-- `tests/`（27 个文件：26 个 `.test.js` + `testProperty.js`）：基于 `node:test` 的前端回归、契约测试与属性测试辅助工具。
+- `tests/`（28 个文件：27 个 `.test.js` + `testProperty.js`）：基于 `node:test` 的前端回归、契约测试与属性测试辅助工具。
 
 ## 关键组件与流程
 - `components/LoginView.vue`：账号 + 密码登录表单；development 下展示迁移提示，production 下显示通用认证失败文案。
@@ -57,6 +57,7 @@
 - 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
 - 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
 - `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
+- 新增字段为本地草稿态：点「新建字段」（`newField`）只构造临时草稿对象（`id='__draft__'`、`__draft:true`、带完整本地 `field_definition`）插入 `formFields` 并选中，不发请求；顶栏出现「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿、刷新并作为一次「新建字段」入撤销栈。草稿态下属性自动保存链路在 watcher 入口短路为 `applyEditorToDraft` 本地写回；`removeField` 对草稿仅移除本地、不调 DELETE；同一时刻仅允许一个草稿，切换表单/选其它字段/再次新建前经 `confirmDiscardDraft`（保存/丢弃/取消）；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库不变。
 - 设计器撤销/恢复为纯内存双栈（`useDesignerHistory.js`，上限 20，刷新即清空，不做后端持久化）。覆盖属性编辑、排序、新增（含 log 行）、新建字段、删除、批量删除六类操作；删除/批量删除的逆操作用删除前快照按原 `order_index` 重建并 `remapId` 回写新 id；新建字段撤销时对称删除自动创建的字段定义（被其他表单引用返回 409 则降级保留并提示）。切换表单清空历史；`toggleInline` 等其他快编路径暂不入栈。
 - 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
 - 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
@@ -97,6 +98,7 @@
 - `sessionTimer.test.js`：JWT `exp` 解码、会话剩余时间展示、临期提醒与点击续期。
 - `rowHeightResize.test.js`：行高持久化、稳定行 key、整行 hover 指示线和设计器 / 访视预览拖拽锚点。
 - `designerHistory.test.js`：撤销/恢复双栈上限 20、新操作清空 redo、undo/redo 栈迁移、删除撤销后的 id 重映射、数组 id 重映射、回放失败保栈与清空语义。
+- `designerNewFieldDraft.test.js`：新增字段本地草稿——`newField` 不落库、`saveDraftField` 先建定义后建实例并入栈、草稿删除不调 DELETE、属性自动保存对草稿短路、切换前确认与排序/批量选择守卫、保存按钮与草稿行模板契约。
 - `formDesignerPreviewModel.test.js`：表单设计器 / 模板预览派生视图模型与旧模板纯函数输出等价。
 - `docxBimodalPreview.test.js`：Word 导入双栏截图证据面板、温和定位提示与调试日志清理。
 - `wordPageGeometry.test.js`：Word 预览 A4 几何契约——`.word-page` 21cm×29.7cm、`.word-page.landscape` 翻转、`--word-page-margin-x/y` 变量、`@media print` 回退、`.designer-scaled-word-page` 保持 A4 几何而非 100% 宽度，以及 `inline-table` / `unified-table` 的 `table-layout: fixed` 与 `<colgroup>` 契约。
@@ -112,6 +114,7 @@
 | 配置 | `package.json`、`vite.config.js` |
 
 ## 变更记录
+- `2026年6月15日`（任务 `06-15-designer-new-field-draft`）：新增字段改为本地草稿态。`newField` 不再立即落库，构造带完整本地 `field_definition` 的草稿（`id='__draft__'`、`__draft:true`）插入 `formFields` 并选中；顶栏「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿并作为一次「新建字段」入撤销栈。属性自动保存 watcher 对草稿短路为 `applyEditorToDraft` 本地写回；`removeField`、`openQuickEdit`、`toggleInline` 对草稿加函数级 guard，`addField` / `addLogRow` 落库前 `confirmDiscardDraft` 防止 `loadFormFields` 覆盖草稿；切换表单/选字段/再次新建前统一经 `confirmDiscardDraft`（保存/丢弃/取消）；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库。测试目录 27→28（新增 `designerNewFieldDraft.test.js`，16 个用例），全量 257 passed。
 - `2026年6月15日`（任务 `06-15-designer-undo-redo-20`）：新增设计器内存撤销/恢复。composables 14→15（新增 `useDesignerHistory.js`，undo/redo 双栈、上限 20、id 重映射、busy 锁），测试目录 26→27（新增 `designerHistory.test.js`，11 个用例）。`FormDesignerTab.vue` 顶栏新增「撤回」「恢复」按钮并绑定 Ctrl+Z / Ctrl+Y（焦点在输入控件内时让出原生撤销），六类操作（属性编辑/排序/新增/新建字段/删除/批量删除）接入历史；排序在拖拽与键盘两条路径均经 `recordReorderHistory` 入栈；属性回放对日志行与普通字段都回放颜色（与正向保存一致）；回放失败时快照还原本条记录 id 防止栈污染；后端无改动，删除逆操作复用现有 `POST /forms/{id}/fields`（携 `order_index` 与全属性）。
 - `2026年6月14日`：文档同步刷新。组件 12→13（新增 `SessionTimer.vue`），composables 11→14（新增 `useSessionTimer.js`、`useRowResize.js`、`formDesignerPreviewModel.js`），测试目录 22→26（25 个 `.test.js` + `testProperty.js`，新增会话倒计时、行高拖拽、预览视图模型与 Docx 双栏证据面板相关回归）；补充会话续期、行高拖拽与预览模型缓存约定。
 - `2026年5月12日 17:42:57`：增量扫描刷新。测试 21→22 文件（新增 `wordPageGeometry.test.js`，固化 Word 预览/导出的 A4 页面几何与表格布局 CSS 契约）；同步更新测试关注点列表。
