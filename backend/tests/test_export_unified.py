@@ -1069,6 +1069,15 @@ def test_export_vertical_choice_options_have_inter_option_gap(
             f"非首项段前间距应为 {expected_gap}pt，实际: {gap}"
         )
 
+    # docGrid(15.6pt 行网格)下必须对每个选项段落关闭 snapToGrid，否则首项
+    # before=0 与其余项 before=3pt 会被网格吸附成“首项到第二项间距偏大”。
+    for para in option_paras:
+        pPr = para._p.find(qn("w:pPr"))
+        snap = pPr.find(qn("w:snapToGrid")) if pPr is not None else None
+        assert snap is not None and snap.get(qn("w:val")) == "0", (
+            "纵向选项段落必须关闭 snapToGrid，避免 docGrid 行网格吸附导致选项间距不均"
+        )
+
 
 # ========== Task 4.4: 多行 default_value 回归测试 ==========
 

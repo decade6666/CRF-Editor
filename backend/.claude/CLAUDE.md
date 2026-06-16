@@ -68,6 +68,7 @@
 
 ## 导入导出与列宽契约
 - Word 导出表格行高以 `FORM_TABLE_ROW_HEIGHT_CM = 1` 作为 `AT_LEAST` 下限；单元格段落使用 `SINGLE_LINE_HEIGHT_PT = 15.6` 固定行距与 `CELL_VPAD_PT` 上下间距撑起单行 1cm，多行内容自然增高且不裁切。
+- 纵向单选/多选选项段落须由 `export_service._disable_snap_to_grid` 写入 `w:snapToGrid=0`（`_render_vertical_choices` 对每个选项段落调用）。节级 `w:docGrid type=lines linePitch=312`（15.6pt 行网格）下 Word 默认 `snapToGrid=1` 会把首项 `space_before=0` 与其余项 `VERTICAL_OPTION_GAP_PT=3pt` 吸附到整行网格，渲染成"首项到第二项间距偏大"；关闭吸附后精确间距原样呈现，各选项间距一致。改动 `docGrid` / 纵向选项间距时须同步 `test_export_unified.py`、`test_export_paper_orientation.py` 的 `snapToGrid` 断言。
 - Word 导出 normal 表列宽采用内容驱动：`export_service._build_form_table` 调用 `width_planning.plan_normal_table_width(fields, available_cm=14.66)`。
 - `available_cm=14.66` 与原页面预算对齐；字符权重与 CJK 扩展区覆盖与前端 `useCRFRenderer.js` 共享契约。
 - inline 表表头权重下限 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8`（`width_planning.py`），由 `field_rendering.build_inline_column_demands` 写入 max chain，保护 ≤4 字短表头（如 `未查` / `项目` / `单位`）与长邻居共存时不被压到不可单行；常量与前端 `useCRFRenderer.js` 严格同名同值。
@@ -105,6 +106,7 @@ cd backend && python scripts/compare_word_table_parity.py <preview.json> <export
 | 测试（新增/近期） | `tests/test_batch_delete_isolation.py`、`tests/test_docx_screenshot_service.py`、`tests/test_perf_fk_indexes.py`、`tests/test_word_table_parity.py`、`tests/test_form_paper_orientation.py`、`tests/test_export_paper_orientation.py`、`tests/test_docx_import_contract.py` |
 
 ## 变更记录
+- `2026年6月16日`（任务 `06-16-word-vchoice-option-gap`）：修复 Word 导出纵向选项"首项到第二项间距偏大"。根因为 `docGrid`（15.6pt 行网格）+ Word 默认 `snapToGrid=1` 把段落 `space_before` 吸附到整行网格，而段落存储间距本就一致。新增 `export_service._disable_snap_to_grid`（有序插入 `w:snapToGrid=0`，幂等），在 `_render_vertical_choices` 对每个选项段落调用；`test_export_unified.py`、`test_export_paper_orientation.py` 补 `snapToGrid=0` XML 断言。不改文本与 strict parity。
 - `2026年6月14日`：Word 导出表格行高从固定 `EXACTLY` 1cm 改为 `AT_LEAST` 1cm 下限，并用固定 15.6pt 行距与单元格上下间距保证单行 1cm、多行不裁切；`test_export_paper_orientation.py` 补充 docx XML 回归断言。
 - `2026年6月14日`：文档同步刷新。服务模块 12→13（新增 `word_table_parity.py`），测试 37→39，脚本 3→4（新增 `compare_word_table_parity.py`）；补充批量删除属主隔离、Docx 截图不支持运行时失败态、性能 FK 索引幂等迁移、strict preview/export parity 相关说明。
 - `2026年5月8日 18:26:34`：增量扫描刷新。测试 34→37 文件，新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`；补充相关文件清单与目录条目。
