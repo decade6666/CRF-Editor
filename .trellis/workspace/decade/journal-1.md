@@ -1025,3 +1025,52 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: 表单设计器顶栏按钮文案改图标
+
+**Date**: 2026-06-15
+**Task**: 表单设计器顶栏按钮文案改图标
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+表单设计器 canvas header 四个按钮由文本改为图标/紧凑标识，无逻辑变化。
+
+| 按钮 | 原文案 | 现在 | 实现 |
+|------|--------|------|------|
+| 新建字段 | 新建字段 | `+` 图标 | `<el-icon><Plus /></el-icon>`（Plus 已在文件内导入） |
+| 添加 log 行 | 添加"以下为log行"提示 | 字面 `log` 文本 | 直接文本 |
+| 撤回 | 撤回 | Word 弧形撤回箭头 ↶ | 内联 SVG（fill=currentColor，随 el-icon 自适应 1em） |
+| 恢复 | 恢复 | Word 弧形恢复箭头 ↷ | 内联 SVG |
+
+**保留**：各按钮 @click 处理器；撤回/恢复保留 data-test="designer-undo/redo"、:disabled、:loading；`><` 无空白链式写法与"批量删除"按钮拼接不变。
+**无障碍**：图标按钮补 title + aria-label，el-icon 标 aria-hidden。
+**决策**：log 用字面文本、撤回/恢复用自定义 Word 弧形 SVG（而非 EP RefreshLeft/Right）均由用户确认。
+**验证**：eslint 0 errors（既有 1627 warnings 为基线）；node:test 240/240 通过。未做浏览器人工核验（用户回复"测试无误"）。
+
+**Updated Files**:
+- `frontend/src/components/FormDesignerTab.vue`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56d9643` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
