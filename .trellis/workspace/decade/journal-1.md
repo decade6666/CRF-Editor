@@ -1181,3 +1181,53 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: 修复 Word 导出纵向选项 snapToGrid 间距不均
+
+**Date**: 2026-06-16
+**Task**: 修复 Word 导出纵向选项 snapToGrid 间距不均
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 项 | 说明 |
+|----|------|
+| 现象 | Word 导出纵向单选/多选首项与第二项间距明显大于后续项（预览正常、导出错）|
+| 根因 | 节级 `docGrid type=lines linePitch=312`(15.6pt 行网格)+ Word 默认 `snapToGrid=1` 把段落 `space_before` 吸附到整行网格；首项 `before=0`(正落网格线)与其余项 `before=3pt`(被吸附到下一条网格线)渲染成"首间距偏大"。实测确认段落存储间距本就一致(无空段落、非存储值不均)，排除了合并空段落假设 |
+| 修复 | 新增 `export_service._disable_snap_to_grid`(用 `insert_element_before` 有序插入 `w:snapToGrid=0`，三态合法且幂等)，`_render_vertical_choices` 对每个选项段落调用；不动 `VERTICAL_OPTION_GAP_PT=3`/`SINGLE_LINE_HEIGHT_PT=15.6`/`CELL_VPAD_PT` 等跨栈契约与文本/strict parity |
+| 测试 | `test_export_unified.py`、`test_export_paper_orientation.py` 补 `snapToGrid=0` XML 断言；窄测 29 passed、全量 479 passed/4 xfailed |
+| 评审 | GPT 三轮评审通过；helper 顺序问题已根治；`doc.tables[2]` 硬编码与文本作 dict key 列为非阻塞低优先级测试脆弱点 |
+| 验收 | 用户人工 Word 验收无问题 |
+
+**Updated Files**:
+- `backend/src/services/export_service.py`（新增 `_disable_snap_to_grid` + 调用）
+- `backend/tests/test_export_unified.py`
+- `backend/tests/test_export_paper_orientation.py`
+- `backend/.claude/CLAUDE.md`（导出契约 + 变更记录）
+
+**承接**：前序任务 `06-14-word-cell-height-1cm` 显式标注的 snapToGrid 遗留项收口。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2bd838c` | (see git log) |
+| `d2ee0e0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
