@@ -35,6 +35,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
+  getFormFieldStructurePreviewStyle,
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
@@ -2106,7 +2107,7 @@ function openAddForm() {
                               :colspan="gv.colCount"
                               :style="
                                 'font-weight:bold;' +
-                                getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')
+                                getFormFieldStructurePreviewStyle(seg.fields[0])
                               "
                             >
                               {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
@@ -2199,7 +2200,7 @@ function openAddForm() {
                             <td
                               class="wp-structure-label--multiline row-resize-anchor"
                               colspan="2"
-                              :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)"
+                              :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)"
                             >
                               {{ getFormFieldDisplayLabel(ff) }}
                               <span
@@ -2219,7 +2220,7 @@ function openAddForm() {
                               class="row-resize-anchor"
                               :style="
                                 'font-weight:bold;' +
-                                getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')
+                                getFormFieldStructurePreviewStyle(ff)
                               "
                             >
                               {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
@@ -2529,10 +2530,7 @@ function openAddForm() {
                                         :colspan="gv.colCount"
                                         :style="
                                           'font-weight:bold;' +
-                                          getFormFieldPreviewStyle(
-                                            seg.fields[0],
-                                            'background:var(--preview-structure-bg);',
-                                          )
+                                          getFormFieldStructurePreviewStyle(seg.fields[0])
                                         "
                                       >
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
@@ -2633,7 +2631,7 @@ function openAddForm() {
                                       <td
                                         class="wp-structure-label--multiline row-resize-anchor"
                                         colspan="2"
-                                        :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)"
+                                        :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)"
                                       >
                                         {{ getFormFieldDisplayLabel(ff) }}
                                         <span
@@ -2653,7 +2651,7 @@ function openAddForm() {
                                         class="row-resize-anchor"
                                         :style="
                                           'font-weight:bold;' +
-                                          getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')
+                                          getFormFieldStructurePreviewStyle(ff)
                                         "
                                       >
                                         {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
