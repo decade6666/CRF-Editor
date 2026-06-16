@@ -454,12 +454,14 @@ def test_export_vertical_choice_rows_can_expand_without_extra_option_padding(tmp
     expected_gap_twips = str(round(ExportService.VERTICAL_OPTION_GAP_PT * 20))
 
     option_spacings: dict[str, ET.Element] = {}
+    option_snaps: dict[str, ET.Element | None] = {}
     for paragraph in root.findall(".//w:p", _WORD_NS):
         text = _paragraph_text(paragraph)
         if text in {"□是", "□否", "□不适用"}:
             spacing = paragraph.find("w:pPr/w:spacing", _WORD_NS)
             assert spacing is not None, f"option paragraph {text!r} should define spacing"
             option_spacings[text] = spacing
+            option_snaps[text] = paragraph.find("w:pPr/w:snapToGrid", _WORD_NS)
 
     assert set(option_spacings) == {"□是", "□否", "□不适用"}
     assert option_spacings["□是"].get(f"{{{_WORD_NS['w']}}}before") == "0"
@@ -471,3 +473,12 @@ def test_export_vertical_choice_rows_can_expand_without_extra_option_padding(tmp
     for spacing in option_spacings.values():
         assert spacing.get(f"{{{_WORD_NS['w']}}}lineRule") == "exact"
         assert spacing.get(f"{{{_WORD_NS['w']}}}line") == expected_line_twips
+
+    # docGrid(15.6pt 行网格)下必须关闭网格吸附，否则首项 before=0 与其余项
+    # before=3pt 会被吸附成“首项到第二项间距偏大”的视觉不一致（段落里存储的
+    # 间距其实一致）。snapToGrid=0 让精确间距原样呈现，各选项间距保持一致。
+    for text, snap in option_snaps.items():
+        assert snap is not None, f"option paragraph {text!r} should disable snapToGrid"
+        assert snap.get(f"{{{_WORD_NS['w']}}}val") == "0", (
+            f"option paragraph {text!r} must set snapToGrid=0 for uniform inter-option spacing"
+        )

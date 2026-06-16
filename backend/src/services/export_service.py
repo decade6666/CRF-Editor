@@ -232,6 +232,35 @@ class ExportService:
 
 
 
+    def _disable_snap_to_grid(self, paragraph: Any) -> None:
+        """关闭该段落的行网格吸附（snapToGrid=0）。
+
+        文档启用了 w:docGrid（type=lines，linePitch=312，即 15.6pt 行网格），
+        而 Word 默认 snapToGrid=1 会把段落的 space_before 吸附到整行网格。
+        纵向选项首项 space_before=0（正好落在网格线上）与其余项 space_before=3pt
+        （被吸附到下一条网格线）由此在 Word 中呈现为“首项到第二项间距偏大”，
+        而段落里存储的间距其实是一致的 3pt。
+
+        显式写入 snapToGrid=0，让 EXACTLY 15.6pt 行距与精确段前间距被原样呈现，
+        使同一单元格内每个纵向选项之间的间距保持一致。
+        """
+        pPr = paragraph._p.get_or_add_pPr()
+        snap = pPr.find(qn("w:snapToGrid"))
+        if snap is None:
+            snap = OxmlElement("w:snapToGrid")
+            # snapToGrid 在 CT_PPr 中须排在以下元素之前；按合法顺序插入，
+            # 无论段落是否已有 spacing/ind/jc 等都能得到合法 XML。
+            pPr.insert_element_before(
+                snap,
+                "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents",
+                "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment",
+                "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle",
+                "w:rPr", "w:sectPr", "w:pPrChange",
+            )
+        snap.set(qn("w:val"), "0")
+
+
+
     def _apply_cell_paragraph_metrics(
         self,
         paragraph: Any,
@@ -2610,6 +2639,9 @@ class ExportService:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
+
+            # 关闭网格吸附，使各纵向选项之间的间距在 Word 中均匀呈现
+            self._disable_snap_to_grid(para)
 
             symbol_run = para.add_run(symbol)
 
