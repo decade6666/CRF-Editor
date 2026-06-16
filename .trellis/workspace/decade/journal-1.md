@@ -1129,3 +1129,55 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: 表单设计器新增字段本地草稿（保存才落库）+ GPT 审计修复
+
+**Date**: 2026-06-15
+**Task**: 表单设计器新增字段本地草稿（保存才落库）+ GPT 审计修复
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 项 | 说明 |
+|---|---|
+| 草稿态新增字段 | `newField` 改为构造本地草稿（`__draft__`，带完整本地 `field_definition`）插入并选中，不落库；顶栏「保存」按钮（`saveDraftField`）才依次 POST 建定义+建实例、替换草稿并作为一次「新建字段」入撤销栈 |
+| 自动保存短路 | 属性编辑 watcher 对草稿调 `applyEditorToDraft` 本地不可变写回，不发请求 |
+| 边界 guard | `removeField`/`openQuickEdit`/`toggleInline` 对草稿短路；`addField`/`addLogRow` 落库前 `confirmDiscardDraft` 防覆盖；切换表单/选字段/再次新建前统一确认（保存/丢弃/取消）；草稿存在时禁排序、草稿行不入批量选择与 inline 快切 |
+| 决策 | 仅 `newField` 走草稿，字段库拖入 `addField` 维持立即落库；草稿预览复用本地 `formFields` 渲染路径，无需真实 id 分支 |
+| GPT 审计修复 | 确认并修复 3 个真实 bug：草稿可被预览双击触发 `PUT /form-fields/__draft__`、`addField`/`addLogRow` 落库后 `loadFormFields` 静默覆盖草稿；额外补 `toggleInline` 纵深 guard。判定 `fnBody` 正则脆弱性当前非 bug（prettier 顶格约束下结构可靠）故不改；纠正 GPT 对 passed 数的臆测 |
+| 测试 | 新增 `designerNewFieldDraft.test.js`（16 源码级用例），全量 **257 passed / 0 fail**，lint 0 error |
+| 交付 | PR #21 (draft→main) 已合并，merge commit `38957eb` |
+
+**更新文件**：
+- `frontend/src/components/FormDesignerTab.vue`（草稿态实现 + 4 处 guard + 排序/选择守卫）
+- `frontend/tests/designerNewFieldDraft.test.js`（新增，16 用例）
+- `frontend/tests/orderingStructure.test.js`（inline tooltip 断言同步）
+- `frontend/.claude/CLAUDE.md`（设计器小节 + 变更记录 + 测试计数 27→28）
+- `.trellis/tasks/06-15-designer-new-field-draft/prd.md`（Open Questions 已解答 + checklist）
+
+**待人工验证**：草稿新建→编辑属性→保存全流程（定义+实例落库、撤销栈记一次「新建字段」）；未保存草稿时切换表单/字段、拖入字段库、点 log、双击预览草稿单元格 → 弹保存/丢弃/取消或不触发 `__draft__` 请求。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e008f8` | (see git log) |
+| `9d6ffd4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
