@@ -20,10 +20,10 @@
 * 「保存」：先 `POST field-definitions` 再 `POST forms/{id}/fields`，成功后用真实记录替换草稿、清标记、`loadFormFields` + `loadFieldDefs`。
 * 与撤销任务（`06-15-designer-undo-redo-20`）解耦：草稿不入撤销栈，保存后作为一次"新增"入栈。
 
-## Open Questions
+## Open Questions（已解答）
 
-* 草稿态预览是否需要完整复用 `useCRFRenderer` / `formDesignerPreviewModel`（依赖真实 id 的部分需加草稿分支）。
-* `addField`（从字段库拖入已有定义）是否也走草稿，还是仅 `newField`（新建空字段）走草稿？需确认——倾向仅 `newField` 走草稿，`addField` 复用已有定义可保持立即落库（待确认）。
+* ✅ 草稿态预览：复用现有本地渲染路径即可——草稿带完整本地 `field_definition`，`buildFormDesignerRenderGroups(formFields)` 直接渲染，无需为真实 id 加草稿分支。
+* ✅ `addField`：仅 `newField` 走草稿；字段库拖入已有定义的 `addField` 维持立即落库，但落库前需 `confirmDiscardDraft()` 防止覆盖未保存草稿（`addLogRow` 同）。
 
 ## Requirements
 
@@ -59,7 +59,7 @@ cd frontend && node --test tests/*.test.js
 
 ## Done checklist
 
-* [ ] R1–R4 完成
-* [ ] 前端草稿态回归测试通过
-* [ ] `node --test tests/*.test.js` 全绿
-* [ ] 同步更新 `frontend/.claude/CLAUDE.md` 设计器小节
+* [x] R1–R4 完成
+* [x] 前端草稿态回归测试通过
+* [x] `node --test tests/*.test.js` 全绿（257 passed）
+* [x] 同步更新 `frontend/.claude/CLAUDE.md` 设计器小节
