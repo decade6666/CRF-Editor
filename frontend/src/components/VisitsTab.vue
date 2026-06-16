@@ -10,6 +10,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
+  getFormFieldStructurePreviewStyle,
 } from '../composables/formFieldPresentation'
 import {
   buildTableInstanceId,
@@ -653,7 +654,7 @@ async function toggleCell(visitId, formId) {
                         'row-resize-anchor': true,
                       }"
                       :colspan="gv.colCount"
-                      :style="'font-weight:bold;' + getFormFieldPreviewStyle(seg.fields[0], 'background:var(--preview-structure-bg);')"
+                      :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(seg.fields[0])"
                     >
                       {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                       <span
@@ -709,7 +710,7 @@ async function toggleCell(visitId, formId) {
                     v-if="ff.field_definition?.field_type === '标签'"
                     :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
                   >
-                    <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff)">
+                    <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
                       {{ getFormFieldDisplayLabel(ff) }}
                       <span
                         class="row-resizer-handle"
@@ -721,7 +722,7 @@ async function toggleCell(visitId, formId) {
                     v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"
                     :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
                   >
-                    <td colspan="2" class="row-resize-anchor" :style="'font-weight:bold;' + getFormFieldPreviewStyle(ff, 'background:var(--preview-structure-bg);')">
+                    <td colspan="2" class="row-resize-anchor" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
                       {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
                       <span
                         class="row-resizer-handle"

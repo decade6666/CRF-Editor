@@ -233,6 +233,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Inline scoped default | multiline defaults expand rows; missing later rows fall back to full control text | same row text model | Empty trailing default rows are trimmed before row expansion. |
 | Group ordering | continuous normal/inline segments preserve `order_index` | `_group_form_fields` preserves the same segments | Never aggregate all normal fields before or after inline blocks. |
 | Merged export cells | preview has one logical cell | comparator collapses duplicate `python-docx` merged-cell aliases by `cell._tc` identity | Row/cell denominators must count logical cells. |
+| Structure-row shading | `getFormFieldStructurePreviewStyle()` applies default `#D9D9D9` only to log rows; label rows have no default fill; any custom `bg_color` renders as solid `#RRGGBB` with no alpha suffix | `_add_log_row()` uses `bg_color or 'D9D9D9'`; `_add_label_row()` adds no default shading; `_add_unified_full_row()` keeps the same log-vs-label split | Preview must not append `40` alpha to structure-row colors; default gray applies only to log rows, never to labels. |
 | Form section pagination | preview form order matches export form order | portrait forms use next-page section breaks | Do not replace portrait section breaks with plain page breaks. |
 | Title and table geometry | `.wp-form-title` left-aligned; `.word-page td` keeps 5.25pt / 1.0 rhythm | `python-docx` Heading-1 default left alignment and matching paragraph spacing | CSS geometry tests lock the visual baseline. |
 
@@ -246,12 +247,14 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Inline fallback/default row expansion | Component preview source tests plus strict comparator |
 | Normal/inline grouping or ordering | `backend/tests/test_export_service.py` and preview grouping tests |
 | Merged/log-row table extraction | `backend/tests/test_word_table_parity.py` |
+| Structure/log-row shading | `frontend/tests/formFieldPresentation.test.js`, `backend/tests/test_export_unified.py::test_export_unified_preserves_cell_shading`, and manual A4 side-by-side preview vs exported `.docx` at 100% zoom |
 | Section break or Word geometry | `backend/tests/test_export_service.py`, `frontend/tests/wordPageGeometry.test.js`, manual A4 side-by-side if browser/Word is available |
 
 **Synchronization Checklist**:
 - [ ] Update `export_service.py` `_render_choice_field`, `_get_option_labels`, `_group_form_fields`, and section-break logic when export behavior changes
 - [ ] Update `useCRFRenderer.js` `renderCtrl` (plain text) and `renderCtrlHtml → renderChoiceHtml` (HTML) together
 - [ ] Update all preview table paths: `FormDesignerTab.vue`, `VisitsTab.vue`, and `TemplatePreviewDialog.vue`
+- [ ] Keep structure-row shading aligned: `formFieldPresentation.js#getFormFieldStructurePreviewStyle()` must mirror `export_service.py` log-row/label-row defaults and use solid custom `bg_color` (no `40` alpha suffix)
 - [ ] If changing planner weight, update both `FILL_LINE_WEIGHT` constants and width-planning tests
 - [ ] If changing extraction semantics, update `word_table_parity.py` and comparator tests
 - [ ] Run `backend/tests/test_export_unified.py`, `backend/tests/test_export_service.py`, `backend/tests/test_width_planning.py`, `backend/tests/test_word_table_parity.py`

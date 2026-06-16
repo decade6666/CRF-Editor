@@ -9,6 +9,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
+  getFormFieldStructurePreviewStyle,
   getFormFieldTextColorStyle,
 } from '../src/composables/formFieldPresentation.js';
 
@@ -47,13 +48,29 @@ test('list and preview labels both prefer label_override', () => {
 
   assert.equal(getFormFieldDisplayLabel(field), '快捷编辑标签');
   assert.equal(getFormFieldTextColorStyle(field), 'color:#112233');
-  assert.equal(getFormFieldPreviewStyle(field), 'background:#FFEEDD40;color:#112233');
+  assert.equal(getFormFieldPreviewStyle(field), 'background:#FFEEDD;color:#112233');
 });
 
-test('preview style falls back to unified structural gray with transparency when no bg_color is set', () => {
+test('preview style falls back to unified structural gray matching Word export when no bg_color is set', () => {
   const field = createField({ text_color: '445566' });
 
-  assert.equal(getFormFieldPreviewStyle(field, 'background:#BFBFBF40;'), 'background:#BFBFBF40;color:#445566');
+  assert.equal(getFormFieldPreviewStyle(field, 'background:#D9D9D9;'), 'background:#D9D9D9;color:#445566');
+});
+
+test('structure preview style applies Word-export gray only to log rows by default', () => {
+  const labelField = createField({ field_definition: { label: '结构标题', field_type: '标签' } });
+  const logField = createField({ is_log_row: 1, field_definition: null });
+  const styledLabelField = createField({
+    bg_color: 'FFEEDD',
+    field_definition: { label: '彩色标题', field_type: '标签' },
+  });
+
+  assert.equal(getFormFieldStructurePreviewStyle(labelField), 'color:#000000');
+  assert.equal(
+    getFormFieldStructurePreviewStyle(logField),
+    'background:var(--preview-structure-bg);color:#000000',
+  );
+  assert.equal(getFormFieldStructurePreviewStyle(styledLabelField), 'background:#FFEEDD;color:#000000');
 });
 
 test('preview text defaults to true black when no custom text color is set', () => {
@@ -68,8 +85,8 @@ test('preview style normalizes legacy hex color inputs while keeping invalid val
   const legacyTextField = createField({ bg_color: ' 112233 ', text_color: '#112233' });
   const invalidTextField = createField({ bg_color: null, text_color: 'zzzzzz' });
 
-  assert.equal(getFormFieldPreviewStyle(legacyBgField), 'background:#11223340;color:#112233');
-  assert.equal(getFormFieldPreviewStyle(legacyTextField), 'background:#11223340;color:#112233');
+  assert.equal(getFormFieldPreviewStyle(legacyBgField), 'background:#112233;color:#112233');
+  assert.equal(getFormFieldPreviewStyle(legacyTextField), 'background:#112233;color:#112233');
   assert.equal(getFormFieldPreviewStyle(invalidTextField), 'color:#000000');
 });
 
@@ -179,7 +196,7 @@ test('quick edit fields are subset of form field instance properties', () => {
 
 test('preview structural colors are unified across designer and template preview paths', () => {
   assert.match(formDesignerSource, /form-designer-word-page/);
-  assert.match(mainCssSource, /--preview-structure-bg: #BFBFBF40;/);
+  assert.match(mainCssSource, /--preview-structure-bg: #D9D9D9;/);
   assert.match(
     mainCssSource,
     /\.word-page \.wp-inline-header \{ background: var\(--preview-structure-bg\); font-weight: bold; text-align: center; \}/,
@@ -188,10 +205,10 @@ test('preview structural colors are unified across designer and template preview
   assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000;[\s\S]*\}/);
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/);
   assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/);
-  assert.match(formDesignerSource, /background:var\(--preview-structure-bg\);/);
-  assert.match(templatePreviewSource, /background:var\(--preview-structure-bg\);/);
-  assert.match(templatePreviewSource, /\.wp-inline-header \{\s*background: var\(--preview-structure-bg\);/s);
-  assert.doesNotMatch(mainCssSource, /#fafafa|#f5f5f5|#d9d9d9/);
+  assert.match(formDesignerSource, /getFormFieldStructurePreviewStyle/);
+  assert.match(visitsSource, /getFormFieldStructurePreviewStyle/);
+  assert.match(templatePreviewSource, /getFormFieldStructurePreviewStyle/);
+  assert.match(mainCssSource, /#D9D9D9/);
 });
 
 test('preview choice labels may wrap inside a single long option without overflowing', () => {
