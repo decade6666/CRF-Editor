@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-06-15
+- **Total Sessions**: 23
+- **Last Active**: 2026-06-16
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1183 | Active |
+| `journal-1.md` | ~1233 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-06-16 | 修复 Word 导出纵向选项 snapToGrid 间距不均 | `2bd838c`, `d2ee0e0` | `draft` |
 | 22 | 2026-06-15 | 表单设计器新增字段本地草稿（保存才落库）+ GPT 审计修复 | `0e008f8`, `9d6ffd4` | `draft` |
 | 21 | 2026-06-15 | 修复 Word 预览/导出结构行底色一致性 | `4e8d1b9` | `draft` |
 | 20 | 2026-06-15 | 表单设计器顶栏按钮文案改图标 | `56d9643` | `draft` |
