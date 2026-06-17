@@ -1231,3 +1231,54 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Word 导出目录预渲染 + 服务器侧写死真实页码
+
+**Date**: 2026-06-16
+**Task**: Word 导出目录预渲染 + 服务器侧写死真实页码
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+审查并修复 GPT 的 Word 导出目录草稿，再按用户三轮反馈完善。
+
+| 方面 | 内容 |
+|------|------|
+| 审查修复 | GPT 草稿把预渲染条目放在 TOC 域外，Word 更新域后会再生成一份导致目录重复；改为首条条目合入 TOC 域起始、末条合入 end，整段条目即 separate→end 域结果，整体替换不重复 |
+| 目录外观 | `_apply_raw_run_font` 写宋体；`_ensure_toc_styles` 幂等注入 TOC1/2/3 样式（默认模板仅 TOCHeading，悬空 pStyle 回退默认字体导致"排版不像目录"） |
+| 标题与空行 | `_add_toc_placeholder` 只写"目录"标题(宋体小四加粗)+记录锚点，`_build_toc_entry` 把域指令合入首条条目，标题与首条条目零空行 |
+| 真实页码 | 新增 `toc_pagination.py`：LibreOffice 无头渲染 docx→PDF、读 PDF 大纲页码；`_bake_toc_page_numbers` 写回 PAGEREF；`bake_toc_page_numbers` 默认 False（单测安全）、路由传 True（生产）；失败优雅回退 Word 更新域 |
+| 依赖 | requirements.txt +pypdf；系统可选 LibreOffice（已在本机安装验证） |
+| 验证 | 完整后端套件 488 passed, 4 xfailed；新增无空行/写死页码回归测试；LibreOffice 实测页码 3/4/5/6/7/8 递增 |
+
+**关键文件**：
+- `backend/src/services/export_service.py`（重构 + baking）
+- `backend/src/services/toc_pagination.py`（新建）
+- `backend/src/routers/export.py`（生产开启 baking）
+- `backend/requirements.txt`、`README.md`、`README.en.md`、`backend/.claude/CLAUDE.md`
+
+**已知限制**：LibreOffice 与 Word 分页可能差一页，PAGEREF + updateFields 保留供 Word 再校正；写死页码仅在装有 LibreOffice 的服务器部署生效。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `878e6eb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
