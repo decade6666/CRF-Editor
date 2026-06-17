@@ -13,7 +13,7 @@ def test_perf_flag_does_not_change_export_contract(client: TestClient, engine, m
 
     with patch("src.routers.export.verify_project_owner", lambda *_args, **_kwargs: None), \
          patch("src.routers.export.ProjectRepository.get_by_id", lambda *_args, **_kwargs: object()), \
-         patch("src.services.export_service.ExportService.export_project_to_word", lambda self, pid, output_path, column_width_overrides=None: open(output_path, "wb").write(b"PK") or True), \
+         patch("src.services.export_service.ExportService.export_project_to_word", lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False: open(output_path, "wb").write(b"PK") or True), \
          patch("src.services.export_service.ExportService._validate_output", staticmethod(lambda _path: (True, ""))):
         monkeypatch.delenv("CRF_PERF_BASELINE", raising=False)
         normal = client.post("/api/projects/1/export/word", headers=auth_headers(token))

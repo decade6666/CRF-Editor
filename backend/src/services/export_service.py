@@ -220,6 +220,16 @@ class ExportService:
 
         self.project_repo = ProjectRepository(session)
 
+        self._toc_entries: list[tuple[str, int, str]] = []
+
+        self._toc_field_paragraph: Any = None
+
+        self._toc_bookmark_counter: int = 0
+
+        # 标题文本 -> 该条目页码占位 w:t 元素列表，供服务器侧写死真实页码
+
+        self._toc_pageref_values: Dict[str, list] = {}
+
 
 
     def _apply_exact_line_spacing(self, paragraph: Any) -> None:
@@ -261,6 +271,32 @@ class ExportService:
 
 
 
+    def _enable_update_fields_on_open(self, doc: Document) -> None:
+        """启用 Word 打开文档时更新域，用于刷新预渲染目录的 PAGEREF 页码。
+
+        目录条目已在导出阶段预渲染，updateFields 只承担"页码精确化"提示，
+        不再负责生成整份目录。按 OOXML CT_Settings 顺序，w:updateFields 必须
+        位于 compat/rsids/mathPr 等元素之前，故插入到首个此类锚点之前；
+        无锚点时再追加到末尾。
+        """
+        settings = doc.settings.element
+        update_fields = settings.find(qn("w:updateFields"))
+        if update_fields is None:
+            update_fields = OxmlElement("w:updateFields")
+            anchor = None
+            for tag in ("w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr",
+                        "w:compat", "w:rsids", "w:mathPr"):
+                anchor = settings.find(qn(tag))
+                if anchor is not None:
+                    break
+            if anchor is not None:
+                anchor.addprevious(update_fields)
+            else:
+                settings.append(update_fields)
+        update_fields.set(qn("w:val"), "true")
+
+
+
     def _apply_cell_paragraph_metrics(
         self,
         paragraph: Any,
@@ -288,6 +324,7 @@ class ExportService:
         project_id: int,
         output_path: str,
         column_width_overrides: Optional[Dict] = None,
+        bake_toc_page_numbers: bool = False,
     ) -> bool:
 
         """导出项目到 Word 文档
@@ -299,9 +336,21 @@ class ExportService:
                 { "inline:fieldIds=1,2,3": [0.5, 0.3, 0.2] }
                 { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
                 fraction 值为 0.0~1.0，表示该列占总宽度的比例
+            bake_toc_page_numbers: 是否在导出后用 LibreOffice 渲染算出真实页码写回
+                目录（仅服务器侧、LibreOffice 可用时生效；失败自动回退 Word 更新域）。
         """
 
         try:
+
+            # 重置目录收集状态，避免实例复用时跨导出累积
+
+            self._toc_entries = []
+
+            self._toc_field_paragraph = None
+
+            self._toc_bookmark_counter = 0
+
+            self._toc_pageref_values = {}
 
             # 一次性 eager load 完整关系树，消除导出链路上的 N+1 查询
 
@@ -327,6 +376,8 @@ class ExportService:
                 # 统一文档字体和样式
 
                 self._apply_document_style(doc)
+
+                self._enable_update_fields_on_open(doc)
 
 
 
@@ -408,12 +459,21 @@ class ExportService:
 
             self._add_forms_content(doc, project)
 
+            # 6. 写入 TOC 预渲染条目（依赖 _add_toc_heading 收集结果）
+
+            self._populate_toc(doc)
+
 
 
             # 保存文档
 
             with perf_span("file_response_prepare"):
                 doc.save(output_path)
+
+            # 服务器侧用 LibreOffice 渲染算出真实页码写回目录（失败自动回退）
+
+            if bake_toc_page_numbers:
+                self._bake_toc_page_numbers(doc, output_path)
 
             return True
 
@@ -791,7 +851,12 @@ class ExportService:
 
     def _add_toc_placeholder(self, doc: Document):
 
-        """添加目录占位符"""
+        """添加"目录"标题段并记录锚点。
+
+        TOC 域指令（begin/instrText/separate）与预渲染条目由 ``_populate_toc``
+        在正文渲染完成后写入：域起始合入第一条条目、域 end 合入最后一条条目。
+        标题段后不再插入空行或空的域壳段，故标题与首条目录之间无空行。
+        """
 
         # 目录标题：宋体、小四(12pt)、加粗、居中
 
@@ -803,37 +868,487 @@ class ExportService:
 
         p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
+        # 记录锚点：预渲染条目紧接标题段之后插入（中间不留空行）
 
-
-        # 添加一个空行
-
-        doc.add_paragraph()
+        self._toc_field_paragraph = p_title
 
 
 
-        p = doc.add_paragraph()
+    def _add_toc_heading(self, doc: Document, text: str, level: int = 1):
 
-        run = p.add_run()
+        """添加标题段落并注册 TOC 条目。
 
-        fldChar1 = OxmlElement('w:fldChar')
+        为标题插入唯一名 ``_Toc%08d`` 书签，并记录标题文本、层级与书签名
+        到 ``_toc_entries`` 供 ``_populate_toc`` 生成预渲染条目。
+        """
 
-        fldChar1.set(qn('w:fldCharType'), 'begin')
+        self._toc_bookmark_counter += 1
 
-        run._r.append(fldChar1)
+        bookmark_name = f"_Toc{self._toc_bookmark_counter:08d}"
 
-        instrText = OxmlElement('w:instrText')
+        heading_para = doc.add_heading(text, level=level)
 
-        instrText.set(qn('xml:space'), 'preserve')
+        # 在标题段落中插入 bookmarkStart / bookmarkEnd。
+        # OOXML 要求 w:pPr 排在 EG_PContent 之前，因此 bookmarkStart
+        # 须插在 pPr 之后（若有 pPr 则 index=1，否则 index=0）。
 
-        instrText.text = 'TOC \\o "1-3" \\h \\z \\u'
+        p_element = heading_para._p
 
-        run._r.append(instrText)
+        bm_start = OxmlElement("w:bookmarkStart")
 
-        fldChar2 = OxmlElement('w:fldChar')
+        bm_start.set(qn("w:id"), str(self._toc_bookmark_counter))
 
-        fldChar2.set(qn('w:fldCharType'), 'end')
+        bm_start.set(qn("w:name"), bookmark_name)
 
-        run._r.append(fldChar2)
+        bm_end = OxmlElement("w:bookmarkEnd")
+
+        bm_end.set(qn("w:id"), str(self._toc_bookmark_counter))
+
+        pPr = p_element.find(qn("w:pPr"))
+
+        insert_idx = 1 if pPr is not None else 0
+
+        p_element.insert(insert_idx, bm_start)
+
+        # bookmarkEnd 紧跟在最后一个 run/rPr 等内容元素之后
+
+        last_content = None
+
+        for child in p_element:
+
+            if child.tag not in (qn("w:bookmarkStart"), qn("w:pPr")):
+
+                last_content = child
+
+        if last_content is not None:
+
+            last_content.addnext(bm_end)
+
+        else:
+
+            p_element.append(bm_end)
+
+        for run in heading_para.runs:
+
+            self._set_run_font(run)
+
+        self._toc_entries.append((text, level, bookmark_name))
+
+
+
+    def _apply_raw_run_font(self, rpr, size_half_pt: int = 21) -> None:
+
+        """为裸 ``w:r`` 的 ``rPr`` 写入中英文字体与字号（单位：半点，21=10.5pt）。
+
+        预渲染目录条目用裸 OxmlElement 构建，无法复用 ``_set_run_font``；显式写入
+        rFonts/sz 保证目录与正文同为宋体，避免回退默认字体导致"排版不像目录"。
+        """
+
+        rFonts = OxmlElement("w:rFonts")
+
+        rFonts.set(qn("w:ascii"), self.FONT_ASCII)
+
+        rFonts.set(qn("w:hAnsi"), self.FONT_ASCII)
+
+        rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
+
+        rpr.append(rFonts)
+
+        sz = OxmlElement("w:sz")
+
+        sz.set(qn("w:val"), str(size_half_pt))
+
+        rpr.append(sz)
+
+        szCs = OxmlElement("w:szCs")
+
+        szCs.set(qn("w:val"), str(size_half_pt))
+
+        rpr.append(szCs)
+
+
+
+    def _ensure_toc_styles(self, doc: Document) -> None:
+
+        """确保 styles.xml 定义 TOC1/TOC2/TOC3 段落样式（幂等）。
+
+        预渲染条目引用这些样式；缺失时 Word 回退默认字体，使目录与正文宋体
+        不一致。注入后预渲染条目与 Word 更新域后重生成的目录均使用宋体。
+        """
+
+        styles_el = doc.styles.element
+
+        existing = {
+
+            s.get(qn("w:styleId"))
+
+            for s in styles_el.findall(qn("w:style"))
+
+        }
+
+        for level in (1, 2, 3):
+
+            style_id = f"TOC{level}"
+
+            if style_id in existing:
+
+                continue
+
+            style = OxmlElement("w:style")
+
+            style.set(qn("w:type"), "paragraph")
+
+            style.set(qn("w:styleId"), style_id)
+
+            name = OxmlElement("w:name")
+
+            name.set(qn("w:val"), f"toc {level}")
+
+            style.append(name)
+
+            based_on = OxmlElement("w:basedOn")
+
+            based_on.set(qn("w:val"), "Normal")
+
+            style.append(based_on)
+
+            next_style = OxmlElement("w:next")
+
+            next_style.set(qn("w:val"), "Normal")
+
+            style.append(next_style)
+
+            ui_priority = OxmlElement("w:uiPriority")
+
+            ui_priority.set(qn("w:val"), "39")
+
+            style.append(ui_priority)
+
+            pPr = OxmlElement("w:pPr")
+
+            spacing = OxmlElement("w:spacing")
+
+            spacing.set(qn("w:after"), "100")
+
+            pPr.append(spacing)
+
+            if level > 1:
+
+                ind = OxmlElement("w:ind")
+
+                ind.set(qn("w:left"), str((level - 1) * 420))
+
+                pPr.append(ind)
+
+            tabs = OxmlElement("w:tabs")
+
+            tab = OxmlElement("w:tab")
+
+            tab.set(qn("w:val"), "right")
+
+            tab.set(qn("w:leader"), "dot")
+
+            tab.set(qn("w:pos"), "8306")
+
+            tabs.append(tab)
+
+            pPr.append(tabs)
+
+            style.append(pPr)
+
+            rPr = OxmlElement("w:rPr")
+
+            self._apply_raw_run_font(rPr)
+
+            style.append(rPr)
+
+            styles_el.append(style)
+
+
+
+    def _build_toc_entry(self, heading_text: str, level: int, bookmark_name: str, with_field_start: bool):
+
+        """构建一条预渲染目录条目段落（``w:p``）。
+
+        ``with_field_start=True`` 时在条目最前合入外层 TOC 域起始
+        （begin(dirty) → instrText → separate），使第一条条目成为域结果起点，
+        标题段与目录之间不留空行；外层 ``end`` 由调用方合入最后一条条目。
+        """
+
+        entry = OxmlElement("w:p")
+
+        pPr = OxmlElement("w:pPr")
+
+        pStyle = OxmlElement("w:pStyle")
+
+        pStyle.set(qn("w:val"), f"TOC{level}")
+
+        pPr.append(pStyle)
+
+        tabs = OxmlElement("w:tabs")
+
+        tab_el = OxmlElement("w:tab")
+
+        tab_el.set(qn("w:val"), "right")
+
+        tab_el.set(qn("w:leader"), "dot")
+
+        tab_el.set(qn("w:pos"), "8306")
+
+        tabs.append(tab_el)
+
+        pPr.append(tabs)
+
+        indent = OxmlElement("w:ind")
+
+        indent.set(qn("w:left"), str((level - 1) * 440))
+
+        pPr.append(indent)
+
+        entry.append(pPr)
+
+        # 外层 TOC 域起始合入首条条目：begin(dirty) → instrText → separate
+
+        if with_field_start:
+
+            toc_begin = OxmlElement("w:r")
+
+            toc_begin_fc = OxmlElement("w:fldChar")
+
+            toc_begin_fc.set(qn("w:fldCharType"), "begin")
+
+            toc_begin_fc.set(qn("w:dirty"), "1")
+
+            toc_begin.append(toc_begin_fc)
+
+            entry.append(toc_begin)
+
+            toc_instr_run = OxmlElement("w:r")
+
+            toc_instr = OxmlElement("w:instrText")
+
+            toc_instr.set(qn("xml:space"), "preserve")
+
+            toc_instr.text = 'TOC \\o "1-3" \\h \\z \\u'
+
+            toc_instr_run.append(toc_instr)
+
+            entry.append(toc_instr_run)
+
+            toc_sep = OxmlElement("w:r")
+
+            toc_sep_fc = OxmlElement("w:fldChar")
+
+            toc_sep_fc.set(qn("w:fldCharType"), "separate")
+
+            toc_sep.append(toc_sep_fc)
+
+            entry.append(toc_sep)
+
+        # 书签超链接（点击跳转），文本写入宋体保持与正文一致
+
+        hl = OxmlElement("w:hyperlink")
+
+        hl.set(qn("w:anchor"), bookmark_name)
+
+        hl.set(qn("w:history"), "1")
+
+        hl_run = OxmlElement("w:r")
+
+        hl_rPr = OxmlElement("w:rPr")
+
+        self._apply_raw_run_font(hl_rPr)
+
+        hl_run.append(hl_rPr)
+
+        hl_t = OxmlElement("w:t")
+
+        hl_t.set(qn("xml:space"), "preserve")
+
+        hl_t.text = heading_text
+
+        hl_run.append(hl_t)
+
+        hl.append(hl_run)
+
+        entry.append(hl)
+
+        # 右对齐点引导 tab 分隔符
+
+        tab_run = OxmlElement("w:r")
+
+        tab_run.append(OxmlElement("w:tab"))
+
+        entry.append(tab_run)
+
+        # PAGEREF 域：页码占位留空，Word 更新域后填充
+
+        begin_run = OxmlElement("w:r")
+
+        begin_fc = OxmlElement("w:fldChar")
+
+        begin_fc.set(qn("w:fldCharType"), "begin")
+
+        begin_fc.set(qn("w:dirty"), "1")
+
+        begin_run.append(begin_fc)
+
+        entry.append(begin_run)
+
+        instr_run = OxmlElement("w:r")
+
+        instr = OxmlElement("w:instrText")
+
+        instr.set(qn("xml:space"), "preserve")
+
+        instr.text = f"PAGEREF {bookmark_name} \\h"
+
+        instr_run.append(instr)
+
+        entry.append(instr_run)
+
+        sep_run = OxmlElement("w:r")
+
+        sep_fc = OxmlElement("w:fldChar")
+
+        sep_fc.set(qn("w:fldCharType"), "separate")
+
+        sep_run.append(sep_fc)
+
+        entry.append(sep_run)
+
+        val_run = OxmlElement("w:r")
+
+        val_rPr = OxmlElement("w:rPr")
+
+        self._apply_raw_run_font(val_rPr)
+
+        val_run.append(val_rPr)
+
+        val_t = OxmlElement("w:t")
+
+        val_t.set(qn("xml:space"), "preserve")
+
+        val_t.text = ""
+
+        val_run.append(val_t)
+
+        entry.append(val_run)
+
+        # 记录页码占位元素，供服务器侧 LibreOffice 渲染后写死真实页码
+
+        self._toc_pageref_values.setdefault(heading_text, []).append(val_t)
+
+        end_run = OxmlElement("w:r")
+
+        end_fc = OxmlElement("w:fldChar")
+
+        end_fc.set(qn("w:fldCharType"), "end")
+
+        end_run.append(end_fc)
+
+        entry.append(end_run)
+
+        return entry
+
+
+
+    def _populate_toc(self, doc: Document):
+
+        """在"目录"标题之后写入预渲染目录条目，并以外层 TOC 域收尾。
+
+        需在所有 ``_add_toc_heading`` 调用完成后执行（即 ``_add_forms_content``
+        之后）。第一条条目合入 TOC 域起始（begin/instrText/separate），最后一条
+        条目合入外层 ``end``，使所有条目成为 ``separate`` 与 ``end`` 之间的域结果：
+        零点击即可见条目、Word 更新域时整体替换不重复，且"目录"标题与条目间无空行。
+        """
+
+        anchor = self._toc_field_paragraph
+
+        if anchor is None or not self._toc_entries:
+
+            return
+
+        # 确保 TOC1/2/3 样式存在，使预渲染条目与重生成目录字体一致（宋体）
+
+        self._ensure_toc_styles(doc)
+
+        # 条目紧接"目录"标题段插入；首条合入 TOC 域起始，逐条 addnext 顺序排列
+
+        anchor_el = anchor._p
+
+        last_entry_el = None
+
+        for index, (heading_text, level, bookmark_name) in enumerate(self._toc_entries):
+
+            entry_el = self._build_toc_entry(
+
+                heading_text, level, bookmark_name, with_field_start=(index == 0)
+
+            )
+
+            anchor_el.addnext(entry_el)
+
+            anchor_el = entry_el
+
+            last_entry_el = entry_el
+
+        # 外层 TOC 域 end 合入最后一条条目末尾，闭合 separate→end 域结果
+
+        toc_end_run = OxmlElement("w:r")
+
+        toc_end_fc = OxmlElement("w:fldChar")
+
+        toc_end_fc.set(qn("w:fldCharType"), "end")
+
+        toc_end_run.append(toc_end_fc)
+
+        last_entry_el.append(toc_end_run)
+
+
+
+    def _bake_toc_page_numbers(self, doc: Document, output_path: str) -> None:
+
+        """服务器侧用 LibreOffice 渲染算出真实页码并写回目录 PAGEREF 占位。
+
+        仅当 LibreOffice 可用且渲染成功时生效；否则保留空占位，由 Word 更新域
+        填充。PAGEREF 域与 ``updateFields=true`` 始终保留，Word 仍可按自身分页
+        再校正（LibreOffice 与 Word 分页可能差一页）。
+        """
+
+        if not self._toc_pageref_values:
+
+            return
+
+        from src.services import toc_pagination
+
+        with perf_span("toc_page_bake"):
+
+            pages = toc_pagination.compute_heading_pages(output_path)
+
+        if not pages:
+
+            return
+
+        updated = False
+
+        for heading_text, value_elements in self._toc_pageref_values.items():
+
+            page = pages.get(heading_text)
+
+            if page is None:
+
+                continue
+
+            for val_t in value_elements:
+
+                val_t.text = str(page)
+
+                updated = True
+
+        if updated:
+
+            doc.save(output_path)
 
 
 
@@ -841,11 +1356,7 @@ class ExportService:
 
         """添加访视流程图"""
 
-        heading_para = doc.add_heading("表单访视分布图", level=1)
-
-        for run in heading_para.runs:
-
-            self._set_run_font(run)
+        self._add_toc_heading(doc, "表单访视分布图", level=1)
 
 
 
@@ -1026,11 +1537,7 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
-
-                for run in heading_para.runs:
-
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
                 groups = self._group_form_fields(form_fields)
 
@@ -1086,11 +1593,7 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
-
-                for run in heading_para.runs:
-
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
                 segments = self._build_unified_segments(form_fields)
 
@@ -1118,11 +1621,7 @@ class ExportService:
 
                     self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
-
-                for run in heading_para.runs:
-
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
 
 

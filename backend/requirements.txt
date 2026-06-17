@@ -22,5 +22,9 @@ passlib~=1.7.4
 # Word Export
 python-docx~=1.0.0
 
+# Word 导出目录真实页码预计算（读取 LibreOffice 渲染出的 PDF 大纲页码）
+# 需配合系统安装 LibreOffice（soffice）；未安装时自动回退由 Word 更新域填充页码
+pypdf~=6.0
+
 # HTTP Client (AI API calls)
 httpx~=0.27.0

@@ -144,7 +144,7 @@ def test_export_word_returns_docx_file(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None: Document().save(output_path) or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False: Document().save(output_path) or True,
     )
     monkeypatch.setattr(
         ExportService,
@@ -181,7 +181,7 @@ def test_export_word_rejects_invalid_docx(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None: Path(output_path).write_bytes(b"PK") or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False: Path(output_path).write_bytes(b"PK") or True,
     )
     monkeypatch.setattr(
         ExportService,
