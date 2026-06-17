@@ -225,7 +225,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 The exported Word document contains:
 
 - **Cover Page**: Trial name, version number, protocol number, center number, screening number, etc.
-- **Table of Contents**: Auto-generated document TOC
+- **Table of Contents**: Pre-rendered entries visible on open with clickable navigation; real page numbers are baked in when exported on a server with LibreOffice, otherwise refreshed after updating fields in Word
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
 

@@ -117,6 +117,9 @@ def extract_docx_form_table_fields(docx_path: str | Path) -> list[TableFieldForm
 
     for block in _iter_block_items(doc):
         if isinstance(block, Paragraph):
+            # 跳过含域代码的段落（如 TOC 预渲染条目），避免误判为表单标题
+            if _has_field_codes(block):
+                continue
             match = FORM_HEADING_RE.match(block.text.strip())
             if match:
                 current_form = TableFieldForm(name=match.group(1), tables=[])
@@ -287,3 +290,11 @@ def _form_name(preview_form: TableFieldForm | None, export_form: TableFieldForm 
     if export_form is not None:
         return export_form.name
     return ""
+
+
+def _has_field_codes(paragraph: Paragraph) -> bool:
+    """判断段落是否包含 OOXML 域代码（如 PAGEREF、TOC 域）。"""
+    return (
+        next(paragraph._p.iter(qn("w:fldChar")), None) is not None
+        or next(paragraph._p.iter(qn("w:instrText")), None) is not None
+    )

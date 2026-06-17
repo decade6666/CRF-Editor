@@ -58,7 +58,12 @@ def export_word(
     try:
         service = ExportService(session)
         with perf_span("docx_generate"):
-            ok = service.export_project_to_word(project_id, tmp_path, column_width_overrides=column_width_overrides)
+            ok = service.export_project_to_word(
+                project_id,
+                tmp_path,
+                column_width_overrides=column_width_overrides,
+                bake_toc_page_numbers=True,
+            )
         if not ok:
             os.unlink(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
