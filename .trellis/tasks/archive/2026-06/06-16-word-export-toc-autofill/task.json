@@ -1,0 +1,54 @@
+{
+  "id": "word-export-toc-autofill",
+  "name": "word-export-toc-autofill",
+  "title": "feat: Word 导出目录预渲染（打开即见 + 点击跳转，页码 Word 更新后精确）",
+  "description": "用户将需求从“原生 TOC 域打开时自动更新”升级为“零点击即可见目录”。当前合法 TOC 域 + updateFields 只能请求阅读器更新，无法保证打开即生成；因此任务改为混合式预渲染目录：导出时写出目录条目与书签跳转，保留 TOC/PAGEREF 域与 dirty/updateFields 供 Word 后续刷新精确页码。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "export-toc",
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "claude",
+  "createdAt": "2026-06-16",
+  "completedAt": "2026-06-16",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 4,
+  "next_action": [
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "backend/src/services/export_service.py",
+    "backend/tests/test_export_service.py",
+    "backend/tests/test_export_paper_orientation.py",
+    "backend/tests/test_word_table_parity.py",
+    "backend/src/services/word_table_parity.py",
+    "backend/.claude/CLAUDE.md",
+    "README.md",
+    "README.en.md"
+  ],
+  "notes": "已按 Trellis 工作流重写 PRD。旧的“纯原生 TOC 域 + updateFields”实现思路已被新的已批准计划替代：导出阶段预渲染目录条目与跳转书签，保留 TOC/PAGEREF 域与 dirty/updateFields 供 Word 更新精确页码。已批准计划见 /root/.claude/plans/kind-churning-snail.md；Claude 补充分析见 /root/.claude/plans/word-word-word-melodic-toucan.md。当前任务重新回到 planning，下一步是按新 PRD 实施。关键边界：零点击可保证目录可见与跳转；精确页码仍需 Word 更新一次。",
+  "meta": {}
+}

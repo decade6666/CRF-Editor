@@ -1,0 +1,11 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": "./.context/prefs/coding-style.md", "reason": "团队共享编码规范与测试要求"}
+{"file": "./.context/prefs/workflow.md", "reason": "功能开发必须遵循 RED→GREEN→文档同步流程"}
+{"file": "./.trellis/spec/backend/quality-guidelines.md", "reason": "后端质量、测试与代码审查要求"}
+{"file": "./.trellis/spec/backend/error-handling.md", "reason": "后端错误处理与日志约束"}
+{"file": "./.trellis/spec/guides/cross-stack-contracts.md", "reason": "Word 预览/导出 parity 与标题提取契约"}
+{"file": "./backend/.claude/CLAUDE.md", "reason": "后端导出模块约束、近期导出契约与文档同步点"}
+{"file": "./backend/src/services/export_service.py", "reason": "主实现文件，包含现有 TOC/PAGE 域与标题创建模式"}
+{"file": "./backend/tests/test_export_service.py", "reason": "导出测试与 XML token 断言模式"}
+{"file": "./backend/src/services/word_table_parity.py", "reason": "标题抽取与 strict parity 契约，需避免 TOC 污染"}
