@@ -313,12 +313,13 @@ test('property editor retries only retryable autosave errors', () => {
   assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) return false/)
   assert.match(formDesignerSource, /if \(!pendingFieldPropSnapshots\.length \|\| isSavingFieldProp\) return true/)
   assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId\)[\s\S]*fieldPropAutoSaveErrorShown = false[\s\S]*saveSucceeded = true/)
-  assert.match(formDesignerSource, /const isExpiredContext = e\?\.message === '自动保存上下文已变更'/)
-  assert.match(formDesignerSource, /const isRetryableError = !isExpiredContext && shouldRetryFieldPropSave\(e\)/)
+  assert.match(formDesignerSource, /const failure = classifyFieldPropSaveError\(e\)/)
+  assert.match(formDesignerSource, /lastFieldPropSaveError = failure/)
+  assert.match(formDesignerSource, /const isExpiredContext = failure\.code === 'context_changed'/)
   assert.match(formDesignerSource, /if \(!hasPendingFieldPropSnapshot\(snapshot\.fieldId, snapshotKey\)\) upsertPendingFieldPropSnapshot\(snapshot\)/)
-  assert.match(formDesignerSource, /if \(!fieldPropAutoSaveErrorShown && !isExpiredContext\) \{[\s\S]*ElMessage\.error\(e\.message\)[\s\S]*fieldPropAutoSaveErrorShown = true/)
-  assert.match(formDesignerSource, /if \(isRetryableError\) \{[\s\S]*fieldPropSaveTimer = setTimeout\(\(\) => \{[\s\S]*void flushPendingFieldPropSave\(sessionId\)[\s\S]*\}, 1000\)/)
-  assert.match(formDesignerSource, /function shouldRetryFieldPropSave\(error\) \{[\s\S]*return status >= 500 \|\| status === 429 \|\| status === 408/)
+  assert.match(formDesignerSource, /if \(!fieldPropAutoSaveErrorShown && !isExpiredContext\) \{[\s\S]*ElMessage\.error\(failure\.message\)[\s\S]*fieldPropAutoSaveErrorShown = true/)
+  assert.match(formDesignerSource, /if \(classifyFieldPropSaveError\(e\)\.retryable\) \{[\s\S]*fieldPropSaveTimer = setTimeout\(\(\) => \{[\s\S]*void flushPendingFieldPropSave\(sessionId\)[\s\S]*\}, 1000\)/)
+  assert.match(formDesignerSource, /const retryable =[\s\S]*status >= 500 \|\| status === 429 \|\| status === 408/)
   assert.match(formDesignerSource, /const hasQueuedDraft = hasPendingFieldPropSnapshot\(snapshot\.fieldId, snapshotKey\)/)
   assert.match(formDesignerSource, /if \(hasNewerDraft && !hasQueuedDraft\) upsertPendingFieldPropSnapshot\(buildFieldPropSnapshot\(snapshot\.fieldId\)\)/)
   assert.match(formDesignerSource, /if \(saveSucceeded && shouldRefillEditor\) \{[\s\S]*if \(updated\) selectField\(updated\)/)
@@ -341,22 +342,33 @@ test('api helpers preserve HTTP status on thrown errors', () => {
 })
 
 
-test('property editor blocks reset when flush fails on dialog close and project switch', () => {
+test('property editor uses explicit leave guards instead of close-then-reopen rollback', () => {
+  assert.match(formDesignerSource, /function classifyFieldPropSaveError\(error\) \{[\s\S]*code = 'missing_codelist'[\s\S]*discardable: code === 'missing_codelist'/)
   assert.match(formDesignerSource, /async function flushFieldPropSaveBeforeReset\(resetOptions = \{\}\) \{[\s\S]*const flushResult = await flushPendingFieldPropSave\(sessionId\)/)
-  assert.match(formDesignerSource, /if \(flushResult === false\) return false/)
   assert.match(formDesignerSource, /if \(isSavingFieldProp\) \{[\s\S]*setTimeout\(check, 20\)/)
-  assert.match(formDesignerSource, /if \(pendingFieldPropSnapshots\.length\) return false/)
-  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => showDesigner\.value,[\s\S]*async \(visible, previousVisible\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\)[\s\S]*if \(!resetSucceeded\) showDesigner\.value = true/)
-  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*async \(newProjectId, previousProjectId\) => \{[\s\S]*const resetSucceeded = await flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)[\s\S]*if \(!resetSucceeded\) \{[\s\S]*fieldPropProjectId\.value = previousProjectId/)
+  assert.match(formDesignerSource, /if \(pendingFieldPropSnapshots\.length\) \{[\s\S]*return buildFieldPropLeaveFailureResult\(/)
+  assert.match(formDesignerSource, /async function confirmDiscardFieldPropChanges\(failure, \{ resetOptions = \{\}, actionText = '关闭' \} = \{\}\) \{[\s\S]*cancelButtonText: `放弃并\$\{actionText\}`/)
+  assert.match(formDesignerSource, /function discardPendingFieldPropChanges\(resetOptions = \{\}\) \{[\s\S]*resetFieldPropAutoSaveState\(resetOptions\)[\s\S]*\}/)
+  assert.match(formDesignerSource, /async function resolveFieldPropLeave\(\{ resetOptions = \{\}, actionText = '关闭' \} = \{\}\) \{[\s\S]*if \(result\.discardable\) \{[\s\S]*confirmDiscardFieldPropChanges\(/)
+  assert.match(formDesignerSource, /ElMessage\.error\(`字段属性未保存：\$\{result\.message\}`\)/)
+  assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\)/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeave = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = previousProjectId/)
+  assert.doesNotMatch(formDesignerSource, /if \(!resetSucceeded\) showDesigner\.value = true/)
   assert.match(formDesignerSource, /if \(!preserveEditor\) \{[\s\S]*selectedFieldId\.value = null/)
 })
 
 
+test('missing codelist validation becomes a discardable leave failure', () => {
+  assert.match(formDesignerSource, /if \(message === '单选\/多选字段必须选择选项字典'\) \{[\s\S]*code = 'missing_codelist'/)
+  assert.match(formDesignerSource, /discardable: code === 'missing_codelist'/)
+})
+
+
 test('app blocks project switch until form designer can leave', () => {
-  assert.match(formDesignerSource, /async function canLeaveProject\(\) \{[\s\S]*return flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)/)
-  assert.match(formDesignerSource, /defineExpose\(\{ canLeaveProject, getForms:/)
+  assert.match(formDesignerSource, /async function canLeaveProject\(\) \{[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*return resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)/)
+  assert.match(formDesignerSource, /defineExpose\(\{[\s\S]*canLeaveProject,[\s\S]*getForms: \(\) => forms\.value,/)
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
-  assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(activeTab\.value === 'designer' && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
+  assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(isTabActivated\('designer'\) && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
   assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
 })
 
@@ -377,8 +389,8 @@ test('form switch flushes field autosave and clears stale field state before sel
   assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const sessionId = \+\+formSelectionSession/)
   assert.match(formDesignerSource, /const flushSucceeded = await flushDesignNotesSave\(buildDesignNotesSaveSnapshot\(\{ form: currentForm \}\)\)/)
   assert.match(formDesignerSource, /if \(sessionId !== formSelectionSession\) return/)
-  assert.match(formDesignerSource, /const flushFieldPropSucceeded = await flushFieldPropSaveBeforeReset\(\{ preserveEditor: true \}\)/)
-  assert.match(formDesignerSource, /if \(!flushFieldPropSucceeded\) \{[\s\S]*formsTableRef\.value\?\.setCurrentRow\(currentForm\)[\s\S]*return/)
+  assert.match(formDesignerSource, /const canLeaveFieldProp = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换表单' \}\)/)
+  assert.match(formDesignerSource, /if \(!canLeaveFieldProp\) \{[\s\S]*formsTableRef\.value\?\.setCurrentRow\(currentForm\)[\s\S]*return/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*resetFieldPropAutoSaveState\(\)[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*selectedForm\.value = nextForm \|\| null/)
 })
 

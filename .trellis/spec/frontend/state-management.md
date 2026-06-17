@@ -333,6 +333,82 @@ refreshKey.value++
 - Source-level assertion: after `updateCl` resolves, `refreshKey.value`
   has incremented by at least 1.
 
+---
+
+## Scenario: Form Designer Leave Guards for Drafts and Field Autosave
+
+### 1. Scope / Trigger
+
+- Trigger: user leaves the active form-design editing context by one of three
+  paths:
+  1. closing the fullscreen designer dialog
+  2. switching to another form inside `FormDesignerTab`
+  3. switching to another project while the designer tab has already been activated
+- The designer maintains **two independent unsaved-state channels**:
+  - local new-field draft state (`__draft__` row, not persisted yet)
+  - field-property autosave queue (`pendingFieldPropSnapshots`)
+- Leaving must guard **both** channels; handling only one causes silent data loss
+  or close-loop bugs.
+
+### 2. Signatures
+
+```javascript
+// App.vue
+if (isTabActivated('designer') && formDesignerTabRef.value?.canLeaveProject) {
+  const canLeave = await formDesignerTabRef.value.canLeaveProject()
+  if (!canLeave) return
+}
+
+// FormDesignerTab.vue
+async function canLeaveProject() => Promise<boolean>
+async function resolveFieldPropLeave({ resetOptions, actionText } = {}) => Promise<boolean>
+async function handleDesignerBeforeClose(done) => Promise<void>
+async function confirmDiscardDraft() => Promise<boolean>
+```
+
+### 3. Contracts
+
+| Field / Function | Type | Constraint |
+|---|---|---|
+| `hasDraft` | `ComputedRef<boolean>` | True when a local `__draft__` field exists; leaving must guard this before clearing form/project state. |
+| `confirmDiscardDraft()` | `() => Promise<boolean>` | Three-way guard: save, discard, or abort. Used before switching form, selecting another field, creating another draft, and project leave once the designer tab is activated. |
+| `pendingFieldPropSnapshots` | in-memory queue | Leaving must flush or explicitly discard it; never silently keep queue state while closing the dialog. |
+| `resolveFieldPropLeave()` | `({ resetOptions, actionText }) => Promise<boolean>` | Unified guard for field-property autosave on dialog close / form switch / project switch. |
+| `missing_codelist` | classified error code | Treated as `discardable`; UI must offer “继续修改 / 放弃并<actionText>”. |
+| non-discardable autosave errors | classified error | Must block leave and show a reason; do not silently re-open the dialog after close. |
+| `handleDesignerBeforeClose` | Element Plus `before-close` hook | Must guard before actual close; avoid close-then-reopen rollback via `watch(showDesigner)`. |
+| `App.vue:selectProject` | project switch entry | Must use `isTabActivated('designer')`, not only `activeTab === 'designer'`, because lazy tabs stay mounted after first activation. |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Draft exists, user switches form | `confirmDiscardDraft()` runs before selection changes. |
+| Draft exists, user switches project after designer tab has been activated once | `App.vue` still calls `canLeaveProject()` via `isTabActivated('designer')`; draft cannot be silently dropped. |
+| Field autosave fails with `missing_codelist` | Leave path shows discard confirmation; user may discard local property edits and continue leaving. |
+| Field autosave fails with 5xx / network / 429 / 408 | Leave is blocked; UI shows explicit error message. |
+| Dialog close path uses `watch(showDesigner)` rollback | **Bug.** Causes close-flash-reopen UX and hides the true failure reason. |
+| Discarding field-property edits triggers extra reload during leave | Avoid when possible; introduces a new failure point while the user is trying to leave. |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: user changes a field to `单选` without selecting a dictionary → clicks close → designer shows discard confirmation → choosing discard closes the dialog without flash-reopen.
+- **Base**: autosave succeeds → dialog closes / form switches / project switches with no extra prompts.
+- **Bad**: project switch only checks `activeTab === 'designer'` → user activated designer earlier, moved to another tab, then switched project → mounted designer component loses local draft silently.
+- **Bad**: close path first sets `showDesigner = false`, then watcher reopens it on failure → user sees “点 X 又弹回来” with no actionable exit.
+
+### 6. Tests Required
+
+- `frontend/tests/quickEditBehavior.test.js`
+  - assert `resolveFieldPropLeave`, `handleDesignerBeforeClose`, discardable `missing_codelist`, and no close-reopen watcher rollback.
+- `frontend/tests/designerNewFieldDraft.test.js`
+  - assert project switching uses `isTabActivated('designer') && formDesignerTabRef.value?.canLeaveProject`.
+- Assertion points:
+  - `missing_codelist` → `discardable: true`
+  - `selectForm()` uses `resolveFieldPropLeave({ actionText: '切换表单' })`
+  - `canLeaveProject()` uses `resolveFieldPropLeave({ actionText: '切换项目' })`
+  - main dialog uses `:before-close="handleDesignerBeforeClose"`
+
 ### 7. Wrong vs Correct
 
 #### Wrong

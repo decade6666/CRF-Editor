@@ -192,7 +192,7 @@ function handleRefresh() {
 
 async function selectProject(p) {
   if (selectedProject.value?.id === p.id) return;
-  if (activeTab.value === 'designer' && formDesignerTabRef.value?.canLeaveProject) {
+  if (isTabActivated('designer') && formDesignerTabRef.value?.canLeaveProject) {
     const canLeave = await formDesignerTabRef.value.canLeaveProject();
     if (!canLeave) return;
   }

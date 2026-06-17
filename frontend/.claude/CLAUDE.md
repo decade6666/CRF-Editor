@@ -57,7 +57,8 @@
 - 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
 - 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
 - `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
-- 新增字段为本地草稿态：点「新建字段」（`newField`）只构造临时草稿对象（`id='__draft__'`、`__draft:true`、带完整本地 `field_definition`）插入 `formFields` 并选中，不发请求；顶栏出现「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿、刷新并作为一次「新建字段」入撤销栈。草稿态下属性自动保存链路在 watcher 入口短路为 `applyEditorToDraft` 本地写回；`removeField` 对草稿仅移除本地、不调 DELETE；同一时刻仅允许一个草稿，切换表单/选其它字段/再次新建前经 `confirmDiscardDraft`（保存/丢弃/取消）；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库不变。
+- 新增字段为本地草稿态：点「新建字段」（`newField`）只构造临时草稿对象（`id='__draft__'`、`__draft:true`、带完整本地 `field_definition`）插入 `formFields` 并选中，不发请求；顶栏出现「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿、刷新并作为一次「新建字段」入撤销栈。草稿态下属性自动保存链路在 watcher 入口短路为 `applyEditorToDraft` 本地写回；`removeField` 对草稿仅移除本地、不调 DELETE；同一时刻仅允许一个草稿，切换表单/选其它字段/再次新建前经 `confirmDiscardDraft`（保存/丢弃/取消）；**切换项目时只要设计器 tab 已激活，也必须先走 `canLeaveProject` 守卫，避免懒加载组件仍挂载时草稿被静默清空**；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库不变。
+- 字段属性自动保存的离开策略统一走 `resolveFieldPropLeave`：关闭设计窗口（`before-close`）、切换表单、切换项目都先尝试 flush；`missing_codelist`（单选/多选未选字典）这类不可自动保存但可放弃的错误，使用 `confirmDiscardFieldPropChanges` 给出“继续修改 / 放弃并离开”出口；网络/服务端错误则阻断离开并提示原因。放弃未保存字段属性只清理本地 autosave 队列与编辑器状态，不额外 reload，避免在离开过程中引入新的网络失败面。
 - 设计器撤销/恢复为纯内存双栈（`useDesignerHistory.js`，上限 20，刷新即清空，不做后端持久化）。覆盖属性编辑、排序、新增（含 log 行）、新建字段、删除、批量删除六类操作；删除/批量删除的逆操作用删除前快照按原 `order_index` 重建并 `remapId` 回写新 id；新建字段撤销时对称删除自动创建的字段定义（被其他表单引用返回 409 则降级保留并提示）。切换表单清空历史；`toggleInline` 等其他快编路径暂不入栈。
 - 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
 - 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
