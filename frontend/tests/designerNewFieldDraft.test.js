@@ -104,6 +104,11 @@ test('切换表单/选字段/新建草稿前都经过草稿确认', () => {
   assert.match(click, /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
 })
 
+test('切换项目时设计器已激活就必须经过 canLeaveProject 守卫', () => {
+  const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
+  assert.match(appSource, /if \(isTabActivated\('designer'\) && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
+})
+
 test('草稿存在时禁止排序', () => {
   assert.match(fnBody('onDrop'), /if \(hasDraft\.value\) return ElMessage\.warning/)
 })

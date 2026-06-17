@@ -200,7 +200,7 @@ test('FormDesignerTab designer dialog uses center-bottom preview and right-side 
   assert.match(formsSource, /ff\._displayOrder/);
   assert.match(
     formsSource,
-    /<el-dialog v-model="showDesigner" :title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)" fullscreen class="designer-dialog">/,
+    /<el-dialog[\s\S]*v-model="showDesigner"[\s\S]*:before-close="handleDesignerBeforeClose"[\s\S]*:close-on-click-modal="false"[\s\S]*:title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)"[\s\S]*fullscreen[\s\S]*class="designer-dialog"[\s\S]*>/,
   );
   assert.match(formsSource, /class="designer-shell"/);
   assert.match(formsSource, /class="designer-workspace"/);

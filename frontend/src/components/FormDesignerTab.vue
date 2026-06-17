@@ -1079,9 +1079,9 @@ async function selectForm(nextForm) {
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
   }
-  const flushFieldPropSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true });
+  const canLeaveFieldProp = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换表单' });
   if (sessionId !== formSelectionSession) return;
-  if (!flushFieldPropSucceeded) {
+  if (!canLeaveFieldProp) {
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
   }
@@ -1211,6 +1211,7 @@ let isHydratingFieldProp = false;
 let isSavingFieldProp = false;
 let fieldPropAutoSaveErrorShown = false;
 let fieldPropSaveSession = 0;
+let lastFieldPropSaveError = null;
 const fieldPropProjectId = ref(props.projectId);
 let lastHydratedFieldPropDraftKey = '';
 const designerFieldTypes = [
@@ -1326,13 +1327,59 @@ function hasPendingFieldPropSnapshot(fieldId, snapshotKey = '') {
   );
 }
 
-function shouldRetryFieldPropSave(error) {
-  const message = String(error?.message || '');
-  if (!message) return true;
-  if (message === '自动保存上下文已变更' || message === '单选/多选字段必须选择选项字典') return false;
+function classifyFieldPropSaveError(error) {
+  const message = String(error?.message || '').trim() || '字段属性保存失败';
   const status = Number(error?.status || error?.response?.status);
-  if (!Number.isFinite(status) || status <= 0) return true;
-  return status >= 500 || status === 429 || status === 408;
+  let code = 'unknown';
+  if (message === '自动保存上下文已变更') {
+    code = 'context_changed';
+  } else if (message === '单选/多选字段必须选择选项字典') {
+    code = 'missing_codelist';
+  } else if (Number.isFinite(status) && status > 0) {
+    code = `http_${status}`;
+  }
+  const retryable =
+    code !== 'context_changed' && code !== 'missing_codelist' && (!Number.isFinite(status) || status >= 500 || status === 429 || status === 408);
+  return {
+    code,
+    message,
+    status: Number.isFinite(status) ? status : null,
+    retryable,
+    discardable: code === 'missing_codelist',
+  };
+}
+
+function buildFieldPropLeaveFailureResult(message, overrides = {}) {
+  return {
+    ok: false,
+    message,
+    retryable: false,
+    discardable: false,
+    code: 'unknown',
+    ...overrides,
+  };
+}
+
+function discardPendingFieldPropChanges(resetOptions = {}) {
+  resetFieldPropAutoSaveState(resetOptions);
+}
+
+async function confirmDiscardFieldPropChanges(failure, { resetOptions = {}, actionText = '关闭' } = {}) {
+  try {
+    await ElMessageBox.confirm(`${failure.message}\n是否放弃当前未保存的字段属性修改并继续${actionText}？`, '字段属性未保存', {
+      confirmButtonText: '继续修改',
+      cancelButtonText: `放弃并${actionText}`,
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    });
+    return false;
+  } catch (e) {
+    if (e === 'cancel') {
+      discardPendingFieldPropChanges(resetOptions);
+      return true;
+    }
+    return false;
+  }
 }
 
 function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
@@ -1343,6 +1390,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   pendingFieldPropSnapshotVersion.value += 1;
   isSavingFieldProp = false;
   fieldPropAutoSaveErrorShown = false;
+  lastFieldPropSaveError = null;
   if (!preserveEditor) {
     selectedFieldId.value = null;
     Object.assign(editProp, {
@@ -1369,8 +1417,13 @@ async function flushFieldPropSaveBeforeReset(resetOptions = {}) {
   const sessionId = fieldPropSaveSession;
   clearTimeout(fieldPropSaveTimer);
   fieldPropSaveTimer = null;
+  lastFieldPropSaveError = null;
   const flushResult = await flushPendingFieldPropSave(sessionId);
-  if (flushResult === false) return false;
+  if (flushResult === false) {
+    return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存失败，请稍后重试', {
+      ...lastFieldPropSaveError,
+    });
+  }
   if (isSavingFieldProp) {
     const settled = await new Promise((resolve) => {
       const check = () => {
@@ -1386,11 +1439,29 @@ async function flushFieldPropSaveBeforeReset(resetOptions = {}) {
       };
       check();
     });
-    if (!settled) return false;
+    if (!settled) {
+      return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存尚未完成，请稍后重试', {
+        ...lastFieldPropSaveError,
+      });
+    }
   }
-  if (pendingFieldPropSnapshots.length) return false;
+  if (pendingFieldPropSnapshots.length) {
+    return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存失败，请先处理后再离开', {
+      ...lastFieldPropSaveError,
+    });
+  }
   resetFieldPropAutoSaveState(resetOptions);
-  return true;
+  return { ok: true };
+}
+
+async function resolveFieldPropLeave({ resetOptions = {}, actionText = '关闭' } = {}) {
+  const result = await flushFieldPropSaveBeforeReset(resetOptions);
+  if (result.ok) return true;
+  if (result.discardable) {
+    return confirmDiscardFieldPropChanges(result, { resetOptions, actionText });
+  }
+  ElMessage.error(`字段属性未保存：${result.message}`);
+  return false;
 }
 
 const currentFieldPropDraftKey = computed(() => getFieldPropSnapshotKey());
@@ -1413,14 +1484,15 @@ async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
     saveSucceeded = true;
   } catch (e) {
     flushFailed = true;
-    const isExpiredContext = e?.message === '自动保存上下文已变更';
-    const isRetryableError = !isExpiredContext && shouldRetryFieldPropSave(e);
+    const failure = classifyFieldPropSaveError(e);
+    lastFieldPropSaveError = failure;
+    const isExpiredContext = failure.code === 'context_changed';
     if (!hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)) upsertPendingFieldPropSnapshot(snapshot);
     if (!fieldPropAutoSaveErrorShown && !isExpiredContext) {
-      ElMessage.error(e.message);
+      ElMessage.error(failure.message);
       fieldPropAutoSaveErrorShown = true;
     }
-    if (isRetryableError) {
+    if (classifyFieldPropSaveError(e).retryable) {
       clearTimeout(fieldPropSaveTimer);
       fieldPropSaveTimer = setTimeout(() => {
         void flushPendingFieldPropSave(sessionId);
@@ -2080,15 +2152,6 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('keydown', handleHistoryKeydown);
 });
 watch(
-  () => showDesigner.value,
-  async (visible, previousVisible) => {
-    if (!visible && previousVisible) {
-      const resetSucceeded = await flushFieldPropSaveBeforeReset();
-      if (!resetSucceeded) showDesigner.value = true;
-    }
-  },
-);
-watch(
   () => props.projectId,
   async (newProjectId, previousProjectId) => {
     if (newProjectId === previousProjectId) return;
@@ -2096,8 +2159,8 @@ watch(
     const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId });
     const flushSucceeded = await flushDesignNotesSave(flushSnapshot);
     if (!flushSucceeded && selectedForm.value?.id) return;
-    const resetSucceeded = await flushFieldPropSaveBeforeReset({ preserveEditor: true });
-    if (!resetSucceeded) {
+    const canLeave = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换项目' });
+    if (!canLeave) {
       fieldPropProjectId.value = previousProjectId;
       return;
     }
@@ -2113,9 +2176,18 @@ watch(
 );
 
 async function canLeaveProject() {
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!proceed) return false;
+  }
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot());
   if (!flushSucceeded && selectedForm.value?.id) return false;
-  return flushFieldPropSaveBeforeReset({ preserveEditor: true });
+  return resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换项目' });
+}
+
+async function handleDesignerBeforeClose(done) {
+  const canClose = await resolveFieldPropLeave({ actionText: '关闭设计窗口' });
+  if (canClose) done();
 }
 
 async function openDesigner() {
@@ -2134,14 +2206,16 @@ async function openDesigner() {
   }
 }
 
-defineExpose({ canLeaveProject, getForms: () => forms.value,
+defineExpose({
+  canLeaveProject,
+  getForms: () => forms.value,
   async selectFormById(formId) {
-    if (formId == null) return
-    await loadForms()
-    const target = forms.value.find(f => f.id === formId)
-    if (!target) return
-    formsTableRef.value?.setCurrentRow(target)
-    await selectForm(target)
+    if (formId == null) return;
+    await loadForms();
+    const target = forms.value.find((f) => f.id === formId);
+    if (!target) return;
+    formsTableRef.value?.setCurrentRow(target);
+    await selectForm(target);
   },
 });
 
@@ -2523,7 +2597,14 @@ function openAddForm() {
       </div>
     </div>
 
-    <el-dialog v-model="showDesigner" :title="'设计：' + (selectedForm?.name || '')" fullscreen class="designer-dialog">
+    <el-dialog
+      v-model="showDesigner"
+      :before-close="handleDesignerBeforeClose"
+      :close-on-click-modal="false"
+      :title="'设计：' + (selectedForm?.name || '')"
+      fullscreen
+      class="designer-dialog"
+    >
       <div class="designer-shell">
         <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
