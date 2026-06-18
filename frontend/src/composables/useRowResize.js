@@ -174,5 +174,6 @@ export function useRowResize(formIdRef, tableKindRef) {
     rowHeights,
     getRowHeightStyle: (rowKey) => getRowHeightStyle(rowHeights.value, rowKey),
     onResizeStart,
+    rehydrate,
   })
 }

@@ -418,6 +418,24 @@ test('9.11 useColumnResize_formId_change_rehydrates: 切换 formId 触发 rehydr
   delete globalThis.localStorage
 })
 
+test('9.12 useColumnResize_rehydrate_reads_latest_storage: 手动 rehydrate 会读取最新列宽缓存', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  const key = 'crf:designer:col-widths:42:normal:fieldIds=1,2'
+  ls.setItem(key, JSON.stringify([0.7, 0.3]))
+
+  const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+  const { ref } = await import('vue')
+  const r = useColumnResize(ref(42), ref('normal:fieldIds=1,2'), () => [0.4, 0.6])
+  assert.deepEqual(r.colRatios, [0.7, 0.3])
+
+  ls.setItem(key, JSON.stringify([0.25, 0.75]))
+  r.rehydrate()
+  assert.deepEqual(r.colRatios, [0.25, 0.75])
+
+  delete globalThis.localStorage
+})
+
 // ─── Phase 12：跨栈 fixture 一致性 ─────────────────────────────────────
 
 function stubFromDict(data) {

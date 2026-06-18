@@ -214,5 +214,11 @@ export function useColumnResize(formIdRef, tableKindRef, defaultsSource) {
     colRatios.value = resolveDefaults()
   }
 
-  return reactive({ colRatios, onResizeStart, snapGuideX, resetToEven })
+  return reactive({
+    colRatios,
+    onResizeStart,
+    snapGuideX,
+    resetToEven,
+    rehydrate,
+  })
 }

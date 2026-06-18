@@ -96,6 +96,25 @@ test('useRowResize persists updated row heights on pointer release', async () =>
   delete globalThis.window
 })
 
+test('useRowResize rehydrate reads latest persisted row heights', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  const key = 'crf:designer:row-heights:42:normal:fieldIds=1,2'
+  ls.setItem(key, JSON.stringify({ 'field:1': 44 }))
+
+  const { useRowResize } = await import('../src/composables/useRowResize.js')
+  const { ref } = await import('vue')
+
+  const state = useRowResize(ref(42), ref('normal:fieldIds=1,2'))
+  assert.equal(state.rowHeights['field:1'], 44)
+
+  ls.setItem(key, JSON.stringify({ 'field:1': 88 }))
+  state.rehydrate()
+  assert.equal(state.rowHeights['field:1'], 88)
+
+  delete globalThis.localStorage
+})
+
 test('row height helper exports stable row keys for inline and unified rows', async () => {
   const helpers = await import('../src/composables/useRowResize.js')
 
