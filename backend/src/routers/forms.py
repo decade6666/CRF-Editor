@@ -277,7 +277,7 @@ def copy_form(form_id: int, session: Session = Depends(get_session), current_use
 
     from src.utils import generate_code
 
-    new_form = Form(project_id=src.project_id, name=candidate, code=generate_code("FORM"), domain=src.domain, design_notes=src.design_notes)
+    new_form = Form(project_id=src.project_id, name=candidate, code=generate_code("FORM"), domain=src.domain, design_notes=src.design_notes, paper_orientation=src.paper_orientation)
 
     # 追加到末尾
 

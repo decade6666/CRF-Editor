@@ -20,6 +20,12 @@ const WEIGHT_CHINESE = 2  // 中文字符权重
 const WEIGHT_ASCII = 1    // 英文/数字/标点权重
 const FILL_LINE_WEIGHT = 6  // 填写线默认权重
 
+// inline 表头权重下限：4 个中文字符等效宽度。
+// 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
+// 被压缩到不可单行显示的窄宽。
+// 必须与后端 backend/src/services/width_planning.py 中的同名常量保持一致。
+const INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4
+
 /**
  * 计算单个字符的宽度权重
  * @param {string} char - 单个字符
@@ -69,8 +75,8 @@ export function computeTextWeight(text) {
  * @returns {number} 权重
  */
 export function computeChoiceAtomWeight(label, hasTrailing) {
-  // 符号（○或□）+ 空格
-  let weight = 2 * WEIGHT_ASCII
+  // 符号（○或□）；marker-label 内部无空格
+  let weight = WEIGHT_ASCII
   // 标签文本
   weight += computeTextWeight(label)
   // 尾部填写线
@@ -102,7 +108,11 @@ export function buildInlineColumnDemands(fields) {
 
     return {
       label,
-      weight: Math.max(computeTextWeight(label), computeFieldControlWeight(ff)),
+      weight: Math.max(
+        computeTextWeight(label),
+        computeFieldControlWeight(ff),
+        INLINE_HEADER_FLOOR,
+      ),
     }
   })
 }
@@ -324,7 +334,7 @@ function escapeHtml(text) {
 
 function buildFillLineHtml(length = 20) {
   const safeLength = Math.max(4, Number(length) || 20)
-  const minWidth = (safeLength * 0.55).toFixed(1)
+  const minWidth = (safeLength * 0.5).toFixed(1)
   return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
 }
 
@@ -388,19 +398,23 @@ function renderChoiceHtml(fieldType, rawOptions) {
   const symbol = getChoiceSymbol(fieldType)
   const vertical = isVerticalChoice(fieldType)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
-  const separator = vertical ? '<br>' : '&nbsp;&nbsp;'
+  // 纵向：每个选项作为块级 choice-atom 独占一行，由 .choice-group--vertical 的
+  // margin-top 提供选项间距（与 Word 导出的段前间距同值，见 main.css / export_service）。
+  // 横向：分隔符用普通空格（可断），配合 .choice-group 的 word-spacing 留白，
+  // 使横向多选项在窄单元格内能在选项之间折行，避免挤出框线（marker-label 内部仍不断行）。
+  const groupClass = vertical ? 'choice-group choice-group--vertical' : 'choice-group'
+  const separator = vertical ? '' : ' '
 
-  return options.map(option => {
+  return `<span class="${groupClass}">${options.map(option => {
     const labelHtml = escapeHtml(option.text)
-    // 选项文本：保证最小宽度且不换行
-    const optionTextHtml = `<span style="display:inline-block;min-width:${maxLabelLength}ch;white-space:nowrap">${labelHtml}</span>`
-    // 下划线后缀：对齐到底部
+    const optionTextHtml = option.trailingUnderscore
+      ? `<span class="choice-label">${labelHtml}</span>`
+      : `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
     const suffixHtml = option.trailingUnderscore
-      ? buildFillLineHtml(12)
+      ? buildFillLineHtml(6)
       : ''
-    // 整个选项不拆行，对齐到底部
-    return `<span style="display:inline-flex;align-items:flex-end;gap:0.2em;white-space:nowrap"><span>${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
-  }).join(separator)
+    return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+  }).join(separator)}</span>`
 }
 
 export function toHtml(text) {
@@ -408,7 +422,7 @@ export function toHtml(text) {
   // 转义 HTML 特殊字符（防止 XSS），保留换行
   const escaped = escapeHtml(text)
   // 将连续 4 个或以上的下划线替换为 border-bottom span
-  // 每个 _ 约 0.6em 宽度
+  // 每个 _ 约 0.5em 宽度
   const html = escaped.replace(/_{4,}/g, (match) => buildFillLineHtml(match.length))
   // 将紧跟在 fill-line span 之后的单位/文字包裹为 vertical-align:bottom 的 span
   // 使单位与填写线底边对齐，避免 inline-block 撑高行框导致单位偏上
@@ -455,16 +469,19 @@ export function renderCtrlHtml(field) {
 export function renderCtrl(field) {
   if (!field) return '________________'
   const opts = normalizeChoiceOptions(field.options).map(option => (
-    option.trailingUnderscore ? `${option.text}____________________` : option.text
+    option.trailingUnderscore ? `${option.text}______` : option.text
   ))
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 
-  function boxes(n) { return n > 0 ? '|' + '__|'.repeat(n) : '' }
+  function boxes(n, repeated = false) {
+    if (n <= 0) return ''
+    return repeated ? '|__|'.repeat(n) : '|' + '__|'.repeat(n)
+  }
 
   if (field.field_type === '数值') {
     const ints = field.integer_digits || 10
     const decs = field.decimal_digits ?? 2
-    return boxes(ints) + (decs > 0 ? '.' + boxes(decs) : '') + unit
+    return boxes(ints, true) + (decs > 0 ? '.' + boxes(decs, true) : '') + unit
   }
 
   function renderDateFmt(fmt) {
@@ -502,16 +519,16 @@ export function renderCtrl(field) {
 
     const dateResult = hasDateChars ? renderPart(datePart, true) + '日' : renderPart(datePart, false)
     const timeResult = renderPart(timePart, false)
-    return (dateResult && timeResult) ? dateResult + ' ' + timeResult : dateResult || timeResult
+    return (dateResult && timeResult) ? dateResult + '  ' + timeResult : dateResult || timeResult
   }
 
   if (field.field_type === '日期') return renderDateFmt(field.date_format || 'yyyy-MM-dd')
   if (field.field_type === '日期时间') return renderDateFmt(field.date_format || 'yyyy-MM-dd HH:mm')
   if (field.field_type === '时间') return renderDateFmt(field.date_format || 'HH:mm')
-  if (field.field_type === '单选') return (opts.length ? opts.map(o => '○ ' + o) : ['○ 是', '○ 否']).join('  ')
-  if (field.field_type === '多选') return (opts.length ? opts.map(o => '□ ' + o) : ['□ 选项1', '□ 选项2']).join('  ')
-  if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○ ' + o) : ['○ 是', '○ 否']).join('\n')
-  if (field.field_type === '多选（纵向）') return (opts.length ? opts.map(o => '□ ' + o) : ['□ 选项1', '□ 选项2']).join('\n')
+  if (field.field_type === '单选') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('  ')
+  if (field.field_type === '多选') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('  ')
+  if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('\n')
+  if (field.field_type === '多选（纵向）') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('\n')
   if (field.field_type === '标签') return ''
   return '________________' + unit
 }

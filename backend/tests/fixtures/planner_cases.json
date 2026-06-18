@@ -28,7 +28,7 @@
     {
       "name": "normal_long_cjk_label",
       "kind": "normal",
-      "description": "10 字中文 label + 短文本控件 → label 列主导",
+      "description": "10 字中文 label → label 与 control 同步上行，平分",
       "fields": [
         {
           "label_override": null,
@@ -191,6 +191,39 @@
       ],
       "expected_fractions": [
         1
+      ]
+    },
+    {
+      "name": "inline_short_header_floor",
+      "kind": "inline",
+      "description": "≤4 字短表头（\"未查\"）与长邻居共存时，INLINE_HEADER_FLOOR 保护其单行可见水位",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "未查",
+            "options": null
+          }
+        },
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "文本",
+            "label": "异常有临床意义请详细说明本次检查的具体表现与判读依据",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.13333333333333333,
+        0.8666666666666667
       ]
     },
     {

@@ -268,6 +268,16 @@ def test_open_template_session_rejects_template_path_outside_allowlist(tmp_path:
 
 
 
+def test_resolve_existing_template_path_does_not_create_missing_file(tmp_path: Path) -> None:
+    missing_template = tmp_path / "missing.db"
+
+    with pytest.raises(FileNotFoundError, match="模板文件不存在"):
+        ImportService._resolve_existing_template_path(str(missing_template))
+
+    assert missing_template.exists() is False
+
+
+
 def test_open_template_session_allows_template_path_inside_upload_dir(tmp_path: Path, session: Session) -> None:
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -281,6 +291,147 @@ def test_open_template_session_allows_template_path_inside_upload_dir(tmp_path: 
         fields = ImportService(session).get_template_form_fields(str(template_path), form_id)
 
     assert len(fields) == 1
+
+
+def _drop_form_paper_orientation_column(db_path: Path) -> None:
+    """将模板库 form 表回退到不含 paper_orientation 的旧结构。"""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute('ALTER TABLE "form" RENAME TO "form__legacy_with_orientation"')
+        conn.execute(
+            'CREATE TABLE "form" ('
+            'id INTEGER NOT NULL PRIMARY KEY, '
+            'project_id INTEGER NOT NULL, '
+            'name VARCHAR(255) NOT NULL, '
+            'code VARCHAR(100), '
+            'domain VARCHAR(255), '
+            'order_index INTEGER, '
+            'design_notes TEXT, '
+            'FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE'
+            ')'
+        )
+        conn.execute(
+            'INSERT INTO "form" (id, project_id, name, code, domain, order_index, design_notes) '
+            'SELECT id, project_id, name, code, domain, order_index, design_notes '
+            'FROM "form__legacy_with_orientation"'
+        )
+        conn.execute('DROP TABLE "form__legacy_with_orientation"')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+
+def _build_template_db_with_orientation(
+    tmp_path: Path,
+    *,
+    paper_orientation: str,
+    legacy_without_paper_orientation: bool = False,
+) -> tuple[Path, int, int]:
+    """构造模板库，可选回退为缺少 paper_orientation 列的旧版结构。"""
+    db_path = tmp_path / f"template_{paper_orientation}.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with session_factory() as template_session:
+        project = create_project(template_session, name="模板项目")
+        form = Form(
+            project_id=project.id,
+            name="带方向表单",
+            code="ORIENT_FORM",
+            paper_orientation=paper_orientation,
+        )
+        template_session.add(form)
+        template_session.flush()
+
+        field_definition = create_field_definition(
+            template_session,
+            project.id,
+            variable_name="ORIENT_FIELD",
+            label="方向字段",
+        )
+        create_form_field(
+            template_session,
+            form.id,
+            field_definition.id,
+            inline_mark=0,
+        )
+        template_session.commit()
+        result = (db_path, project.id, form.id)
+
+    engine.dispose()
+    if legacy_without_paper_orientation:
+        _drop_form_paper_orientation_column(db_path)
+    return result
+
+
+def test_import_forms_preserves_landscape_paper_orientation(tmp_path: Path, session: Session) -> None:
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path, paper_orientation="landscape"
+    )
+    target_project = create_project(session, name="目标项目-横向")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "landscape"
+
+
+def test_import_forms_preserves_portrait_paper_orientation(tmp_path: Path, session: Session) -> None:
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path, paper_orientation="portrait"
+    )
+    target_project = create_project(session, name="目标项目-纵向")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "portrait"
+
+
+def test_import_forms_defaults_to_auto_when_source_missing(tmp_path: Path, session: Session) -> None:
+    """旧模板缺少 paper_orientation 列时，导入结果应回退为 'auto' 且不修改源库。"""
+    template_path, src_project_id, src_form_id = _build_template_db_with_orientation(
+        tmp_path,
+        paper_orientation="portrait",
+        legacy_without_paper_orientation=True,
+    )
+    target_project = create_project(session, name="目标项目-默认")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    conn = sqlite3.connect(str(template_path))
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+    finally:
+        conn.close()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.paper_orientation == "auto"
+    assert "paper_orientation" not in cols
 
 
 def test_update_inline_mark_preserves_default_value_when_disabling(session: Session) -> None:
@@ -579,7 +730,7 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
 
     rendered = ExportService(session)._render_field_control(field_definition)
 
-    assert rendered == "□ 恶心\n□ 呕吐"
+    assert rendered == "□恶心\n□呕吐"
 
 
 

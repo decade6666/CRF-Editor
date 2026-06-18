@@ -9,6 +9,7 @@ from src.services.width_planning import (
     compute_text_weight,
     compute_choice_atom_weight,
     FILL_LINE_WEIGHT,
+    INLINE_HEADER_FLOOR,
 )
 
 CONTROL_PLACEHOLDER_WEIGHTS = {
@@ -162,9 +163,13 @@ def build_inline_column_demands(
             demands.append(("", FILL_LINE_WEIGHT))
             continue
 
-        # 标签权重
+        # 标签权重：取标签文本权重、控件权重、表头下限三者的最大值
         label = form_field.label_override or field_def.label or ""
-        weight = max(compute_text_weight(label), build_field_control_weight(form_field))
+        weight = max(
+            compute_text_weight(label),
+            build_field_control_weight(form_field),
+            INLINE_HEADER_FLOOR,
+        )
 
         demands.append((label, weight))
 

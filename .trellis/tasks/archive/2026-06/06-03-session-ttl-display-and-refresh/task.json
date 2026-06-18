@@ -1,0 +1,53 @@
+{
+  "id": "session-ttl-display-and-refresh",
+  "name": "session-ttl-display-and-refresh",
+  "title": "feat: 会话剩余时间显示 + 续期提示（可点击图标刷新）",
+  "description": "在前端展示当前会话剩余有效时间，并提供续期提示；点击图标可主动触发一次后端请求以获取最新刷新 token，从而手动延长会话。需与 770bd2c 引入的 X-Refreshed-Token 滑动续期机制对齐。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-03",
+  "completedAt": "2026-06-10",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 4,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

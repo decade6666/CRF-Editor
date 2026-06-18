@@ -5,11 +5,40 @@ import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrderableList } from '../composables/useOrderableList'
-import { isDefaultValueSupported, normalizeDefaultValue, renderCtrl, renderCtrlHtml, toHtml } from '../composables/useCRFRenderer'
+import {
+  buildFormDesignerRenderGroups,
+  buildFormDesignerUnifiedSegments,
+  getFormFieldDisplayLabel,
+  getFormFieldPreviewStyle,
+  getFormFieldStructurePreviewStyle,
+} from '../composables/formFieldPresentation'
+import {
+  buildTableInstanceId,
+  useRowResize,
+  getNormalRowKey,
+  getInlineHeaderRowKey,
+  getInlineDataRowKey,
+  getUnifiedRegularRowKey,
+  getUnifiedFullRowKey,
+  getUnifiedInlineHeaderRowKey,
+  getUnifiedInlineDataRowKey,
+} from '../composables/useRowResize'
+import {
+  isDefaultValueSupported,
+  normalizeDefaultValue,
+  planInlineColumnFractions,
+  planNormalColumnFractions,
+  planUnifiedColumnFractions,
+  renderCtrl,
+  renderCtrlHtml,
+  toHtml,
+} from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
+import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
+const editMode = inject('editMode', ref(false))
 
 const visits = ref([])
 const searchVisit = ref('')
@@ -32,9 +61,12 @@ const showFormPreview = ref(false)
 const formPreviewTitle = ref('')
 const formPreviewDesignNotes = ref('')
 const formPreviewFields = ref([])
+const formPreviewPaperOrientation = ref('auto')
+const formPreviewFormId = ref(null)
 const formPreviewLoading = ref(false)
 const formPreviewError = ref('')
 let formPreviewRequestSeq = 0
+const previewRowResizerCache = new Map()
 
 // 计算属性：设计备注预览内容
 const hasPreviewNotes = computed(() => Boolean(formPreviewDesignNotes.value.trim()))
@@ -227,45 +259,140 @@ function getInlineRows(fields) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition))),
       }
     }
-    const ctrl = renderCtrl(toRendererField(ff.field_definition)).replace(/_{8,}/, '______')
-    return { lines: [toHtml(ctrl)], repeat: true }
+    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition)))
+    return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) =>
-    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? ''))
+    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))
   )
 }
 
-const previewRenderGroups = computed(() => {
-  const fields = formPreviewFields.value
-  if (!fields.length) return []
-  const groups = []; let i = 0
-  while (i < fields.length) {
-    const ff = fields[i]
-    if (ff.inline_mark) {
-      const g = []
-      while (i < fields.length && fields[i].inline_mark) { g.push(fields[i]); i++ }
-      groups.push({ type: 'inline', fields: g })
-    } else {
-      const g = []
-      while (i < fields.length && !fields[i].inline_mark) { g.push(fields[i]); i++ }
-      groups.push({ type: 'normal', fields: g })
-    }
+function readPersistedColRatios(kind, fields) {
+  const formId = formPreviewFormId.value
+  if (!formId || !fields.length) return null
+  const fieldIds = fields.map(f => f.id).filter(id => id != null).join(',')
+  if (!fieldIds) return null
+  const key = `crf:designer:col-widths:${formId}:${kind}:fieldIds=${fieldIds}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    if (!parsed.every(r => Number.isFinite(r) && r > 0 && r < 1)) return null
+    const sum = parsed.reduce((a, b) => a + b, 0)
+    if (Math.abs(sum - 1) > 0.02) return null
+    return parsed
+  } catch {
+    return null
   }
-  return groups
-})
+}
+
+// inline 表：优先读设计器持久化的列宽；缺失则用 planInlineColumnFractions 出与导出一致的内容驱动默认；
+// planner 异常时回退到等宽。返回值始终是一个长度等于 fields.length 的数组，模板可以直接迭代。
+function resolveInlineColRatios(fields) {
+  if (!fields || !fields.length) return []
+  const persisted = readPersistedColRatios('inline', fields)
+  if (persisted && persisted.length === fields.length) return persisted
+  const planned = planInlineColumnFractions(fields)
+  if (planned.length === fields.length) return planned
+  return Array.from({ length: fields.length }, () => 1 / fields.length)
+}
+
+// normal 表：固定两列（label / control），同样优先持久化、缺失走 planNormalColumnFractions、兜底 50/50。
+function resolveNormalColRatios(fields) {
+  if (!fields || !fields.length) return [0.5, 0.5]
+  const persisted = readPersistedColRatios('normal', fields)
+  if (persisted && persisted.length === 2) return persisted
+  const planned = planNormalColumnFractions(fields)
+  if (planned.length === 2) return planned
+  return [0.5, 0.5]
+}
+
+function computeMergeSpans(N, M) {
+  if (M <= 0 || M > N) return Array(N).fill(1)
+  const base = Math.floor(N / M)
+  const extra = N % M
+  return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0))
+}
+
+function computeLabelValueSpans(N) {
+  const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)))
+  return { labelSpan, valueSpan: N - labelSpan }
+}
+
+function getPreviewColumnFractions(group) {
+  if (group.type === 'unified') {
+    const colCount = group.colCount
+    const shared = readPersistedColRatios('unified', group.fields)
+    if (shared && shared.length === colCount) return shared
+    const plannerFractions = planUnifiedColumnFractions(group.segments, colCount)
+    return plannerFractions.length === colCount
+      ? plannerFractions
+      : Array.from({ length: colCount }, () => 1 / colCount)
+  }
+  if (group.type === 'normal') {
+    return resolveNormalColRatios(group.fields)
+  }
+  const colCount = group.fields.length
+  const inlineRatios = resolveInlineColRatios(group.fields)
+  return inlineRatios.length === colCount
+    ? inlineRatios
+    : Array.from({ length: colCount }, () => 1 / colCount)
+}
+
+function getPreviewRowResizer(group) {
+  if (!formPreviewFormId.value || !group?.fields?.length) return null
+  const tableInstanceId = buildTableInstanceId(group.type, group.fields)
+  if (!previewRowResizerCache.has(tableInstanceId)) {
+    previewRowResizerCache.set(
+      tableInstanceId,
+      useRowResize(formPreviewFormId, computed(() => tableInstanceId)),
+    )
+  }
+  return previewRowResizerCache.get(tableInstanceId)
+}
+
+function getPreviewRowHeightStyle(group, rowKey) {
+  return getPreviewRowResizer(group)?.getRowHeightStyle(rowKey) || null
+}
+
+const previewRenderGroups = computed(() => buildFormDesignerRenderGroups(formPreviewFields.value))
+
+// 预览视图模型：把模板内按单元格反复调用的纯函数提前算好（segments / inlineRows /
+// mergeSpans / labelValueSpans），模板只读属性，消除 inline 表 colspan 的 O(M²) 重建。
+// 复用本组件内同名纯函数，保证渲染输出与原模板逐元素相等。
+const previewModelHelpers = {
+  buildSegments: buildFormDesignerUnifiedSegments,
+  getInlineRows,
+  computeMergeSpans,
+  computeLabelValueSpans,
+}
+const previewGroupsView = computed(() =>
+  buildPreviewGroupViewModels(previewRenderGroups.value, previewModelHelpers),
+)
 
 const previewNeedsLandscape = computed(() =>
   shouldUseLandscapePreview(previewRenderGroups.value)
 )
-const previewLandscapeMode = computed(() => previewNeedsLandscape.value)
+function resolvePreviewLandscape(orientation, autoFlag) {
+  if (orientation === 'landscape') return true
+  if (orientation === 'portrait') return false
+  return autoFlag
+}
+const previewLandscapeMode = computed(() =>
+  resolvePreviewLandscape(formPreviewPaperOrientation.value, previewNeedsLandscape.value),
+)
 
 async function openFormPreview(form) {
   const seq = ++formPreviewRequestSeq
   formPreviewTitle.value = form.name || '表单预览'
   formPreviewDesignNotes.value = form.design_notes || ''
+  formPreviewPaperOrientation.value = form.paper_orientation || 'auto'
+  formPreviewFormId.value = form.id
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewLoading.value = true
@@ -289,6 +416,9 @@ function resetFormPreviewState() {
   formPreviewLoading.value = false
   formPreviewError.value = ''
   formPreviewFields.value = []
+  formPreviewPaperOrientation.value = 'auto'
+  formPreviewFormId.value = null
+  previewRowResizerCache.clear()
 }
 
 // 更新访视中表单的 sequence
@@ -316,6 +446,7 @@ async function toggleCell(visitId, formId) {
     if (has) await api.del(`/api/visits/${visitId}/forms/${formId}`)
     else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
   } catch (e) { ElMessage.error(e.message || '操作失败') }
 }
 </script>
@@ -350,6 +481,7 @@ async function toggleCell(visitId, formId) {
             </div>
           </template>
         </el-table-column>
+        <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
         <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
@@ -375,10 +507,10 @@ async function toggleCell(visitId, formId) {
         <el-button type="primary" size="small" :disabled="!addFormId" @click="addFormToVisit">添加</el-button>
       </div>
       <!-- 表单列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600;flex-shrink:0">
-        <span style="width:80px;flex-shrink:0">序号</span>
-        <span style="flex:1">表单名称</span>
-        <span style="width:110px;text-align:right">操作</span>
+      <div class="manual-list-header visit-form-list-header">
+        <span class="visit-form-order-header">序号</span>
+        <span class="visit-form-name-header">表单名称</span>
+        <span class="visit-form-action-header">操作</span>
       </div>
       <!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->
       <div style="flex:1;overflow-y:auto">
@@ -447,7 +579,7 @@ async function toggleCell(visitId, formId) {
     <!-- 新增访视弹窗 -->
     <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="form.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="form.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="form.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -460,7 +592,7 @@ async function toggleCell(visitId, formId) {
     <!-- 编辑访视弹窗 -->
     <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
       <el-form :model="editForm" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="editForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editForm.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="editForm.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -489,29 +621,174 @@ async function toggleCell(visitId, formId) {
         <div class="wp-form-title">{{ formPreviewTitle }}</div>
         <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
           <div class="wp-main">
-            <template v-for="(group, gi) in previewRenderGroups" :key="gi">
-              <table v-if="group.type === 'normal'" style="width:100%;border-collapse:collapse">
-                <template v-for="ff in group.fields" :key="ff.id">
-                  <tr v-if="ff.field_definition?.field_type === '标签'">
-                    <td colspan="2" style="font-weight:bold">{{ ff.label_override || ff.field_definition?.label }}</td>
+            <template v-for="(gv, gi) in previewGroupsView" :key="gi">
+              <table v-if="gv.type === 'unified'" class="unified-table" style="width:100%;border-collapse:collapse">
+                <colgroup>
+                  <col v-for="(ratio, ci) in getPreviewColumnFractions(gv, gi)" :key="ci" :style="{ width: (ratio * 100) + '%' }">
+                </colgroup>
+                <template v-for="seg in gv.segments" :key="seg.fields[0]?.id">
+                  <tr
+                    v-if="seg.type === 'regular_field'"
+                    :style="getPreviewRowHeightStyle(gv, getUnifiedRegularRowKey(seg.fields[0]))"
+                  >
+                    <td class="unified-label row-resize-anchor" :colspan="gv.labelValueSpans.labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                      {{ getFormFieldDisplayLabel(seg.fields[0]) }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                      ></span>
+                    </td>
+                    <td class="unified-value row-resize-anchor" :colspan="gv.labelValueSpans.valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                      <span v-html="renderCellHtml(seg.fields[0])"></span>
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                      ></span>
+                    </td>
                   </tr>
-                  <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'">
-                    <td colspan="2" style="background:#d9d9d9">{{ ff.label_override || ff.field_definition?.label || '以下为log行' }}</td>
+                  <tr
+                    v-else-if="seg.type === 'full_row'"
+                    :style="getPreviewRowHeightStyle(gv, getUnifiedFullRowKey(seg.fields[0]))"
+                  >
+                    <td
+                      :class="{
+                        'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签',
+                        'row-resize-anchor': true,
+                      }"
+                      :colspan="gv.colCount"
+                      :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(seg.fields[0])"
+                    >
+                      {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
+                      ></span>
+                    </td>
                   </tr>
-                  <tr v-else>
-                    <td class="wp-label">{{ ff.label_override || ff.field_definition?.label }}</td>
-                    <td class="wp-ctrl" v-html="renderCellHtml(ff)"></td>
+                  <template v-else-if="seg.type === 'inline_block'">
+                    <tr :style="getPreviewRowHeightStyle(gv, getUnifiedInlineHeaderRowKey(seg.fields))">
+                      <td
+                        v-for="(ff, idx) in seg.fields"
+                        :key="ff.id"
+                        class="wp-inline-header row-resize-anchor"
+                        :colspan="seg.mergeSpans[idx]"
+                        :style="getFormFieldPreviewStyle(ff)"
+                      >
+                        {{ getFormFieldDisplayLabel(ff) }}
+                        <span
+                          class="row-resizer-handle"
+                          @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
+                        ></span>
+                      </td>
+                    </tr>
+                    <tr
+                      v-for="(row, ri) in seg.inlineRows"
+                      :key="ri"
+                      :style="getPreviewRowHeightStyle(gv, getUnifiedInlineDataRowKey(seg.fields, ri))"
+                    >
+                      <td
+                        v-for="(cell, ci) in row"
+                        :key="ci"
+                        class="wp-ctrl row-resize-anchor"
+                        :colspan="seg.mergeSpans[ci]"
+                        :style="getFormFieldPreviewStyle(seg.fields[ci])"
+                      >
+                        <span v-html="cell"></span>
+                        <span
+                          class="row-resizer-handle"
+                          @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
+                        ></span>
+                      </td>
+                    </tr>
+                  </template>
+                </template>
+              </table>
+              <table v-else-if="gv.type === 'normal'" style="width:100%;border-collapse:collapse">
+                <colgroup>
+                  <col v-for="(ratio, ci) in getPreviewColumnFractions(gv, gi)" :key="ci" :style="{ width: (ratio * 100) + '%' }">
+                </colgroup>
+                <template v-for="ff in gv.fields" :key="ff.id">
+                  <tr
+                    v-if="ff.field_definition?.field_type === '标签'"
+                    :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
+                  >
+                    <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
+                      {{ getFormFieldDisplayLabel(ff) }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
+                      ></span>
+                    </td>
+                  </tr>
+                  <tr
+                    v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"
+                    :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
+                  >
+                    <td colspan="2" class="row-resize-anchor" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
+                      {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
+                      ></span>
+                    </td>
+                  </tr>
+                  <tr v-else :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))">
+                    <td class="wp-label row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                      {{ getFormFieldDisplayLabel(ff) }}
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
+                      ></span>
+                    </td>
+                    <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                      <span v-html="renderCellHtml(ff)"></span>
+                      <span
+                        class="row-resizer-handle"
+                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
+                      ></span>
+                    </td>
                   </tr>
                 </template>
               </table>
               <table v-else class="inline-table" style="width:100%;border-collapse:collapse">
-                <tr>
-                  <td v-for="ff in group.fields" :key="ff.id" class="wp-inline-header">
-                    {{ ff.label_override || ff.field_definition?.label }}
+                <colgroup>
+                  <col
+                    v-for="(ratio, ci) in getPreviewColumnFractions(gv, gi)"
+                    :key="ci"
+                    :style="{ width: (ratio * 100) + '%' }"
+                  >
+                </colgroup>
+                <tr :style="getPreviewRowHeightStyle(gv, getInlineHeaderRowKey(gv.fields))">
+                  <td
+                    v-for="ff in gv.fields"
+                    :key="ff.id"
+                    class="wp-inline-header row-resize-anchor"
+                    :style="getFormFieldPreviewStyle(ff)"
+                  >
+                    {{ getFormFieldDisplayLabel(ff) }}
+                    <span
+                      class="row-resizer-handle"
+                      @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getInlineHeaderRowKey(gv.fields), e)"
+                    ></span>
                   </td>
                 </tr>
-                <tr v-for="(row, ri) in getInlineRows(group.fields)" :key="ri">
-                  <td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" v-html="cell"></td>
+                <tr
+                  v-for="(row, ri) in gv.inlineRows"
+                  :key="ri"
+                  :style="getPreviewRowHeightStyle(gv, getInlineDataRowKey(gv.fields, ri))"
+                >
+                  <td
+                    v-for="(cell, ci) in row"
+                    :key="ci"
+                    class="wp-ctrl row-resize-anchor"
+                    :style="getFormFieldPreviewStyle(gv.fields[ci])"
+                  >
+                    <span v-html="cell"></span>
+                    <span
+                      class="row-resizer-handle"
+                      @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getInlineDataRowKey(gv.fields, ri), e)"
+                    ></span>
+                  </td>
                 </tr>
               </table>
             </template>

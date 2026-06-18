@@ -1,0 +1,53 @@
+{
+  "id": "designer-undo-redo-20",
+  "name": "designer-undo-redo-20",
+  "title": "feat: 表单设计器内存撤销/恢复（最近20步）",
+  "description": "为表单设计器新增撤回/恢复按钮，前端内存维护 undo/redo 双栈（上限20步），覆盖属性编辑、排序、新增、删除、批量删除等操作的逆操作回放；刷新即清空，不做后端历史持久化。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-15",
+  "completedAt": "2026-06-15",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

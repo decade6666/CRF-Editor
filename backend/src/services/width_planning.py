@@ -19,6 +19,13 @@ WEIGHT_ASCII = 1    # 英文/数字/标点权重
 # 填写线默认权重（代表语义长度，不以实际字符数计算）
 FILL_LINE_WEIGHT = 6
 
+# inline 表头权重下限：4 个中文字符等效宽度。
+# 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
+# 被压缩到不可单行显示的窄宽——典型受害场景见
+# `.trellis/tasks/05-12-word-preview-export-parity/prd.md` R2。
+# 必须与前端 frontend/src/composables/useCRFRenderer.js 中的同名常量保持一致。
+INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4
+
 # 结构字段类型集合（标签 / 日志行）——不参与 normal 列宽聚合
 STRUCTURAL_FIELD_TYPES = {"标签", "日志行"}
 
@@ -90,10 +97,10 @@ def compute_text_weight(text: str) -> float:
 def compute_choice_atom_weight(label: str, has_trailing: bool) -> float:
     """计算 choice atom 的宽度权重。
 
-    choice_atom = symbol + 空格 + label + trailing_fill_line_if_any
+    choice_atom = symbol + label + trailing_fill_line_if_any
     """
-    # 符号（○或□）+ 空格
-    weight = 2 * WEIGHT_ASCII
+    # 符号（○或□）；marker-label 内部无空格
+    weight = WEIGHT_ASCII
     # 标签文本
     weight += compute_text_weight(label)
     # 尾部填写线（如果存在）
@@ -267,7 +274,7 @@ def plan_unified_table_width(
     Returns:
         每列宽度列表（厘米），长度等于 column_count 或最大 block 列数
     """
-    if not segments:
+    if not segments and not regular_field_demands:
         return []
 
     # 确定物理列数 N

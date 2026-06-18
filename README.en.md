@@ -13,10 +13,11 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units
-- **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview
-- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit to prevent repeated triggers
+- **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
+- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit and a strict preview/export table-field parity comparator
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
-- **Form Preview**: Preview form field layout directly from the visits management panel
+- **Form Preview**: Preview form field layout directly from the visits management panel and reuse the Word-preview row-height resize experience
+- **Session Management**: Shows remaining JWT session lifetime in the header, warns near expiry, and supports click-to-refresh
 - **AI and Settings**: Supports AI endpoint configuration, connectivity testing, and import / export related settings
 - **Global Fuzzy Search and Dark Mode**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists) plus light / dark theme switching
 - **Desktop Distribution**: Supports PyInstaller packaging, auto-opening the browser, and running from a system tray icon
@@ -31,6 +32,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Configuration**: PyYAML
 - **Document Export**: python-docx
 - **Testing Framework**: pytest + hypothesis
+- **Frontend Testing**: node:test + a lightweight property-test helper (testProperty.js)
 
 ### Project Structure
 
@@ -223,7 +225,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 The exported Word document contains:
 
 - **Cover Page**: Trial name, version number, protocol number, center number, screening number, etc.
-- **Table of Contents**: Auto-generated document TOC
+- **Table of Contents**: Pre-rendered entries visible on open with clickable navigation; real page numbers are baked in when exported on a server with LibreOffice, otherwise refreshed after updating fields in Word
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
 
@@ -249,8 +251,9 @@ node --test tests/*.test.js
 ```
 
 In the current repository:
-- `backend/tests/` uses `pytest`, including some `hypothesis` property tests
-- `frontend/tests/` uses `node:test` for source-level regression checks
+- `backend/tests/` currently contains 39 `pytest` regression files, including some `hypothesis` property tests
+- `frontend/tests/` currently contains 25 `node:test` source-level regression files, with a homegrown lightweight property-test helper (`testProperty.js`)
+- Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing
 

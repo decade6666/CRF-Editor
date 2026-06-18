@@ -88,19 +88,19 @@ class TestChoiceAtomWeight:
 
     def test_choice_atom_without_trailing(self):
         """无尾部填写线的选项原子权重"""
-        # 符号 + 空格 + 标签 = 2 + 2 = 4（假设标签为空）
+        # 符号 + 标签；marker-label 内部无空格
         weight = compute_choice_atom_weight("", False)
-        assert weight == 2
+        assert weight == 1
 
-        # 符号 + 空格 + 标签 = 2 + 4 = 6（标签"选项"）
+        # 符号 + 标签 = 1 + 4 = 5（标签"选项"）
         weight = compute_choice_atom_weight("选项", False)
-        assert weight == 6
+        assert weight == 5
 
     def test_choice_atom_with_trailing(self):
         """有尾部填写线的选项原子权重"""
-        # 符号 + 空格 + 标签 + 填写线 = 2 + 4 + 6 = 12（标签"选项"）
+        # 符号 + 标签 + 填写线 = 1 + 4 + 6 = 11（标签"选项"）
         weight = compute_choice_atom_weight("选项", True)
-        assert weight == 12
+        assert weight == 11
 
     def test_trailing_adds_constant_weight(self):
         """尾部填写线增加固定权重"""
@@ -608,3 +608,81 @@ class TestCjkExtensionRanges:
     def test_compute_char_weight_compatibility_supplement(self, code_point):
         """11.8 兼容汉字 + 兼容补充权重 = 2。"""
         assert compute_char_weight(chr(code_point)) == WEIGHT_CHINESE
+
+
+# ---------------------------------------------------------------------------
+# PR1 红灯：inline 短表头不可压缩 floor（PRD R2 表头不换行契约）
+#
+# 跨栈契约：当 inline 表头为 ≤4 字中文短文本（如"未查/项目/单位"）且控件权重
+# 不超过 FILL_LINE_WEIGHT 时，列 demand 必须高于 FILL_LINE_WEIGHT，避免被
+# 长邻居列归一化稀释到 < 单行所需宽度。
+#
+# 与前端 frontend/tests/columnWidthPlanning.test.js 的 9.12 用例对等；
+# floor 常量定义在 width_planning.py，由 field_rendering.build_inline_column_demands
+# 与前端 useCRFRenderer.buildInlineColumnDemands 共同遵守。
+# PR1 只锁「严格大于 FILL_LINE_WEIGHT」契约边界，floor 具体数值留 PR2 fixture 反推。
+# ---------------------------------------------------------------------------
+
+
+class TestInlineHeaderFloor:
+    """PR1 红灯：inline 短表头不可压缩 floor 跨栈契约。"""
+
+    def test_short_label_demand_exceeds_fill_line_weight(self):
+        """≤4 字短表头（label_weight ≤ 4）的 inline demand 必须 > FILL_LINE_WEIGHT。
+
+        当前 buggy 行为：demand = max(label_weight=4, FILL_LINE_WEIGHT=6) = 6（不严格大于）。
+        PR2 修复后：demand = max(label_weight, control_weight, INLINE_HEADER_FLOOR) > 6。
+        """
+        from src.services.width_planning import FILL_LINE_WEIGHT
+
+        ff = _stub_from_dict({
+            "field_definition": {"field_type": "文本", "label": "未查"},
+        })
+        demands = build_inline_column_demands([ff])
+        assert len(demands) == 1
+        label, weight = demands[0]
+        assert label == "未查"
+        assert weight > FILL_LINE_WEIGHT, (
+            f"短表头 '未查' demand={weight} 必须 > FILL_LINE_WEIGHT({FILL_LINE_WEIGHT})，"
+            f"否则在长邻居列下会被归一化压缩到 < 单行所需宽度"
+        )
+
+    def test_multiple_common_short_headers_all_exceed_floor(self):
+        """常见 2~4 字短表头集合（'项目/单位/未查/结果'）均应高于 FILL_LINE_WEIGHT。"""
+        from src.services.width_planning import FILL_LINE_WEIGHT
+
+        labels = ["项目", "单位", "未查", "结果"]
+        for label in labels:
+            ff = _stub_from_dict({
+                "field_definition": {"field_type": "文本", "label": label},
+            })
+            demands = build_inline_column_demands([ff])
+            _, weight = demands[0]
+            assert weight > FILL_LINE_WEIGHT, (
+                f"短表头 '{label}' demand={weight} 必须 > FILL_LINE_WEIGHT({FILL_LINE_WEIGHT})"
+            )
+
+    def test_short_header_with_long_neighbor_retains_single_line_fraction(self):
+        """长邻居 label 场景下，短表头列归一化后的 fraction 不低于单行所需水位。
+
+        复刻 PRD '生命体征' 截图证据：未查（2 字）+ 长描述列。
+        当前 buggy：short fraction = 6/(6 + ~50) ≈ 0.107；
+        期望（PR2 后）：fraction ≥ 0.12 锁住单行可见水位。
+        """
+        fields = [
+            _stub_from_dict({"field_definition": {"field_type": "文本", "label": "未查"}}),
+            _stub_from_dict({
+                "field_definition": {
+                    "field_type": "文本",
+                    "label": "异常有临床意义请详细说明本次检查的具体表现与判读依据",
+                },
+            }),
+        ]
+        demands = build_inline_column_demands(fields)
+        weights = [w for _, w in demands]
+        total = sum(weights)
+        short_fraction = weights[0] / total
+        assert short_fraction >= 0.12, (
+            f"短表头 '未查' fraction={short_fraction:.4f} < 0.12 阈值，"
+            f"长邻居稀释导致换行（weights={weights}）"
+        )

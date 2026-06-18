@@ -135,30 +135,32 @@ def restore_project(
     if project.deleted_at is None:
         raise HTTPException(400, "仅可恢复回收站中的项目")
 
-    existing_active_name = session.scalar(
-        select(Project.id).where(
-            Project.owner_id == project.owner_id,
-            Project.deleted_at.is_(None),
-            Project.name == project.name,
-            Project.id != project.id,
-        )
-    )
-    if existing_active_name is not None:
-        project.name = _resolve_restore_name(session, project.owner_id, project.name)
-
-    next_order = (
-        session.scalar(
-            select(func.max(Project.order_index)).where(
+    # 孤立项目（owner_id 为 NULL）恢复时跳过名称冲突检查和排序计算
+    if project.owner_id is not None:
+        existing_active_name = session.scalar(
+            select(Project.id).where(
                 Project.owner_id == project.owner_id,
                 Project.deleted_at.is_(None),
+                Project.name == project.name,
                 Project.id != project.id,
             )
         )
-        or 0
-    ) + 1
+        if existing_active_name is not None:
+            project.name = _resolve_restore_name(session, project.owner_id, project.name)
+
+        next_order = (
+            session.scalar(
+                select(func.max(Project.order_index)).where(
+                    Project.owner_id == project.owner_id,
+                    Project.deleted_at.is_(None),
+                    Project.id != project.id,
+                )
+            )
+            or 0
+        ) + 1
+        project.order_index = next_order
 
     project.deleted_at = None
-    project.order_index = next_order
     session.flush()
     return project
 

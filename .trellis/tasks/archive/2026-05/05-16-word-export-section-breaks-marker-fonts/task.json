@@ -1,0 +1,53 @@
+{
+  "id": "word-export-section-breaks-marker-fonts",
+  "name": "word-export-section-breaks-marker-fonts",
+  "title": "fix export: form section breaks and marker fonts",
+  "description": "Enforce Word-specific export structure and font requirements: every form ends with a next-page section break and choice markers use SimSun/宋体.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-05-16",
+  "completedAt": "2026-05-16",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "05-16-05-16-word-preview-export-strict-parity",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, TypedDict
 
 
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import bindparam, create_engine, event, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -29,6 +30,19 @@ class OptionMetadata(TypedDict):
     code: Optional[str]
     decode: str
     trailing_underscore: int
+
+
+@dataclass(frozen=True)
+class TemplateFormSnapshot:
+    """模板表单只读快照。"""
+
+    id: int
+    project_id: int
+    name: str
+    code: Optional[str]
+    domain: Optional[str]
+    order_index: Optional[int]
+    paper_orientation: str
 
 
 class ImportService:
@@ -64,6 +78,14 @@ class ImportService:
             raise ValueError(f"模板路径不安全: {error_msg}")
         return str(resolved_path)
 
+    @staticmethod
+    def _resolve_existing_template_path(template_path: str) -> str:
+        """解析并确认模板文件存在，避免任何隐式建库写入。"""
+        db_path = ImportService._validate_runtime_template_path(template_path)
+        if not Path(db_path).exists():
+            raise FileNotFoundError(f"模板文件不存在: {template_path}")
+        return db_path
+
 
     # ------------------------------------------------------------------
     # 模板库只读访问
@@ -96,6 +118,26 @@ class ImportService:
             conn.close()
 
     @staticmethod
+    def _has_template_paper_orientation(db_path: str) -> bool:
+        """检查模板 form 表是否包含 paper_orientation 列。"""
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "form" not in tables:
+                return False
+            existing_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()
+            }
+            return "paper_orientation" in existing_cols
+        finally:
+            conn.close()
+
+    @staticmethod
     def _open_template_session(template_path: str) -> Session:
         """打开模板库只读 Session
 
@@ -103,14 +145,10 @@ class ImportService:
         不使用 SQLite URI 模式，因为 SQLAlchemy URL 解析器会破坏中文路径。
         改用 creator 回调直接传原始路径给 sqlite3，再通过事件钩子设置只读。
         """
-        db_path = ImportService._validate_runtime_template_path(template_path)
-        path = Path(db_path)
-        if not path.exists():
-            raise FileNotFoundError(f"模板文件不存在: {template_path}")
+        db_path = ImportService._resolve_existing_template_path(template_path)
 
         # Task 3.4: 检查兼容性，不兼容模板返回稳定错误（只读访问，不修改源库）
         ImportService._check_template_compatibility(db_path)
-
 
         # 创建只读 Engine（移除迁移逻辑，防止修改外部数据库）
         engine = create_engine(
@@ -389,11 +427,81 @@ class ImportService:
         Returns:
             導入摘要 dict
         """
-        tmpl = self._open_template_session(template_path)
+        db_path = self._resolve_existing_template_path(template_path)
+        has_paper_orientation = self._has_template_paper_orientation(db_path)
+        tmpl = self._open_template_session(db_path)
         try:
-            return self._do_import(tmpl, target_project_id, source_project_id, form_ids, field_ids)
+            return self._do_import(
+                tmpl,
+                target_project_id,
+                source_project_id,
+                form_ids,
+                field_ids,
+                has_template_paper_orientation=has_paper_orientation,
+            )
         finally:
             tmpl.close()
+
+
+    @staticmethod
+    def _build_template_form_snapshot(form: Form, *, has_paper_orientation: bool) -> TemplateFormSnapshot:
+        """构建模板表单快照，兼容旧模板缺少 paper_orientation 列。"""
+        paper_orientation = "auto"
+        if has_paper_orientation:
+            paper_orientation = getattr(form, "paper_orientation", "auto") or "auto"
+        return TemplateFormSnapshot(
+            id=form.id,
+            project_id=form.project_id,
+            name=form.name,
+            code=form.code,
+            domain=form.domain,
+            order_index=form.order_index,
+            paper_orientation=paper_orientation,
+        )
+
+    @staticmethod
+    def _load_template_forms(
+        tmpl: Session,
+        *,
+        source_project_id: int,
+        form_ids: List[int],
+        has_paper_orientation: bool,
+    ) -> List[TemplateFormSnapshot]:
+        """读取模板表单，并在旧模板场景下回退 paper_orientation。"""
+        stmt = (
+            select(Form)
+            .where(Form.project_id == source_project_id, Form.id.in_(form_ids))
+            .order_by(Form.order_index, Form.id)
+        )
+        if has_paper_orientation:
+            return [
+                ImportService._build_template_form_snapshot(form, has_paper_orientation=True)
+                for form in tmpl.scalars(stmt).all()
+            ]
+
+        ids = [int(form_id) for form_id in form_ids]
+        if not ids:
+            return []
+        rows = tmpl.execute(
+            text(
+                "SELECT id, project_id, name, code, domain, order_index "
+                "FROM form WHERE project_id = :project_id AND id IN :form_ids "
+                "ORDER BY order_index, id"
+            ).bindparams(bindparam("form_ids", expanding=True)),
+            {"project_id": source_project_id, "form_ids": ids},
+        ).all()
+        return [
+            TemplateFormSnapshot(
+                id=row.id,
+                project_id=row.project_id,
+                name=row.name,
+                code=row.code,
+                domain=row.domain,
+                order_index=row.order_index,
+                paper_orientation="auto",
+            )
+            for row in rows
+        ]
 
 
     def _do_import(
@@ -403,6 +511,8 @@ class ImportService:
         source_project_id: int,
         form_ids: List[int],
         field_ids: Optional[List[int]] = None,
+        *,
+        has_template_paper_orientation: bool,
     ) -> dict:
         """實際導入邏輯"""
         s = self.session  # 主庫 session
@@ -448,11 +558,12 @@ class ImportService:
 
 
         # ---- 2. 收集源表單依賴的字段定義 ----
-        src_forms = list(tmpl.scalars(
-            select(Form)
-            .where(Form.project_id == source_project_id, Form.id.in_(form_ids))
-            .order_by(Form.order_index, Form.id)
-        ).all())
+        src_forms = self._load_template_forms(
+            tmpl,
+            source_project_id=source_project_id,
+            form_ids=form_ids,
+            has_paper_orientation=has_template_paper_orientation,
+        )
         if not src_forms:
             return summary
 
@@ -543,6 +654,7 @@ class ImportService:
                 code=generate_code("FORM"),
                 domain=sf.domain,
                 order_index=max_form_order + form_idx,
+                paper_orientation=sf.paper_orientation,
             )
             s.add(new_form)
             s.flush()  # 拿到 new_form.id

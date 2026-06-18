@@ -294,6 +294,10 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
 
 # ========== Task 3.5: unified 字段顺序测试 ==========
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_field_order_matches_order_index(session: Session, tmp_path: Path) -> None:
     """验证表格行顺序与 order_index 一致。"""
     project, _ = create_minimal_project(session)
@@ -351,6 +355,10 @@ def test_export_unified_field_order_matches_order_index(session: Session, tmp_pa
 
 # ========== Task 3.7: unified label/log 行测试 ==========
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_full_row_span_equals_N(session: Session, tmp_path: Path) -> None:
     """验证 label/log 行 gridSpan = N。"""
     project, _ = create_minimal_project(session)
@@ -808,6 +816,10 @@ def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> 
 # ========== Task 4.2: unified 多 inline block 共享单表级宽度语义回归测试 ==========
 
 
+@pytest.mark.xfail(
+    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
+    strict=False,
+)
 def test_export_unified_multi_blocks_share_table_level_width(session: Session, tmp_path: Path) -> None:
     """验证多个 inline block 共享单表级宽度规划，而非各自独立分配。
 
@@ -877,8 +889,18 @@ def test_export_unified_multi_blocks_share_table_level_width(session: Session, t
 # ========== Task 4.3: trailing_underscore 横向与纵向原子 token 测试 ==========
 
 
-def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
-    """验证横向单选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+def _assert_marker_runs_use_simsun(runs, marker: str) -> None:
+    marker_runs = [run for run in runs if run.text == marker]
+    assert marker_runs, f"应存在独立的 {marker} marker run"
+    for run in marker_runs:
+        r_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        assert r_fonts.get(qn("w:ascii")) == "SimSun"
+        assert r_fonts.get(qn("w:hAnsi")) == "SimSun"
+        assert r_fonts.get(qn("w:eastAsia")) == "SimSun"
+
+
+def test_export_horizontal_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
+    """验证横向单选 marker-label 与 label-fill 都没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -922,17 +944,19 @@ def test_export_horizontal_choice_trailing_uses_nbsp(session: Session, tmp_path:
 
     # 检查选择字段单元格内的 run 文本
     choice_cell = form_tables[0].cell(0, 1)
-    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
+    all_runs_text = [run.text for run in all_runs]
     joined = "".join(all_runs_text)
+    _assert_marker_runs_use_simsun(all_runs, "○")
 
-    # 有尾线的选项应包含 NBSP + 下划线
-    assert "有尾线\u00A0______" in joined, f"横向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
-    # 无尾线的选项不应有下划线
-    assert "无尾线\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+    assert "○有尾线______" in joined, f"横向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
+    assert "○ 有尾线" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
+    assert "有尾线\u00A0______" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
+    assert "○无尾线" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
 
 
-def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: Path) -> None:
-    """验证纵向多选 trailing_underscore 使用 NBSP (\\u00A0) 连接标签与填写线。"""
+def test_export_vertical_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
+    """验证纵向多选 marker-label 与 label-fill 都没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -975,12 +999,84 @@ def test_export_vertical_choice_trailing_uses_nbsp(session: Session, tmp_path: P
     assert len(form_tables) >= 1
 
     choice_cell = form_tables[0].cell(0, 1)
-    all_runs_text = [run.text for para in choice_cell.paragraphs for run in para.runs]
+    all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
+    all_runs_text = [run.text for run in all_runs]
     joined = "".join(all_runs_text)
+    _assert_marker_runs_use_simsun(all_runs, "□")
 
-    # 纵向选项也应使用 NBSP 连接
-    assert "确诊\u00A0______" in joined, f"纵向选项应使用 NBSP 连接标签与填写线，实际: {repr(joined)}"
-    assert "排除\u00A0" not in joined, f"无尾线选项不应有 NBSP 填写线"
+    assert "□确诊______" in joined, f"纵向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
+    assert "□ 确诊" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
+    assert "确诊\u00A0______" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
+    assert "□排除" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
+
+
+def test_export_vertical_choice_options_have_inter_option_gap(
+    session: Session, tmp_path: Path
+) -> None:
+    """纵向选项之间留出段前间距：首项段前为 0，其余项段前为 VERTICAL_OPTION_GAP_PT。
+
+    与前端预览 `.choice-group--vertical .choice-atom + .choice-atom { margin-top }`
+    构成跨栈契约，保证 Word 预览与导出文档的纵向选项间距一致。
+    """
+    from src.models.codelist import CodeList, CodeListOption
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="纵向间距", code="F_VGAP", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    codelist = CodeList(project_id=project.id, name="纵向间距选项", code="CL_VGAP")
+    session.add(codelist)
+    session.flush()
+
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="选项一", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="选项二", order_index=2),
+            CodeListOption(codelist_id=codelist.id, code="3", decode="选项三", order_index=3),
+        ]
+    )
+    session.flush()
+
+    fd = create_choice_field_def(session, project.id, "纵向间距测试", codelist.id, "单选（纵向）")
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
+
+    session.commit()
+
+    output_path = tmp_path / "v_choice_gap.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    choice_cell = doc.tables[2].cell(0, 1)
+    option_paras = [p for p in choice_cell.paragraphs if p.runs]
+    assert len(option_paras) == 3, f"应有 3 个纵向选项段落，实际: {len(option_paras)}"
+
+    expected_gap = ExportService.VERTICAL_OPTION_GAP_PT
+    first_gap = option_paras[0].paragraph_format.space_before
+    assert (first_gap is None) or (first_gap.pt == 0), f"首项不应有段前间距，实际: {first_gap}"
+    for para in option_paras[1:]:
+        gap = para.paragraph_format.space_before
+        assert gap is not None and gap.pt == expected_gap, (
+            f"非首项段前间距应为 {expected_gap}pt，实际: {gap}"
+        )
+
+    # docGrid(15.6pt 行网格)下必须对每个选项段落关闭 snapToGrid，否则首项
+    # before=0 与其余项 before=3pt 会被网格吸附成“首项到第二项间距偏大”。
+    for para in option_paras:
+        pPr = para._p.find(qn("w:pPr"))
+        snap = pPr.find(qn("w:snapToGrid")) if pPr is not None else None
+        assert snap is not None and snap.get(qn("w:val")) == "0", (
+            "纵向选项段落必须关闭 snapToGrid，避免 docGrid 行网格吸附导致选项间距不均"
+        )
 
 
 # ========== Task 4.4: 多行 default_value 回归测试 ==========
@@ -1089,3 +1185,80 @@ def test_export_multiline_default_value_in_inline_table(session: Session, tmp_pa
     # 第 2 行数据（row index 2）包含 "行B"
     cell_r2 = inline_table.rows[2].cells[1]
     assert "行B" in cell_r2.text, "第 2 数据行第 2 列应包含 '行B'"
+
+
+# ========== unified 路径：cell.tcW 必须与 gridCol 对齐 ==========
+
+
+def test_export_unified_cell_widths_match_gridcol(session: Session, tmp_path: Path) -> None:
+    """unified 表格的每个 cell tcW 必须与 gridCol 对齐，避免 Word 按默认 1234 twips 渲染。
+
+    回归用例：当 _build_unified_table 只设置 col.width 而未同步 cell.width 时，
+    python-docx 会给后续添加的 cell 默认 tcW=1234 twips，导致 Word 渲染时按
+    cell 默认宽度均分而非按 gridCol 的内容驱动列宽显示。
+    """
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+
+    form = Form(project_id=project.id, name="Unified宽度对齐", code="F_UNIFIED_W", order_index=1)
+    session.add(form)
+    session.flush()
+
+    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
+    session.add(vf)
+    session.flush()
+
+    # 1 个 normal + 5 个 inline，触发 mixed_landscape -> unified table (N=5)
+    fd_normal = create_text_field_def(session, project.id, "普通字段")
+    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
+    short_labels = ["A", "B", "C", "D"]
+    for i, label in enumerate(short_labels, start=1):
+        fd = create_text_field_def(session, project.id, label)
+        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
+    fd_wide = create_text_field_def(session, project.id, "这是一个非常长的中文标签文本")
+    add_field_to_form(session, form.id, fd_wide.id, order_index=20, inline_mark=1)
+
+    session.commit()
+
+    output_path = tmp_path / "unified_widths.docx"
+    ok = ExportService(session).export_project_to_word(project.id, str(output_path))
+    assert ok is True
+
+    doc = Document(str(output_path))
+    unified_table = next((t for t in doc.tables[2:] if len(t.columns) == 5), None)
+    assert unified_table is not None, "应存在 5 列 unified 表格"
+
+    expected_total_twips = int(ExportService.LANDSCAPE_CONTENT_WIDTH_CM * 567)
+    tolerance_twips = int(0.1 * 567)
+
+    grid_cols = unified_table._tbl.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
+    grid_widths = [int(gc.get(qn("w:w"), "0")) for gc in grid_cols]
+    assert len(grid_widths) == 5
+    assert abs(sum(grid_widths) - expected_total_twips) <= tolerance_twips, (
+        f"gridCol 总宽应约等于 LANDSCAPE_CONTENT_WIDTH_CM, 实际 {sum(grid_widths)} twips"
+    )
+
+    # 每个 row 的 cell tcW 总和必须与 gridCol 对齐
+    for row_idx, row in enumerate(unified_table.rows):
+        row_widths = []
+        seen = set()
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id in seen:
+                continue
+            seen.add(tc_id)
+            tc_pr = cell._tc.tcPr
+            tc_w = tc_pr.find(qn("w:tcW")) if tc_pr is not None else None
+            assert tc_w is not None, f"row {row_idx} cell 应已设置 tcW"
+            row_widths.append(int(tc_w.get(qn("w:w"), "0")))
+        assert abs(sum(row_widths) - expected_total_twips) <= tolerance_twips, (
+            f"row {row_idx} cell 宽度总和 ({sum(row_widths)}) 应与 LANDSCAPE_CONTENT_WIDTH_CM 对齐"
+        )
+
+    # 最后一列对应长标签字段，宽度应明显大于第一列
+    assert grid_widths[4] > grid_widths[0], (
+        f"长标签列应比短标签列更宽: w0={grid_widths[0]}, w4={grid_widths[4]}"
+    )

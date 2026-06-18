@@ -17,9 +17,19 @@ export function getFormFieldTextColorStyle(formField) {
 export function getFormFieldPreviewStyle(formField, defaultBackground = '') {
   const normalizedBg = normalizePreviewHexColor(formField?.bg_color)
   const normalizedText = normalizePreviewHexColor(formField?.text_color)
-  const background = normalizedBg ? `background:#${normalizedBg}40;` : defaultBackground
+  const background = normalizedBg ? `background:#${normalizedBg};` : defaultBackground
   const textColor = normalizedText ? `color:#${normalizedText}` : 'color:#000000'
   return `${background}${textColor}`
+}
+
+export function isLogRowField(formField) {
+  const fieldType = formField?.field_definition?.field_type || formField?.field_type
+  return fieldType === '日志行' || Boolean(formField?.is_log_row)
+}
+
+export function getFormFieldStructurePreviewStyle(formField) {
+  const defaultBackground = isLogRowField(formField) ? 'background:var(--preview-structure-bg);' : ''
+  return getFormFieldPreviewStyle(formField, defaultBackground)
 }
 
 export function buildFormDesignerUnifiedSegments(fields) {
@@ -58,7 +68,6 @@ export function buildFormDesignerUnifiedSegments(fields) {
 export function buildFormDesignerRenderGroups(fields) {
   if (!fields.length) return []
 
-  const hasRegular = fields.some(field => field.inline_mark === 0)
   let maxBlockWidth = 0
   let currentWidth = 0
 
