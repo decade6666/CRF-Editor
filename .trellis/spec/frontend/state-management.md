@@ -102,6 +102,8 @@ export function buildTableInstanceId(kind, fields)
 | Stored value is not an array, has wrong length, ratios are outside `[0.1, 0.9]`, or sum differs from 1 by more than `1e-3` | Consumer returns `null` and falls back to planner defaults. |
 | Designer opens a table with only a legacy key | `FormDesignerTab.vue:migrateLegacyKeyIfNeeded` copies it to the new key when the new key is absent, then deletes the legacy key. |
 | `fields` changes | Callers must pass a rebuilt fields array; `buildTableInstanceId` may cache by fields reference. Do not mutate field ids in place. |
+| Main preview changes widths/heights, then user opens fullscreen designer | `openDesigner()` must rehydrate the fullscreen preview from localStorage before the dialog is used. |
+| Fullscreen designer changes widths/heights, then user closes it | `handleDesignerBeforeClose()` must rehydrate the main preview before the dialog closes, so the page-level Word preview shows the latest overrides immediately. |
 
 **Good / Base / Bad cases**:
 
@@ -118,6 +120,10 @@ export function buildTableInstanceId(kind, fields)
   - `16.1.5g`: preview consumers use `buildTableInstanceId` and `readColumnWidthRatiosWithFallback`.
 - `frontend/tests/rowHeightResize.test.js`
   - `buildTableInstanceId documents immutable fields reference cache contract`.
+  - `useRowResize rehydrate reads latest persisted row heights`.
+- `frontend/tests/quickEditBehavior.test.js`
+  - `fullscreen designer preview rehydrates latest width and height overrides when opened`.
+  - `closing fullscreen designer rehydrates main preview overrides before returning`.
 
 ### 5. Server State (API cache)
 

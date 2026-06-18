@@ -71,6 +71,16 @@ test('preview uses derived visible and preview field models', () => {
   assert.match(formDesignerSource, /@current-change="selectForm"/)
 })
 
+test('fullscreen designer preview rehydrates latest width and height overrides when opened', () => {
+  assert.match(formDesignerSource, /showDesigner\.value = true;[\s\S]*refreshDesignerPreviewOverrides\(\);/)
+  assert.match(formDesignerSource, /function refreshPreviewOverrideState\(groups, scope = 'main'\) \{[\s\S]*const resizer = getResizer\(group\.type, colCount, groupIndex, group, scope\);[\s\S]*resizer\?\.rehydrate\?\.\(\);[\s\S]*const rowResizer = getRowResizer\(group\.type, group\);[\s\S]*rowResizer\?\.rehydrate\?\.\(\);/)
+  assert.match(formDesignerSource, /function refreshDesignerPreviewOverrides\(\) \{[\s\S]*refreshPreviewOverrideState\(renderGroupsView\.value, 'main'\);[\s\S]*refreshPreviewOverrideState\(designerRenderGroupsView\.value, 'designer'\);/)
+})
+
+test('closing fullscreen designer rehydrates main preview overrides before returning', () => {
+  assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*const canClose = await resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\);[\s\S]*if \(canClose\) \{[\s\S]*refreshPreviewOverrideState\(renderGroupsView\.value, 'main'\);[\s\S]*done\(\);[\s\S]*\}/)
+})
+
 
 test('choice codelist row exposes icon actions with disable guard', () => {
   assert.match(formDesignerSource, /class="choice-codelist-row"/)

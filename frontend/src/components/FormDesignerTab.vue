@@ -965,6 +965,33 @@ function getRowHeightStyle(rowResizer, rowKey) {
   return rowResizer?.getRowHeightStyle(rowKey) || null;
 }
 
+function getPreviewGroupColumnCount(group) {
+  if (!group) return 0;
+  if (group.type === 'normal') return 2;
+  if (group.type === 'inline') return group.fields.length;
+  if (group.type === 'unified') return group.colCount || 0;
+  return 0;
+}
+
+// 全屏设计器对话框关闭后内容仍保留挂载；重新打开时需要显式从 localStorage
+// 回灌列宽/行高覆盖，避免主预览已调整而全屏预览仍停留在旧缓存对象上。
+function refreshPreviewOverrideState(groups, scope = 'main') {
+  groups.forEach((group, groupIndex) => {
+    const colCount = getPreviewGroupColumnCount(group);
+    if (colCount > 0) {
+      const resizer = getResizer(group.type, colCount, groupIndex, group, scope);
+      resizer?.rehydrate?.();
+    }
+    const rowResizer = getRowResizer(group.type, group);
+    rowResizer?.rehydrate?.();
+  });
+}
+
+function refreshDesignerPreviewOverrides() {
+  refreshPreviewOverrideState(renderGroupsView.value, 'main');
+  refreshPreviewOverrideState(designerRenderGroupsView.value, 'designer');
+}
+
 const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240);
 const isLibResizing = ref(false);
 watch(libraryWidth, (v) => localStorage.setItem('crf_libraryWidth', v));
@@ -2187,7 +2214,10 @@ async function canLeaveProject() {
 
 async function handleDesignerBeforeClose(done) {
   const canClose = await resolveFieldPropLeave({ actionText: '关闭设计窗口' });
-  if (canClose) done();
+  if (canClose) {
+    refreshPreviewOverrideState(renderGroupsView.value, 'main');
+    done();
+  }
 }
 
 async function openDesigner() {
@@ -2195,6 +2225,7 @@ async function openDesigner() {
   try {
     await ensureDesignerAuxiliaryDataLoaded();
     showDesigner.value = true;
+    refreshDesignerPreviewOverrides();
     markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   } catch (error) {
     markPerfEnd('designer_open_fullscreen', {
