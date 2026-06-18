@@ -5,7 +5,7 @@
 - PUT 持久化与非法值 422
 - copy_form / project clone 继承
 - 数据库轻量迁移：旧库无列也可启动
-- 模板导入兼容性：缺列模板会自动补齐
+- 模板导入兼容性：缺列模板只做兼容判断，不修改源库
 """
 import sqlite3
 from pathlib import Path
@@ -173,8 +173,8 @@ def test_migration_is_idempotent(tmp_path: Path):
 # ── 模板导入兼容性 ───────────────────────────────────────────
 
 
-def test_ensure_template_paper_orientation_patches_legacy_template(tmp_path: Path):
-    """旧模板缺 paper_orientation 列时，_ensure_template_paper_orientation 自动补齐。"""
+def test_template_legacy_paper_orientation_compatibility_is_read_only(tmp_path: Path):
+    """旧模板缺 paper_orientation 列时，只做兼容判断，不允许修改源模板。"""
     db_path = tmp_path / "tpl.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute(
@@ -184,15 +184,19 @@ def test_ensure_template_paper_orientation_patches_legacy_template(tmp_path: Pat
     conn.commit()
     conn.close()
 
-    ImportService._ensure_template_paper_orientation(str(db_path))
+    compatible = ImportService._has_template_paper_orientation(str(db_path))
 
     conn = sqlite3.connect(str(db_path))
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
-    conn.close()
-    assert "paper_orientation" in cols
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+    finally:
+        conn.close()
+
+    assert compatible is False
+    assert "paper_orientation" not in cols
 
 
-def test_ensure_template_paper_orientation_skips_when_present(tmp_path: Path):
+def test_template_paper_orientation_detection_is_idempotent(tmp_path: Path):
     db_path = tmp_path / "ok.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute(
@@ -202,6 +206,5 @@ def test_ensure_template_paper_orientation_skips_when_present(tmp_path: Path):
     conn.commit()
     conn.close()
 
-    # 应保持幂等不抛错
-    ImportService._ensure_template_paper_orientation(str(db_path))
-    ImportService._ensure_template_paper_orientation(str(db_path))
+    assert ImportService._has_template_paper_orientation(str(db_path)) is True
+    assert ImportService._has_template_paper_orientation(str(db_path)) is True
