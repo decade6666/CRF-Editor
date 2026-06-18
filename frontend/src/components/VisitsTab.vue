@@ -507,10 +507,10 @@ async function toggleCell(visitId, formId) {
         <el-button type="primary" size="small" :disabled="!addFormId" @click="addFormToVisit">添加</el-button>
       </div>
       <!-- 表单列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600;flex-shrink:0">
-        <span style="width:80px;flex-shrink:0">序号</span>
-        <span style="flex:1">表单名称</span>
-        <span style="width:110px;text-align:right">操作</span>
+      <div class="manual-list-header visit-form-list-header">
+        <span class="visit-form-order-header">序号</span>
+        <span class="visit-form-name-header">表单名称</span>
+        <span class="visit-form-action-header">操作</span>
       </div>
       <!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->
       <div style="flex:1;overflow-y:auto">
