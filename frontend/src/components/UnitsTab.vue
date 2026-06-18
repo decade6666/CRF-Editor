@@ -1,12 +1,12 @@
 <script setup>
-import { ref, watch, onMounted, inject } from 'vue'
+import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
-import draggable from 'vuedraggable'
-import { useOrderableList } from '../composables/useOrderableList'
+import { useSortableTable } from '../composables/useSortableTable'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
+const editMode = inject('editMode', ref(false))
 
 const units = ref([])
 const searchUnit = ref('')
@@ -14,15 +14,33 @@ const symbol = ref('')
 const unitCode = ref('')
 const showAdd = ref(false)
 
+const visibleUnits = computed(() => {
+  const kw = searchUnit.value.trim().toLowerCase()
+  const orderedUnits = [...units.value].sort((a, b) => {
+    const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
+    const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
+    if (orderA !== orderB) return orderA - orderB
+    return (a?.id ?? 0) - (b?.id ?? 0)
+  })
+  if (!kw) return orderedUnits
+  return orderedUnits.filter(u =>
+    (String(u.code ?? '') + String(u.symbol ?? '')).toLowerCase().includes(kw)
+  )
+})
+
 async function load() { units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`) }
-onMounted(load)
-watch(() => props.projectId, load)
+async function reloadUnits() {
+  api.invalidateCache(`/api/projects/${props.projectId}/units`)
+  await load()
+}
+onMounted(async () => { await load(); nextTick(() => initSortable()) })
+watch(() => props.projectId, () => { load(); nextTick(() => initSortable()) })
 watch(refreshKey, load)
 
 async function add() {
   try {
     await api.post(`/api/projects/${props.projectId}/units`, { symbol: symbol.value, code: unitCode.value })
-    showAdd.value = false; symbol.value = ''; unitCode.value = ''; load()
+    showAdd.value = false; symbol.value = ''; unitCode.value = ''; reloadUnits()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -33,7 +51,7 @@ async function del(u) {
       const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
       return ElMessageBox.alert(`该单位被以下字段引用，需先删除相关字段：\n${msg}`, '无法删除', { type: 'warning' })
     }
-    await api.del(`/api/units/${u.id}`); load()
+    await api.del(`/api/units/${u.id}`); reloadUnits()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -55,7 +73,7 @@ async function update() {
       await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
     }
     await api.put(`/api/units/${editTarget.value.id}`, { symbol: editSymbol.value, code: editUnitCode.value })
-    showEdit.value = false; load()
+    showEdit.value = false; reloadUnits()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -71,7 +89,7 @@ async function batchDelUnits() {
       if (refs.length) allRefs.push(`【${u.symbol}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`), 3, '、'))
     }
     if (allRefs.length) return ElMessageBox.alert(`以下单位被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
-    await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids }); load()
+    await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids }); selUnits.value = []; reloadUnits()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -80,12 +98,19 @@ function openAdd() {
   showAdd.value = true
 }
 
-const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.projectId}/units/reorder`)
+const unitsTableRef = ref(null)
+const isFiltered = computed(() => searchUnit.value.trim().length > 0)
+const reorderUrl = computed(() => `/api/projects/${props.projectId}/units/reorder`)
+const { initSortable } = useSortableTable(unitsTableRef, units, reorderUrl, {
+  reloadFn: reloadUnits,
+  isFiltered,
+  renderList: visibleUnits,
+})
 </script>
 
 <template>
-  <div>
-    <div style="margin-bottom:12px;display:flex;gap:8px">
+  <div style="height:calc(100vh - 160px);display:flex;flex-direction:column">
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <el-button type="primary" size="small" @click="openAdd">新增单位</el-button>
       <el-button type="danger" size="small" :disabled="!selUnits.length" @click="batchDelUnits">批量删除({{ selUnits.length }})</el-button>
       <el-input
@@ -97,37 +122,30 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
       />
     </div>
 
-    <!-- 单位列表表头 -->
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600">
-      <span style="width:16px;flex-shrink:0"></span>
-      <span style="width:22px;flex-shrink:0"></span>
-      <span style="width:80px;flex-shrink:0">序号</span>
-      <div style="flex:1;display:flex;gap:12px">
-        <span>单位符号</span>
-      </div>
-      <span style="width:80px;text-align:right">操作</span>
-    </div>
-    <draggable v-model="units" item-key="id" handle=".drag-handle" :disabled="Boolean(searchUnit.trim())" @start="dragging = true" @end="handleDragEnd(units, load, err => ElMessage.error(err.message))">
-      <template #item="{ element }">
-        <div
-          v-show="!searchUnit.trim() || (String(element.code ?? '') + String(element.symbol ?? '')).toLowerCase().includes(searchUnit.trim().toLowerCase())"
-          style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)"
-        >
-          <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
-          <el-checkbox :model-value="selUnits.some(u => u.id === element.id)" @change="v => v ? selUnits.push(element) : selUnits.splice(selUnits.findIndex(u => u.id === element.id), 1)" style="flex-shrink:0" />
-          <span class="ordinal-cell" style="flex-shrink:0">{{ element.order_index }}</span>
-          <div style="flex:1;display:flex;gap:12px;align-items:center">
-            <span style="font-size:13px;color:var(--color-text-primary)">{{ element.symbol }}</span>
-          </div>
-          <el-button size="small" link @click="openEdit(element)">编辑</el-button>
-          <el-button type="danger" size="small" link @click="del(element)">删除</el-button>
-        </div>
-      </template>
-    </draggable>
+    <el-table ref="unitsTableRef" :data="visibleUnits" size="small" border height="100%" row-key="id"
+      @selection-change="r => selUnits = r">
+      <el-table-column width="32" v-if="!isFiltered">
+        <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+      </el-table-column>
+      <el-table-column type="selection" width="40" />
+      <el-table-column label="序号" width="100">
+        <template #default="{ row }">
+          <span class="ordinal-cell">{{ row.order_index }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
+      <el-table-column prop="symbol" label="单位符号" min-width="120" show-overflow-tooltip />
+      <el-table-column label="操作" width="120">
+        <template #default="{ row }">
+          <el-button size="small" link @click.stop="openEdit(row)">编辑</el-button>
+          <el-button type="danger" size="small" link @click.stop="del(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
     <el-dialog v-model="showAdd" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="unitCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="unitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="symbol" placeholder="如 kg" /></el-form-item>
       </el-form>
       <template #footer>
@@ -138,7 +156,7 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
 
     <el-dialog v-model="showEdit" title="编辑单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="editUnitCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editUnitCode" /></el-form-item>
         <el-form-item label="单位符号"><el-input v-model="editSymbol" placeholder="如 kg" /></el-form-item>
       </el-form>
       <template #footer>
@@ -148,4 +166,3 @@ const { dragging, handleDragEnd } = useOrderableList(`/api/projects/${props.proj
     </el-dialog>
   </div>
 </template>
-

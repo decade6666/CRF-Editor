@@ -38,6 +38,7 @@ import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewM
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
+const editMode = inject('editMode', ref(false))
 
 const visits = ref([])
 const searchVisit = ref('')
@@ -480,6 +481,7 @@ async function toggleCell(visitId, formId) {
             </div>
           </template>
         </el-table-column>
+        <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
         <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
@@ -577,7 +579,7 @@ async function toggleCell(visitId, formId) {
     <!-- 新增访视弹窗 -->
     <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="form.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="form.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="form.sequence" :min="1" /></el-form-item>
       </el-form>
@@ -590,7 +592,7 @@ async function toggleCell(visitId, formId) {
     <!-- 编辑访视弹窗 -->
     <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
       <el-form :model="editForm" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="editForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editForm.code" /></el-form-item>
         <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>
         <el-form-item label="序号"><el-input-number v-model="editForm.sequence" :min="1" /></el-form-item>
       </el-form>
