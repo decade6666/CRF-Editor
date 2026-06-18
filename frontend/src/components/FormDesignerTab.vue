@@ -42,7 +42,7 @@ import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewM
 
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
-inject('editMode', ref(false));
+const editMode = inject('editMode', ref(false));
 
 // 核心数据
 const forms = ref([]);
@@ -2260,6 +2260,7 @@ function openAddForm() {
             </div></template
           >
         </el-table-column>
+        <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }"
@@ -3163,7 +3164,7 @@ function openAddForm() {
                     :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
                     :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
                 /></el-form-item>
-                <el-form-item v-if="!['标签', '日志行'].includes(editProp.field_type)" v-show="false" label="变量名"
+                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID(变量名)"
                   ><el-input v-model="editProp.variable_name"
                 /></el-form-item>
                 <el-form-item label="字段类型">
@@ -3376,7 +3377,7 @@ function openAddForm() {
     <!-- 各类弹窗 -->
     <el-dialog v-model="showAddForm" title="新建表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="newFormCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item>
       </el-form>
       <template #footer>
@@ -3386,7 +3387,7 @@ function openAddForm() {
     </el-dialog>
     <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item label="Code"><el-input v-model="editFormCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item>
         <el-form-item label="纸张方向">
           <el-radio-group v-model="editFormPaperOrientation" data-test="edit-form-paper-orientation">
