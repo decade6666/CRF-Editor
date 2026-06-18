@@ -64,7 +64,7 @@
 - production 下若不存在可用保留管理员，启动阶段会基于 `admin.bootstrap_password` / `CRF_ADMIN_BOOTSTRAP_PASSWORD` 自动修复或补建；缺失时 fail-fast。
 - 管理员创建用户必须同时设置初始密码；重置密码会通过 `auth_version` 立即失效旧 JWT。
 - Logo 文件由 `upload_path/logos` 管理，仅允许安全位图格式，项目复制与硬删除会同步处理对应文件。
-- `template_path` 必须位于白名单目录内且为 `.db`。
+- `template_path` 必须位于白名单目录内且为 `.db`；模板库导入路径（`src/services/import_service.py`）仅允许只读访问，缺少 `form.paper_orientation` 的旧模板通过只读探测回退为 `auto`，禁止对源模板库执行补列、迁移或隐式建库。
 
 ## 导入导出与列宽契约
 - Word 导出表格行高以 `FORM_TABLE_ROW_HEIGHT_CM = 1` 作为 `AT_LEAST` 下限；单元格段落使用 `SINGLE_LINE_HEIGHT_PT = 15.6` 固定行距与 `CELL_VPAD_PT` 上下间距撑起单行 1cm，多行内容自然增高且不裁切。

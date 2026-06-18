@@ -55,6 +55,36 @@ def list_items(session: Session = Depends(get_read_session)):
 - `get_session` - Opens transaction, for writes
 - `get_read_session` - No transaction overhead, for reads
 
+### External SQLite Files Must Not Be Mutated During Read Flows
+
+For template-library reads, treat the external `.db` as immutable input. Resolve and validate the path first, require the file to already exist, then open it read-only.
+
+```python
+# backend/src/services/import_service.py
+@staticmethod
+def _resolve_existing_template_path(template_path: str) -> str:
+    db_path = ImportService._validate_runtime_template_path(template_path)
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"模板文件不存在: {template_path}")
+    return db_path
+```
+
+```python
+engine = create_engine(
+    "sqlite+pysqlite://",
+    creator=lambda: sqlite3.connect(db_path, check_same_thread=False),
+)
+
+@event.listens_for(engine, "connect")
+def _set_readonly(dbapi_conn, connection_record):
+    dbapi_conn.execute("PRAGMA query_only = ON")
+```
+
+**Rules**:
+1. Never call `sqlite3.connect()` on an unvalidated path in a read flow — SQLite will create a new empty file if it does not exist.
+2. Legacy compatibility for read flows must use read-only schema inspection (`PRAGMA table_info`) or read-only fallback queries, not `ALTER TABLE` against the source file.
+3. When an optional legacy column is missing, fall back in memory (for example `paper_orientation="auto"`) and leave the external file unchanged.
+
 ---
 
 ## Migrations
