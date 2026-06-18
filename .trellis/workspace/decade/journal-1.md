@@ -1282,3 +1282,57 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Fix designer preview override sync
+
+**Date**: 2026-06-18
+**Task**: Fix designer preview override sync
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Frontend | Fixed bidirectional synchronization between page-level Word preview and fullscreen form designer after adjusting row heights or column widths |
+| Composables | Exposed `rehydrate()` from `useColumnResize` and `useRowResize` so preview state can reload the latest localStorage overrides |
+| Validation | Added regression tests covering open-designer sync, close-designer sync, and manual rehydrate behavior for width/height persistence |
+| Spec | Updated `.trellis/spec/frontend/state-management.md` to document the preview override rehydrate contract and required tests |
+
+**Updated Files**:
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/src/composables/useColumnResize.js`
+- `frontend/src/composables/useRowResize.js`
+- `frontend/tests/columnWidthPlanning.test.js`
+- `frontend/tests/quickEditBehavior.test.js`
+- `frontend/tests/rowHeightResize.test.js`
+- `.trellis/spec/frontend/state-management.md`
+
+**Verification**:
+- `cd frontend && node --test tests/*.test.js`
+- Manual test confirmed both directions work:
+  - page preview → open fullscreen designer
+  - fullscreen designer → close back to page preview
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `69e5a21` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
