@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.database import _is_form_field_rowid_pk_compatible
+from src.perf import perf_span
 from src.models.project import Project
 from src.schemas.project import normalize_screening_number_format
 from src.services.project_clone_service import ProjectCloneService, ProjectGraph, ProjectGraphLoader
@@ -31,7 +32,7 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
         "company_logo_path", "data_management_unit", "owner_id",
     }),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
-    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes"}),
+    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes", "paper_orientation"}),
     "visit_form": frozenset({"id", "visit_id", "form_id", "sequence"}),
     "field_definition": frozenset({
         "id", "project_id", "variable_name", "label", "field_type",
@@ -52,16 +53,22 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
 
 
 def _patch_legacy_project_schema(file_path: str) -> None:
-    """为旧版项目库补齐导入所需的新增 project 列，仅修改临时副本。"""
+    """为旧版项目库补齐导入所需的新增列，仅修改临时副本。"""
     conn = sqlite3.connect(file_path)
     try:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        if 'project' not in tables:
-            return
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
-        if 'screening_number_format' not in cols:
-            conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
-            conn.commit()
+        if 'project' in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
+            if 'screening_number_format' not in cols:
+                conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
+        if 'form' in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+            if 'paper_orientation' not in cols:
+                conn.execute(
+                    "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
+                    "NOT NULL DEFAULT 'auto'"
+                )
+        conn.commit()
     finally:
         conn.close()
 
@@ -200,25 +207,31 @@ class ProjectDbImportService:
         _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
-            _validate_schema(ext_session)
-            _validate_host_schema(session)
+            with perf_span("schema_validate"):
+                _validate_schema(ext_session)
+            with perf_span("host_schema_validate"):
+                _validate_host_schema(session)
 
-            projects = list(ext_session.scalars(select(Project)).all())
+            with perf_span("external_graph_load"):
+                projects = list(ext_session.scalars(select(Project)).all())
             if len(projects) != 1:
                 raise ValueError(
                     f"导入文件必须恰好包含 1 个项目，当前包含 {len(projects)} 个"
                 )
 
-            graph = _load_project_graph_from_session(ext_session, projects[0])
-            graph.project = _build_import_project_snapshot(projects[0])
+            with perf_span("external_graph_load"):
+                graph = _load_project_graph_from_session(ext_session, projects[0])
+                graph.project = _build_import_project_snapshot(projects[0])
             final_name = _resolve_import_name(
                 projects[0].name, session, current_user_id
             )
 
-            cloned = ProjectCloneService.clone_from_graph(
-                graph, current_user_id, session, name_override=final_name
-            )
-            session.flush()
+            with perf_span("clone_entities"):
+                cloned = ProjectCloneService.clone_from_graph(
+                    graph, current_user_id, session, name_override=final_name
+                )
+            with perf_span("flush"):
+                session.flush()
 
             return ImportResult(project_id=cloned.id, project_name=cloned.name)
         finally:
@@ -239,32 +252,38 @@ class DatabaseMergeService:
         _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
-            _validate_schema(ext_session)
-            _validate_host_schema(session)
+            with perf_span("schema_validate"):
+                _validate_schema(ext_session)
+            with perf_span("host_schema_validate"):
+                _validate_host_schema(session)
 
-            projects = list(
-                ext_session.scalars(
-                    select(Project)
-                    .where(Project.deleted_at.is_(None))
-                    .order_by(Project.id)
-                ).all()
-            )
+            with perf_span("external_graph_load"):
+                projects = list(
+                    ext_session.scalars(
+                        select(Project)
+                        .where(Project.deleted_at.is_(None))
+                        .order_by(Project.id)
+                    ).all()
+                )
             if not projects:
                 raise ValueError("导入文件中没有项目")
 
             report = MergeReport()
 
             for project in projects:
-                graph = _load_project_graph_from_session(ext_session, project)
-                graph.project = _build_import_project_snapshot(project)
+                with perf_span("external_graph_load"):
+                    graph = _load_project_graph_from_session(ext_session, project)
+                    graph.project = _build_import_project_snapshot(project)
                 final_name = _resolve_import_name(
                     project.name, session, current_user_id
                 )
 
-                cloned = ProjectCloneService.clone_from_graph(
-                    graph, current_user_id, session, name_override=final_name
-                )
-                session.flush()
+                with perf_span("clone_entities"):
+                    cloned = ProjectCloneService.clone_from_graph(
+                        graph, current_user_id, session, name_override=final_name
+                    )
+                with perf_span("flush"):
+                    session.flush()
 
                 result = ImportResult(
                     project_id=cloned.id,

@@ -1,0 +1,42 @@
+{
+  "id": "word-cell-height-1cm",
+  "name": "word-cell-height-1cm",
+  "title": "fix: Word 导出按单行文本=1cm 设置单元格上下间距（不裁切多行）",
+  "description": "把 Word 导出表格行高从固定 EXACTLY 1cm 改为 AT_LEAST 下限 + 段落上下间距，使单行文本单元格视觉高度恰为 1cm，多行内容（纵向单选/多选、多 default_lines）自然增高且不被裁切。仅改 backend/src/services/export_service.py 高度与间距逻辑，并补行高/间距回归测试；不动文本内容与 strict parity 契约。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "gpt",
+  "createdAt": "2026-06-14",
+  "completedAt": "2026-06-15",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "backend/src/services/export_service.py",
+    "backend/tests/test_export_paper_orientation.py",
+    "backend/tests/test_word_table_parity.py",
+    "backend/.claude/CLAUDE.md"
+  ],
+  "notes": "现状：_apply_exact_row_height (export_service.py:1938) 用 WD_ROW_HEIGHT_RULE.EXACTLY 把全部表格行死锁 1cm（FORM_TABLE_ROW_HEIGHT_CM=1, :201），导致多行单元格被裁切，且上下间距对行高无效。SINGLE_LINE_HEIGHT_PT=15.6 为基于 docGrid linePitch=312twips 的推算值，GPT 须在真实 Word 实测单行净高后微调 CELL_VPAD_PT。",
+  "meta": {}
+}

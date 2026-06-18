@@ -123,7 +123,7 @@ def _create_owned_project(engine) -> int:
             lambda monkeypatch: (
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.get_temp_path", lambda _temp_id: Path("/tmp/fake.docx")),
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.cleanup_temp", lambda _temp_id: None),
-                monkeypatch.setattr("src.routers.import_docx.DocxImportService.import_forms", lambda *_args, **_kwargs: {"imported_form_count": 1, "detail": [{"name": "表单A", "field_count": 1}]}),
+                monkeypatch.setattr("src.routers.import_docx.DocxImportService.import_forms", lambda *_args, **_kwargs: {"imported_form_count": 1, "detail": [{"name": "表单A", "field_count": 1, "form_id": 1}]}),
             ),
         ),
     ],

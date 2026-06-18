@@ -1,0 +1,53 @@
+{
+  "id": "designer-new-field-draft",
+  "name": "designer-new-field-draft",
+  "title": "feat: 表单设计器新增字段本地草稿（保存才落库）",
+  "description": "新增字段改为本地草稿态：newField 不再立即 POST，构造临时草稿对象插入列表并选中，显示保存按钮；属性编辑/字典绑定/预览容忍无后端id的草稿；点保存才 POST 建定义+建实例并替换草稿。修改与删除维持现有自动保存语义；同一时刻仅允许一个未保存草稿。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-15",
+  "completedAt": "2026-06-15",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

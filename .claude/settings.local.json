@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__chrome-devtools__wait_for",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__take_screenshot",
+      "Bash(openspec status *)",
+      "mcp__fast-context__fast_context_search",
+      "Bash(/root/.claude/bin/codeagent-wrapper *)"
+    ]
+  }
+}

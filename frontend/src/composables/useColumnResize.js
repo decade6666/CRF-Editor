@@ -75,6 +75,21 @@ function pickSnapBoundaryClientX(pointerClientX, containerLeft, containerWidth, 
   return bestClientX
 }
 
+export function readColumnWidthRatios(formId, tableKind, expectedLength) {
+  if (formId == null || tableKind == null) return null
+  try {
+    return readRatios(buildKey(formId, tableKind), expectedLength)
+  } catch {
+    return null
+  }
+}
+
+export function readColumnWidthRatiosWithFallback(formId, tableKind, expectedLength, legacyTableKind) {
+  const current = readColumnWidthRatios(formId, tableKind, expectedLength)
+  if (current) return current
+  return readColumnWidthRatios(formId, legacyTableKind, expectedLength)
+}
+
 export function useColumnResize(formIdRef, tableKindRef, defaultsSource) {
   const resolveDefaults = () => {
     let raw
@@ -199,5 +214,11 @@ export function useColumnResize(formIdRef, tableKindRef, defaultsSource) {
     colRatios.value = resolveDefaults()
   }
 
-  return reactive({ colRatios, onResizeStart, snapGuideX, resetToEven })
+  return reactive({
+    colRatios,
+    onResizeStart,
+    snapGuideX,
+    resetToEven,
+    rehydrate,
+  })
 }

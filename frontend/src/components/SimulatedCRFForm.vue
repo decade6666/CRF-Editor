@@ -65,7 +65,12 @@ import {
   planNormalColumnFractions,
 } from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
-import { getFormFieldPreviewStyle, getFormFieldDisplayLabel } from '../composables/formFieldPresentation'
+import {
+  getFormFieldPreviewStyle,
+  getFormFieldTextColorStyle,
+} from '../composables/formFieldPresentation'
+import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
+import { buildTableInstanceId } from '../composables/useRowResize'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
@@ -103,21 +108,8 @@ function getRowStyle(field) {
   return getFormFieldPreviewStyle(field, '')
 }
 
-// 只读读取设计器持久化列宽；格式不合法或与当前列数不匹配时返回 null
-function readSharedRatios(formId, tableKind, expectedLength) {
-  if (formId == null || tableKind == null) return null
-  try {
-    const raw = localStorage.getItem(`crf:designer:col-widths:${formId}:${tableKind}`)
-    if (!raw) return null
-    const arr = JSON.parse(raw)
-    if (!Array.isArray(arr) || arr.length !== expectedLength) return null
-    if (!arr.every(r => Number.isFinite(r) && r >= 0.1 && r <= 0.9)) return null
-    const sum = arr.reduce((a, b) => a + b, 0)
-    if (Math.abs(sum - 1) > 1e-3) return null
-    return arr
-  } catch {
-    return null
-  }
+function getCellStyle(field) {
+  return getFormFieldTextColorStyle(field)
 }
 
 const displayFields = computed(() => {
@@ -137,11 +129,14 @@ const displayFields = computed(() => {
   return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
 })
 
-// 计算 normal 表两列比例：优先设计器保存值，否则回退 planner
-// 注意：designer 使用 `${groupIndex}-normal-2` 作为 tableKind，但 SimulatedCRFForm 无分组概念，
-// 仅尝试 `0-normal-2`（多数表单第一组即 normal 表）；命中失败即自然降级 planner。
+// 计算 normal 表两列比例：优先读取设计器当前 field-id key，旧 group-index key 仅作兼容兜底。
 const columnFractions = computed(() => {
-  const shared = readSharedRatios(props.formId, '0-normal-2', 2)
+  const shared = readColumnWidthRatiosWithFallback(
+    props.formId,
+    buildTableInstanceId('normal', displayFields.value),
+    2,
+    '0-normal-2',
+  )
   if (shared) return shared
   const fractions = planNormalColumnFractions(displayFields.value)
   return fractions.length === 2 ? fractions : [0.5, 0.5]

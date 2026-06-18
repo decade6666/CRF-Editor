@@ -151,6 +151,87 @@ def test_create_access_token_uses_configured_expire_minutes() -> None:
     assert expected_min <= payload["exp"] <= expected_max
 
 
+def test_authenticated_request_returns_refreshed_token_header(client: TestClient):
+    token = login_as(client, "alice", password="alice-pass-123")
+
+    response = client.get("/api/projects", headers=auth_headers(token))
+
+    assert response.status_code == 200, response.text
+    refreshed_token = response.headers.get("x-refreshed-token")
+    assert refreshed_token
+
+    original_payload = jwt.decode(
+        token,
+        _TEST_CONFIG.auth.secret_key,
+        algorithms=[_TEST_CONFIG.auth.algorithm],
+    )
+    refreshed_payload = jwt.decode(
+        refreshed_token,
+        _TEST_CONFIG.auth.secret_key,
+        algorithms=[_TEST_CONFIG.auth.algorithm],
+    )
+
+    assert refreshed_payload["sub"] == original_payload["sub"]
+    assert refreshed_payload["username"] == original_payload["username"]
+    assert refreshed_payload["ver"] == original_payload["ver"]
+
+
+def test_refreshed_token_is_freshly_issued(client: TestClient):
+    token = login_as(client, "alice", password="alice-pass-123")
+    original_payload = jwt.decode(
+        token,
+        _TEST_CONFIG.auth.secret_key,
+        algorithms=[_TEST_CONFIG.auth.algorithm],
+    )
+    original_expires_at = datetime.fromtimestamp(original_payload["exp"], timezone.utc)
+    refresh_now = (
+        original_expires_at
+        - timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)
+        + timedelta(seconds=5)
+    )
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return refresh_now if tz is None else refresh_now.astimezone(tz)
+
+    with patch("src.services.auth_service.datetime", FrozenDateTime):
+        response = client.get("/api/projects", headers=auth_headers(token))
+
+    assert response.status_code == 200, response.text
+    refreshed_token = response.headers.get("x-refreshed-token")
+    assert refreshed_token
+
+    refreshed_payload = jwt.decode(
+        refreshed_token,
+        _TEST_CONFIG.auth.secret_key,
+        algorithms=[_TEST_CONFIG.auth.algorithm],
+    )
+    expected_min = int(
+        (refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()
+    ) - 1
+    expected_max = int(
+        (refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()
+    ) + 1
+
+    assert refreshed_payload["exp"] > original_payload["exp"]
+    assert expected_min <= refreshed_payload["exp"] <= expected_max
+
+
+def test_unauthenticated_request_has_no_refreshed_token_header(client: TestClient):
+    response = client.get("/api/projects")
+
+    assert response.status_code == 401
+    assert "x-refreshed-token" not in response.headers
+
+
+def test_invalid_token_returns_401_without_refresh_header(client: TestClient):
+    response = client.get("/api/projects", headers=auth_headers("invalid-token"))
+
+    assert response.status_code == 401
+    assert "x-refreshed-token" not in response.headers
+
+
 def test_self_password_change_success_updates_password_and_auth_version(
     client: TestClient, engine
 ):

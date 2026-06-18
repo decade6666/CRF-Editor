@@ -1,11 +1,19 @@
 """数据库 Session 管理"""
 
 import logging
+import time
 from typing import Optional
 
 from sqlalchemy import create_engine, event, text, inspect
 
 from sqlalchemy.orm import Session
+
+from src.perf import (
+    increment_sqlite_busy_count,
+    is_perf_baseline_enabled,
+    record_sql_statement,
+    record_sqlite_busy_wait,
+)
 
 
 _FORM_FIELD_CANONICAL_COLUMNS = (
@@ -47,6 +55,36 @@ logger = logging.getLogger("src.database")
 _engine = None
 
 
+def attach_perf_sql_listeners(engine) -> None:
+
+    if getattr(engine, "_crf_perf_listeners_attached", False):
+        return
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        if not is_perf_baseline_enabled():
+            return
+        conn.info.setdefault("crf_perf_started_at", []).append(time.perf_counter())
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        if not is_perf_baseline_enabled():
+            return
+        started_stack = conn.info.get("crf_perf_started_at") or []
+        if not started_stack:
+            return
+        started_at = started_stack.pop()
+        elapsed_ms = max((time.perf_counter() - started_at) * 1000.0, 0.0)
+        try:
+            record_sql_statement(statement, elapsed_ms)
+        except Exception:
+            logger.debug("perf sql listener skipped statement aggregation", exc_info=True)
+        lowered_statement = statement.lower()
+        if "busy" in lowered_statement:
+            increment_sqlite_busy_count()
+            record_sqlite_busy_wait(elapsed_ms)
+
+    engine._crf_perf_listeners_attached = True
 
 
 
@@ -76,7 +114,7 @@ def get_engine():
 
             dbapi_conn.execute("PRAGMA synchronous=NORMAL")
 
-
+        attach_perf_sql_listeners(_engine)
 
     return _engine
 
@@ -403,6 +441,30 @@ def _migrate_add_design_notes(engine):
 
 
 
+def _migrate_add_form_paper_orientation(engine):
+
+    """给 form 表补上 paper_orientation 列，默认 'auto'。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("form"):
+
+        return
+
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("form")]
+
+        if "paper_orientation" not in cols:
+
+            conn.execute(text(
+                'ALTER TABLE "form" ADD COLUMN paper_orientation VARCHAR(16) '
+                "NOT NULL DEFAULT 'auto'"
+            ))
+
+
+
+
 
 def _migrate_add_color_mark(engine):
 
@@ -700,11 +762,12 @@ def _heal_reserved_admin_account(engine):
 
 
 
-def _warn_orphan_projects(engine):
+def _move_orphan_projects_to_recycle_bin(engine) -> None:
 
-    """检查并警告孤立项目（owner_id 为 NULL）。"""
+    """将孤立项目（owner_id 为 NULL）自动移入回收站。"""
 
     import logging
+    from datetime import datetime
 
 
 
@@ -720,11 +783,14 @@ def _warn_orphan_projects(engine):
 
     with engine.begin() as conn:
 
-        count = conn.execute(text("SELECT COUNT(*) FROM project WHERE owner_id IS NULL")).scalar()
+        result = conn.execute(
+            text("UPDATE project SET deleted_at = :now WHERE owner_id IS NULL AND deleted_at IS NULL"),
+            {"now": datetime.now()},
+        )
 
-        if count > 0:
+        if result.rowcount > 0:
 
-            logger.warning("发现 %d 个孤立项目（owner_id 为 NULL），这些项目将无法被任何用户访问", count)
+            logger.info("已将 %d 个孤立项目移入回收站", result.rowcount)
 
 
 
@@ -931,6 +997,17 @@ def _ensure_form_field_rowid_compatibility(engine):
         )
 
 
+def _migrate_add_performance_fk_indexes(engine):
+    """为高频外键列补建非唯一索引，加速 selectinload 的 IN 子查询。
+
+    纯性能结构，不改变任何查询结果或排序；幂等（IF NOT EXISTS）。
+    """
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_codelist_id ON field_definition(codelist_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_unit_id ON field_definition(unit_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
+
+
 def init_db():
 
     engine = get_engine()
@@ -944,6 +1021,8 @@ def init_db():
     _migrate_add_order_index(engine)
 
     _migrate_add_design_notes(engine)
+
+    _migrate_add_form_paper_orientation(engine)
 
     _migrate_add_color_mark(engine)
 
@@ -963,7 +1042,9 @@ def init_db():
 
     _heal_reserved_admin_account(engine)
 
-    _warn_orphan_projects(engine)
+    _move_orphan_projects_to_recycle_bin(engine)
+
+    _migrate_add_performance_fk_indexes(engine)
 
 
 

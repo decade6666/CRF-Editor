@@ -24,7 +24,10 @@ from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
 
 from src.schemas import BatchDeleteRequest
 
+from src.perf import perf_span
+
 from src.services.order_service import OrderService
+from src.models.visit_form import VisitForm
 
 
 
@@ -199,7 +202,7 @@ def reorder_visits(project_id: int, id_list: List[int], session: Session = Depen
 
 def copy_visit(visit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
-    """复制访视，name 加 _copy 后缀（冲突时追加数字），sequence 取当前最大值+1"""
+    """复制访视，name 加 _copy 后缀（冲突时追加数字），并复制访视内表单关联。"""
 
     from sqlalchemy import select
 
@@ -233,7 +236,26 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
 
     new_visit = Visit(project_id=src.project_id, name=candidate, code=generate_code("VISIT"), sequence=OrderService.get_next_sequence(session, Visit, Visit.project_id == src.project_id))
 
-    return repo.create(new_visit)
+    created_visit = repo.create(new_visit)
+
+    source_visit_forms = list(
+        session.scalars(
+            select(VisitForm)
+            .where(VisitForm.visit_id == src.id)
+            .order_by(VisitForm.sequence, VisitForm.id)
+        ).all()
+    )
+    for source_visit_form in source_visit_forms:
+        session.add(
+            VisitForm(
+                visit_id=created_visit.id,
+                form_id=source_visit_form.form_id,
+                sequence=source_visit_form.sequence,
+            )
+        )
+
+    session.flush()
+    return created_visit
 
 
 
@@ -383,21 +405,24 @@ def reorder_visit_forms(
         raise HTTPException(404, "访视不存在")
     verify_project_owner(visit.project_id, current_user, session)
 
-    visit_forms = list(
-        session.scalars(
-            select(VisitForm)
-            .where(VisitForm.visit_id == visit_id)
-            .order_by(VisitForm.sequence, VisitForm.id)
-        ).all()
-    )
-    valid_form_ids = {item.form_id for item in visit_forms}
-    if not id_list:
-        raise HTTPException(400, "ID 列表不能为空")
-    request_form_id_set = set(id_list)
-    if len(request_form_id_set) != len(id_list):
-        raise HTTPException(400, "ID 列表包含重复项")
-    if request_form_id_set != valid_form_ids:
-        raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
+    with perf_span("order_scope_load"):
+        visit_forms = list(
+            session.scalars(
+                select(VisitForm)
+                .where(VisitForm.visit_id == visit_id)
+                .order_by(VisitForm.sequence, VisitForm.id)
+            ).all()
+        )
+        valid_form_ids = {item.form_id for item in visit_forms}
+
+    with perf_span("order_validate"):
+        if not id_list:
+            raise HTTPException(400, "ID 列表不能为空")
+        request_form_id_set = set(id_list)
+        if len(request_form_id_set) != len(id_list):
+            raise HTTPException(400, "ID 列表包含重复项")
+        if request_form_id_set != valid_form_ids:
+            raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
 
     visit_form_by_form_id = {item.form_id: item for item in visit_forms}
     ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in id_list]
@@ -432,4 +457,3 @@ def remove_visit_form(visit_id: int, form_id: int, session: Session = Depends(ge
     if vf:
 
         OrderService.delete_and_compact_sequence(session, VisitForm, VisitForm.visit_id == visit_id, vf)
-

@@ -13,9 +13,11 @@ import tempfile
 
 from pathlib import Path
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import html
+
+from src.perf import perf_span, record_counter
 
 
 
@@ -99,11 +101,16 @@ from docx import Document
 
 from docx.shared import Pt, RGBColor, Inches, Cm
 
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.enum.text import (
+    WD_ALIGN_PARAGRAPH,
+    WD_LINE_SPACING,
+    WD_TAB_ALIGNMENT,
+    WD_TAB_LEADER,
+)
 
 from docx.enum.section import WD_SECTION, WD_ORIENT
 
-from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT, WD_ROW_HEIGHT_RULE
 
 from docx.oxml.ns import qn
 
@@ -157,6 +164,10 @@ class LayoutDecision:
 
     value_span: int  # value 区合并列数
 
+    force_landscape: bool = False  # paper_orientation='landscape' 强制覆写：legacy 模式下切横向
+
+    force_portrait: bool = False   # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
+
 
 
 
@@ -189,6 +200,18 @@ class ExportService:
 
     FONT_ASCII = "Times New Roman"
 
+    PORTRAIT_CONTENT_WIDTH_CM = 14.66
+
+    LANDSCAPE_CONTENT_WIDTH_CM = 23.36
+    FORM_TABLE_ROW_HEIGHT_CM = 1
+    SINGLE_LINE_HEIGHT_PT = 15.6
+    CELL_VPAD_PT = (FORM_TABLE_ROW_HEIGHT_CM * 28.3465 - SINGLE_LINE_HEIGHT_PT) / 2
+
+    # 纵向选项之间的段前间距（pt）。跨栈契约：与前端 main.css
+    # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
+    # 保证 Word 预览与导出文档的纵向选项间距一致。
+    VERTICAL_OPTION_GAP_PT = 3
+
 
 
     def __init__(self, session: Session):
@@ -197,6 +220,103 @@ class ExportService:
 
         self.project_repo = ProjectRepository(session)
 
+        self._toc_entries: list[tuple[str, int, str]] = []
+
+        self._toc_field_paragraph: Any = None
+
+        self._toc_bookmark_counter: int = 0
+
+        # 标题文本 -> 该条目页码占位 w:t 元素列表，供服务器侧写死真实页码
+
+        self._toc_pageref_values: Dict[str, list] = {}
+
+
+
+    def _apply_exact_line_spacing(self, paragraph: Any) -> None:
+
+        """将单元格段落行距固定到 Word 网格单行高度。"""
+
+        paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+
+        paragraph.paragraph_format.line_spacing = Pt(self.SINGLE_LINE_HEIGHT_PT)
+
+
+
+    def _disable_snap_to_grid(self, paragraph: Any) -> None:
+        """关闭该段落的行网格吸附（snapToGrid=0）。
+
+        文档启用了 w:docGrid（type=lines，linePitch=312，即 15.6pt 行网格），
+        而 Word 默认 snapToGrid=1 会把段落的 space_before 吸附到整行网格。
+        纵向选项首项 space_before=0（正好落在网格线上）与其余项 space_before=3pt
+        （被吸附到下一条网格线）由此在 Word 中呈现为“首项到第二项间距偏大”，
+        而段落里存储的间距其实是一致的 3pt。
+
+        显式写入 snapToGrid=0，让 EXACTLY 15.6pt 行距与精确段前间距被原样呈现，
+        使同一单元格内每个纵向选项之间的间距保持一致。
+        """
+        pPr = paragraph._p.get_or_add_pPr()
+        snap = pPr.find(qn("w:snapToGrid"))
+        if snap is None:
+            snap = OxmlElement("w:snapToGrid")
+            # snapToGrid 在 CT_PPr 中须排在以下元素之前；按合法顺序插入，
+            # 无论段落是否已有 spacing/ind/jc 等都能得到合法 XML。
+            pPr.insert_element_before(
+                snap,
+                "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents",
+                "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment",
+                "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle",
+                "w:rPr", "w:sectPr", "w:pPrChange",
+            )
+        snap.set(qn("w:val"), "0")
+
+
+
+    def _enable_update_fields_on_open(self, doc: Document) -> None:
+        """启用 Word 打开文档时更新域，用于刷新预渲染目录的 PAGEREF 页码。
+
+        目录条目已在导出阶段预渲染，updateFields 只承担"页码精确化"提示，
+        不再负责生成整份目录。按 OOXML CT_Settings 顺序，w:updateFields 必须
+        位于 compat/rsids/mathPr 等元素之前，故插入到首个此类锚点之前；
+        无锚点时再追加到末尾。
+        """
+        settings = doc.settings.element
+        update_fields = settings.find(qn("w:updateFields"))
+        if update_fields is None:
+            update_fields = OxmlElement("w:updateFields")
+            anchor = None
+            for tag in ("w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr",
+                        "w:compat", "w:rsids", "w:mathPr"):
+                anchor = settings.find(qn(tag))
+                if anchor is not None:
+                    break
+            if anchor is not None:
+                anchor.addprevious(update_fields)
+            else:
+                settings.append(update_fields)
+        update_fields.set(qn("w:val"), "true")
+
+
+
+    def _apply_cell_paragraph_metrics(
+        self,
+        paragraph: Any,
+        *,
+        space_before: bool = True,
+        space_after: bool = True,
+    ) -> None:
+
+        """应用单行 1cm 所需的单元格段落间距与固定行距。"""
+
+        if space_before:
+
+            paragraph.paragraph_format.space_before = Pt(self.CELL_VPAD_PT)
+
+        if space_after:
+
+            paragraph.paragraph_format.space_after = Pt(self.CELL_VPAD_PT)
+
+        self._apply_exact_line_spacing(paragraph)
+
 
 
     def export_project_to_word(
@@ -204,6 +324,7 @@ class ExportService:
         project_id: int,
         output_path: str,
         column_width_overrides: Optional[Dict] = None,
+        bake_toc_page_numbers: bool = False,
     ) -> bool:
 
         """导出项目到 Word 文档
@@ -211,32 +332,52 @@ class ExportService:
         Args:
             project_id: 项目 ID
             output_path: 输出文件路径
-            column_width_overrides: 列宽覆盖参数，格式：
+            column_width_overrides: 列宽覆盖参数，支持两种格式：
+                { "inline:fieldIds=1,2,3": [0.5, 0.3, 0.2] }
                 { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
                 fraction 值为 0.0~1.0，表示该列占总宽度的比例
+            bake_toc_page_numbers: 是否在导出后用 LibreOffice 渲染算出真实页码写回
+                目录（仅服务器侧、LibreOffice 可用时生效；失败自动回退 Word 更新域）。
         """
 
         try:
 
+            # 重置目录收集状态，避免实例复用时跨导出累积
+
+            self._toc_entries = []
+
+            self._toc_field_paragraph = None
+
+            self._toc_bookmark_counter = 0
+
+            self._toc_pageref_values = {}
+
             # 一次性 eager load 完整关系树，消除导出链路上的 N+1 查询
 
-            project = self.project_repo.get_with_full_tree(project_id)
+            with perf_span("project_tree_load"):
+                project = self.project_repo.get_with_full_tree(project_id)
 
             if not project:
 
                 return False
 
+            forms_count = len(getattr(project, "forms", []) or [])
+            fields_count = sum(len(getattr(form, "form_fields", []) or []) for form in getattr(project, "forms", []) or [])
+            record_counter("forms_count", forms_count)
+            record_counter("fields_count", fields_count)
+
             # 存储列宽覆盖供后续使用
             self._column_width_overrides = column_width_overrides or {}
 
             # 创建 Word 文档
-            doc = Document()
+            with perf_span("docx_generate"):
+                doc = Document()
 
+                # 统一文档字体和样式
 
+                self._apply_document_style(doc)
 
-            # 统一文档字体和样式
-
-            self._apply_document_style(doc)
+                self._enable_update_fields_on_open(doc)
 
 
 
@@ -318,11 +459,21 @@ class ExportService:
 
             self._add_forms_content(doc, project)
 
+            # 6. 写入 TOC 预渲染条目（依赖 _add_toc_heading 收集结果）
+
+            self._populate_toc(doc)
+
 
 
             # 保存文档
 
-            doc.save(output_path)
+            with perf_span("file_response_prepare"):
+                doc.save(output_path)
+
+            # 服务器侧用 LibreOffice 渲染算出真实页码写回目录（失败自动回退）
+
+            if bake_toc_page_numbers:
+                self._bake_toc_page_numbers(doc, output_path)
 
             return True
 
@@ -474,7 +625,7 @@ class ExportService:
 
             row = table.rows[row_idx]
 
-            row.height = Cm(1)
+            self._apply_exact_row_height(row)
 
             left_cell = table.cell(row_idx, 0)
 
@@ -500,9 +651,7 @@ class ExportService:
 
                 for cp in cell.paragraphs:
 
-                    cp.paragraph_format.space_after = Pt(0)
-
-                    cp.paragraph_format.line_spacing = 1.0
+                    self._apply_cell_paragraph_metrics(cp)
 
 
 
@@ -702,7 +851,12 @@ class ExportService:
 
     def _add_toc_placeholder(self, doc: Document):
 
-        """添加目录占位符"""
+        """添加"目录"标题段并记录锚点。
+
+        TOC 域指令（begin/instrText/separate）与预渲染条目由 ``_populate_toc``
+        在正文渲染完成后写入：域起始合入第一条条目、域 end 合入最后一条条目。
+        标题段后不再插入空行或空的域壳段，故标题与首条目录之间无空行。
+        """
 
         # 目录标题：宋体、小四(12pt)、加粗、居中
 
@@ -714,37 +868,487 @@ class ExportService:
 
         p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
+        # 记录锚点：预渲染条目紧接标题段之后插入（中间不留空行）
 
-
-        # 添加一个空行
-
-        doc.add_paragraph()
+        self._toc_field_paragraph = p_title
 
 
 
-        p = doc.add_paragraph()
+    def _add_toc_heading(self, doc: Document, text: str, level: int = 1):
 
-        run = p.add_run()
+        """添加标题段落并注册 TOC 条目。
 
-        fldChar1 = OxmlElement('w:fldChar')
+        为标题插入唯一名 ``_Toc%08d`` 书签，并记录标题文本、层级与书签名
+        到 ``_toc_entries`` 供 ``_populate_toc`` 生成预渲染条目。
+        """
 
-        fldChar1.set(qn('w:fldCharType'), 'begin')
+        self._toc_bookmark_counter += 1
 
-        run._r.append(fldChar1)
+        bookmark_name = f"_Toc{self._toc_bookmark_counter:08d}"
 
-        instrText = OxmlElement('w:instrText')
+        heading_para = doc.add_heading(text, level=level)
 
-        instrText.set(qn('xml:space'), 'preserve')
+        # 在标题段落中插入 bookmarkStart / bookmarkEnd。
+        # OOXML 要求 w:pPr 排在 EG_PContent 之前，因此 bookmarkStart
+        # 须插在 pPr 之后（若有 pPr 则 index=1，否则 index=0）。
 
-        instrText.text = 'TOC \\o "1-3" \\h \\z \\u'
+        p_element = heading_para._p
 
-        run._r.append(instrText)
+        bm_start = OxmlElement("w:bookmarkStart")
 
-        fldChar2 = OxmlElement('w:fldChar')
+        bm_start.set(qn("w:id"), str(self._toc_bookmark_counter))
 
-        fldChar2.set(qn('w:fldCharType'), 'end')
+        bm_start.set(qn("w:name"), bookmark_name)
 
-        run._r.append(fldChar2)
+        bm_end = OxmlElement("w:bookmarkEnd")
+
+        bm_end.set(qn("w:id"), str(self._toc_bookmark_counter))
+
+        pPr = p_element.find(qn("w:pPr"))
+
+        insert_idx = 1 if pPr is not None else 0
+
+        p_element.insert(insert_idx, bm_start)
+
+        # bookmarkEnd 紧跟在最后一个 run/rPr 等内容元素之后
+
+        last_content = None
+
+        for child in p_element:
+
+            if child.tag not in (qn("w:bookmarkStart"), qn("w:pPr")):
+
+                last_content = child
+
+        if last_content is not None:
+
+            last_content.addnext(bm_end)
+
+        else:
+
+            p_element.append(bm_end)
+
+        for run in heading_para.runs:
+
+            self._set_run_font(run)
+
+        self._toc_entries.append((text, level, bookmark_name))
+
+
+
+    def _apply_raw_run_font(self, rpr, size_half_pt: int = 21) -> None:
+
+        """为裸 ``w:r`` 的 ``rPr`` 写入中英文字体与字号（单位：半点，21=10.5pt）。
+
+        预渲染目录条目用裸 OxmlElement 构建，无法复用 ``_set_run_font``；显式写入
+        rFonts/sz 保证目录与正文同为宋体，避免回退默认字体导致"排版不像目录"。
+        """
+
+        rFonts = OxmlElement("w:rFonts")
+
+        rFonts.set(qn("w:ascii"), self.FONT_ASCII)
+
+        rFonts.set(qn("w:hAnsi"), self.FONT_ASCII)
+
+        rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
+
+        rpr.append(rFonts)
+
+        sz = OxmlElement("w:sz")
+
+        sz.set(qn("w:val"), str(size_half_pt))
+
+        rpr.append(sz)
+
+        szCs = OxmlElement("w:szCs")
+
+        szCs.set(qn("w:val"), str(size_half_pt))
+
+        rpr.append(szCs)
+
+
+
+    def _ensure_toc_styles(self, doc: Document) -> None:
+
+        """确保 styles.xml 定义 TOC1/TOC2/TOC3 段落样式（幂等）。
+
+        预渲染条目引用这些样式；缺失时 Word 回退默认字体，使目录与正文宋体
+        不一致。注入后预渲染条目与 Word 更新域后重生成的目录均使用宋体。
+        """
+
+        styles_el = doc.styles.element
+
+        existing = {
+
+            s.get(qn("w:styleId"))
+
+            for s in styles_el.findall(qn("w:style"))
+
+        }
+
+        for level in (1, 2, 3):
+
+            style_id = f"TOC{level}"
+
+            if style_id in existing:
+
+                continue
+
+            style = OxmlElement("w:style")
+
+            style.set(qn("w:type"), "paragraph")
+
+            style.set(qn("w:styleId"), style_id)
+
+            name = OxmlElement("w:name")
+
+            name.set(qn("w:val"), f"toc {level}")
+
+            style.append(name)
+
+            based_on = OxmlElement("w:basedOn")
+
+            based_on.set(qn("w:val"), "Normal")
+
+            style.append(based_on)
+
+            next_style = OxmlElement("w:next")
+
+            next_style.set(qn("w:val"), "Normal")
+
+            style.append(next_style)
+
+            ui_priority = OxmlElement("w:uiPriority")
+
+            ui_priority.set(qn("w:val"), "39")
+
+            style.append(ui_priority)
+
+            pPr = OxmlElement("w:pPr")
+
+            spacing = OxmlElement("w:spacing")
+
+            spacing.set(qn("w:after"), "100")
+
+            pPr.append(spacing)
+
+            if level > 1:
+
+                ind = OxmlElement("w:ind")
+
+                ind.set(qn("w:left"), str((level - 1) * 420))
+
+                pPr.append(ind)
+
+            tabs = OxmlElement("w:tabs")
+
+            tab = OxmlElement("w:tab")
+
+            tab.set(qn("w:val"), "right")
+
+            tab.set(qn("w:leader"), "dot")
+
+            tab.set(qn("w:pos"), "8306")
+
+            tabs.append(tab)
+
+            pPr.append(tabs)
+
+            style.append(pPr)
+
+            rPr = OxmlElement("w:rPr")
+
+            self._apply_raw_run_font(rPr)
+
+            style.append(rPr)
+
+            styles_el.append(style)
+
+
+
+    def _build_toc_entry(self, heading_text: str, level: int, bookmark_name: str, with_field_start: bool):
+
+        """构建一条预渲染目录条目段落（``w:p``）。
+
+        ``with_field_start=True`` 时在条目最前合入外层 TOC 域起始
+        （begin(dirty) → instrText → separate），使第一条条目成为域结果起点，
+        标题段与目录之间不留空行；外层 ``end`` 由调用方合入最后一条条目。
+        """
+
+        entry = OxmlElement("w:p")
+
+        pPr = OxmlElement("w:pPr")
+
+        pStyle = OxmlElement("w:pStyle")
+
+        pStyle.set(qn("w:val"), f"TOC{level}")
+
+        pPr.append(pStyle)
+
+        tabs = OxmlElement("w:tabs")
+
+        tab_el = OxmlElement("w:tab")
+
+        tab_el.set(qn("w:val"), "right")
+
+        tab_el.set(qn("w:leader"), "dot")
+
+        tab_el.set(qn("w:pos"), "8306")
+
+        tabs.append(tab_el)
+
+        pPr.append(tabs)
+
+        indent = OxmlElement("w:ind")
+
+        indent.set(qn("w:left"), str((level - 1) * 440))
+
+        pPr.append(indent)
+
+        entry.append(pPr)
+
+        # 外层 TOC 域起始合入首条条目：begin(dirty) → instrText → separate
+
+        if with_field_start:
+
+            toc_begin = OxmlElement("w:r")
+
+            toc_begin_fc = OxmlElement("w:fldChar")
+
+            toc_begin_fc.set(qn("w:fldCharType"), "begin")
+
+            toc_begin_fc.set(qn("w:dirty"), "1")
+
+            toc_begin.append(toc_begin_fc)
+
+            entry.append(toc_begin)
+
+            toc_instr_run = OxmlElement("w:r")
+
+            toc_instr = OxmlElement("w:instrText")
+
+            toc_instr.set(qn("xml:space"), "preserve")
+
+            toc_instr.text = 'TOC \\o "1-3" \\h \\z \\u'
+
+            toc_instr_run.append(toc_instr)
+
+            entry.append(toc_instr_run)
+
+            toc_sep = OxmlElement("w:r")
+
+            toc_sep_fc = OxmlElement("w:fldChar")
+
+            toc_sep_fc.set(qn("w:fldCharType"), "separate")
+
+            toc_sep.append(toc_sep_fc)
+
+            entry.append(toc_sep)
+
+        # 书签超链接（点击跳转），文本写入宋体保持与正文一致
+
+        hl = OxmlElement("w:hyperlink")
+
+        hl.set(qn("w:anchor"), bookmark_name)
+
+        hl.set(qn("w:history"), "1")
+
+        hl_run = OxmlElement("w:r")
+
+        hl_rPr = OxmlElement("w:rPr")
+
+        self._apply_raw_run_font(hl_rPr)
+
+        hl_run.append(hl_rPr)
+
+        hl_t = OxmlElement("w:t")
+
+        hl_t.set(qn("xml:space"), "preserve")
+
+        hl_t.text = heading_text
+
+        hl_run.append(hl_t)
+
+        hl.append(hl_run)
+
+        entry.append(hl)
+
+        # 右对齐点引导 tab 分隔符
+
+        tab_run = OxmlElement("w:r")
+
+        tab_run.append(OxmlElement("w:tab"))
+
+        entry.append(tab_run)
+
+        # PAGEREF 域：页码占位留空，Word 更新域后填充
+
+        begin_run = OxmlElement("w:r")
+
+        begin_fc = OxmlElement("w:fldChar")
+
+        begin_fc.set(qn("w:fldCharType"), "begin")
+
+        begin_fc.set(qn("w:dirty"), "1")
+
+        begin_run.append(begin_fc)
+
+        entry.append(begin_run)
+
+        instr_run = OxmlElement("w:r")
+
+        instr = OxmlElement("w:instrText")
+
+        instr.set(qn("xml:space"), "preserve")
+
+        instr.text = f"PAGEREF {bookmark_name} \\h"
+
+        instr_run.append(instr)
+
+        entry.append(instr_run)
+
+        sep_run = OxmlElement("w:r")
+
+        sep_fc = OxmlElement("w:fldChar")
+
+        sep_fc.set(qn("w:fldCharType"), "separate")
+
+        sep_run.append(sep_fc)
+
+        entry.append(sep_run)
+
+        val_run = OxmlElement("w:r")
+
+        val_rPr = OxmlElement("w:rPr")
+
+        self._apply_raw_run_font(val_rPr)
+
+        val_run.append(val_rPr)
+
+        val_t = OxmlElement("w:t")
+
+        val_t.set(qn("xml:space"), "preserve")
+
+        val_t.text = ""
+
+        val_run.append(val_t)
+
+        entry.append(val_run)
+
+        # 记录页码占位元素，供服务器侧 LibreOffice 渲染后写死真实页码
+
+        self._toc_pageref_values.setdefault(heading_text, []).append(val_t)
+
+        end_run = OxmlElement("w:r")
+
+        end_fc = OxmlElement("w:fldChar")
+
+        end_fc.set(qn("w:fldCharType"), "end")
+
+        end_run.append(end_fc)
+
+        entry.append(end_run)
+
+        return entry
+
+
+
+    def _populate_toc(self, doc: Document):
+
+        """在"目录"标题之后写入预渲染目录条目，并以外层 TOC 域收尾。
+
+        需在所有 ``_add_toc_heading`` 调用完成后执行（即 ``_add_forms_content``
+        之后）。第一条条目合入 TOC 域起始（begin/instrText/separate），最后一条
+        条目合入外层 ``end``，使所有条目成为 ``separate`` 与 ``end`` 之间的域结果：
+        零点击即可见条目、Word 更新域时整体替换不重复，且"目录"标题与条目间无空行。
+        """
+
+        anchor = self._toc_field_paragraph
+
+        if anchor is None or not self._toc_entries:
+
+            return
+
+        # 确保 TOC1/2/3 样式存在，使预渲染条目与重生成目录字体一致（宋体）
+
+        self._ensure_toc_styles(doc)
+
+        # 条目紧接"目录"标题段插入；首条合入 TOC 域起始，逐条 addnext 顺序排列
+
+        anchor_el = anchor._p
+
+        last_entry_el = None
+
+        for index, (heading_text, level, bookmark_name) in enumerate(self._toc_entries):
+
+            entry_el = self._build_toc_entry(
+
+                heading_text, level, bookmark_name, with_field_start=(index == 0)
+
+            )
+
+            anchor_el.addnext(entry_el)
+
+            anchor_el = entry_el
+
+            last_entry_el = entry_el
+
+        # 外层 TOC 域 end 合入最后一条条目末尾，闭合 separate→end 域结果
+
+        toc_end_run = OxmlElement("w:r")
+
+        toc_end_fc = OxmlElement("w:fldChar")
+
+        toc_end_fc.set(qn("w:fldCharType"), "end")
+
+        toc_end_run.append(toc_end_fc)
+
+        last_entry_el.append(toc_end_run)
+
+
+
+    def _bake_toc_page_numbers(self, doc: Document, output_path: str) -> None:
+
+        """服务器侧用 LibreOffice 渲染算出真实页码并写回目录 PAGEREF 占位。
+
+        仅当 LibreOffice 可用且渲染成功时生效；否则保留空占位，由 Word 更新域
+        填充。PAGEREF 域与 ``updateFields=true`` 始终保留，Word 仍可按自身分页
+        再校正（LibreOffice 与 Word 分页可能差一页）。
+        """
+
+        if not self._toc_pageref_values:
+
+            return
+
+        from src.services import toc_pagination
+
+        with perf_span("toc_page_bake"):
+
+            pages = toc_pagination.compute_heading_pages(output_path)
+
+        if not pages:
+
+            return
+
+        updated = False
+
+        for heading_text, value_elements in self._toc_pageref_values.items():
+
+            page = pages.get(heading_text)
+
+            if page is None:
+
+                continue
+
+            for val_t in value_elements:
+
+                val_t.text = str(page)
+
+                updated = True
+
+        if updated:
+
+            doc.save(output_path)
 
 
 
@@ -752,11 +1356,7 @@ class ExportService:
 
         """添加访视流程图"""
 
-        heading_para = doc.add_heading("表单访视分布图", level=1)
-
-        for run in heading_para.runs:
-
-            self._set_run_font(run)
+        self._add_toc_heading(doc, "表单访视分布图", level=1)
 
 
 
@@ -797,6 +1397,8 @@ class ExportService:
         table = doc.add_table(rows=row_count, cols=col_count)
 
         self._apply_grid_table_style(table)
+        for row in table.rows:
+            self._apply_exact_row_height(row)
 
         header_tr = table.rows[0]._tr
         tr_pr = header_tr.trPr
@@ -923,7 +1525,9 @@ class ExportService:
 
             form_fields = sorted(form.form_fields, key=lambda ff: (ff.order_index, ff.id))
 
-            layout = self._classify_form_layout(form_fields)
+            paper_orientation = getattr(form, "paper_orientation", "auto") or "auto"
+
+            layout = self._classify_form_layout(form_fields, paper_orientation=paper_orientation)
 
             is_last_form = idx == total_forms
 
@@ -933,11 +1537,7 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
-
-                for run in heading_para.runs:
-
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
                 groups = self._group_form_fields(form_fields)
 
@@ -955,15 +1555,31 @@ class ExportService:
 
                     if first_field.inline_mark == 1:
 
-                        self._add_inline_table(doc, group, True, form_id=form.id)
+                        self._add_inline_table(
+                            doc,
+                            group,
+                            True,
+                            form_id=form.id,
+                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                        )
 
                     else:
 
-                        self._build_form_table(doc, group, form_id=form.id)
+                        self._build_form_table(
+                            doc,
+                            group,
+                            form_id=form.id,
+                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                        )
 
                 if not groups:
 
-                    self._build_form_table(doc, [], form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        [],
+                        form_id=form.id,
+                        available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                    )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -977,15 +1593,17 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
-
-                for run in heading_para.runs:
-
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
                 segments = self._build_unified_segments(form_fields)
 
-                self._build_unified_table(doc, segments, layout, form_id=form.id)
+                self._build_unified_table(
+                    doc,
+                    segments,
+                    layout,
+                    form_id=form.id,
+                    available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
@@ -999,11 +1617,11 @@ class ExportService:
 
                 # legacy 路径（保持现有行为）
 
-                heading_para = doc.add_heading(f"{idx}. {form.name}", level=1)
+                if layout.force_landscape:
 
-                for run in heading_para.runs:
+                    self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                    self._set_run_font(run)
+                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
 
 
 
@@ -1027,19 +1645,30 @@ class ExportService:
 
                     if first_field.inline_mark == 1:
 
-                        is_wide = len(group) > 4
+                        needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
 
-                        if is_wide:
+                        if needs_temporary_landscape and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
 
 
-                        self._add_inline_table(doc, group, is_wide, form_id=form.id)
+                        inline_available_cm = (
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape or needs_temporary_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        )
+                        self._add_inline_table(
+                            doc,
+                            group,
+                            needs_temporary_landscape,
+                            form_id=form.id,
+                            available_cm=inline_available_cm,
+                        )
 
 
 
-                        if is_wide:
+                        if needs_temporary_landscape and not layout.force_landscape:
 
                             self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
@@ -1047,20 +1676,44 @@ class ExportService:
 
 
 
-                    self._build_form_table(doc, group, form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        group,
+                        form_id=form.id,
+                        available_cm=(
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        ),
+                    )
 
 
 
                 if not groups:
-                    self._build_form_table(doc, [], form_id=form.id)
+                    self._build_form_table(
+                        doc,
+                        [],
+                        form_id=form.id,
+                        available_cm=(
+                            self.LANDSCAPE_CONTENT_WIDTH_CM
+                            if layout.force_landscape
+                            else self.PORTRAIT_CONTENT_WIDTH_CM
+                        ),
+                    )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
-                # 仅当后续还有表单时才分页，避免末尾空白页
+                # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
 
                 if not is_last_form:
 
-                    doc.add_page_break()
+                    if layout.force_landscape:
+
+                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+                    else:
+
+                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
 
 
@@ -1144,60 +1797,76 @@ class ExportService:
         field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, 'id') and f.id is not None]
         return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
-    def _classify_form_layout(self, form_fields) -> LayoutDecision:
+    def _classify_form_layout(self, form_fields, paper_orientation: str = "auto") -> LayoutDecision:
         """判断表单是否需要走统一横向布局（unified landscape）。
 
 
 
         触发条件：同时存在普通字段和 inline 字段，且最大 inline block 宽度 > 4。
 
+        paper_orientation 覆写：
+            - 'landscape'：自动判定为 legacy 时附加 force_landscape 标记，强制切横向。
+            - 'portrait' ：强制 legacy 并附加 force_portrait，抑制 inline 宽表的自动横向切换。
+            - 'auto'    ：维持原有自动判定。
         """
 
         if not form_fields:
 
-            return LayoutDecision("legacy", 0, 0, 0)
+            decision = LayoutDecision("legacy", 0, 0, 0)
+
+        else:
+
+            sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
+
+            has_regular = any(f.inline_mark == 0 for f in sorted_fields)
 
 
 
-        sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
+            # 计算连续 inline block 的最大宽度
 
-        has_regular = any(f.inline_mark == 0 for f in sorted_fields)
+            max_block_width = 0
+
+            current_block_width = 0
+
+            for f in sorted_fields:
+
+                if f.inline_mark == 1:
+
+                    current_block_width += 1
+
+                else:
+
+                    max_block_width = max(max_block_width, current_block_width)
+
+                    current_block_width = 0
+
+            max_block_width = max(max_block_width, current_block_width)
 
 
 
-        # 计算连续 inline block 的最大宽度
+            has_inline = max_block_width > 0
 
-        max_block_width = 0
+            if has_regular and has_inline and max_block_width > 4:
 
-        current_block_width = 0
+                N = max_block_width
 
-        for f in sorted_fields:
-
-            if f.inline_mark == 1:
-
-                current_block_width += 1
+                decision = LayoutDecision("mixed_landscape", N, 0, 0)
 
             else:
 
-                max_block_width = max(max_block_width, current_block_width)
-
-                current_block_width = 0
-
-        max_block_width = max(max_block_width, current_block_width)
+                decision = LayoutDecision("legacy", 0, 0, 0)
 
 
 
-        has_inline = max_block_width > 0
+        if paper_orientation == "portrait":
 
-        if has_regular and has_inline and max_block_width > 4:
+            return LayoutDecision("legacy", 0, 0, 0, force_portrait=True)
 
-            N = max_block_width
+        if paper_orientation == "landscape" and decision.mode == "legacy":
 
-            return LayoutDecision("mixed_landscape", N, 0, 0)
+            return LayoutDecision("legacy", 0, 0, 0, force_landscape=True)
 
-
-
-        return LayoutDecision("legacy", 0, 0, 0)
+        return decision
 
 
 
@@ -1321,11 +1990,20 @@ class ExportService:
 
 
 
-    def _build_unified_table(self, doc: Document, segments, layout: LayoutDecision, form_id=None):
+    def _build_unified_table(
+        self,
+        doc: Document,
+        segments,
+        layout: LayoutDecision,
+        form_id=None,
+        *,
+        available_cm: float = LANDSCAPE_CONTENT_WIDTH_CM,
+    ):
         """创建 unified landscape 表格并按片段顺序渲染。
 
         Args:
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         N = layout.column_count
         table = doc.add_table(rows=1, cols=N)
@@ -1363,13 +2041,12 @@ class ExportService:
         )
         if overrides:
             # 直接使用覆盖的 fraction 转换为 cm
-            total_cm = 23.36
-            col_widths = [overrides[i] * total_cm for i in range(N)]
+            col_widths = [overrides[i] * available_cm for i in range(N)]
         else:
             # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
             col_widths = plan_unified_table_width(
                 segment_data,
-                23.36,
+                available_cm,
                 column_count=N,
                 block_demands=all_block_demands,
                 regular_field_demands=regular_field_demands,
@@ -1377,14 +2054,15 @@ class ExportService:
 
         if col_widths and len(col_widths) == N:
             # 应用规划的列宽
-            for col_idx, col in enumerate(table.columns):
-                col.width = Cm(col_widths[col_idx])
+            final_col_widths = [Cm(col_widths[col_idx]) for col_idx in range(N)]
         else:
             # 回退到等宽分配
-            avail = Cm(23.36)
+            avail = Cm(available_cm)
             col_w = int(avail / N)
-            for col in table.columns:
-                col.width = col_w
+            final_col_widths = [col_w] * N
+
+        for col_idx, col in enumerate(table.columns):
+            col.width = final_col_widths[col_idx]
 
         table._tbl.remove(table.rows[0]._tr)
 
@@ -1405,6 +2083,14 @@ class ExportService:
                 self._add_unified_inline_band(table, segment.fields, N)
 
 
+
+        # 行添加完成后，同步 cell 的 tcW，避免 python-docx 默认 1234 twips 覆盖 gridCol
+        # 让 Word 渲染时 col 与 cell 宽度对齐（与 _add_inline_table 同等契约）。
+        for col_idx, col in enumerate(table.columns):
+            if col_idx >= len(final_col_widths):
+                break
+            for cell in col.cells:
+                cell.width = final_col_widths[col_idx]
 
         self._apply_grid_table_style(table)
 
@@ -1427,6 +2113,7 @@ class ExportService:
         N = layout.column_count
 
         row = table.add_row()
+        self._apply_exact_row_height(row)
 
         left_cell = row.cells[0]
 
@@ -1454,11 +2141,7 @@ class ExportService:
 
         self._set_run_font(left_run, size=Pt(10.5), bold=True)
 
-        left_para.paragraph_format.space_before = Pt(5.25)
-
-        left_para.paragraph_format.space_after = Pt(5.25)
-
-        left_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(left_para)
 
         left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -1508,19 +2191,15 @@ class ExportService:
 
 
 
-        if not is_vertical_choice:
-
-            right_para.paragraph_format.space_before = Pt(5.25)
-
-        right_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_para, space_before=not is_vertical_choice, space_after=False
+        )
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        if not is_vertical_choice:
-
-            right_cell.paragraphs[-1].paragraph_format.space_after = Pt(5.25)
-
-        right_cell.paragraphs[-1].paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
+        )
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
@@ -1551,6 +2230,7 @@ class ExportService:
         """在 unified table 中添加全宽行。"""
 
         row = table.add_row()
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0]
 
@@ -1576,11 +2256,7 @@ class ExportService:
 
             self._set_run_font(run, size=Pt(10.5), bold=True)
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -1606,11 +2282,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5))
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -1645,6 +2317,7 @@ class ExportService:
 
 
         header_row = table.add_row()
+        self._apply_exact_row_height(header_row)
 
         start_col = 0
 
@@ -1666,11 +2339,7 @@ class ExportService:
 
             self._set_run_font(run, size=Pt(10.5), bold=True)
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -1685,6 +2354,7 @@ class ExportService:
         for row_values_item in row_values:
 
             data_row = table.add_row()
+            self._apply_exact_row_height(data_row)
 
             start_col = 0
 
@@ -1706,6 +2376,16 @@ class ExportService:
 
 
 
+                is_vertical_choice = (
+
+                    cell_value is None
+
+                    and field_def
+
+                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
+
+                )
+
                 if cell_value is not None:
 
                     run = para.add_run(cell_value)
@@ -1714,7 +2394,7 @@ class ExportService:
 
                 elif field_def:
 
-                    if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+                    if is_vertical_choice:
 
                         self._render_vertical_choices(cell, field_def)
 
@@ -1730,11 +2410,9 @@ class ExportService:
 
 
 
-                para.paragraph_format.space_before = Pt(5.25)
-
-                para.paragraph_format.space_after = Pt(5.25)
-
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_cell_paragraph_metrics(
+                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
+                )
 
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -1766,7 +2444,7 @@ class ExportService:
 
     def _group_form_fields(self, form_fields):
 
-        """按普通字段组与 inline 组拆分表单字段。非 inline 字段统一合入同一组，保持单表格输出。"""
+        """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""
 
         if not form_fields:
 
@@ -1774,63 +2452,69 @@ class ExportService:
 
 
 
-        regular_group = []
+        groups = []
 
-        inline_groups = []
+        current_group = []
 
-        current_inline = []
+        current_inline = None
 
 
 
         for form_field in form_fields:
 
-            if form_field.inline_mark == 1:
+            is_inline = form_field.inline_mark == 1
 
-                current_inline.append(form_field)
+            if current_inline is None or is_inline == current_inline:
+
+                current_group.append(form_field)
 
             else:
 
-                if current_inline:
+                groups.append(current_group)
 
-                    inline_groups.append(current_inline)
+                current_group = [form_field]
 
-                    current_inline = []
-
-                regular_group.append(form_field)
+            current_inline = is_inline
 
 
 
-        if current_inline:
+        if current_group:
 
-            inline_groups.append(current_inline)
-
-
-
-        result = []
-
-        if regular_group:
-
-            result.append(regular_group)
-
-        result.extend(inline_groups)
-
-        return result or [[]]
+            groups.append(current_group)
 
 
 
-    def _build_form_table(self, doc: Document, fields, form_id=None):
+        return groups or [[]]
+
+
+
+    def _apply_exact_row_height(self, row, height_cm: Optional[float] = None):
+
+        """为导出表格行设置 1cm 最小行高，多行内容可自然增高。"""
+
+        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+        row.height = Cm(height_cm if height_cm is not None else self.FORM_TABLE_ROW_HEIGHT_CM)
+
+    def _build_form_table(
+        self,
+        doc: Document,
+        fields,
+        form_id=None,
+        *,
+        available_cm: float = PORTRAIT_CONTENT_WIDTH_CM,
+    ):
         """将一组普通字段渲染为单张表格。
 
         Args:
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         row_count = len(fields) if fields else 1
         table = doc.add_table(rows=row_count, cols=2)
         table.autofit = False
 
         # 内容驱动列宽：与前端 planNormalColumnFractions / 横向/统一表格语义一致。
-        # available_cm=14.66 对齐原硬编码 Cm(7.2)+Cm(7.4)=14.6cm 的页面预算。
-        normal_widths = plan_normal_table_width(fields or [], available_cm=14.66)
+        normal_widths = plan_normal_table_width(fields or [], available_cm=available_cm)
 
         # 应用列宽覆盖（如果有）- 使用 table_instance_id
         table_instance_id = self._build_table_instance_id("normal", fields)
@@ -1838,8 +2522,7 @@ class ExportService:
             table_instance_id, 2, form_id=form_id, table_kind="normal"
         )
         if overrides:
-            total_cm = 14.66
-            normal_widths = [overrides[i] * total_cm for i in range(2)]
+            normal_widths = [overrides[i] * available_cm for i in range(2)]
 
         table.columns[0].width = Cm(normal_widths[0])
         table.columns[1].width = Cm(normal_widths[1])
@@ -1880,6 +2563,7 @@ class ExportService:
         """添加日志行。"""
 
         row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
@@ -1891,11 +2575,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5), bold=True)
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -1914,6 +2594,7 @@ class ExportService:
         """添加标签字段行。"""
 
         row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
@@ -1931,11 +2612,7 @@ class ExportService:
 
         self._set_run_font(run, size=Pt(10.5))
 
-        para.paragraph_format.space_before = Pt(5.25)
-
-        para.paragraph_format.space_after = Pt(5.25)
-
-        para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(para)
 
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -1947,6 +2624,9 @@ class ExportService:
 
         """添加普通字段行。"""
 
+        row = table.rows[row_idx]
+        self._apply_exact_row_height(row)
+
         field_def = form_field.field_definition
 
         if not field_def:
@@ -1954,8 +2634,6 @@ class ExportService:
             return
 
 
-
-        row = table.rows[row_idx]
 
         left_cell = row.cells[0]
 
@@ -1975,11 +2653,7 @@ class ExportService:
 
         self._set_run_font(left_run, size=Pt(10.5), bold=True)
 
-        left_para.paragraph_format.space_before = Pt(5.25)
-
-        left_para.paragraph_format.space_after = Pt(5.25)
-
-        left_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(left_para)
 
         left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2029,19 +2703,15 @@ class ExportService:
 
 
 
-        if not is_vertical_choice:
-
-            right_para.paragraph_format.space_before = Pt(5.25)
-
-        right_para.paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_para, space_before=not is_vertical_choice, space_after=False
+        )
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        if not is_vertical_choice:
-
-            right_cell.paragraphs[-1].paragraph_format.space_after = Pt(5.25)
-
-        right_cell.paragraphs[-1].paragraph_format.line_spacing = 1.0
+        self._apply_cell_paragraph_metrics(
+            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
+        )
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
@@ -2067,11 +2737,21 @@ class ExportService:
 
 
 
-    def _add_inline_table(self, doc: Document, marked_fields, is_wide=False, form_id=None):
+    def _add_inline_table(
+        self,
+        doc: Document,
+        marked_fields,
+        is_wide=False,
+        form_id=None,
+        *,
+        available_cm: float | None = None,
+    ):
         """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划
 
         Args:
+            is_wide: 兼容旧调用的横向宽表标记；显式传入 available_cm 时仅保留语义。
             form_id: 表单 ID，用于获取列宽覆盖配置
+            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
         """
         if not marked_fields:
             return
@@ -2081,10 +2761,14 @@ class ExportService:
 
         # 创建表格：1+max_rows行，N列
         table = doc.add_table(rows=1 + len(row_values), cols=len(marked_fields))
+        table.autofit = False
         self._apply_grid_table_style(table)
 
         # 使用内容驱动的宽度规划替代等宽分配
-        avail_cm = 23.36 if is_wide else 14.66
+        if available_cm is None:
+            avail_cm = self.LANDSCAPE_CONTENT_WIDTH_CM if is_wide else self.PORTRAIT_CONTENT_WIDTH_CM
+        else:
+            avail_cm = available_cm
 
         # 检查是否有列宽覆盖配置 - 使用 table_instance_id
         table_instance_id = self._build_table_instance_id("inline", marked_fields)
@@ -2102,14 +2786,19 @@ class ExportService:
         # 应用列宽
         for col_idx, col in enumerate(table.columns):
             if col_idx < len(col_widths):
-                col.width = Cm(col_widths[col_idx])
+                width = Cm(col_widths[col_idx])
             else:
                 # 回退到等宽分配
-                col.width = int(Cm(avail_cm) / len(marked_fields))
+                width = int(Cm(avail_cm) / len(marked_fields))
+            col.width = width
+            for cell in col.cells:
+                cell.width = width
 
 
 
         # 第一行：表头（字段名称）
+
+        self._apply_exact_row_height(table.rows[0])
 
         for col_idx, label in enumerate(headers):
 
@@ -2131,13 +2820,9 @@ class ExportService:
 
 
 
-            # 段落格式：5.25pt前后间距，单倍行距
+            # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
-            para.paragraph_format.space_before = Pt(5.25)
-
-            para.paragraph_format.space_after = Pt(5.25)
-
-            para.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(para)
 
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -2159,6 +2844,8 @@ class ExportService:
 
         for row_idx, row in enumerate(row_values):
 
+            self._apply_exact_row_height(table.rows[row_idx + 1])
+
             for col_idx, cell_value in enumerate(row):
 
                 field_def = field_defs[col_idx]
@@ -2177,6 +2864,16 @@ class ExportService:
 
                 # 有默认值则显示默认值，否则显示控件占位符
 
+                is_vertical_choice = (
+
+                    cell_value is None
+
+                    and field_def
+
+                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
+
+                )
+
                 if cell_value is not None:
 
                     run = para.add_run(cell_value)
@@ -2187,7 +2884,7 @@ class ExportService:
 
                     # 无默认值，显示控件占位符
 
-                    if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+                    if is_vertical_choice:
 
                         self._render_vertical_choices(cell, field_def)
 
@@ -2203,13 +2900,11 @@ class ExportService:
 
 
 
-                # 段落格式：5.25pt前后间距，单倍行距
+                # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
-                para.paragraph_format.space_before = Pt(5.25)
-
-                para.paragraph_format.space_after = Pt(5.25)
-
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_cell_paragraph_metrics(
+                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
+                )
 
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
@@ -2343,7 +3038,7 @@ class ExportService:
 
             return "________________"
 
-        return "  ".join([f"○ {opt}" for opt in options])
+        return "  ".join([f"○{opt}" for opt in options])
 
 
 
@@ -2357,7 +3052,7 @@ class ExportService:
 
             return "________________"
 
-        return "\n".join([f"○ {opt}" for opt in options])
+        return "\n".join([f"○{opt}" for opt in options])
 
 
 
@@ -2371,7 +3066,7 @@ class ExportService:
 
             return "________________"
 
-        return "  ".join([f"□ {opt}" for opt in options])
+        return "  ".join([f"□{opt}" for opt in options])
 
 
 
@@ -2385,7 +3080,7 @@ class ExportService:
 
             return "________________"
 
-        return "\n".join([f"□ {opt}" for opt in options])
+        return "\n".join([f"□{opt}" for opt in options])
 
 
 
@@ -2425,7 +3120,7 @@ class ExportService:
 
                 para.paragraph_format.space_after = Pt(0)
 
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_exact_line_spacing(para)
 
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2433,17 +3128,21 @@ class ExportService:
 
                 para = cell.add_paragraph()
 
-                para.paragraph_format.space_before = Pt(0)
+                # 非首项加段前间距，使纵向选项之间留出与预览一致的间隔
+                para.paragraph_format.space_before = Pt(self.VERTICAL_OPTION_GAP_PT)
 
                 para.paragraph_format.space_after = Pt(0)
 
-                para.paragraph_format.line_spacing = 1.0
+                self._apply_exact_line_spacing(para)
 
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
 
-            symbol_run = para.add_run(symbol + " ")
+            # 关闭网格吸附，使各纵向选项之间的间距在 Word 中均匀呈现
+            self._disable_snap_to_grid(para)
+
+            symbol_run = para.add_run(symbol)
 
             self._set_run_font(symbol_run, size=Pt(10.5))
 
@@ -2465,9 +3164,7 @@ class ExportService:
 
             if has_trailing:
 
-                # 使用不换行空格连接文本和填写线，保证不可拆行
-
-                atom_text = label + "\u00A0" + "_" * 6
+                atom_text = label + "_" * 6
 
                 atom_run = para.add_run(atom_text)
 
@@ -2527,7 +3224,7 @@ class ExportService:
 
             # 添加符号run，使用宋体
 
-            symbol_run = paragraph.add_run(symbol + " ")
+            symbol_run = paragraph.add_run(symbol)
 
             self._set_run_font(symbol_run, size=Pt(10.5))
 
@@ -2551,9 +3248,7 @@ class ExportService:
 
             if has_trailing:
 
-                # 使用不换行空格连接文本和填写线，保证不可拆行
-
-                atom_text = label + "\u00A0" + "_" * 6
+                atom_text = label + "_" * 6
 
                 atom_run = paragraph.add_run(atom_text)
 
@@ -2711,11 +3406,7 @@ class ExportService:
 
             cover_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            cover_style.paragraph_format.space_before = Pt(0)
-
-            cover_style.paragraph_format.space_after = Pt(0)
-
-            cover_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(cover_style)
 
 
 
@@ -2739,11 +3430,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            visit_style.paragraph_format.space_before = Pt(0)
-
-            visit_style.paragraph_format.space_after = Pt(0)
-
-            visit_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(visit_style)
 
 
 
@@ -2767,11 +3454,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            label_style.paragraph_format.space_before = Pt(5.25)
-
-            label_style.paragraph_format.space_after = Pt(5.25)
-
-            label_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(label_style)
 
 
 
@@ -2795,11 +3478,7 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-            applicable_style.paragraph_format.space_before = Pt(5.25)
-
-            applicable_style.paragraph_format.space_after = Pt(5.25)
-
-            applicable_style.paragraph_format.line_spacing = 1.0
+            self._apply_cell_paragraph_metrics(applicable_style)
 
             applicable_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 

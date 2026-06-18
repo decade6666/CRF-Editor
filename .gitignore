@@ -18,6 +18,7 @@ __pycache__/
 # ==========================================
 /crf_editor.db
 database/
+data/
 backend/crf_editor.db
 *.db
 uploads/
@@ -50,13 +51,11 @@ node_modules/
 # IDE 与工具配置
 # ==========================================
 .settings/
-.claude/
-.context/
 .codex/
 .ace-tool/
 .playwright-mcp/
-openspec/
 .obsidian/
+.claude/settings.local.json
 
 # ==========================================
 # 临时与调试文件
@@ -70,10 +69,7 @@ docx-compare-*.png
 # ==========================================
 assets/logos/*.jpg
 config.yaml
-/.agents
-AGENTS.md
-backend/.pytest-tmp/
+/.pytest-tmp/
 backend/.venv-linux/
 backend/.venv-linux.py38-broken/
 image/
-/.context

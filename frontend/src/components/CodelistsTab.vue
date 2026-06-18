@@ -8,6 +8,7 @@ import { useSortableTable } from '../composables/useSortableTable'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
+const editMode = inject('editMode', ref(false))
 
 const codelists = ref([])
 // 左侧：字典搜索
@@ -39,10 +40,11 @@ async function load() {
   }
   nextTick(() => initCodelistsSortable())
 }
-// 写操作后强制刷新：先失效缓存，再重新加载
+// 写操作后强制刷新：先失效缓存，再重新加载，最后 bump 全局 refreshKey 让其他 Tab 同步字典名/选项
 async function reload() {
   api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
   await load()
+  refreshKey.value++
 }
 const { initSortable: initCodelistsSortable } = useSortableTable(
   codelistsTableRef,
@@ -63,7 +65,7 @@ function onClTableHeaderDragend(newWidth, _, col) {
 async function addCl() {
   try {
     await api.post(`/api/projects/${props.projectId}/codelists`, { ...clForm })
-    showAddCl.value = false; clForm.name = ''; clForm.code = ''; clForm.description = ''; load()
+    showAddCl.value = false; clForm.name = ''; clForm.code = ''; clForm.description = ''; reload()
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -76,7 +78,7 @@ async function delCl(c) {
     }
     await api.del(`/api/projects/${props.projectId}/codelists/${c.id}`)
     if (selected.value?.id === c.id) selected.value = null
-    load()
+    reload()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -93,7 +95,7 @@ async function batchDelCl() {
     }
     if (allRefs.length) return ElMessageBox.alert(`以下字典被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids })
-    selCls.value = []; selected.value = null; load()
+    selCls.value = []; selected.value = null; reload()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -237,6 +239,7 @@ async function onOptDragEnd() {
             <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
           </template>
         </el-table-column>
+        <el-table-column v-if="editMode" prop="code" label="OID" min-width="100" show-overflow-tooltip />
         <el-table-column prop="name" label="字典名称" :width="codelistNameColWidth" resizable />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column label="操作" width="120">
@@ -263,16 +266,16 @@ async function onOptDragEnd() {
         <b>{{ selected.name }}</b>
       </div>
       <!-- 选项列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600">
-        <span style="width:16px;flex-shrink:0"></span>
-        <span style="width:80px;flex-shrink:0">序号</span>
-        <span style="width:22px;flex-shrink:0"></span>
-        <div style="flex:1;display:flex;gap:12px;align-items:center">
-          <span style="width:100px;flex-shrink:0;display:none">编码值</span>
-          <span style="flex:1">标签</span>
-          <span style="width:60px;text-align:center">后加下划线</span>
+      <div class="manual-list-header option-list-header">
+        <span class="option-drag-spacer"></span>
+        <span class="option-select-spacer"></span>
+        <span class="option-order-header">序号</span>
+        <div class="manual-list-header-group option-main-header">
+          <span v-if="editMode" class="option-code-header">OID</span>
+          <span class="option-label-header">标签</span>
+          <span class="option-trailing-header">后加下划线</span>
         </div>
-        <span style="width:80px;text-align:right">操作</span>
+        <span class="option-action-header">操作</span>
       </div>
       <draggable v-model="selected.options" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
@@ -284,7 +287,7 @@ async function onOptDragEnd() {
             <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
             <span class="ordinal-cell">{{ element.order_index ?? (index + 1) }}</span>
             <div style="flex:1;display:flex;gap:12px;align-items:center">
-              <span style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0;display:none">{{ element.code }}</span>
+              <span v-if="editMode" style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
               <span style="flex:1;font-size:13px">{{ element.decode }}</span>
               <el-checkbox :model-value="element.trailing_underscore === 1" disabled style="width:60px;justify-content:center" />
             </div>
@@ -298,7 +301,7 @@ async function onOptDragEnd() {
     <!-- 新增字典弹窗 -->
     <el-dialog v-model="showAddCl" title="新增字典" width="360px" :close-on-click-modal="false">
       <el-form :model="clForm" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="clForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="clForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="clForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="clForm.description" /></el-form-item>
       </el-form>
@@ -311,7 +314,7 @@ async function onOptDragEnd() {
     <!-- 新增选项弹窗 -->
     <el-dialog v-model="showAddOpt" title="新增选项" width="480px" :close-on-click-modal="false">
       <el-form :model="optForm" label-width="100px">
-        <el-form-item label="编码值" v-show="false"><el-input v-model="optForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="optForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="optForm.decode" /></el-form-item>
         <el-form-item label="后加下划线"><el-checkbox v-model="addOptTrailingLine" /></el-form-item>
       </el-form>
@@ -324,7 +327,7 @@ async function onOptDragEnd() {
     <!-- 编辑字典弹窗 -->
     <el-dialog v-model="showEditCl" title="编辑字典" width="360px" :close-on-click-modal="false">
       <el-form :model="editClForm" label-width="80px">
-        <el-form-item label="Code" v-show="false"><el-input v-model="editClForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editClForm.code" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editClForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editClForm.description" /></el-form-item>
       </el-form>
@@ -337,7 +340,7 @@ async function onOptDragEnd() {
     <!-- 编辑选项弹窗 -->
     <el-dialog v-model="showEditOpt" title="编辑选项" width="480px" :close-on-click-modal="false">
       <el-form :model="editOptForm" label-width="100px">
-        <el-form-item label="编码值" v-show="false"><el-input v-model="editOptForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editOptForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="editOptForm.decode" /></el-form-item>
         <el-form-item label="后加下划线"><el-checkbox v-model="editOptTrailingLine" /></el-form-item>
       </el-form>

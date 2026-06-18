@@ -14,7 +14,7 @@ test('single-project import success message uses project name from unified respo
 
 test('database merge import result shows renamed project mapping when present', () => {
   assert.match(appSource, /const renamedInfo = data\.renamed\.length/)
-  assert.match(appSource, /data\.renamed\.map\(r => `\$\{r\.original\} → \$\{r\.new\}`\)\.join\('、'\)/)
+  assert.match(appSource, /data\.renamed\.map\(\(?r\)? => `\$\{r\.original\} → \$\{r\.new\}`\)\.join\('、'\)/)
   assert.match(appSource, /ElMessageBox\.alert\(`导入 \$\{data\.count\} 个项目：\$\{names\}\$\{renamedInfo\}`/)
 })
 
