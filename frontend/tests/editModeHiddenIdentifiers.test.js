@@ -30,9 +30,9 @@ test('codelist and option OID controls are visible only in complete edit mode', 
     /<el-table-column prop="name" label="字典名称"/,
   ], 'dictionary OID column should sit immediately after ordinal column')
   assertInOrder(codelistsSource, [
-    /<span style="width:80px;flex-shrink:0">序号<\/span>/,
-    /<span v-if="editMode"[^>]*>OID<\/span>/,
-    /<span style="flex:1">标签<\/span>/,
+    /<span class="option-order-header">序号<\/span>/,
+    /<span v-if="editMode" class="option-code-header">OID<\/span>/,
+    /<span class="option-label-header">标签<\/span>/,
   ], 'option OID column should sit immediately after ordinal column')
   assert.match(codelistsSource, /<span v-if="editMode"[^>]*>\{\{ element\.code \}\}<\/span>/)
   assert.match(codelistsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="clForm\.code"/)

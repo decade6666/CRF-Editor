@@ -266,16 +266,16 @@ async function onOptDragEnd() {
         <b>{{ selected.name }}</b>
       </div>
       <!-- 选项列表表头 -->
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--color-bg-hover);border:1px solid var(--color-border);margin-bottom:4px;font-size:12px;color:var(--color-text-secondary);font-weight:600">
-        <span style="width:16px;flex-shrink:0"></span>
-        <span style="width:22px;flex-shrink:0"></span>
-        <span style="width:80px;flex-shrink:0">序号</span>
-        <div style="flex:1;display:flex;gap:12px;align-items:center">
-          <span v-if="editMode" style="width:100px;flex-shrink:0">OID</span>
-          <span style="flex:1">标签</span>
-          <span style="width:60px;text-align:center">后加下划线</span>
+      <div class="manual-list-header option-list-header">
+        <span class="option-drag-spacer"></span>
+        <span class="option-select-spacer"></span>
+        <span class="option-order-header">序号</span>
+        <div class="manual-list-header-group option-main-header">
+          <span v-if="editMode" class="option-code-header">OID</span>
+          <span class="option-label-header">标签</span>
+          <span class="option-trailing-header">后加下划线</span>
         </div>
-        <span style="width:80px;text-align:right">操作</span>
+        <span class="option-action-header">操作</span>
       </div>
       <draggable v-model="selected.options" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
