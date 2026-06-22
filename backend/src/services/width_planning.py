@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import List, Tuple, TypedDict
 
@@ -18,6 +19,35 @@ WEIGHT_ASCII = 1    # 英文/数字/标点权重
 
 # 填写线默认权重（代表语义长度，不以实际字符数计算）
 FILL_LINE_WEIGHT = 6
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 填写线（下划线）按列宽自适应的根数估算 —— 跨栈契约
+# 与前端 frontend/src/composables/useCRFRenderer.js 的同名常量 / computeFillLineCharCount
+# 必须保持同名同值，否则预览 JSON 与导出 docx 的下划线根数无法逐字一致。
+# 设计：保守留余量，确保导出文本字符不换行（宁短勿折行）。
+# ─────────────────────────────────────────────────────────────────────────────
+UNDERSCORE_CHAR_CM = 0.19   # 10.5pt 半角 '_' 的物理步进宽度近似（≈0.185cm，向上取整保守）
+CELL_HPAD_CM = 0.4          # 单元格左右内边距合计保守估计（Word 默认 ≈0.38cm）
+FILL_LINE_SAFETY_CM = 0.2   # 额外安全余量，确保绝不换行
+FILL_LINE_MIN_CHARS = 6     # 根数下限：避免窄列出现 0 根（与旧最短填写线语义一致）
+FILL_LINE_MAX_CHARS = 80    # 根数上限：防御异常超宽列
+# 跨栈一致性 epsilon：吸收前后端列宽（fraction × available_cm）的 ULP 级浮点差异，
+# 避免边界处前端 Math.floor 与后端取整相差 1 根。必须与前端同名同值。
+FILL_LINE_EPSILON = 1e-9
+
+
+def compute_fill_line_char_count(column_cm: float) -> int:
+    """根据列宽（厘米）估算填写线下划线根数。
+
+    count = clamp(floor((column_cm - 内边距 - 安全余量) / 单字符宽度 + epsilon),
+                  [FILL_LINE_MIN_CHARS, FILL_LINE_MAX_CHARS])
+
+    使用 math.floor（而非 Python float `//`）以与前端 Math.floor 取整语义逐位一致；
+    保守取整保证 count × UNDERSCORE_CHAR_CM ≤ column_cm，从而导出时不换行。
+    """
+    usable = column_cm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+    count = math.floor(usable / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON) if usable > 0 else 0
+    return max(FILL_LINE_MIN_CHARS, min(FILL_LINE_MAX_CHARS, count))
 
 # inline 表头权重下限：4 个中文字符等效宽度。
 # 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时

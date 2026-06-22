@@ -28,7 +28,12 @@
       <div class="compare-panel compare-right">
         <div class="panel-header">导入效果</div>
         <div class="panel-body panel-body-scroll">
-          <SimulatedCRFForm :fields="formData.fields || []" view-mode="direct" @field-click="handleFieldClick" />
+          <SimulatedCRFForm
+            :fields="formData.fields || []"
+            view-mode="direct"
+            :available-cm="formData.paper_orientation === 'landscape' ? 23.36 : 14.66"
+            @field-click="handleFieldClick"
+          />
         </div>
       </div>
     </div>

@@ -143,6 +143,8 @@ from src.services.width_planning import (
 
     plan_normal_table_width,
 
+    compute_fill_line_char_count,
+
 )
 
 
@@ -2750,7 +2752,12 @@ class ExportService:
 
             else:
 
-                right_run = right_para.add_run(self._render_field_control(field_def))
+                # 填写线下划线根数按 control 列实际宽度自适应（不换行），
+                # 与前端预览共享同一估算公式以保证逐字一致。
+                fill_chars = compute_fill_line_char_count(widths[1])
+                right_run = right_para.add_run(
+                    self._render_field_control(field_def, fill_line_chars=fill_chars)
+                )
 
                 self._set_run_font(right_run, size=Pt(10.5))
 
@@ -2991,11 +2998,18 @@ class ExportService:
 
 
 
-    def _render_field_control(self, field_def) -> str:
+    def _render_field_control(self, field_def, fill_line_chars: int | None = None) -> str:
 
-        """渲染字段控件文本"""
+        """渲染字段控件文本。
+
+        Args:
+            fill_line_chars: 文本/标签等填写线场景的下划线根数。None 时回退到旧的
+                固定 16 个（用于尚未接入列宽的调用方，保持预览/导出逐字一致）。
+        """
 
         field_type = field_def.field_type or ""
+
+        fill_line = "_" * fill_line_chars if fill_line_chars else "________________"
 
 
 
@@ -3077,11 +3091,11 @@ class ExportService:
 
         elif field_type in ["文本", "标签"]:
 
-            return "________________" + unit_text
+            return fill_line + unit_text
 
         else:
 
-            return "________________"
+            return fill_line
 
 
 

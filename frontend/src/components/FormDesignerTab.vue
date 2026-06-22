@@ -27,6 +27,7 @@ import {
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
+  computeFillLineCharCount,
 } from '../composables/useCRFRenderer';
 import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor';
 import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline';
@@ -705,12 +706,26 @@ function getScopedDefaultValue(ff, singleLine = false) {
   return normalizeDefaultValue(ff.default_value, singleLine);
 }
 
-function renderCellHtml(ff) {
+function renderCellHtml(ff, fillLineChars = null) {
   const previewField = getPreviewField(ff);
   if (!previewField) return '<span class="fill-line"></span>';
   const defaultValue = getScopedDefaultValue(ff, false);
   if (defaultValue) return toHtml(defaultValue);
-  return renderCtrlHtml(previewField);
+  return renderCtrlHtml(previewField, fillLineChars);
+}
+
+// normal 表 control 列填写线根数：按当前 control 列宽（cm）自适应，与后端
+// export_service._add_field_row 共享 computeFillLineCharCount 公式以保证逐字一致。
+// 仅 normal 表接入；unified / inline 维持旧固定 16 根（两端一致）。
+const AVAILABLE_CM_PORTRAIT = 14.66;   // 与后端 PORTRAIT_CONTENT_WIDTH_CM 对齐
+const AVAILABLE_CM_LANDSCAPE = 23.36;  // 与后端 LANDSCAPE_CONTENT_WIDTH_CM 对齐
+function normalFillChars(groupIndex, group, scope) {
+  const resizer = getResizer('normal', 2, groupIndex, group, scope);
+  const controlFrac = resizer?.colRatios?.[1];
+  if (controlFrac == null) return null;
+  const landscape = scope === 'designer' ? designerLandscapeMode.value : landscapeMode.value;
+  const availableCm = landscape ? AVAILABLE_CM_LANDSCAPE : AVAILABLE_CM_PORTRAIT;
+  return computeFillLineCharCount(controlFrac * availableCm);
 }
 
 function getInlineRows(fields) {
@@ -1859,6 +1874,8 @@ async function saveDraftField() {
       inline_mark: draft.inline_mark ? 1 : 0,
       bg_color: draft.bg_color ?? null,
       text_color: draft.text_color ?? null,
+      label_bold: draft.label_bold ?? 1,
+      label_font_size: draft.label_font_size ?? null,
     };
     const createdFd = await api.post(`/api/projects/${projectId}/field-definitions`, definitionPayload);
     const createdFf = await api.post(`/api/forms/${formId}/fields`, {
@@ -2560,7 +2577,7 @@ function openAddForm() {
                               ></span>
                             </td>
                             <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                              <span v-html="renderCellHtml(ff)"></span>
+                              <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'main'))"></span>
                               <span
                                 class="row-resizer-handle"
                                 @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
@@ -3006,7 +3023,7 @@ function openAddForm() {
                                         class="wp-ctrl row-resize-anchor"
                                         :style="getFormFieldPreviewStyle(ff)"
                                       >
-                                        <span v-html="renderCellHtml(ff)"></span>
+                                        <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'designer'))"></span>
                                         <span
                                           class="row-resizer-handle"
                                           @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
@@ -3436,6 +3453,20 @@ function openAddForm() {
                   </el-radio-group>
                 </el-form-item>
               </el-form>
+              <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">
+                <el-button size="small" data-test="designer-draft-cancel" @click="removeDraftFromState">
+                  取消
+                </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  data-test="designer-draft-save"
+                  :loading="savingDraft"
+                  @click="saveDraftField"
+                >
+                  保存
+                </el-button>
+              </div>
             </div>
           </div>
           <div class="designer-notes-card">
@@ -3995,6 +4026,17 @@ function openAddForm() {
   min-height: 0;
   overflow-y: auto;
   padding: 6px;
+}
+
+.designer-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.designer-draft-actions .el-button--primary {
+  min-width: 88px;
 }
 
 .designer-notes-editor {

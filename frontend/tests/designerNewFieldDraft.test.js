@@ -43,6 +43,8 @@ test('saveDraftField 先建定义后建实例并替换草稿、入撤销栈', ()
   // 实例创建携带 field_definition_id 与实例属性
   assert.match(body, /field_definition_id: createdFd\.id/)
   assert.match(body, /\.\.\.instancePayload/)
+  assert.match(body, /label_bold: draft\.label_bold \?\? 1/)
+  assert.match(body, /label_font_size: draft\.label_font_size \?\? null/)
   // 替换草稿并刷新
   assert.match(body, /formFields\.value = formFields\.value\.filter\(\(f\) => !isDraftField\(f\)\)/)
   assert.match(body, /loadFormFields\(formId\)/)
@@ -113,10 +115,15 @@ test('草稿存在时禁止排序', () => {
   assert.match(fnBody('onDrop'), /if \(hasDraft\.value\) return ElMessage\.warning/)
 })
 
-test('模板：草稿态显示保存按钮，草稿行无批量选择框', () => {
+test('模板：草稿态显示顶部保存按钮，草稿行无批量选择框', () => {
   assert.match(source, /v-if="hasDraft"[\s\S]*?data-test="designer-save-draft"[\s\S]*?@click="saveDraftField"/)
   assert.match(source, /<el-checkbox v-if="!isDraftField\(ff\)"/)
   assert.match(source, /@click="onSelectFieldClick\(ff\)"/)
+})
+
+test('模板：草稿字段在右侧属性面板显示保存和取消按钮', () => {
+  assert.match(source, /v-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-cancel"[\s\S]*?@click="removeDraftFromState"/)
+  assert.match(source, /v-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-save"[\s\S]*?@click="saveDraftField"/)
 })
 
 test('组件边界 guard：快编/inline/拖入/log 均对草稿短路', () => {

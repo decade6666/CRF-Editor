@@ -20,6 +20,33 @@ const WEIGHT_CHINESE = 2  // 中文字符权重
 const WEIGHT_ASCII = 1    // 英文/数字/标点权重
 const FILL_LINE_WEIGHT = 6  // 填写线默认权重
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 填写线（下划线）按列宽自适应的根数估算 —— 跨栈契约
+// 与后端 backend/src/services/width_planning.py 的同名常量 / compute_fill_line_char_count
+// 必须保持同名同值，否则预览与导出 docx 的下划线根数无法逐字一致。
+// 设计：保守留余量，确保不换行（宁短勿折行）。
+// ─────────────────────────────────────────────────────────────────────────────
+const UNDERSCORE_CHAR_CM = 0.19   // 10.5pt 半角 '_' 物理步进宽度近似
+const CELL_HPAD_CM = 0.4          // 单元格左右内边距合计保守估计
+const FILL_LINE_SAFETY_CM = 0.2   // 额外安全余量，确保绝不换行
+const FILL_LINE_MIN_CHARS = 6     // 根数下限
+const FILL_LINE_MAX_CHARS = 80    // 根数上限
+// 跨栈一致性 epsilon：吸收前后端列宽的 ULP 级浮点差异，必须与后端同名同值。
+const FILL_LINE_EPSILON = 1e-9
+const LEGACY_FILL_LINE = '________________'  // 旧固定 16 根（未接入列宽时回退）
+
+/**
+ * 根据列宽（厘米）估算填写线下划线根数。
+ * 与后端 compute_fill_line_char_count 同公式，保证预览/导出逐字一致。
+ * @param {number} columnCm - 列宽（厘米）
+ * @returns {number} 下划线根数
+ */
+export function computeFillLineCharCount(columnCm) {
+  const usable = columnCm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+  const count = usable > 0 ? Math.floor(usable / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON) : 0
+  return Math.max(FILL_LINE_MIN_CHARS, Math.min(FILL_LINE_MAX_CHARS, count))
+}
+
 // inline 表头权重下限：4 个中文字符等效宽度。
 // 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
 // 被压缩到不可单行显示的窄宽。
@@ -447,12 +474,12 @@ export function toHtml(text) {
  * @param {Object} field - 扁平形态字段对象
  * @returns {string} HTML 字符串
  */
-export function renderCtrlHtml(field) {
+export function renderCtrlHtml(field, fillLineChars = null) {
   if (!field) return ''
   if (isChoiceField(field.field_type)) {
     return renderChoiceHtml(field.field_type, field.options)
   }
-  return toHtml(renderCtrl(field))
+  return toHtml(renderCtrl(field, fillLineChars))
 }
 
 /**
@@ -466,8 +493,9 @@ export function renderCtrlHtml(field) {
  * @param {string} field.date_format - 日期格式
  * @returns {string} 渲染后的控件字符串
  */
-export function renderCtrl(field) {
-  if (!field) return '________________'
+export function renderCtrl(field, fillLineChars = null) {
+  if (!field) return LEGACY_FILL_LINE
+  const fillLine = fillLineChars ? '_'.repeat(fillLineChars) : LEGACY_FILL_LINE
   const opts = normalizeChoiceOptions(field.options).map(option => (
     option.trailingUnderscore ? `${option.text}______` : option.text
   ))
@@ -530,5 +558,5 @@ export function renderCtrl(field) {
   if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('\n')
   if (field.field_type === '多选（纵向）') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('\n')
   if (field.field_type === '标签') return ''
-  return '________________' + unit
+  return fillLine + unit
 }

@@ -43,7 +43,7 @@
                 class="ai-badge"
               >AI</el-tag>
             </td>
-            <td class="crf-control-cell" :style="getCellStyle(field)" v-html="renderCtrlHtml(field)"></td>
+            <td class="crf-control-cell" :style="getCellStyle(field)" v-html="controlCellHtml(field)"></td>
           </template>
         </tr>
 
@@ -63,6 +63,7 @@ import {
   normalizeDefaultValue,
   renderCtrlHtml,
   planNormalColumnFractions,
+  computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
 import {
@@ -79,6 +80,9 @@ const props = defineProps({
   viewMode: { type: String, default: 'direct' }, // 'direct' | 'ai'
   // 可选：宿主组件传入 formId 后，优先读取设计器保存的列宽
   formId: { type: [Number, String], default: null },
+  // 可用内容宽度（厘米），用于填写线下划线根数按 control 列宽自适应。
+  // 默认竖版 14.66cm，与后端 PORTRAIT_CONTENT_WIDTH_CM 对齐；横版预览可传 23.36。
+  availableCm: { type: Number, default: 14.66 },
 })
 
 defineEmits(['field-click'])
@@ -134,6 +138,13 @@ const displayFields = computed(() => {
   // direct 模式：原始字段
   return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
 })
+
+// 填写线下划线根数按 control 列实际宽度自适应（不换行），与后端导出共享估算公式。
+function controlCellHtml(field) {
+  const controlFrac = columnFractions.value[1]
+  const fillLineChars = computeFillLineCharCount(controlFrac * props.availableCm)
+  return renderCtrlHtml(field, fillLineChars)
+}
 
 // 计算 normal 表两列比例：优先读取设计器当前 field-id key，旧 group-index key 仅作兼容兜底。
 const columnFractions = computed(() => {
