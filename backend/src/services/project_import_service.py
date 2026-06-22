@@ -68,6 +68,12 @@ def _patch_legacy_project_schema(file_path: str) -> None:
                     "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
                     "NOT NULL DEFAULT 'auto'"
                 )
+        if 'form_field' in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(form_field)").fetchall()}
+            if 'label_bold' not in cols:
+                conn.execute('ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1')
+            if 'label_font_size' not in cols:
+                conn.execute('ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL')
         conn.commit()
     finally:
         conn.close()

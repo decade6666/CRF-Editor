@@ -1128,6 +1128,8 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
                         inline_mark INTEGER NOT NULL DEFAULT 0,
                         bg_color VARCHAR(10),
                         text_color VARCHAR(10),
+                        label_bold INTEGER NOT NULL DEFAULT 1,
+                        label_font_size VARCHAR(10),
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )

@@ -29,6 +29,8 @@ _FORM_FIELD_CANONICAL_COLUMNS = (
     ("inline_mark", "0"),
     ("bg_color", "NULL"),
     ("text_color", "NULL"),
+    ("label_bold", "1"),
+    ("label_font_size", "NULL"),
     ("created_at", "CURRENT_TIMESTAMP"),
     ("updated_at", "CURRENT_TIMESTAMP"),
 )
@@ -503,7 +505,21 @@ def _migrate_add_color_mark(engine):
             conn.execute(text('ALTER TABLE form_field DROP COLUMN color_mark'))
 
 
-
+def _migrate_add_label_style(engine):
+    """给 form_field 表补上 label_bold 和 label_font_size 列"""
+    insp = inspect(engine)
+    if not insp.has_table("form_field"):
+        return
+    with engine.begin() as conn:
+        cols = [c["name"] for c in insp.get_columns("form_field")]
+        if "label_bold" not in cols:
+            conn.execute(text(
+                'ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1'
+            ))
+        if "label_font_size" not in cols:
+            conn.execute(text(
+                'ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL'
+            ))
 
 
 def _migrate_add_project_owner_id(engine):
@@ -869,6 +885,8 @@ def _rebuild_form_field_table(conn, *, log_message: str) -> None:
             inline_mark INTEGER NOT NULL DEFAULT 0,
             bg_color VARCHAR(10),
             text_color VARCHAR(10),
+            label_bold INTEGER NOT NULL DEFAULT 1,
+            label_font_size VARCHAR(10),
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -1025,6 +1043,8 @@ def init_db():
     _migrate_add_form_paper_orientation(engine)
 
     _migrate_add_color_mark(engine)
+
+    _migrate_add_label_style(engine)
 
     _migrate_add_project_owner_id(engine)
 

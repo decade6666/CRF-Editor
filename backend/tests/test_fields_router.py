@@ -477,3 +477,141 @@ def test_put_form_field_color_validation_and_null_semantics(
     updated = put_resp.json()
     assert updated["bg_color"] == expected_bg_color
     assert updated["text_color"] == expected_text_color
+
+
+def test_form_field_label_style_defaults_and_updates(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+    # 新建字段默认加粗、默认字号（NULL）
+    assert form_field["label_bold"] == 1
+    assert form_field["label_font_size"] is None
+
+    # 通过 /colors PATCH（正向自动保存路径）写入“不加粗 + 大字号”
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"label_bold": 0, "label_font_size": "large"},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    patched = patch_resp.json()
+    assert patched["label_bold"] == 0
+    assert patched["label_font_size"] == "large"
+
+    # 通过 PUT（双击快编路径）改回加粗 + 小字号
+    put_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"label_bold": 1, "label_font_size": "small"},
+        headers=auth_headers(auth_token),
+    )
+    assert put_resp.status_code == 200, put_resp.text
+    assert put_resp.json()["label_bold"] == 1
+    assert put_resp.json()["label_font_size"] == "small"
+
+    # 列表读回保持一致
+    list_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    matched = [item for item in list_resp.json() if item["id"] == form_field["id"]]
+    assert len(matched) == 1
+    assert matched[0]["label_bold"] == 1
+    assert matched[0]["label_font_size"] == "small"
+
+
+def test_form_field_label_font_size_rejects_invalid_value(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"label_font_size": "huge"},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_form_field_label_bold_rejects_out_of_range(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    # /colors PATCH 与 PUT 两条写路径都应拒绝 0/1 之外的值
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"label_bold": 2},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 422, patch_resp.text
+
+    put_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"label_bold": -1},
+        headers=auth_headers(auth_token),
+    )
+    assert put_resp.status_code == 422, put_resp.text
+
+
+def test_form_field_label_bold_rejects_null(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    create_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id, "label_bold": None},
+        headers=auth_headers(auth_token),
+    )
+    assert create_resp.status_code == 422, create_resp.text
+
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    patch_resp = client.patch(
+        f"/api/form-fields/{form_field['id']}/colors",
+        json={"label_bold": None},
+        headers=auth_headers(auth_token),
+    )
+    assert patch_resp.status_code == 422, patch_resp.text
+
+    put_resp = client.put(
+        f"/api/form-fields/{form_field['id']}",
+        json={"label_bold": None},
+        headers=auth_headers(auth_token),
+    )
+    assert put_resp.status_code == 422, put_resp.text

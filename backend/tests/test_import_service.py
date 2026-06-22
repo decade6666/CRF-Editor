@@ -997,6 +997,8 @@ def build_template_db_with_structural_rows(
             order_index=4,
             bg_color="FFEEEE",
             text_color="CC0000",
+            label_bold=0,
+            label_font_size="small",
         )
         template_session.add(ff_b)
 
@@ -1113,6 +1115,8 @@ def test_template_import_preserves_styling_attributes(
     assert styled_field is not None
     assert styled_field["bg_color"] == "FFEEEE"
     assert styled_field["text_color"] == "CC0000"
+    assert styled_field["label_bold"] == 0
+    assert styled_field["label_font_size"] == "small"
 
     # 导入
     target_project = create_project(session, name="样式导入目标项目")
@@ -1133,6 +1137,8 @@ def test_template_import_preserves_styling_attributes(
     assert imported_ff is not None
     assert imported_ff.bg_color == "FFEEEE"
     assert imported_ff.text_color == "CC0000"
+    assert imported_ff.label_bold == 0
+    assert imported_ff.label_font_size == "small"
 
 
 def test_template_import_rejects_invalid_field_ids(
@@ -1197,6 +1203,92 @@ def test_template_compatibility_check_rejects_missing_columns(
     # 应抛出兼容性错误
     with pytest.raises(ValueError, match="模板库不兼容"):
         service.get_template_projects(str(db_path))
+
+
+def test_template_compatibility_check_rejects_missing_label_style_columns(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    """旧模板缺少标签样式列时应稳定返回兼容性错误。"""
+    db_path = tmp_path / "legacy_label_style_template.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE project (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            version TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE form (
+            id INTEGER PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            code TEXT,
+            domain TEXT,
+            order_index INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE form_field (
+            id INTEGER PRIMARY KEY,
+            form_id INTEGER NOT NULL,
+            field_definition_id INTEGER,
+            is_log_row INTEGER NOT NULL DEFAULT 0,
+            order_index INTEGER NOT NULL DEFAULT 1,
+            required INTEGER NOT NULL DEFAULT 0,
+            label_override TEXT,
+            help_text TEXT,
+            default_value TEXT,
+            inline_mark INTEGER NOT NULL DEFAULT 0,
+            bg_color TEXT,
+            text_color TEXT,
+            created_at DATETIME,
+            updated_at DATETIME
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE field_definition (
+            id INTEGER PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            variable_name TEXT NOT NULL,
+            label TEXT NOT NULL,
+            field_type TEXT NOT NULL,
+            order_index INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE codelist_option (
+            id INTEGER PRIMARY KEY,
+            codelist_id INTEGER,
+            decode TEXT,
+            order_index INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE unit (
+            id INTEGER PRIMARY KEY,
+            project_id INTEGER,
+            symbol TEXT,
+            order_index INTEGER
+        )
+    """)
+    conn.execute("INSERT INTO project (id, name, version) VALUES (1, '旧模板', 'v1')")
+    conn.execute("""
+        INSERT INTO form (id, project_id, name, code, domain, order_index)
+        VALUES (1, 1, '表单A', 'FORM_A', NULL, 1)
+    """)
+    conn.execute("""
+        INSERT INTO form_field (id, form_id, field_definition_id, is_log_row, order_index, inline_mark)
+        VALUES (1, 1, NULL, 1, 1, 0)
+    """)
+    conn.commit()
+    conn.close()
+
+    service = ImportService(session)
+
+    with pytest.raises(ValueError, match="模板库不兼容.*label_bold.*label_font_size"):
+        service.get_template_form_fields(str(db_path), form_id=1)
 
 
 def test_template_access_is_readonly(
@@ -1288,6 +1380,10 @@ def test_migration_script_outputs_new_file(tmp_path: Path) -> None:
         )
     """)
     conn.execute("""
+        INSERT INTO form_field (id, form_id, field_definition_id, label_override)
+        VALUES (7, 1, 1, '旧字段')
+    """)
+    conn.execute("""
         CREATE TABLE field_definition (
             id INTEGER PRIMARY KEY,
             project_id INTEGER,
@@ -1329,12 +1425,20 @@ def test_migration_script_outputs_new_file(tmp_path: Path) -> None:
     old_conn.close()
     old_col_names = {row[1] for row in old_cols}
     assert "order_index" not in old_col_names  # 原文件仍缺少列
+    assert "label_bold" not in old_col_names
+    assert "label_font_size" not in old_col_names
 
-    # 验证新文件有必需列
+    # 验证新文件有必需列和默认值
     new_conn = sqlite3.connect(str(output_path))
     new_cols = new_conn.execute("PRAGMA table_info(form_field)").fetchall()
+    new_col_map = {row[1]: row for row in new_cols}
+    label_style_values = new_conn.execute(
+        "SELECT label_bold, label_font_size FROM form_field WHERE id = 7"
+    ).fetchone()
     new_conn.close()
-    new_col_names = {row[1] for row in new_cols}
-    assert "order_index" in new_col_names
-    assert "is_log_row" in new_col_names
-    assert "inline_mark" in new_col_names
+    assert "order_index" in new_col_map
+    assert "is_log_row" in new_col_map
+    assert "inline_mark" in new_col_map
+    assert new_col_map["label_bold"][2].upper() == "INTEGER"
+    assert new_col_map["label_font_size"][2].upper() == "TEXT"
+    assert label_style_values == (1, None)

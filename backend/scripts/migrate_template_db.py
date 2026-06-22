@@ -16,17 +16,28 @@ from pathlib import Path
 # Task 3.5: 必需列定义（与 import_service.py 保持一致）
 REQUIRED_COLUMNS = {
     "form": ["order_index"],
-    "form_field": ["order_index", "is_log_row", "inline_mark"],
+    "form_field": [
+        "order_index",
+        "is_log_row",
+        "inline_mark",
+        "label_bold",
+        "label_font_size",
+    ],
     "field_definition": ["order_index"],
     "codelist_option": ["order_index"],
     "unit": ["order_index"],
 }
 
-# 列默认值（order_index 基于 id 序列）
+# 列类型与默认值（order_index 基于 id 序列）
+COLUMN_TYPES = {
+    "label_font_size": "TEXT",
+}
 COLUMN_DEFAULTS = {
     "order_index": "id",  # 特殊处理：使用现有 id 序列
     "is_log_row": 0,
     "inline_mark": 0,
+    "label_bold": 1,
+    "label_font_size": None,
 }
 
 
@@ -40,14 +51,17 @@ def add_missing_columns(conn: sqlite3.Connection, table: str, missing_cols: list
     """添加缺失列并填充默认值"""
     for col in missing_cols:
         # 添加列
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER")
+        column_type = COLUMN_TYPES.get(col, "INTEGER")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {column_type}")
 
         # 填充默认值
         if col == "order_index":
             # 基于 id 序列填充 order_index
             conn.execute(f"UPDATE {table} SET order_index = id WHERE order_index IS NULL")
-        else:
-            default_val = COLUMN_DEFAULTS.get(col, 0)
+            continue
+
+        default_val = COLUMN_DEFAULTS.get(col, 0)
+        if default_val is not None:
             conn.execute(f"UPDATE {table} SET {col} = {default_val} WHERE {col} IS NULL")
 
 

@@ -105,6 +105,8 @@ class TemplateFieldPreview(BaseModel):
     is_log_row: int = 0
     bg_color: Optional[str] = None
     text_color: Optional[str] = None
+    label_bold: Optional[int] = None
+    label_font_size: Optional[str] = None
     field_definition: Optional[TemplateFieldDefinitionPreview] = None
 
 

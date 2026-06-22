@@ -10,7 +10,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
-  getFormFieldStructurePreviewStyle,
+  getFormFieldLabelPreviewStyle,
 } from '../composables/formFieldPresentation'
 import {
   buildTableInstanceId,
@@ -631,7 +631,7 @@ async function toggleCell(visitId, formId) {
                     v-if="seg.type === 'regular_field'"
                     :style="getPreviewRowHeightStyle(gv, getUnifiedRegularRowKey(seg.fields[0]))"
                   >
-                    <td class="unified-label row-resize-anchor" :colspan="gv.labelValueSpans.labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
+                    <td class="unified-label row-resize-anchor" :colspan="gv.labelValueSpans.labelSpan" :style="getFormFieldLabelPreviewStyle(seg.fields[0])">
                       {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                       <span
                         class="row-resizer-handle"
@@ -656,7 +656,7 @@ async function toggleCell(visitId, formId) {
                         'row-resize-anchor': true,
                       }"
                       :colspan="gv.colCount"
-                      :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(seg.fields[0])"
+                      :style="getFormFieldLabelPreviewStyle(seg.fields[0], { structure: true })"
                     >
                       {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                       <span
@@ -672,7 +672,7 @@ async function toggleCell(visitId, formId) {
                         :key="ff.id"
                         class="wp-inline-header row-resize-anchor"
                         :colspan="seg.mergeSpans[idx]"
-                        :style="getFormFieldPreviewStyle(ff)"
+                        :style="getFormFieldLabelPreviewStyle(ff)"
                       >
                         {{ getFormFieldDisplayLabel(ff) }}
                         <span
@@ -712,7 +712,7 @@ async function toggleCell(visitId, formId) {
                     v-if="ff.field_definition?.field_type === '标签'"
                     :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
                   >
-                    <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
+                    <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">
                       {{ getFormFieldDisplayLabel(ff) }}
                       <span
                         class="row-resizer-handle"
@@ -724,7 +724,7 @@ async function toggleCell(visitId, formId) {
                     v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"
                     :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))"
                   >
-                    <td colspan="2" class="row-resize-anchor" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">
+                    <td colspan="2" class="row-resize-anchor" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">
                       {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
                       <span
                         class="row-resizer-handle"
@@ -733,7 +733,7 @@ async function toggleCell(visitId, formId) {
                     </td>
                   </tr>
                   <tr v-else :style="getPreviewRowHeightStyle(gv, getNormalRowKey(ff))">
-                    <td class="wp-label row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                    <td class="wp-label row-resize-anchor" :style="getFormFieldLabelPreviewStyle(ff)">
                       {{ getFormFieldDisplayLabel(ff) }}
                       <span
                         class="row-resizer-handle"
@@ -763,7 +763,7 @@ async function toggleCell(visitId, formId) {
                     v-for="ff in gv.fields"
                     :key="ff.id"
                     class="wp-inline-header row-resize-anchor"
-                    :style="getFormFieldPreviewStyle(ff)"
+                    :style="getFormFieldLabelPreviewStyle(ff)"
                   >
                     {{ getFormFieldDisplayLabel(ff) }}
                     <span
