@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 26
+- **Total Sessions**: 27
 - **Last Active**: 2026-06-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1398 | Active |
+| `journal-1.md` | ~1431 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 27 | 2026-06-21 | fix: 字段库缓存刷新 — 切回设计页时同步字段定义 | `533d565` | `draft` |
 | 26 | 2026-06-21 | 表单设计器属性面板文案和标签字号调整 | - | `draft` |
 | 25 | 2026-06-18 | Fix designer preview override sync | `69e5a21` | `draft` |
 | 24 | 2026-06-16 | Word 导出目录预渲染 + 服务器侧写死真实页码 | `878e6eb` | `draft` |

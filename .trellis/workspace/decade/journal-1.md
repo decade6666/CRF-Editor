@@ -1396,3 +1396,36 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: fix: 字段库缓存刷新 — 切回设计页时同步字段定义
+
+**Date**: 2026-06-21
+**Task**: fix: 字段库缓存刷新 — 切回设计页时同步字段定义
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `533d565` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
