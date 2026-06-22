@@ -148,6 +148,61 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
         ]
 
 
+def test_copy_codelist_duplicates_metadata_options_and_generates_unique_name(
+    client: TestClient,
+    auth_token: str,
+    engine,
+) -> None:
+    project_id = _create_project(client, auth_token)
+    codelist_id = _create_codelist(client, project_id, auth_token)
+    _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1, 1)
+    _add_option(client, project_id, codelist_id, auth_token, "2", "女", 0, 2)
+
+    first_resp = client.post(
+        f"/api/projects/{project_id}/codelists/{codelist_id}/copy",
+        headers=auth_headers(auth_token),
+    )
+    second_resp = client.post(
+        f"/api/projects/{project_id}/codelists/{codelist_id}/copy",
+        headers=auth_headers(auth_token),
+    )
+
+    assert first_resp.status_code == 201, first_resp.text
+    assert second_resp.status_code == 201, second_resp.text
+    first_copy = first_resp.json()
+    second_copy = second_resp.json()
+    assert first_copy["id"] != codelist_id
+    assert first_copy["name"] == "性别_copy"
+    assert second_copy["name"] == "性别_copy1"
+    assert first_copy["code"] != "CL_SEX"
+    assert first_copy["description"] == "保留说明"
+    assert first_copy["order_index"] == 2
+    assert [(opt["code"], opt["decode"], opt["trailing_underscore"], opt["order_index"]) for opt in first_copy["options"]] == [
+        ("1", "男", 1, 1),
+        ("2", "女", 0, 2),
+    ]
+
+    with Session(engine) as session:
+        options = session.query(CodeListOption).filter(CodeListOption.codelist_id == first_copy["id"]).order_by(CodeListOption.order_index, CodeListOption.id).all()
+        assert [(opt.code, opt.decode, opt.trailing_underscore, opt.order_index) for opt in options] == [
+            ("1", "男", 1, 1),
+            ("2", "女", 0, 2),
+        ]
+
+
+def test_copy_codelist_rejects_project_mismatch(client: TestClient, auth_token: str) -> None:
+    project_id = _create_project(client, auth_token)
+    other_project_id = _create_project(client, auth_token)
+    codelist_id = _create_codelist(client, project_id, auth_token)
+
+    resp = client.post(
+        f"/api/projects/{other_project_id}/codelists/{codelist_id}/copy",
+        headers=auth_headers(auth_token),
+    )
+
+    assert resp.status_code == 403, resp.text
+
+
 def test_create_codelist_with_options_is_atomic_when_option_conflicts(
     client: TestClient,
     auth_token: str,
