@@ -1,84 +1,85 @@
-[根目录](../../.claude/CLAUDE.md) > **backend**
+[Root](../../.claude/CLAUDE.md) > **backend**
 
-# backend 模块说明
+# backend Module Notes
 
-> 最近更新：2026年6月14日
+> Last updated: 2026-06-18
 
-## 模块职责
-- 提供 REST API 与前端静态资源入口。
-- 管理 SQLite 数据模型、轻量迁移与 WAL / 外键等连接配置。
-- 执行模板 `.db` 导入、项目 `.db` 导入 / 整库合并、Word `.docx` 导入、Word 导出与数据库导出。
-- 提供用户认证、管理员接口、普通用户改密、项目隔离与桌面发行入口。
+## Module Responsibilities
+- Provide REST APIs and the frontend static resource entry point.
+- Manage SQLite data models, lightweight migrations, and connection configuration such as WAL / foreign keys.
+- Execute template `.db` import, project `.db` import / full-database merge, Word `.docx` import, Word export, and database export.
+- Provide user authentication, admin APIs, regular-user password change, project isolation, and the desktop release entry point.
 
-## 关键入口
-- `backend/main.py`：创建 FastAPI 应用、注册路由、配置异常处理与安全头，启动时校验配置、创建上传目录并初始化数据库。
-- `backend/app_launcher.py`：PyInstaller 桌面入口，注入打包静态目录、启动 Uvicorn、本地浏览器与系统托盘。
-- `backend/src/config.py`：配置加载、缓存与原子更新；`config.yaml` 位于项目根目录，生产优先读取 `CRF_*` 环境变量。
-- `backend/src/database.py`：数据库引擎、SQLite PRAGMA、Session 与列级轻量迁移。
-- `backend/src/dependencies.py`：认证、数据库会话、项目权限与管理员权限依赖。
-- `backend/src/rate_limit.py`：单机内存限流，用于登录、改密与高成本导入接口。
-- `backend/src/perf.py`：性能基线中间件与指标收集。
-- `backend/src/utils.py`：路径安全校验等通用工具函数。
+## Key Entry Points
+- `backend/main.py`: creates the FastAPI app, registers routers, configures exception handling and security headers, validates configuration at startup, creates upload directories, and initializes the database.
+- `backend/app_launcher.py`: PyInstaller desktop entry point, injects the packaged static directory, starts Uvicorn, opens the local browser, and manages the system tray.
+- `backend/src/config.py`: configuration loading, caching, and atomic updates; `config.yaml` is located in the project root, and production prefers `CRF_*` environment variables.
+- `backend/src/database.py`: database engine, SQLite PRAGMA, Session, and column-level lightweight migrations.
+- `backend/src/dependencies.py`: dependencies for authentication, database sessions, project permissions, and admin permissions.
+- `backend/src/rate_limit.py`: single-node in-memory rate limiting, used for login, password change, and high-cost import endpoints.
+- `backend/src/perf.py`: performance baseline middleware and metric collection.
+- `backend/src/utils.py`: common utility functions such as path safety validation.
 
-## 核心目录
-- `src/routers/`（12 个路由模块）：认证、管理员、项目、访视、表单、字段、字典、单位、导入导出、设置接口。
-- `src/services/`（13 个服务模块）：认证、用户管理、导入、导出、排序、项目克隆、项目导入、AI 复核、Docx 截图缓存、列宽规划、字段渲染、Word 表格一致性对比等重逻辑。
-- `src/models/`（10 个 ORM 模型）：Project、Visit、Form、VisitForm、FieldDefinition、FormField、CodeList、CodeListOption、Unit、User。
-- `src/schemas/`（6 个 Pydantic 模块）：项目、访视、表单、字段、字典、单位等请求/响应结构。
-- `src/repositories/`（5 个仓储模块）：基础仓储、项目、字段定义、字段实例、表单字段等数据库访问封装。
-- `tests/`（39 个测试文件）：认证、管理员、权限、项目隔离、批量删除隔离、导入导出、排序、配置、WAL、限流、列宽规划、性能基线、性能 FK 索引、表单方向、Word 导入契约、Docx 截图失败语义与 Word 表格一致性等 pytest 用例。
-- `scripts/`（4 个脚本）：模板数据库迁移、性能 fixture 生成、性能基线运行、预览/导出表格字段一致性对比。
+## Core Directories
+- `src/routers/` (12 router modules): APIs for authentication, admin, projects, visits, forms, fields, dictionaries, units, import/export, and settings.
+- `src/services/` (14 service modules): heavy logic for authentication, user management, import, export, ordering, project cloning, project import, AI review, Docx screenshot cache, column width planning, field rendering, Word table parity comparison, Word table-of-contents page number pre-calculation, and more.
+- `src/models/` (10 ORM model files, including 11 model classes): Project, Visit, Form, VisitForm, FieldDefinition, Field, FormField, CodeList, CodeListOption, Unit, User.
+- `src/schemas/` (6 Pydantic modules): request/response structures for projects, visits, forms, fields, dictionaries, units, and related resources.
+- `src/repositories/` (5 repository modules): database access wrappers for base repository, projects, field definitions, field instances, form fields, and related entities.
+- `tests/` (39 test files): pytest cases for authentication, admin, permissions, project isolation, batch-delete isolation, import/export, ordering, configuration, WAL, rate limiting, column width planning, performance baseline, performance FK indexes, form orientation, Word import contract, Docx screenshot failure semantics, Word table parity, and more.
+- `scripts/` (4 scripts): template database migration, performance fixture generation, performance baseline run, and preview/export table field parity comparison.
 
-## 路由概览
-- `routers/auth.py`：登录、当前用户、普通用户改密与认证错误语义。
-- `routers/admin.py`：管理员用户管理、密码重置、批量项目操作与回收站。
-- `routers/projects.py`：项目 CRUD、项目复制、Logo 上传/读取/删除、数据库导入导出。
-- `routers/visits.py`、`routers/forms.py`、`routers/fields.py`：CRF 结构维护。
-- `routers/codelists.py`、`routers/units.py`：字典与单位维护。
-- `routers/import_template.py`、`routers/import_docx.py`：模板库与 Word 导入预览/应用。
-- `routers/export.py`：Word 导出。
-- `routers/settings.py`：配置读取、保存与 AI 连通性测试。
+## Router Overview
+- `routers/auth.py`: login, current user, regular-user password change, and authentication error semantics.
+- `routers/admin.py`: admin user management, password reset, batch project operations, and recycle bin.
+- `routers/projects.py`: project CRUD, project copy, Logo upload/read/delete, database import/export.
+- `routers/visits.py`, `routers/forms.py`, `routers/fields.py`: CRF structure maintenance.
+- `routers/codelists.py`, `routers/units.py`: dictionary and unit maintenance.
+- `routers/import_template.py`, `routers/import_docx.py`: template library and Word import preview/application.
+- `routers/export.py`: Word export.
+- `routers/settings.py`: configuration read/save and AI connectivity tests.
 
-## 服务概览
-- `auth_service.py`、`user_admin_service.py`：密码哈希、JWT 版本失效、管理员保留账号与用户管理。
-- `import_service.py`、`project_import_service.py`、`docx_import_service.py`：模板、项目库与 Word 导入。
-- `export_service.py`：Word 文档渲染与导出。
-- `width_planning.py`：后端列宽规划，与前端 `useCRFRenderer.js` 共享 fixture 契约。
-- `word_table_parity.py`：读取浏览器预览 JSON 与导出 `.docx` 表格文本，生成 strict parity 报告。
-- `order_service.py`：访视、表单、字段等排序写入逻辑。
-- `project_clone_service.py`：项目深拷贝与 Logo 联动。
-- `docx_screenshot_service.py`：Word 导入截图缓存生命周期与不支持运行时的失败状态。
-- `ai_review_service.py`：AI 导入建议/复核调用。
-- `field_rendering.py`：字段渲染辅助逻辑。
+## Service Overview
+- `auth_service.py`, `user_admin_service.py`: password hashing, JWT version invalidation, reserved admin account, and user management.
+- `import_service.py`, `project_import_service.py`, `docx_import_service.py`: template, project library, and Word import.
+- `export_service.py`: Word document rendering and export.
+- `width_planning.py`: backend column width planning, sharing the fixture contract with frontend `useCRFRenderer.js`.
+- `word_table_parity.py`: reads browser preview JSON and exported `.docx` table text to generate strict parity reports.
+- `toc_pagination.py`: optionally invokes LibreOffice headless rendering to export documents and uses `pypdf` to read PDF outline page numbers; when unavailable or failed, returns an empty result while `export_service.py` keeps non-empty fallback page-number text and relies on Word field update for correction.
+- `order_service.py`: ordering write logic for visits, forms, fields, and related entities.
+- `project_clone_service.py`: project deep copy and Logo linkage.
+- `docx_screenshot_service.py`: Word import screenshot cache lifecycle and failure state for unsupported runtimes.
+- `ai_review_service.py`: AI import suggestion/review calls.
+- `field_rendering.py`: field rendering helper logic.
 
-## 数据库与兼容性
-- SQLite 连接启用 `foreign_keys=ON`、`journal_mode=WAL`、`busy_timeout=5000`、`synchronous=NORMAL`。
-- `src/database.py` 负责历史库兼容迁移，包括 `code`、`order_index`、`design_notes`、颜色标记、`owner_id`、软删除、排序字段与用户密码相关字段等补齐。
-- `form_field` 结构采用规范列集合重建策略，确保老库升级后字段实例结构一致。
-- 主入口统一将常见验证错误、唯一约束冲突、导入错误与导出错误转换为稳定 JSON 响应。
+## Database and Compatibility
+- SQLite connections enable `foreign_keys=ON`, `journal_mode=WAL`, `busy_timeout=5000`, and `synchronous=NORMAL`.
+- `src/database.py` handles compatibility migrations for historical databases, including backfilling `code`, `order_index`, `design_notes`, color markers, `owner_id`, soft delete, ordering fields, and user password-related fields.
+- The `form_field` structure uses a canonical column-set rebuild strategy to ensure field instance structures are consistent after old databases are upgraded.
+- The main entry point uniformly converts common validation errors, unique constraint conflicts, import errors, and export errors into stable JSON responses.
 
-## 安全行为
-- production 下关闭 `/docs`、`/redoc`、`/openapi.json`，并要求 `CRF_AUTH_SECRET_KEY`。
-- production 下 JWT TTL 不得超过 60 分钟。
-- 登录、改密与高成本导入接口使用单机内存限流。
-- production 下若不存在可用保留管理员，启动阶段会基于 `admin.bootstrap_password` / `CRF_ADMIN_BOOTSTRAP_PASSWORD` 自动修复或补建；缺失时 fail-fast。
-- 管理员创建用户必须同时设置初始密码；重置密码会通过 `auth_version` 立即失效旧 JWT。
-- Logo 文件由 `upload_path/logos` 管理，仅允许安全位图格式，项目复制与硬删除会同步处理对应文件。
-- `template_path` 必须位于白名单目录内且为 `.db`；模板库导入路径（`src/services/import_service.py`）仅允许只读访问，缺少 `form.paper_orientation` 的旧模板通过只读探测回退为 `auto`，禁止对源模板库执行补列、迁移或隐式建库。
+## Security Behavior
+- In production, `/docs`, `/redoc`, and `/openapi.json` are disabled, and `CRF_AUTH_SECRET_KEY` is required.
+- In production, JWT TTL must not exceed 60 minutes.
+- Login, password-change, and high-cost import endpoints use single-node in-memory rate limiting.
+- In production, if no available reserved admin exists, startup automatically repairs or creates one based on `admin.bootstrap_password` / `CRF_ADMIN_BOOTSTRAP_PASSWORD`; if missing, startup fails fast.
+- Admin-created users must be assigned an initial password at creation; password reset invalidates old JWTs immediately through `auth_version`.
+- Logo files are managed under `upload_path/logos`; only safe bitmap formats are allowed, and project copy / hard delete synchronously handles the corresponding files.
+- `template_path` must be located within a whitelisted directory and be a `.db` file; the template library import path (`src/services/import_service.py`) only allows read-only access. Old templates missing `form.paper_orientation` fall back to `auto` through read-only probing; adding columns, running migrations, or implicitly creating databases on the source template library is forbidden.
 
-## 导入导出与列宽契约
-- Word 导出表格行高以 `FORM_TABLE_ROW_HEIGHT_CM = 1` 作为 `AT_LEAST` 下限；单元格段落使用 `SINGLE_LINE_HEIGHT_PT = 15.6` 固定行距与 `CELL_VPAD_PT` 上下间距撑起单行 1cm，多行内容自然增高且不裁切。
-- Word 导出目录采用混合预渲染模式：`_add_toc_placeholder` 只写"目录"标题（宋体小四加粗居中）并记录锚点；`_add_toc_heading` 为每个标题添加 `_Toc` 唯一书签并收集条目；`_populate_toc` 在 `_add_forms_content` 之后用 `_build_toc_entry` 逐条生成带书签超链接 + `PAGEREF` 域的预渲染段落，**首条条目合入 TOC 域起始（`begin → instrText → separate`）、末条条目合入外层 `end`**，使整段条目成为 `separate→end` 域结果——故"目录"标题与首条条目之间无空行，零点击可见、可点击跳转，Word 更新域时整体替换不重复。条目文本经 `_apply_raw_run_font` 写宋体，`_ensure_toc_styles` 幂等注入 `TOC1/2/3` 段落样式（默认模板仅有 `TOCHeading`，否则 `pStyle` 悬空回退默认字体导致"排版不像目录"）。
-- 目录真实页码（服务器侧）：`export_project_to_word(bake_toc_page_numbers=True)` 在保存后调用 `_bake_toc_page_numbers`→`services/toc_pagination.py`，用 LibreOffice 无头把 docx 渲染为 PDF、读 PDF 大纲（Heading 1 生成）得到每个标题页码，写回各条目 PAGEREF 占位（`_toc_pageref_values` 按标题文本记录占位 `w:t`）。LibreOffice/pypdf 不可用或失败时**优雅回退**：页码占位留空、由 `updateFields=true` 在 Word 打开更新域时填充（PAGEREF 域始终保留，Word 可按自身分页再校正——LibreOffice 与 Word 分页可能差一页）。单测用 `bake_toc_page_numbers=False` 关闭，避免每例 spawn LibreOffice；专项 `test_export_toc_bakes_real_page_numbers_with_libreoffice` 在装有 LibreOffice 时验证写死页码，否则 skip。依赖：`pypdf`（requirements.txt）+ 系统 LibreOffice（`soffice`，可选）。
-- `word_table_parity.py` 的 `extract_docx_form_table_fields` 通过 `_has_field_codes` 跳过含域代码的段落，避免 TOC 条目干扰表单标题抽取。
-- 纵向单选/多选选项段落须由 `export_service._disable_snap_to_grid` 写入 `w:snapToGrid=0`（`_render_vertical_choices` 对每个选项段落调用）。节级 `w:docGrid type=lines linePitch=312`（15.6pt 行网格）下 Word 默认 `snapToGrid=1` 会把首项 `space_before=0` 与其余项 `VERTICAL_OPTION_GAP_PT=3pt` 吸附到整行网格，渲染成"首项到第二项间距偏大"；关闭吸附后精确间距原样呈现，各选项间距一致。改动 `docGrid` / 纵向选项间距时须同步 `test_export_unified.py`、`test_export_paper_orientation.py` 的 `snapToGrid` 断言。
-- Word 导出 normal 表列宽采用内容驱动：`export_service._build_form_table` 调用 `width_planning.plan_normal_table_width(fields, available_cm=14.66)`。
-- `available_cm=14.66` 与原页面预算对齐；字符权重与 CJK 扩展区覆盖与前端 `useCRFRenderer.js` 共享契约。
-- inline 表表头权重下限 `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8`（`width_planning.py`），由 `field_rendering.build_inline_column_demands` 写入 max chain，保护 ≤4 字短表头（如 `未查` / `项目` / `单位`）与长邻居共存时不被压到不可单行；常量与前端 `useCRFRenderer.js` 严格同名同值。
-- 跨栈 fixture 位于 `backend/tests/fixtures/planner_cases.json`，**唯一权威生成器**是 `frontend/scripts/generatePlannerFixtures.mjs`；新增/修改 case 必须改 generator 后重跑，再让 `backend/tests/test_width_planning.py` 与 `frontend/tests/columnWidthPlanning.test.js` 同时绿。
-- Strict preview/export parity 由 `word_table_parity.py` 与 `scripts/compare_word_table_parity.py` 收口：输入浏览器预览 JSON 与导出的 `.docx`，输出表单顺序、行数、单元格数、精确命中率与 mismatch 列表；修改 Word 预览 / 导出文本模型时必须同步更新相关测试。
+## Import/Export and Column Width Contracts
+- Word export table row height uses `FORM_TABLE_ROW_HEIGHT_CM = 1` as the `AT_LEAST` lower bound; cell paragraphs use `SINGLE_LINE_HEIGHT_PT = 15.6` fixed line spacing and `CELL_VPAD_PT` top/bottom spacing to support single-line 1cm rows, while multi-line content grows naturally without clipping.
+- Word export table of contents uses a hybrid pre-rendered mode: `_add_toc_placeholder` only writes the "Table of Contents" title (SimSun, 12pt, bold, centered) and records an anchor; `_add_toc_heading` adds a unique `_Toc` bookmark for each heading and collects entries; `_populate_toc` runs after `_add_forms_content` and uses `_build_toc_entry` to generate each entry as a pre-rendered paragraph with bookmark hyperlink + `PAGEREF` field. **The first entry is merged into the TOC field start (`begin → instrText → separate`), and the last entry is merged into the outer `end`**, making all entries the field result between `separate→end` — therefore there is no blank line between the "Table of Contents" title and the first entry, it is visible and clickable with zero clicks, and Word replaces the whole field on update without duplication. Entry text is written in SimSun via `_apply_raw_run_font`; `_ensure_toc_styles` idempotently injects `TOC1/2/3` paragraph styles (the default template only has `TOCHeading`; otherwise dangling `pStyle` falls back to the default font and makes the layout look unlike a table of contents).
+- Real table-of-contents page numbers (server side): `export_project_to_word(bake_toc_page_numbers=True)` calls `_bake_toc_page_numbers`→`services/toc_pagination.py` after saving, renders the docx to PDF with LibreOffice headless, reads the PDF outline (generated from Heading 1) to obtain page numbers for each heading, and writes them back into each entry's PAGEREF result text (`_toc_pageref_values` records `w:t` nodes by heading text). Each entry starts with a non-empty fallback page number, so if LibreOffice/pypdf is unavailable, fails, or returns an incomplete outline, the exported document keeps visible fallback page numbers and logs the fallback while retaining PAGEREF fields and `updateFields=true` for Word correction (LibreOffice and Word pagination may differ by one page). Unit tests avoid spawning LibreOffice for each case; the dedicated `test_export_toc_bakes_real_page_numbers_with_libreoffice` validates baked page numbers when LibreOffice is installed, otherwise it skips. Dependencies: `pypdf` (`requirements.txt`) + system LibreOffice (`soffice`, optional).
+- `word_table_parity.py` uses `extract_docx_form_table_fields` with `_has_field_codes` to skip paragraphs containing field codes, avoiding TOC entries interfering with form title extraction.
+- Vertical single-choice/multiple-choice option paragraphs must write `w:snapToGrid=0` via `export_service._disable_snap_to_grid` (`_render_vertical_choices` calls it for every option paragraph). Under section-level `w:docGrid type=lines linePitch=312` (15.6pt line grid), Word's default `snapToGrid=1` snaps paragraph `space_before=0` for the first option and `VERTICAL_OPTION_GAP_PT=3pt` for the remaining options to the full-line grid, rendering as "the gap from the first item to the second item is too large"; after disabling snapping, exact spacing is preserved and all option gaps are consistent. Any change to `docGrid` / vertical option spacing must synchronize the `snapToGrid` assertions in `test_export_unified.py` and `test_export_paper_orientation.py`.
+- Word export normal table column widths are content-driven: `export_service._build_form_table` calls `width_planning.plan_normal_table_width(fields, available_cm=14.66)`.
+- `available_cm=14.66` aligns with the original page budget; character weights and CJK extension range coverage share the same contract with frontend `useCRFRenderer.js`.
+- Inline table header weight floor `INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4 = 8` (`width_planning.py`) is written into the max chain by `field_rendering.build_inline_column_demands`, protecting short headers of ≤4 characters (such as "Unchecked" / "Item" / "Unit") from being squeezed by long neighbors to the point they cannot fit on a single line; the constant must have exactly the same name and value as frontend `useCRFRenderer.js`.
+- The cross-stack fixture is located at `backend/tests/fixtures/planner_cases.json`; the **single authoritative generator** is `frontend/scripts/generatePlannerFixtures.mjs`. To add/modify cases, update the generator and rerun it, then ensure both `backend/tests/test_width_planning.py` and `frontend/tests/columnWidthPlanning.test.js` pass.
+- Strict preview/export parity is closed by `word_table_parity.py` and `scripts/compare_word_table_parity.py`: inputs are the browser preview JSON and exported `.docx`; output includes form order, row count, cell count, exact hit rate, and mismatch list. When modifying the Word preview / export text model, related tests must be updated in sync.
 
-## 常用命令
+## Common Commands
 ```bash
 cd backend && python main.py
 cd backend && python -m pytest
@@ -87,33 +88,35 @@ cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 cd backend && python scripts/compare_word_table_parity.py <preview.json> <export.docx>
 ```
 
-## 开发约定
-- 分层结构：`routers -> repositories/services -> models/schemas`。
-- 重逻辑放 `services/`，接口层保持轻量。
-- 数据结构演进由 `src/database.py` 内轻量迁移维护。
-- 接口响应以稳定 JSON 为主，错误信息优先返回可直接展示的中文 `detail`。
-- 表单新增 `paper_orientation`（`auto/landscape/portrait`）时，需同步检查：`Form` 模型、Pydantic Schema、`database.py` 轻量迁移、`forms.py` 复制路径、`project_clone_service.py`、`project_import_service.py` 旧库兼容、`export_service.py` 方向覆写逻辑。
-- 修改认证、管理员、限流、项目隔离、导入路径或 Logo 处理时，需要同步补充安全测试。
-- 修改导入导出或列宽规划时，需要同步更新后端测试、前端契约测试和根级/模块级文档。
+## Development Conventions
+- Layering: `routers -> repositories/services -> models/schemas`.
+- Put heavy logic in `services/`, keeping the interface layer lightweight.
+- Data structure evolution is maintained by lightweight migrations in `src/database.py`.
+- API responses should primarily be stable JSON; error messages should preferably return Chinese `detail` values that can be displayed directly.
+- When adding form `paper_orientation` (`auto/landscape/portrait`), check in sync: `Form` model, Pydantic Schema, `database.py` lightweight migration, `forms.py` copy path, `project_clone_service.py`, `project_import_service.py` old-database compatibility, and `export_service.py` orientation override logic.
+- When modifying authentication, admin, rate limiting, project isolation, import paths, or Logo handling, security tests need to be supplemented in sync.
+- When modifying import/export or column width planning, backend tests, frontend contract tests, and root/module-level documentation need to be updated in sync.
 
-## 相关文件清单
-| 类别 | 文件 |
+## Related File List
+| Category | Files |
 |------|------|
-| 入口 | `main.py`、`app_launcher.py` |
-| 基础设施 | `src/config.py`、`src/database.py`、`src/dependencies.py`、`src/rate_limit.py`、`src/perf.py`、`src/utils.py` |
-| 路由 | `src/routers/auth.py`、`src/routers/admin.py`、`src/routers/projects.py`、`src/routers/visits.py`、`src/routers/forms.py`、`src/routers/fields.py`、`src/routers/codelists.py`、`src/routers/units.py`、`src/routers/export.py`、`src/routers/settings.py`、`src/routers/import_template.py`、`src/routers/import_docx.py` |
-| 服务 | `src/services/auth_service.py`、`src/services/user_admin_service.py`、`src/services/import_service.py`、`src/services/project_import_service.py`、`src/services/docx_import_service.py`、`src/services/export_service.py`、`src/services/width_planning.py`、`src/services/word_table_parity.py`、`src/services/order_service.py`、`src/services/project_clone_service.py`、`src/services/docx_screenshot_service.py`、`src/services/ai_review_service.py`、`src/services/field_rendering.py` |
-| 模型 | `src/models/project.py`、`src/models/visit.py`、`src/models/form.py`、`src/models/visit_form.py`、`src/models/field_definition.py`、`src/models/field.py`、`src/models/form_field.py`、`src/models/codelist.py`、`src/models/unit.py`、`src/models/user.py` |
-| Schema | `src/schemas/project.py`、`src/schemas/visit.py`、`src/schemas/form.py`、`src/schemas/field.py`、`src/schemas/codelist.py`、`src/schemas/unit.py` |
-| 仓储 | `src/repositories/base_repository.py`、`src/repositories/project_repository.py`、`src/repositories/field_definition_repository.py`、`src/repositories/field_repository.py`、`src/repositories/form_field_repository.py` |
-| 测试（新增/近期） | `tests/test_batch_delete_isolation.py`、`tests/test_docx_screenshot_service.py`、`tests/test_perf_fk_indexes.py`、`tests/test_word_table_parity.py`、`tests/test_form_paper_orientation.py`、`tests/test_export_paper_orientation.py`、`tests/test_docx_import_contract.py` |
+| Entry | `main.py`, `app_launcher.py` |
+| Infrastructure | `src/config.py`, `src/database.py`, `src/dependencies.py`, `src/rate_limit.py`, `src/perf.py`, `src/utils.py` |
+| Routers | `src/routers/auth.py`, `src/routers/admin.py`, `src/routers/projects.py`, `src/routers/visits.py`, `src/routers/forms.py`, `src/routers/fields.py`, `src/routers/codelists.py`, `src/routers/units.py`, `src/routers/export.py`, `src/routers/settings.py`, `src/routers/import_template.py`, `src/routers/import_docx.py` |
+| Services | `src/services/auth_service.py`, `src/services/user_admin_service.py`, `src/services/import_service.py`, `src/services/project_import_service.py`, `src/services/docx_import_service.py`, `src/services/export_service.py`, `src/services/width_planning.py`, `src/services/word_table_parity.py`, `src/services/toc_pagination.py`, `src/services/order_service.py`, `src/services/project_clone_service.py`, `src/services/docx_screenshot_service.py`, `src/services/ai_review_service.py`, `src/services/field_rendering.py` |
+| Models | `src/models/project.py`, `src/models/visit.py`, `src/models/form.py`, `src/models/visit_form.py`, `src/models/field_definition.py`, `src/models/field.py`, `src/models/form_field.py`, `src/models/codelist.py`, `src/models/unit.py`, `src/models/user.py` |
+| Schemas | `src/schemas/project.py`, `src/schemas/visit.py`, `src/schemas/form.py`, `src/schemas/field.py`, `src/schemas/codelist.py`, `src/schemas/unit.py` |
+| Repositories | `src/repositories/base_repository.py`, `src/repositories/project_repository.py`, `src/repositories/field_definition_repository.py`, `src/repositories/field_repository.py`, `src/repositories/form_field_repository.py` |
+| Tests (new/recent) | `tests/test_batch_delete_isolation.py`, `tests/test_docx_screenshot_service.py`, `tests/test_perf_fk_indexes.py`, `tests/test_word_table_parity.py`, `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_docx_import_contract.py` |
 
-## 变更记录
-- `2026年6月16日`（任务 `06-16-word-export-toc-autofill`）：Word 导出目录改为混合预渲染模式。`_add_toc_placeholder` 只写 TOC 域壳（`begin → instrText → separate`），新增 `_add_toc_heading` 为标题添加 `_Toc` 唯一书签并收集条目，新增 `_populate_toc` 在 `_add_forms_content` 之后把每条标题生成为带书签超链接 + `PAGEREF` 域的预渲染段落，作为 TOC 域结果（条目夹在 `separate` 与 `end` 之间，外层 `end` 追加到最后一条条目段落末尾），保证零点击可见且 Word 更新域时整体替换不重复；新增 `_enable_update_fields_on_open` 写入 `settings.xml` 的 `w:updateFields=true`，仅用于刷新预渲染条目的 PAGEREF 页码。`word_table_parity.py` 新增 `_has_field_codes` 跳过含域代码的段落，避免 TOC 条目干扰表单标题抽取。不新增 section/table，严格 parity 正确。结合标准 eCRF 对比修复目录外观：新增 `_apply_raw_run_font` 给裸条目 run 写入宋体、`_ensure_toc_styles` 幂等注入 `TOC1/2/3` 段落样式，页码占位由 `?` 改为留空（Word 更新域后填充真实页码）。后续按用户三点反馈再修：①"目录"标题保持宋体小四加粗（确认已满足，未改）；②消除标题与目录间两个空行——`_add_toc_placeholder` 改为只写标题 + 记录锚点、新增 `_build_toc_entry` 助手、`_populate_toc` 把 TOC 域起始合入首条条目、外层 `end` 合入末条条目，标题与首条条目直接相邻；③服务器侧写死真实页码——新增 `services/toc_pagination.py`（LibreOffice 无头渲染 docx→PDF、读 PDF 大纲页码）与 `_bake_toc_page_numbers`，`export_project_to_word(bake_toc_page_numbers=...)` 默认 False（单测安全）、路由层传 True（生产开启），失败/未装 LibreOffice 优雅回退留空 + Word 更新域。新增依赖 `pypdf`，系统可选依赖 LibreOffice。
-- `2026年6月16日`（任务 `06-16-word-vchoice-option-gap`）：修复 Word 导出纵向选项"首项到第二项间距偏大"。根因为 `docGrid`（15.6pt 行网格）+ Word 默认 `snapToGrid=1` 把段落 `space_before` 吸附到整行网格，而段落存储间距本就一致。新增 `export_service._disable_snap_to_grid`（有序插入 `w:snapToGrid=0`，幂等），在 `_render_vertical_choices` 对每个选项段落调用；`test_export_unified.py`、`test_export_paper_orientation.py` 补 `snapToGrid=0` XML 断言。不改文本与 strict parity。
-- `2026年6月14日`：Word 导出表格行高从固定 `EXACTLY` 1cm 改为 `AT_LEAST` 1cm 下限，并用固定 15.6pt 行距与单元格上下间距保证单行 1cm、多行不裁切；`test_export_paper_orientation.py` 补充 docx XML 回归断言。
-- `2026年6月14日`：文档同步刷新。服务模块 12→13（新增 `word_table_parity.py`），测试 37→39，脚本 3→4（新增 `compare_word_table_parity.py`）；补充批量删除属主隔离、Docx 截图不支持运行时失败态、性能 FK 索引幂等迁移、strict preview/export parity 相关说明。
-- `2026年5月8日 18:26:34`：增量扫描刷新。测试 34→37 文件，新增 `test_form_paper_orientation.py`、`test_export_paper_orientation.py`、`test_docx_import_contract.py`；补充相关文件清单与目录条目。
-- `2026年5月8日`：新增 `form.paper_orientation` 字段、轻量迁移、复制/导入兼容与 Word 导出方向覆写；补充同主题后端测试。
-- `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 53 文件（routers 12、services 12、models 10、schemas 6、repositories 5、基础设施 8）、测试 34 文件、脚本 4 文件。补充基础设施与服务条目。
-- `2026年4月27日 星期一 05:45:45 PDT`：初始生成。
+## Change Log
+- `2026-06-21`: Word export TOC fallback now writes non-empty fallback page numbers when LibreOffice/`pypdf` baking is unavailable, failed, or incomplete; PAGEREF fields and `updateFields=true` remain for Word correction, and fallback logs are emitted without blocking export.
+- `2026-06-18`: Documentation sync refresh. Service modules 13→14 (added `toc_pagination.py` to the count and related file list), clarified that Word export table-of-contents page number pre-calculation depends on optional LibreOffice + `pypdf`, and falls back to Word field update on failure; added the historical `Field` model to the model list to avoid inconsistency between 10 model files and the model name list.
+- `2026-06-16` (task `06-16-word-export-toc-autofill`): Word export table of contents changed to a hybrid pre-rendered mode. `_add_toc_placeholder` only writes the TOC field shell (`begin → instrText → separate`), new `_add_toc_heading` adds a unique `_Toc` bookmark for headings and collects entries, new `_populate_toc` runs after `_add_forms_content` to generate each heading as a pre-rendered paragraph with bookmark hyperlink + `PAGEREF` field, as the TOC field result (entries are placed between `separate` and `end`, and the outer `end` is appended to the end of the last entry paragraph), ensuring zero-click visibility and preventing duplication when Word updates fields. Added `_enable_update_fields_on_open` to write `w:updateFields=true` into `settings.xml`, used only to refresh the PAGEREF page numbers of pre-rendered entries. `word_table_parity.py` added `_has_field_codes` to skip paragraphs containing field codes and avoid TOC entries interfering with form title extraction. No section/table added; strict parity remains correct. Compared with standard eCRF, TOC appearance was fixed: added `_apply_raw_run_font` to write SimSun to raw entry runs, `_ensure_toc_styles` idempotently injects `TOC1/2/3` paragraph styles, and page number placeholders were changed from `?` to blank (filled with real page numbers after Word updates fields). Subsequent fixes based on the user's three feedback points: ① the "Table of Contents" title remains SimSun 12pt bold (confirmed already satisfied, unchanged); ② removed two blank lines between title and TOC — `_add_toc_placeholder` changed to only write the title + record anchor, added `_build_toc_entry` helper, `_populate_toc` merges the TOC field start into the first entry and the outer `end` into the last entry, so title and first entry are directly adjacent; ③ server-side baked real page numbers — added `services/toc_pagination.py` (LibreOffice headless render docx→PDF, read PDF outline page numbers) and `_bake_toc_page_numbers`, `export_project_to_word(bake_toc_page_numbers=...)` defaults to False (unit-test safe), route layer passes True (enabled in production), failures/missing LibreOffice gracefully fall back to blank + Word field update. Added dependency `pypdf`, with optional system dependency LibreOffice.
+- `2026-06-16` (task `06-16-word-vchoice-option-gap`): fixed Word export vertical option "first-to-second item gap too large". Root cause was `docGrid` (15.6pt line grid) + Word default `snapToGrid=1` snapping paragraph `space_before` to a whole-line grid, while the stored paragraph spacing was already consistent. Added `export_service._disable_snap_to_grid` (ordered insertion of `w:snapToGrid=0`, idempotent), called for each option paragraph in `_render_vertical_choices`; `test_export_unified.py` and `test_export_paper_orientation.py` added XML assertions for `snapToGrid=0`. Text and strict parity unchanged.
+- `2026-06-14`: Word export table row height changed from fixed `EXACTLY` 1cm to `AT_LEAST` 1cm lower bound, and fixed 15.6pt line spacing plus cell top/bottom spacing are used to guarantee 1cm single-line rows without clipping multi-line content; `test_export_paper_orientation.py` added docx XML regression assertions.
+- `2026-06-14`: Documentation sync refresh. Service modules 12→13 (added `word_table_parity.py`), tests 37→39, scripts 3→4 (added `compare_word_table_parity.py`); added notes for batch-delete owner isolation, Docx screenshot unsupported-runtime failure state, performance FK index idempotent migration, and strict preview/export parity.
+- `2026-05-08 18:26:34`: Incremental scan refresh. Tests 34→37 files, added `test_form_paper_orientation.py`, `test_export_paper_orientation.py`, `test_docx_import_contract.py`; updated related file list and directory entries.
+- `2026-05-08`: Added `form.paper_orientation` field, lightweight migration, copy/import compatibility, and Word export orientation override; added related backend tests.
+- `2026-04-28 Tuesday 08:31:55 PDT`: Full scan refresh. Source 53 files (routers 12, services 12, models 10, schemas 6, repositories 5, infrastructure 8), tests 34 files, scripts 4 files. Added infrastructure and service entries.
+- `2026-04-27 Monday 05:45:45 PDT`: Initial generation.

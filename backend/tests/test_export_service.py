@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 import os
 import re
 import tempfile
@@ -384,11 +385,11 @@ def test_export_toc_entries_have_pageref(
     assert entry_anchors == pageref_targets
 
 
-def test_export_toc_entries_use_song_font_defined_styles_and_blank_page_no(
+def test_export_toc_entries_use_song_font_defined_styles_and_fallback_page_no(
     session: Session,
     tmp_path: Path,
 ) -> None:
-    """TOC 条目使用宋体、引用已定义的 TOC1 样式，页码占位为空（不再是 '?'）。"""
+    """TOC 条目使用宋体、引用已定义的 TOC1 样式，页码有非空回退值。"""
     project = create_project(session)
     create_form(session, project.id, name="生命体征", order_index=1)
 
@@ -418,9 +419,13 @@ def test_export_toc_entries_use_song_font_defined_styles_and_blank_page_no(
     assert rfonts is not None
     assert rfonts.get(qn("w:eastAsia")) == "SimSun"
 
-    # 4) 页码占位为空，整段不含 '?'
+    # 4) 页码有非空数字回退值，整段不含 '?'
     all_text = "".join(t.text or "" for t in entry._p.iter(qn("w:t")))
+    numbers = _toc_entry_page_numbers(doc)
     assert "?" not in all_text
+    assert numbers
+    assert all(number.strip() for number in numbers)
+    assert all(number.isdigit() for number in numbers)
 
 
 def test_export_toc_field_end_wraps_prerendered_entries(
@@ -528,6 +533,74 @@ def _toc_entry_page_numbers(doc: Document) -> list[str]:
         texts = [t.text or "" for t in paragraph._p.iter(qn("w:t"))]
         numbers.append(texts[-1] if texts else "")
     return numbers
+
+
+def test_export_toc_keeps_non_empty_fallback_when_baking_returns_empty(
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """真实页码计算失败时，目录页码保留非空回退值并保留 Word 域。"""
+    project = create_project(session)
+    create_form(session, project.id, name="生命体征", order_index=1)
+    create_form(session, project.id, name="实验室", order_index=2)
+    monkeypatch.setattr(toc_pagination, "compute_heading_pages", lambda _path: {})
+
+    output_path = tmp_path / "fallback-empty.docx"
+    with caplog.at_level(logging.WARNING, logger="src.services.export_service"):
+        ok = ExportService(session).export_project_to_word(
+            project.id,
+            str(output_path),
+            bake_toc_page_numbers=True,
+        )
+
+    assert ok is True
+    doc = Document(output_path)
+    numbers = _toc_entry_page_numbers(doc)
+    assert numbers
+    assert all(number.strip() for number in numbers)
+    assert all(number.isdigit() for number in numbers)
+    assert "非空回退页码" in caplog.text
+    assert doc.settings.element.find(qn("w:updateFields")) is not None
+    assert any(
+        "PAGEREF" in (instr.text or "")
+        for paragraph in doc.paragraphs
+        for instr in paragraph._p.iter(qn("w:instrText"))
+    )
+
+
+def test_export_toc_bakes_known_pages_and_keeps_fallback_for_missing(
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """真实页码只覆盖命中的目录项，未命中项仍保留非空回退值。"""
+    project = create_project(session)
+    create_form(session, project.id, name="生命体征", order_index=1)
+    create_form(session, project.id, name="实验室", order_index=2)
+    monkeypatch.setattr(
+        toc_pagination,
+        "compute_heading_pages",
+        lambda _path: {"1. 生命体征": 7},
+    )
+
+    output_path = tmp_path / "fallback-partial.docx"
+    with caplog.at_level(logging.WARNING, logger="src.services.export_service"):
+        ok = ExportService(session).export_project_to_word(
+            project.id,
+            str(output_path),
+            bake_toc_page_numbers=True,
+        )
+
+    assert ok is True
+    numbers = _toc_entry_page_numbers(Document(output_path))
+    assert numbers
+    assert "7" in numbers
+    assert any(number == "1" for number in numbers)
+    assert all(number.strip() for number in numbers)
+    assert "部分目录页码未取得" in caplog.text
 
 
 @pytest.mark.skipif(

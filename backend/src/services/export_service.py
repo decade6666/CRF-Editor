@@ -22,6 +22,7 @@ from src.perf import perf_span, record_counter
 
 
 logger = logging.getLogger(__name__)
+_TOC_FALLBACK_PAGE_NUMBER = "1"
 
 
 # Task 4.5: 导出错误异常类（确保返回稳定 JSON：detail + code）
@@ -145,7 +146,21 @@ from src.services.width_planning import (
 )
 
 
+# 标签字号档位 -> Word 磅值；默认档位沿用 10.5pt
+DEFAULT_LABEL_FONT_PT = 10.5
 
+_LABEL_FONT_SIZE_PT = {"large": 12.0, "small": 9.0}
+
+
+def resolve_label_font_pt(form_field) -> float:
+    """返回字段标签的 Word 磅值；未知或缺省档位回退到默认 10.5pt。"""
+    key = getattr(form_field, "label_font_size", None)
+    return _LABEL_FONT_SIZE_PT.get(key, DEFAULT_LABEL_FONT_PT)
+
+
+def resolve_label_bold(form_field) -> bool:
+    """返回字段标签是否加粗；NULL/缺省视为加粗以兼容旧数据。"""
+    return getattr(form_field, "label_bold", None) != 0
 
 
 @dataclass(frozen=True)
@@ -1181,7 +1196,7 @@ class ExportService:
 
         entry.append(tab_run)
 
-        # PAGEREF 域：页码占位留空，Word 更新域后填充
+        # PAGEREF 域：先写入非空回退页码，Word 更新域后可校正
 
         begin_run = OxmlElement("w:r")
 
@@ -1229,7 +1244,7 @@ class ExportService:
 
         val_t.set(qn("xml:space"), "preserve")
 
-        val_t.text = ""
+        val_t.text = _TOC_FALLBACK_PAGE_NUMBER
 
         val_run.append(val_t)
 
@@ -1311,9 +1326,9 @@ class ExportService:
 
         """服务器侧用 LibreOffice 渲染算出真实页码并写回目录 PAGEREF 占位。
 
-        仅当 LibreOffice 可用且渲染成功时生效；否则保留空占位，由 Word 更新域
-        填充。PAGEREF 域与 ``updateFields=true`` 始终保留，Word 仍可按自身分页
-        再校正（LibreOffice 与 Word 分页可能差一页）。
+        LibreOffice 可用且渲染成功时写入真实页码；否则保留非空回退页码。
+        PAGEREF 域与 ``updateFields=true`` 始终保留，Word 仍可按自身分页再校正
+        （LibreOffice 与 Word 分页可能差一页）。
         """
 
         if not self._toc_pageref_values:
@@ -1328,9 +1343,14 @@ class ExportService:
 
         if not pages:
 
+            logger.warning(
+                "未取得真实目录页码，保留非空回退页码 output_path=%s",
+                output_path,
+            )
             return
 
         updated = False
+        missing_headings: list[str] = []
 
         for heading_text, value_elements in self._toc_pageref_values.items():
 
@@ -1338,6 +1358,7 @@ class ExportService:
 
             if page is None:
 
+                missing_headings.append(heading_text)
                 continue
 
             for val_t in value_elements:
@@ -1345,6 +1366,14 @@ class ExportService:
                 val_t.text = str(page)
 
                 updated = True
+
+        if missing_headings:
+
+            logger.warning(
+                "部分目录页码未取得，保留非空回退页码 missing_count=%s total=%s",
+                len(missing_headings),
+                len(self._toc_pageref_values),
+            )
 
         if updated:
 
@@ -2139,7 +2168,11 @@ class ExportService:
 
         left_run = left_para.add_run(label)
 
-        self._set_run_font(left_run, size=Pt(10.5), bold=True)
+        self._set_run_font(
+            left_run,
+            size=Pt(resolve_label_font_pt(form_field)),
+            bold=resolve_label_bold(form_field),
+        )
 
         self._apply_cell_paragraph_metrics(left_para)
 
@@ -2254,7 +2287,11 @@ class ExportService:
 
             run = para.add_run(label)
 
-            self._set_run_font(run, size=Pt(10.5), bold=True)
+            self._set_run_font(
+                run,
+                size=Pt(resolve_label_font_pt(form_field)),
+                bold=resolve_label_bold(form_field),
+            )
 
             self._apply_cell_paragraph_metrics(para)
 
@@ -2278,9 +2315,11 @@ class ExportService:
 
         run = para.add_run(label)
 
-        run.font.bold = True
-
-        self._set_run_font(run, size=Pt(10.5))
+        self._set_run_font(
+            run,
+            size=Pt(resolve_label_font_pt(form_field)),
+            bold=resolve_label_bold(form_field),
+        )
 
         self._apply_cell_paragraph_metrics(para)
 
@@ -2337,7 +2376,11 @@ class ExportService:
 
             run = para.add_run(label)
 
-            self._set_run_font(run, size=Pt(10.5), bold=True)
+            self._set_run_font(
+                run,
+                size=Pt(resolve_label_font_pt(block_fields[col_idx])),
+                bold=resolve_label_bold(block_fields[col_idx]),
+            )
 
             self._apply_cell_paragraph_metrics(para)
 
@@ -2573,7 +2616,11 @@ class ExportService:
 
         run = para.add_run(label)
 
-        self._set_run_font(run, size=Pt(10.5), bold=True)
+        self._set_run_font(
+            run,
+            size=Pt(resolve_label_font_pt(form_field)),
+            bold=resolve_label_bold(form_field),
+        )
 
         self._apply_cell_paragraph_metrics(para)
 
@@ -2608,9 +2655,11 @@ class ExportService:
 
         run = para.add_run(label)
 
-        run.font.bold = True
-
-        self._set_run_font(run, size=Pt(10.5))
+        self._set_run_font(
+            run,
+            size=Pt(resolve_label_font_pt(form_field)),
+            bold=resolve_label_bold(form_field),
+        )
 
         self._apply_cell_paragraph_metrics(para)
 
@@ -2651,7 +2700,11 @@ class ExportService:
 
         left_run = left_para.add_run(label)
 
-        self._set_run_font(left_run, size=Pt(10.5), bold=True)
+        self._set_run_font(
+            left_run,
+            size=Pt(resolve_label_font_pt(form_field)),
+            bold=resolve_label_bold(form_field),
+        )
 
         self._apply_cell_paragraph_metrics(left_para)
 
@@ -2816,7 +2869,11 @@ class ExportService:
 
             run = para.add_run(label)
 
-            self._set_run_font(run, size=Pt(10.5), bold=True)
+            self._set_run_font(
+                run,
+                size=Pt(resolve_label_font_pt(marked_fields[col_idx])),
+                bold=resolve_label_bold(marked_fields[col_idx]),
+            )
 
 
 
