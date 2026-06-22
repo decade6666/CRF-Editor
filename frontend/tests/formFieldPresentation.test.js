@@ -11,6 +11,9 @@ import {
   getFormFieldPreviewStyle,
   getFormFieldStructurePreviewStyle,
   getFormFieldTextColorStyle,
+  getFormFieldLabelPreviewStyle,
+  isFormFieldLabelBold,
+  getFormFieldLabelFontSizeStyle,
 } from '../src/composables/formFieldPresentation.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +27,19 @@ const visitsSource = readFileSync(
   path.resolve(currentDir, '../src/components/VisitsTab.vue'),
   'utf8',
 );
+const simulatedCrfSource = readFileSync(
+  path.resolve(currentDir, '../src/components/SimulatedCRFForm.vue'),
+  'utf8',
+);
 const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
+
+test('SimulatedCRFForm drives label bold from shared helper and drops hardcoded font-weight', () => {
+  // 标签单元格走共享标签样式 helper（label_bold/label_font_size），不再由 CSS 硬编码加粗
+  assert.match(simulatedCrfSource, /getFormFieldLabelPreviewStyle/);
+  assert.match(simulatedCrfSource, /includeBackground: false/);
+  assert.match(simulatedCrfSource, /:style="getLabelCellStyle\(field\)"/);
+  assert.doesNotMatch(simulatedCrfSource, /\.crf-label-only \{[^}]*font-weight: bold;[^}]*\}/s);
+});
 
 function createField(overrides = {}) {
   return {
@@ -71,6 +86,42 @@ test('structure preview style applies Word-export gray only to log rows by defau
     'background:var(--preview-structure-bg);color:#000000',
   );
   assert.equal(getFormFieldStructurePreviewStyle(styledLabelField), 'background:#FFEEDD;color:#000000');
+});
+
+test('label bold defaults to true and only label_bold===0 disables it', () => {
+  assert.equal(isFormFieldLabelBold(createField()), true);
+  assert.equal(isFormFieldLabelBold(createField({ label_bold: 1 })), true);
+  assert.equal(isFormFieldLabelBold(createField({ label_bold: null })), true);
+  assert.equal(isFormFieldLabelBold(createField({ label_bold: 0 })), false);
+});
+
+test('label font size maps档位 to px, default档位无 font-size', () => {
+  assert.equal(getFormFieldLabelFontSizeStyle(createField()), '');
+  assert.equal(getFormFieldLabelFontSizeStyle(createField({ label_font_size: 'default' })), '');
+  assert.equal(getFormFieldLabelFontSizeStyle(createField({ label_font_size: 'large' })), 'font-size:16px;');
+  assert.equal(getFormFieldLabelFontSizeStyle(createField({ label_font_size: 'small' })), 'font-size:11px;');
+});
+
+test('label preview style combines bold + font-size + color, structure variant included', () => {
+  // 默认：加粗、无字号、默认黑字
+  assert.equal(getFormFieldLabelPreviewStyle(createField()), 'font-weight:bold;color:#000000');
+  // 关闭加粗 + 大字号 + 文字色
+  assert.equal(
+    getFormFieldLabelPreviewStyle(createField({ label_bold: 0, label_font_size: 'large', text_color: '112233' })),
+    'font-weight:normal;font-size:16px;color:#112233',
+  );
+  // 结构标签（日志行）走 structure 灰底
+  assert.equal(
+    getFormFieldLabelPreviewStyle(createField({ is_log_row: 1, field_definition: null }), { structure: true }),
+    'font-weight:bold;background:var(--preview-structure-bg);color:#000000',
+  );
+  // 可复用同一 helper 只输出字重/字号/文字色，供保留组件自有底色的表格单元格使用
+  assert.equal(
+    getFormFieldLabelPreviewStyle(createField({ label_font_size: 'small', bg_color: 'FFEEDD' }), {
+      includeBackground: false,
+    }),
+    'font-weight:bold;font-size:11px;',
+  );
 });
 
 test('preview text defaults to true black when no custom text color is set', () => {
@@ -167,7 +218,8 @@ test('quick edit fields are subset of form field instance properties', () => {
   );
   assert.match(formDesignerSource, /: '';/);
   assert.match(formDesignerSource, /default_value: normalizedDefaultValue \|\| null/);
-  assert.match(formDesignerSource, /<el-form-item label="变量标签">/);
+  assert.match(formDesignerSource, /<el-form-item label="字段标签">/);
+  assert.doesNotMatch(formDesignerSource, /<el-form-item label="变量标签"/);
   assert.match(formDesignerSource, /v-model="quickEditProp\.label"/);
   assert.match(formDesignerSource, /quickEditProp\.field_type === '标签' \? 'textarea' : 'text'/);
   assert.match(
@@ -178,7 +230,7 @@ test('quick edit fields are subset of form field instance properties', () => {
     formDesignerSource,
     /isDefaultValueSupported\(quickEditProp\.field_type, Boolean\(quickEditProp\.inline_mark\)\)/,
   );
-  assert.match(formDesignerSource, /label="默认值"/);
+  assert.match(formDesignerSource, /label="默认值\/覆盖"/);
   assert.match(formDesignerSource, /v-model="quickEditProp\.default_value"/);
   assert.match(formDesignerSource, /quickEditProp\.inline_mark \? 'textarea' : 'text'/);
   assert.match(formDesignerSource, /quickEditProp\.inline_mark \? \{ minRows: 1, maxRows: 3 \} : undefined/);
@@ -205,9 +257,12 @@ test('preview structural colors are unified across designer and template preview
   assert.match(mainCssSource, /\.word-page \.wp-ctrl \{ font-family: 'SimSun', serif; color: #000;[\s\S]*\}/);
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/);
   assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/);
-  assert.match(formDesignerSource, /getFormFieldStructurePreviewStyle/);
-  assert.match(visitsSource, /getFormFieldStructurePreviewStyle/);
-  assert.match(templatePreviewSource, /getFormFieldStructurePreviewStyle/);
+  // 设计器、访视预览、模板预览统一改走标签样式聚合 helper（内部仍复用 structure 灰底逻辑）
+  assert.match(formDesignerSource, /getFormFieldLabelPreviewStyle/);
+  assert.match(visitsSource, /getFormFieldLabelPreviewStyle/);
+  assert.match(templatePreviewSource, /getFormFieldLabelPreviewStyle/);
+  // 访视预览不应再残留硬编码的 font-weight:bold 标签样式（应由 label_bold 驱动）
+  assert.doesNotMatch(visitsSource, /'font-weight:bold;' \+ getFormFieldStructurePreviewStyle/);
   assert.match(mainCssSource, /#D9D9D9/);
 });
 
