@@ -1,59 +1,59 @@
 # Coding Style Guide
 
-> 此文件定义团队编码规范，所有 LLM 工具在修改代码时必须遵守。
-> 提交到 Git，团队共享。
+> This file defines the team's coding standards. All LLM tools must follow it when modifying code.
+> Committed to Git and shared by the team.
 
 ## General
 
-- 优先做小而可审阅的改动，避免无关重构。
-- 函数尽量保持在 50 行以内，嵌套不超过 4 层。
-- 命名要清晰直白，避免单字母变量（循环计数器除外）。
-- 显式处理错误，禁止静默吞错。
-- 默认使用不可变更新，避免就地修改对象或数组。
-- 不在生产代码中保留调试输出；前端禁止 `console.log`。
+- Prefer small, reviewable changes and avoid unrelated refactoring.
+- Keep functions within 50 lines where possible, with nesting no deeper than 4 levels.
+- Use clear and direct names; avoid single-letter variables except loop counters.
+- Handle errors explicitly; silent error swallowing is forbidden.
+- Use immutable updates by default; avoid mutating objects or arrays in place.
+- Do not leave debug output in production code; frontend production code must not use `console.log`.
 
 ## Backend (Python / FastAPI / SQLAlchemy)
 
-- 遵循 PEP 8，并为所有函数签名补充类型注解。
-- 路由层保持轻量，重逻辑放在 `backend/src/services/`。
-- 数据访问优先复用 `repositories/` 与现有模型，不在路由中直接堆砌查询。
-- 结构变更集中在 `backend/src/database.py` 的轻量迁移逻辑中维护。
-- API 错误优先返回可直接展示的中文 `detail`，同时保留足够上下文便于排查。
-- 禁止硬编码密钥、口令或令牌，统一走 `CRF_*` 环境变量或配置。
+- Follow PEP 8 and add type annotations to all function signatures.
+- Keep the router layer lightweight; put heavy logic in `backend/src/services/`.
+- Prefer reusing `repositories/` and existing models for data access; do not pile direct queries into routers.
+- Maintain structural changes in the lightweight migration logic of `backend/src/database.py`.
+- API errors should preferably return user-displayable Chinese `detail` messages while preserving enough context for troubleshooting.
+- Do not hardcode secrets, passwords, or tokens; use `CRF_*` environment variables or configuration uniformly.
 
 ## Frontend (Vue 3 / Vite / Element Plus)
 
-- 复用逻辑优先放入 `frontend/src/composables/`，避免在组件内复制业务代码。
-- API 请求统一通过 `frontend/src/composables/useApi.js`。
-- 字段渲染与预览统一复用 `frontend/src/composables/useCRFRenderer.js`。
-- 字段展示规则优先复用 `frontend/src/composables/formFieldPresentation.js`。
-- 保持语义化 HTML、键盘可导航和合理 ARIA 标注。
-- 动画若需要引入，优先使用 Anime.js 或 Framer Motion 风格的成熟方案；当前栈内不要手写复杂动画引擎。
+- Put reusable logic in `frontend/src/composables/` first, avoiding duplicated business code inside components.
+- API requests must go through `frontend/src/composables/useApi.js`.
+- Field rendering and preview must reuse `frontend/src/composables/useCRFRenderer.js`.
+- Field display rules should preferably reuse `frontend/src/composables/formFieldPresentation.js`.
+- Keep semantic HTML, keyboard navigation, and appropriate ARIA attributes.
+- If animations are needed, prefer mature Anime.js-style or Framer Motion-style solutions; do not hand-write a complex animation engine in the current stack.
 
 ## Cross-stack Contracts
 
-- 列宽规划改动必须同步检查后端 `backend/src/services/width_planning.py` 与前端 `frontend/src/composables/useCRFRenderer.js`。
-- 调整列宽契约时，同时更新 `backend/tests/fixtures/planner_cases.json`、`backend/tests/test_width_planning.py`、`frontend/tests/columnWidthPlanning.test.js`。
-- 排序语义变更需同步检查 `backend/src/services/order_service.py` 与前端排序 composables。
-- 认证链路变更需同步检查后端认证服务/路由与前端 `App.vue`、`LoginView.vue`、`AdminView.vue`。
+- Column width planning changes must check both backend `backend/src/services/width_planning.py` and frontend `frontend/src/composables/useCRFRenderer.js`.
+- When adjusting the column width contract, update `backend/tests/fixtures/planner_cases.json`, `backend/tests/test_width_planning.py`, and `frontend/tests/columnWidthPlanning.test.js` together.
+- Ordering semantic changes require checking backend `backend/src/services/order_service.py` and frontend ordering composables together.
+- Authentication flow changes require checking backend authentication services/routes and frontend `App.vue`, `LoginView.vue`, and `AdminView.vue` together.
 
 ## Git Commits
 
-- 使用 Conventional Commits，语气保持 imperative。
-- 一个 commit 只做一类逻辑变更。
-- 类型限定为：`feat`、`fix`、`refactor`、`docs`、`test`、`chore`、`perf`、`ci`。
+- Use Conventional Commits and keep the description in imperative mood.
+- One commit should contain only one logical type of change.
+- Allowed types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`.
 
 ## Testing
 
-- 每个 `feat` / `fix` 都必须包含对应测试。
-- 先写失败测试，再写最小实现，再回归验证。
-- 覆盖率不得下降，目标不低于 80%。
-- 后端使用 `pytest`；前端使用 `node:test`。
-- 涉及认证、权限、项目隔离、导入导出、列宽契约的改动，必须补对应回归。
+- Every `feat` / `fix` must include corresponding tests.
+- Write a failing test first, then the minimal implementation, then run regression validation.
+- Coverage must not decrease; the target is at least 80%.
+- Backend uses `pytest`; frontend uses `node:test`.
+- Changes involving authentication, permissions, project isolation, import/export, or column width contracts must add corresponding regressions.
 
 ## Security
 
-- 不记录或展示 secrets、tokens、cookies、JWT 完整值。
-- 所有外部输入必须在系统边界做校验。
-- production 相关改动必须遵守 `CRF_ENV`、JWT TTL、管理员保留账号修复等安全约束。
-- 上传、导入路径和文件类型校验不得绕过现有白名单规则。
+- Do not log or display full secrets, tokens, cookies, or JWT values.
+- All external input must be validated at system boundaries.
+- Production-related changes must follow security constraints for `CRF_ENV`, JWT TTL, and reserved admin account repair.
+- Upload/import path and file type validation must not bypass existing whitelist rules.

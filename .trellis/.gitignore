@@ -8,7 +8,6 @@
 .ralph-state.json
 
 # Agent runtime files
-.agents/
 .agent-log
 .session-id
 
