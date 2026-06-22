@@ -30,6 +30,16 @@ def _get_codelist_with_project_check(session: Session, cl_id: int, project_id: i
     return cl
 
 
+def _build_codelist_copy_name(session: Session, project_id: int, source_name: str) -> str:
+    base = f"{source_name}_copy"
+    candidate = base
+    idx = 1
+    while session.scalar(select(CodeList.id).where(CodeList.project_id == project_id, CodeList.name == candidate)):
+        candidate = f"{base}{idx}"
+        idx += 1
+    return candidate
+
+
 @router.get("/projects/{project_id}/codelists", response_model=List[CodeListResponse])
 def list_codelists(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     verify_project_owner(project_id, current_user, session)
@@ -79,6 +89,42 @@ def create_codelist(project_id: int, data: CodeListCreate, session: Session = De
     session.flush()
     cl.options = options
     return cl
+
+
+@router.post("/projects/{project_id}/codelists/{cl_id}/copy", response_model=CodeListResponse, status_code=201)
+def copy_codelist(project_id: int, cl_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    """复制字典及其所有选项，name 加 _copy 后缀（冲突时追加数字）"""
+    verify_project_owner(project_id, current_user, session)
+    src = _get_codelist_with_project_check(session, cl_id, project_id)
+
+    from src.utils import generate_code
+
+    new_cl = CodeList(
+        project_id=project_id,
+        name=_build_codelist_copy_name(session, project_id, src.name),
+        code=generate_code("CL"),
+        description=src.description,
+        order_index=OrderService.get_next_order(session, CodeList, CodeList.project_id == project_id),
+    )
+    session.add(new_cl)
+    session.flush()
+
+    src_options = sorted(src.options, key=lambda opt: (opt.order_index or 999999, opt.id))
+    options = []
+    for opt in src_options:
+        copied = CodeListOption(
+            codelist_id=new_cl.id,
+            code=opt.code,
+            decode=opt.decode,
+            trailing_underscore=opt.trailing_underscore,
+            order_index=opt.order_index,
+        )
+        session.add(copied)
+        options.append(copied)
+
+    session.flush()
+    new_cl.options = options
+    return new_cl
 
 
 @router.put("/projects/{project_id}/codelists/{cl_id}", response_model=CodeListResponse)

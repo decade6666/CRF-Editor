@@ -43,6 +43,10 @@ def owned_form_graph(client, engine):
         session.add(unit)
         session.flush()
 
+        codelist = CodeList(project_id=project.id, name="授权字典", code="CL_AUTH", order_index=1)
+        session.add(codelist)
+        session.flush()
+
         field_definition = FieldDefinition(
             project_id=project.id,
             variable_name="AUTH_FIELD",
@@ -78,6 +82,7 @@ def owned_form_graph(client, engine):
             field_definition_id=field_definition.id,
             form_field_id=form_field.id,
             unit_id=unit.id,
+            codelist_id=codelist.id,
             visit_id=visit.id,
             visit_form_id=visit_form.id,
         )
@@ -333,7 +338,7 @@ def test_authenticated_user_can_export_owned_projects_database(client: TestClien
         ("post", "/api/forms/{form_id}/fields/batch-delete", {"ids": ["{form_field_id}"]}),
         ("get", "/api/field-definitions/{field_definition_id}/references", None),
         ("delete", "/api/field-definitions/{field_definition_id}", None),
-        ("post", "/api/field-definitions/{field_definition_id}/copy", {}),
+        ("post", "/api/projects/{project_id}/codelists/{codelist_id}/copy", {}),
         ("put", "/api/units/{unit_id}", {"symbol": "mm"}),
         ("get", "/api/units/{unit_id}/references", None),
         ("delete", "/api/units/{unit_id}", None),
@@ -353,10 +358,12 @@ def test_other_user_cannot_access_form_and_field_routes(
     json_body,
 ) -> None:
     substitutions = {
+        "project_id": owned_form_graph.project_id,
         "form_id": owned_form_graph.form_id,
         "field_definition_id": owned_form_graph.field_definition_id,
         "form_field_id": owned_form_graph.form_field_id,
         "unit_id": owned_form_graph.unit_id,
+        "codelist_id": owned_form_graph.codelist_id,
         "visit_id": owned_form_graph.visit_id,
     }
     url = url_template.format(**substitutions)

@@ -69,6 +69,14 @@ async function addCl() {
   } catch (e) { ElMessage.error(e.message) }
 }
 
+async function copyCl(c) {
+  try {
+    await api.post(`/api/projects/${props.projectId}/codelists/${c.id}/copy`, {})
+    await reload()
+    ElMessage.success('复制成功')
+  } catch (e) { ElMessage.error(e.message) }
+}
+
 async function delCl(c) {
   try {
     const refs = await api.get(`/api/projects/${props.projectId}/codelists/${c.id}/references`)
@@ -242,8 +250,9 @@ async function onOptDragEnd() {
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="100" show-overflow-tooltip />
         <el-table-column prop="name" label="字典名称" :width="codelistNameColWidth" resizable />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
-        <el-table-column label="操作" width="120">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" link @click.stop="copyCl(row)">复制</el-button>
             <el-button size="small" link @click.stop="openEditCl(row)">编辑</el-button>
             <el-button type="danger" size="small" link @click.stop="delCl(row)">删除</el-button>
           </template>
