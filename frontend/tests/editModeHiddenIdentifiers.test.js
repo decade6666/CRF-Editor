@@ -67,10 +67,10 @@ test('field variable OID controls are visible only in complete edit mode after o
   assert.match(fieldsSource, /const editMode = inject\('editMode', ref\(false\)\)/)
   assertInOrder(fieldsSource, [
     /<el-table-column label="序号" width="100">/,
-    /<el-table-column v-if="editMode" prop="variable_name" label="OID\(变量名\)"/,
+    /<el-table-column v-if="editMode" prop="variable_name" label="OID"/,
     /<el-table-column prop="label" label="标签"/,
   ], 'field OID column should sit immediately after ordinal column')
-  assert.match(fieldsSource, /<el-form-item v-if="editMode && !\['标签'\]\.includes\(editProp\.field_type\)" label="OID\(变量名\)">[\s\S]*v-model="editProp\.variable_name"/)
+  assert.match(fieldsSource, /<el-form-item v-if="editMode && !\['标签'\]\.includes\(editProp\.field_type\)" label="OID">[\s\S]*v-model="editProp\.variable_name"/)
   assert.doesNotMatch(fieldsSource, /label="变量名"/)
   assert.doesNotMatch(fieldsSource, /v-show="false"/)
 })
@@ -84,7 +84,7 @@ test('form OID and designer field variable OID controls are visible only in comp
   ], 'form OID column should sit immediately after ordinal column')
   assert.match(formDesignerSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="newFormCode"/)
   assert.match(formDesignerSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="editFormCode"/)
-  assert.match(formDesignerSource, /<el-form-item v-if="editMode && !\['标签', '日志行'\]\.includes\(editProp\.field_type\)" label="OID\(变量名\)"/)
+  assert.match(formDesignerSource, /<el-form-item v-if="editMode && !\['标签', '日志行'\]\.includes\(editProp\.field_type\)" label="OID"/)
   assert.doesNotMatch(formDesignerSource, /表单OID|label="变量名"/)
   assert.doesNotMatch(formDesignerSource, /v-show="false"/)
 })

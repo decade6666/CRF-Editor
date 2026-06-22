@@ -35,7 +35,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
-  getFormFieldStructurePreviewStyle,
+  getFormFieldLabelPreviewStyle,
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
@@ -358,6 +358,8 @@ function buildFormFieldCreatePayload(ff) {
     inline_mark: ff.inline_mark ?? 0,
     bg_color: ff.bg_color ?? null,
     text_color: ff.text_color ?? null,
+    label_bold: ff.label_bold ?? 1,
+    label_font_size: ff.label_font_size ?? null,
   };
 }
 
@@ -371,6 +373,8 @@ function snapshotFieldPropState(ff) {
     default_value: ff.default_value ?? null,
     bg_color: ff.bg_color ?? null,
     text_color: ff.text_color ?? null,
+    label_bold: ff.label_bold ?? 1,
+    label_font_size: ff.label_font_size ?? null,
     fd: {
       label: fd.label ?? null,
       variable_name: fd.variable_name ?? null,
@@ -411,8 +415,13 @@ async function applyFieldPropState(ctx, state) {
     await api.put(`/api/projects/${projectId}/field-definitions/${fieldDefinitionId}`, { ...state.fd });
     await api.put(`/api/form-fields/${ffId}`, { default_value: state.default_value });
   }
-  // 颜色对日志行与普通字段都适用，与正向保存 saveFieldProp 的无条件 PATCH 对齐。
-  await api.patch(`/api/form-fields/${ffId}/colors`, { bg_color: state.bg_color, text_color: state.text_color });
+  // 颜色与标签样式对日志行与普通字段都适用，与正向保存 saveFieldProp 的无条件 PATCH 对齐。
+  await api.patch(`/api/form-fields/${ffId}/colors`, {
+    bg_color: state.bg_color,
+    text_color: state.text_color,
+    label_bold: state.label_bold,
+    label_font_size: state.label_font_size,
+  });
   await reloadAfterReplay(formId, { defs: true, focusFieldId: ffId });
 }
 
@@ -782,6 +791,12 @@ function applyPreviewSnapshot(baseField, snapshot) {
       text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color')
         ? snapshot.text_color
         : (baseField.text_color ?? null),
+      label_bold: Object.prototype.hasOwnProperty.call(snapshot, 'label_bold')
+        ? snapshot.label_bold
+        : (baseField.label_bold ?? 1),
+      label_font_size: Object.prototype.hasOwnProperty.call(snapshot, 'label_font_size')
+        ? snapshot.label_font_size
+        : (baseField.label_font_size ?? null),
     };
   }
 
@@ -807,6 +822,12 @@ function applyPreviewSnapshot(baseField, snapshot) {
     text_color: Object.prototype.hasOwnProperty.call(snapshot, 'text_color')
       ? snapshot.text_color
       : (baseField.text_color ?? null),
+    label_bold: Object.prototype.hasOwnProperty.call(snapshot, 'label_bold')
+      ? snapshot.label_bold
+      : (baseField.label_bold ?? 1),
+    label_font_size: Object.prototype.hasOwnProperty.call(snapshot, 'label_font_size')
+      ? snapshot.label_font_size
+      : (baseField.label_font_size ?? null),
     field_definition: {
       ...fieldDefinition,
       label: snapshot.label ?? fieldDefinition.label,
@@ -1137,6 +1158,8 @@ const quickEditProp = reactive({
   text_color: '',
   inline_mark: false,
   default_value: '',
+  label_bold: 1,
+  label_font_size: 'default',
 });
 function openQuickEdit(ff) {
   if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
@@ -1155,6 +1178,8 @@ function openQuickEdit(ff) {
     text_color: ff.text_color || '',
     inline_mark: !!ff.inline_mark,
     default_value: ff.default_value || '',
+    label_bold: ff.label_bold === 0 ? 0 : 1,
+    label_font_size: ff.label_font_size || 'default',
   });
   showQuickEdit.value = true;
 }
@@ -1171,6 +1196,8 @@ async function saveQuickEdit() {
       text_color: quickEditProp.text_color || null,
       inline_mark: quickEditProp.inline_mark ? 1 : 0,
       default_value: normalizedDefaultValue || null,
+      label_bold: quickEditProp.label_bold,
+      label_font_size: quickEditProp.label_font_size === 'default' ? null : quickEditProp.label_font_size,
     };
     const updated = await api.put(`/api/form-fields/${quickEditField.value.id}`, payload);
     const currentField = {
@@ -1231,6 +1258,8 @@ const editProp = reactive({
   inline_mark: 0,
   bg_color: null,
   text_color: null,
+  label_bold: 1,
+  label_font_size: 'default',
 });
 let fieldPropSaveTimer = null;
 let pendingFieldPropSnapshots = [];
@@ -1331,6 +1360,8 @@ function buildFieldPropSnapshot(fieldId = selectedFieldId.value) {
     inline_mark: editProp.inline_mark,
     bg_color: editProp.bg_color,
     text_color: editProp.text_color,
+    label_bold: editProp.label_bold ? 1 : 0,
+    label_font_size: editProp.label_font_size === 'default' ? null : editProp.label_font_size,
   };
 }
 
@@ -1433,6 +1464,8 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
       inline_mark: 0,
       bg_color: null,
       text_color: null,
+      label_bold: 1,
+      label_font_size: 'default',
     });
     customBgColorInput.value = '';
     customTextColorInput.value = '';
@@ -1586,6 +1619,8 @@ function selectField(ff) {
       inline_mark: 0,
       bg_color: ff.bg_color || null,
       text_color: ff.text_color || null,
+      label_bold: ff.label_bold === 0 ? 0 : 1,
+      label_font_size: ff.label_font_size || 'default',
     });
     customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some((o) => o.value === ff.bg_color) ? ff.bg_color : '';
     customTextColorInput.value =
@@ -1613,6 +1648,8 @@ function selectField(ff) {
     inline_mark: ff.inline_mark || 0,
     bg_color: ff.bg_color || null,
     text_color: ff.text_color || null,
+    label_bold: ff.label_bold === 0 ? 0 : 1,
+    label_font_size: ff.label_font_size || 'default',
   });
   customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some((o) => o.value === ff.bg_color) ? ff.bg_color : '';
   customTextColorInput.value =
@@ -1666,6 +1703,8 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, {
     bg_color: snapshot.bg_color,
     text_color: snapshot.text_color,
+    label_bold: snapshot.label_bold,
+    label_font_size: snapshot.label_font_size,
   });
   if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
   syncSelectedField(
@@ -1705,6 +1744,8 @@ function applyEditorToDraft() {
     inline_mark: editProp.inline_mark || 0,
     bg_color: editProp.bg_color || null,
     text_color: editProp.text_color || null,
+    label_bold: editProp.label_bold ? 1 : 0,
+    label_font_size: editProp.label_font_size === 'default' ? null : editProp.label_font_size,
     field_definition: {
       ...draft.field_definition,
       label: editProp.label,
@@ -2355,7 +2396,7 @@ function openAddForm() {
                             <td
                               class="unified-label row-resize-anchor"
                               :colspan="gv.labelValueSpans.labelSpan"
-                              :style="getFormFieldPreviewStyle(seg.fields[0])"
+                              :style="getFormFieldLabelPreviewStyle(seg.fields[0])"
                             >
                               {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                               <span
@@ -2386,10 +2427,7 @@ function openAddForm() {
                                 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签',
                               }"
                               :colspan="gv.colCount"
-                              :style="
-                                'font-weight:bold;' +
-                                getFormFieldStructurePreviewStyle(seg.fields[0])
-                              "
+                              :style="getFormFieldLabelPreviewStyle(seg.fields[0], { structure: true })"
                             >
                               {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                               <span
@@ -2408,7 +2446,7 @@ function openAddForm() {
                                 :key="ff.id"
                                 class="wp-inline-header row-resize-anchor"
                                 :colspan="seg.mergeSpans[idx]"
-                                :style="getFormFieldPreviewStyle(ff)"
+                                :style="getFormFieldLabelPreviewStyle(ff)"
                                 @dblclick="openQuickEdit(ff)"
                               >
                                 {{ getFormFieldDisplayLabel(ff) }}
@@ -2481,7 +2519,7 @@ function openAddForm() {
                             <td
                               class="wp-structure-label--multiline row-resize-anchor"
                               colspan="2"
-                              :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)"
+                              :style="getFormFieldLabelPreviewStyle(ff, { structure: true })"
                             >
                               {{ getFormFieldDisplayLabel(ff) }}
                               <span
@@ -2499,10 +2537,7 @@ function openAddForm() {
                             <td
                               colspan="2"
                               class="row-resize-anchor"
-                              :style="
-                                'font-weight:bold;' +
-                                getFormFieldStructurePreviewStyle(ff)
-                              "
+                              :style="getFormFieldLabelPreviewStyle(ff, { structure: true })"
                             >
                               {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
                               <span
@@ -2517,7 +2552,7 @@ function openAddForm() {
                             :style="getRowHeightStyle(getRowResizer('normal', gv), getNormalRowKey(ff))"
                             @dblclick="openQuickEdit(ff)"
                           >
-                            <td class="wp-label row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                            <td class="wp-label row-resize-anchor" :style="getFormFieldLabelPreviewStyle(ff)">
                               {{ getFormFieldDisplayLabel(ff) }}
                               <span
                                 class="row-resizer-handle"
@@ -2568,7 +2603,7 @@ function openAddForm() {
                             v-for="ff in gv.fields"
                             :key="ff.id"
                             class="wp-inline-header row-resize-anchor"
-                            :style="getFormFieldPreviewStyle(ff)"
+                            :style="getFormFieldLabelPreviewStyle(ff)"
                             @dblclick="openQuickEdit(ff)"
                           >
                             {{ getFormFieldDisplayLabel(ff) }}
@@ -2794,7 +2829,7 @@ function openAddForm() {
                                       <td
                                         class="unified-label row-resize-anchor"
                                         :colspan="gv.labelValueSpans.labelSpan"
-                                        :style="getFormFieldPreviewStyle(seg.fields[0])"
+                                        :style="getFormFieldLabelPreviewStyle(seg.fields[0])"
                                       >
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                                         <span
@@ -2827,10 +2862,7 @@ function openAddForm() {
                                           'row-resize-anchor': true,
                                         }"
                                         :colspan="gv.colCount"
-                                        :style="
-                                          'font-weight:bold;' +
-                                          getFormFieldStructurePreviewStyle(seg.fields[0])
-                                        "
+                                        :style="getFormFieldLabelPreviewStyle(seg.fields[0], { structure: true })"
                                       >
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                                         <span
@@ -2849,7 +2881,7 @@ function openAddForm() {
                                           :key="ff.id"
                                           class="wp-inline-header row-resize-anchor"
                                           :colspan="seg.mergeSpans[idx]"
-                                          :style="getFormFieldPreviewStyle(ff)"
+                                          :style="getFormFieldLabelPreviewStyle(ff)"
                                           @dblclick="openQuickEdit(ff)"
                                         >
                                           {{ getFormFieldDisplayLabel(ff) }}
@@ -2930,7 +2962,7 @@ function openAddForm() {
                                       <td
                                         class="wp-structure-label--multiline row-resize-anchor"
                                         colspan="2"
-                                        :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)"
+                                        :style="getFormFieldLabelPreviewStyle(ff, { structure: true })"
                                       >
                                         {{ getFormFieldDisplayLabel(ff) }}
                                         <span
@@ -2948,10 +2980,7 @@ function openAddForm() {
                                       <td
                                         colspan="2"
                                         class="row-resize-anchor"
-                                        :style="
-                                          'font-weight:bold;' +
-                                          getFormFieldStructurePreviewStyle(ff)
-                                        "
+                                        :style="getFormFieldLabelPreviewStyle(ff, { structure: true })"
                                       >
                                         {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
                                         <span
@@ -2966,7 +2995,7 @@ function openAddForm() {
                                       :style="getRowHeightStyle(getRowResizer('normal', gv), getNormalRowKey(ff))"
                                       @dblclick="openQuickEdit(ff)"
                                     >
-                                      <td class="wp-label row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                                      <td class="wp-label row-resize-anchor" :style="getFormFieldLabelPreviewStyle(ff)">
                                         {{ getFormFieldDisplayLabel(ff) }}
                                         <span
                                           class="row-resizer-handle"
@@ -3024,7 +3053,7 @@ function openAddForm() {
                                       v-for="ff in gv.fields"
                                       :key="ff.id"
                                       class="wp-inline-header row-resize-anchor"
-                                      :style="getFormFieldPreviewStyle(ff)"
+                                      :style="getFormFieldLabelPreviewStyle(ff)"
                                       @dblclick="openQuickEdit(ff)"
                                     >
                                       {{ getFormFieldDisplayLabel(ff) }}
@@ -3103,7 +3132,7 @@ function openAddForm() {
             <div class="designer-section-title">属性编辑</div>
             <div v-if="!selectedFieldId" class="designer-empty-state">← 选择字段</div>
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
-              <el-form :model="editProp" label-width="70px" size="small">
+              <el-form :model="editProp" label-width="88px" size="small">
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
                 <el-form-item label="底纹颜色">
                   <div class="color-picker">
@@ -3185,17 +3214,27 @@ function openAddForm() {
                     </el-input>
                   </div>
                 </el-form-item>
+                <el-form-item label="标签加粗">
+                  <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
+                </el-form-item>
+                <el-form-item label="标签字号">
+                  <el-radio-group v-model="editProp.label_font_size" size="small">
+                    <el-radio-button label="large">大</el-radio-button>
+                    <el-radio-button label="default">默认</el-radio-button>
+                    <el-radio-button label="small">小</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
               </el-form>
             </div>
             <div v-else class="designer-editor-scroll">
-              <el-form :model="editProp" label-width="70px" size="small">
-                <el-form-item label="变量标签"
+              <el-form :model="editProp" label-width="88px" size="small">
+                <el-form-item label="字段标签"
                   ><el-input
                     v-model="editProp.label"
                     :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
                     :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
                 /></el-form-item>
-                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID(变量名)"
+                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
                   ><el-input v-model="editProp.variable_name"
                 /></el-form-item>
                 <el-form-item label="字段类型">
@@ -3221,7 +3260,7 @@ function openAddForm() {
                     />
                   </el-select>
                 </el-form-item>
-                <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
+                <el-form-item v-if="isChoiceField(editProp.field_type)" label="字段选项">
                   <div class="choice-codelist-row">
                     <el-select
                       v-model="editProp.codelist_id"
@@ -3386,6 +3425,16 @@ function openAddForm() {
                     </el-input>
                   </div>
                 </el-form-item>
+                <el-form-item label="标签加粗">
+                  <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
+                </el-form-item>
+                <el-form-item label="标签字号">
+                  <el-radio-group v-model="editProp.label_font_size" size="small">
+                    <el-radio-button label="large">大</el-radio-button>
+                    <el-radio-button label="default">默认</el-radio-button>
+                    <el-radio-button label="small">小</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
               </el-form>
             </div>
           </div>
@@ -3436,7 +3485,7 @@ function openAddForm() {
 
     <el-dialog v-model="showQuickEdit" title="快速编辑字段" width="480px" append-to-body>
       <el-form :model="quickEditProp" label-width="80px" size="small">
-        <el-form-item label="变量标签">
+        <el-form-item label="字段标签">
           <el-input
             v-model="quickEditProp.label"
             :type="quickEditProp.field_type === '标签' ? 'textarea' : 'text'"
@@ -3460,7 +3509,7 @@ function openAddForm() {
         >
           <el-input :model-value="quickEditField.field_definition.date_format" disabled />
         </el-form-item>
-        <el-form-item v-if="quickEditField?.field_definition?.codelist" label="选项字典">
+        <el-form-item v-if="quickEditField?.field_definition?.codelist" label="字段选项">
           <el-input :model-value="quickEditField.field_definition.codelist.name" disabled />
         </el-form-item>
         <el-form-item v-if="quickEditField?.field_definition?.unit" label="单位">
@@ -3468,7 +3517,7 @@ function openAddForm() {
         </el-form-item>
         <el-form-item
           v-if="isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark))"
-          label="默认值"
+          label="默认值/覆盖"
         >
           <el-input
             v-model="quickEditProp.default_value"
@@ -3521,6 +3570,16 @@ function openAddForm() {
               @click="quickEditProp.text_color = opt.value"
             ></button>
           </div>
+        </el-form-item>
+        <el-form-item label="标签加粗">
+          <el-switch v-model="quickEditProp.label_bold" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+        <el-form-item label="标签字号">
+          <el-radio-group v-model="quickEditProp.label_font_size" size="small">
+            <el-radio-button label="large">大</el-radio-button>
+            <el-radio-button label="default">默认</el-radio-button>
+            <el-radio-button label="small">小</el-radio-button>
+          </el-radio-group>
         </el-form-item>
         <el-form-item v-if="quickEditProp.field_type !== '标签' && quickEditProp.field_type !== '日志行'" label="布局">
           <el-checkbox v-model="quickEditProp.inline_mark">横向显示</el-checkbox>

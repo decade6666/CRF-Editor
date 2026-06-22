@@ -188,7 +188,7 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
             </div>
           </template>
         </el-table-column>
-        <el-table-column v-if="editMode" prop="variable_name" label="OID(变量名)" min-width="100" />
+        <el-table-column v-if="editMode" prop="variable_name" label="OID" min-width="100" />
         <el-table-column prop="label" label="标签" min-width="80" />
         <el-table-column prop="field_type" label="类型" width="100" />
         <el-table-column label="单位/选项" width="120">
@@ -215,7 +215,7 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
       <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
       <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
-          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID(变量名)"><el-input v-model="editProp.variable_name" /></el-form-item>
+          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" /></el-form-item>
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
           <el-form-item label="字段类型">
             <el-select v-model="editProp.field_type" style="width:100%">
