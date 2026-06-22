@@ -202,8 +202,8 @@ async function selectProject(p) {
 
 // 切换Tab时刷新相关数据
 watch(activeTab, (newTab) => {
-  // 切换到字段库时刷新，确保显示最新数据（表单设计器可能修改了字段）
-  if (newTab === 'fields') {
+  // 字段页与表单设计页共用字段定义数据；两者互相切换时都刷新，避免字段库看到过期缓存。
+  if (newTab === 'fields' || newTab === 'designer') {
     api.invalidateCache(`/api/projects/${selectedProject.value?.id}/field-definitions`);
     refreshKey.value++;
   }

@@ -45,6 +45,13 @@ test('settings dialog uses inline prompt edit mode copy', () => {
   );
 });
 
+test('app refreshes field definition cache when switching to fields or designer tabs', () => {
+  assert.match(
+    appSource,
+    /watch\(activeTab, \(newTab\) => \{[\s\S]*if \(newTab === 'fields' \|\| newTab === 'designer'\) \{[\s\S]*field-definitions[\s\S]*refreshKey\.value\+\+[\s\S]*\}[\s\S]*\}\);/,
+  );
+});
+
 test('header keeps template import and word export only', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || '';
   assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/);
