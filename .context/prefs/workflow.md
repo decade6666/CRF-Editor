@@ -1,66 +1,66 @@
 # Development Workflow Rules
 
-> 此文件定义 LLM 开发工作流的强制规则。
-> 所有 LLM 工具在执行任务时必须遵守，不可跳过关键验证步骤。
+> This file defines mandatory rules for the LLM development workflow.
+> All LLM tools must follow these rules while executing tasks, and must not skip key validation steps.
 
 ## Full Flow (MUST follow, no exceptions)
 
-### feat (新功能)
+### feat (new feature)
 
-1. 理解需求与影响范围，先读取根级与模块级 `CLAUDE.md`。
-2. 检索现有实现，优先复用已有 router / service / composable / test 模式。
-3. 先写失败测试（RED），确认新增行为尚未实现。
-4. 编写最小实现（GREEN），避免顺手重构无关代码。
-5. 补充必要回归测试并统一通过。
-6. 若变更影响入口、命令、契约或用户可见行为，同步更新文档。
-7. 对于超过 30 行的代码改动，补做质量校验与变更检查。
+1. Understand the requirement and impact scope; read the root-level and module-level `CLAUDE.md` first.
+2. Search existing implementations and prefer reusing existing router / service / composable / test patterns.
+3. Write a failing test first (RED) and confirm the new behavior is not implemented yet.
+4. Write the minimal implementation (GREEN), avoiding opportunistic unrelated refactoring.
+5. Add necessary regression tests and make them pass together.
+6. If the change affects entry points, commands, contracts, or user-visible behavior, update documentation in sync.
+7. For code changes over 30 lines, perform additional quality validation and change review.
 
-### fix (缺陷修复)
+### fix (bug fix)
 
-1. 复现问题，确认症状与影响范围。
-2. 定位根因，必要时沿 `router -> service/repository -> model/schema` 或 `App/组件 -> composable -> API` 链路检查。
-3. 先写失败测试（RED）。
-4. 修复代码并保持改动最小化。
-5. 运行目标测试与相关回归，确认变绿（GREEN）。
-6. 若修复触及认证、权限、导入导出、列宽、项目隔离等关键路径，补充专项回归。
+1. Reproduce the issue and confirm symptoms and impact scope.
+2. Locate the root cause; when needed, inspect along the `router -> service/repository -> model/schema` chain or the `App/component -> composable -> API` chain.
+3. Write a failing test first (RED).
+4. Fix the code while keeping the change minimal.
+5. Run targeted tests and related regressions; confirm they turn green (GREEN).
+6. If the fix touches key paths such as authentication, permissions, import/export, column widths, or project isolation, add dedicated regressions.
 
-### refactor (重构)
+### refactor
 
-1. 确保现有测试先通过。
-2. 小步重构，每步都应可验证。
-3. 不改变外部行为，不夹带功能性修改。
-4. 重构后重新运行相关测试，并检查是否引入安全或契约回归。
+1. Ensure existing tests pass first.
+2. Refactor in small steps, and every step should be verifiable.
+3. Do not change external behavior or bundle functional changes into the refactor.
+4. After refactoring, rerun related tests and check for security or contract regressions.
 
 ## Verification Rules
 
-- 后端改动至少运行对应 `pytest` 用例。
-- 前端改动至少运行对应 `node --test` 用例；若涉及 UI 行为，优先实际启动并验证主路径。
-- 新功能 / 缺陷修复目标覆盖率不低于 80%。
-- 当单次改动超过 30 行时，优先执行 `/verify-change` 与 `/verify-quality`。
-- 涉及认证、授权、输入校验、导入导出、密钥、上传等安全敏感改动时，执行 `/verify-security`。
+- Backend changes must run at least the corresponding `pytest` cases.
+- Frontend changes must run at least the corresponding `node --test` cases; if UI behavior is involved, prefer launching the app and validating the main path manually.
+- New features / bug fixes target at least 80% coverage.
+- When a single change exceeds 30 lines, prefer running `/verify-change` and `/verify-quality`.
+- For security-sensitive changes involving authentication, authorization, input validation, import/export, secrets, uploads, and similar areas, run `/verify-security`.
 
 ## PR Rules
 
-- PR 面向项目维护者，标题可保留 Conventional Commits 格式，描述正文必须使用中文。
-- PR 描述需包含：摘要、变更内容、测试计划、后续事项；测试计划必须列出已运行命令与通过状态。
-- PR 正文末尾保留 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`。
+- PRs are written for project maintainers. Titles may keep the Conventional Commits format, and the PR body must be in Chinese.
+- The PR description must include: summary, changes, test plan, and follow-ups; the test plan must list commands run and pass/fail status.
+- Keep `🤖 Generated with [Claude Code](https://claude.com/claude-code)` at the end of the PR body.
 
-## Context Logging (决策记录)
+## Context Logging (decision records)
 
-当你做出以下决策时，MUST 追加到 `.context/current/branches/<当前分支>/session.log`：
+When making any of the following decisions, MUST append to `.context/current/branches/<current-branch>/session.log`:
 
-1. **方案选择**：选 A 不选 B 时，记录原因。
-2. **Bug 发现与修复**：记录症状、根因、修复方式与教训。
-3. **API / 架构决策**：接口设计、目录职责、跨栈契约调整。
-4. **放弃的方案**：为什么放弃。
-5. **上下文修正**：发现 `.context/prefs`、文档索引或项目上下文与真实代码不一致时。
+1. **Solution choice**: when choosing A instead of B, record the reason.
+2. **Bug discovery and fix**: record symptoms, root cause, fix approach, and lessons learned.
+3. **API / architecture decision**: interface design, directory responsibilities, cross-stack contract adjustments.
+4. **Rejected approach**: why it was rejected.
+5. **Context correction**: when `.context/prefs`, documentation indexes, or project context are found inconsistent with the real code.
 
-追加格式：
+Append format:
 
 ```
-## <ISO-8601 时间>
-**Decision**: <你选择了什么>
-**Alternatives**: <被排除的方案>
-**Reason**: <为什么>
-**Risk**: <潜在风险>
+## <ISO-8601 time>
+**Decision**: <what you chose>
+**Alternatives**: <rejected options>
+**Reason**: <why>
+**Risk**: <potential risks>
 ```

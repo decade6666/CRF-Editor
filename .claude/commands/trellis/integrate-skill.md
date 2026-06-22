@@ -34,7 +34,7 @@ openskills read <skill-name>
 
 If the skill doesn't exist, prompt user to check available skills:
 ```bash
-# Available skills are listed in AGENTS.md under <available_skills>
+# Available skills are listed by the active CLI under its skills/commands registry
 ```
 
 ### 2. Determine Integration Target

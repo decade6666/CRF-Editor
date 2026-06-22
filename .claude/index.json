@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-14T00:00:00+08:00",
+  "timestamp": "2026-06-18T08:48:19-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -45,6 +45,7 @@
         "backend/src/services/order_service.py",
         "backend/src/services/project_clone_service.py",
         "backend/src/services/project_import_service.py",
+        "backend/src/services/toc_pagination.py",
         "backend/src/services/user_admin_service.py",
         "backend/src/services/width_planning.py",
         "backend/src/services/word_table_parity.py"
@@ -126,14 +127,14 @@
         "backend/tests/test_word_table_parity.py"
       ],
       "coverage": {
-        "estimated_files": 99,
-        "scanned_files": 99,
+        "estimated_files": 100,
+        "scanned_files": 100,
         "percent": 100
       },
       "gaps": [
         {
           "type": "large_service_file",
-          "description": "export_service.py 与 docx_import_service.py 仍适合在后续导入导出专项中继续拆解复杂路径。"
+          "description": "export_service.py and docx_import_service.py are still suitable for further decomposition of complex import/export paths in a dedicated future pass."
         }
       ]
     },
@@ -169,6 +170,7 @@
         "frontend/src/composables/useApi.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
+        "frontend/src/composables/useDesignerHistory.js",
         "frontend/src/composables/useLazyTabs.js",
         "frontend/src/composables/useOrderableList.js",
         "frontend/src/composables/usePerfBaseline.js",
@@ -197,7 +199,10 @@
         "frontend/tests/browserPerfBaselineScript.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/designerHistory.test.js",
+        "frontend/tests/designerNewFieldDraft.test.js",
         "frontend/tests/docxBimodalPreview.test.js",
+        "frontend/tests/editModeHiddenIdentifiers.test.js",
         "frontend/tests/exportDownloadState.test.js",
         "frontend/tests/formDesignerPreviewModel.test.js",
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
@@ -212,20 +217,21 @@
         "frontend/tests/sessionTimer.test.js",
         "frontend/tests/sidebarCollapseBehavior.test.js",
         "frontend/tests/sidebarCopyButtonScope.test.js",
+        "frontend/tests/tableHeaderStyle.test.js",
         "frontend/tests/themePalette.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",
         "frontend/tests/wordPageGeometry.test.js",
         "frontend/tests/testProperty.js"
       ],
       "coverage": {
-        "estimated_files": 61,
-        "scanned_files": 61,
+        "estimated_files": 66,
+        "scanned_files": 66,
         "percent": 100
       },
       "gaps": [
         {
           "type": "no_browser_e2e",
-          "description": "未发现 Playwright / Cypress 等浏览器级 E2E 套件；当前以 node:test 源码级回归为主。"
+          "description": "No browser-level E2E suites such as Playwright / Cypress were found; the current suite is primarily node:test source-level regression tests."
         }
       ]
     },
@@ -246,8 +252,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 161,
-    "scanned_files": 161,
+    "estimated_total_files": 167,
+    "scanned_files": 167,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",
@@ -271,8 +277,7 @@
       ".venv-linux/**",
       "backend/uploads/**",
       ".pytest_cache/**",
-      ".obsidian/**",
-      ".codex/**"
+      ".obsidian/**"
     ],
     "ignored_top_paths": [
       {
@@ -307,9 +312,9 @@
     "truncated": false,
     "phase_reached": "D",
     "next_steps": [
-      "如需更高可信度，可补扫 backend/src/services/export_service.py 与 docx_import_service.py 的复杂导入导出分支。",
-      "如需 UI 行为保障，可补充 Playwright / Cypress 浏览器级 E2E 套件。",
-      "性能基线测试套件与 strict preview/export parity 对比脚本已就绪，可在后续迭代中扩展场景覆盖。"
+      "For higher confidence, additionally scan the complex import/export branches in backend/src/services/export_service.py and docx_import_service.py.",
+      "For UI behavior coverage, add a browser-level E2E suite such as Playwright / Cypress.",
+      "The performance baseline test suite and strict preview/export parity comparison script are ready; expand scenario coverage in future iterations."
     ]
   },
   "gap_summary": {

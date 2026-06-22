@@ -51,7 +51,6 @@ node_modules/
 # IDE 与工具配置
 # ==========================================
 .settings/
-.codex/
 .ace-tool/
 .playwright-mcp/
 .obsidian/

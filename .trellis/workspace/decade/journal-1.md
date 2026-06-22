@@ -1336,3 +1336,63 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: 表单设计器属性面板文案和标签字号调整
+
+**Date**: 2026-06-21
+**Task**: 表单设计器属性面板文案和标签字号调整
+**Branch**: `draft`
+
+### Summary
+
+按用户要求完成表单设计器属性面板文案与样式微调：属性编辑标签宽度加宽，变量标签改为字段标签，选项属性改为字段选项，大号标签字号从 15px 增至 16px。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Frontend | Updated `FormDesignerTab.vue` property editor label width from `70px` to `88px`, renamed `变量标签` to `字段标签`, and renamed the field choice property `选项` to `字段选项`. |
+| Presentation | Updated `formFieldPresentation.js` large label font-size preview mapping from `15px` to `16px`. |
+| Tests | Updated `formFieldPresentation.test.js` and `quickEditBehavior.test.js` assertions for the new labels, label width, and large font-size mapping. |
+| Trellis | Backfilled `.trellis/tasks/06-21-designer-property-label-copy/` with `task.json`, `prd.md`, and context JSONL files. |
+
+**Updated Files**:
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/src/composables/formFieldPresentation.js`
+- `frontend/tests/formFieldPresentation.test.js`
+- `frontend/tests/quickEditBehavior.test.js`
+- `.trellis/tasks/06-21-designer-property-label-copy/task.json`
+- `.trellis/tasks/06-21-designer-property-label-copy/prd.md`
+- `.trellis/tasks/06-21-designer-property-label-copy/implement.jsonl`
+- `.trellis/tasks/06-21-designer-property-label-copy/check.jsonl`
+- `.trellis/tasks/06-21-designer-property-label-copy/debug.jsonl`
+
+**Verification**:
+- RED step: targeted tests failed before implementation on old `15px` large label font-size and old property labels.
+- `cd frontend && node --test tests/formFieldPresentation.test.js tests/quickEditBehavior.test.js` — 54/54 passed.
+- `node --test tests/*.test.js` — 276/276 passed.
+- `npm run lint -- --quiet` — passed, no errors.
+- `code-review low` — `(none)`.
+- `python3 ./.trellis/scripts/task.py validate 06-21-designer-property-label-copy` — passed.
+
+**Not Run**:
+- Browser/manual UI screenshot verification.
+- Git commit; commit requires explicit user authorization.
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
