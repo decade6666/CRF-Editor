@@ -32,6 +32,7 @@ import {
   renderCtrl,
   renderCtrlHtml,
   toHtml,
+  computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
@@ -235,7 +236,7 @@ function getScopedDefaultValue(ff, singleLine = false) {
 }
 
 // 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
-function renderCellHtml(ff) {
+function renderCellHtml(ff, fillLineChars = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const fd = ff.field_definition
   const ft = fd.field_type
@@ -247,7 +248,7 @@ function renderCellHtml(ff) {
   if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
     return renderCtrlHtml(field)
   }
-  return renderCtrlHtml(field)
+  return renderCtrlHtml(field, fillLineChars)
 }
 
 function getInlineRows(fields) {
@@ -342,6 +343,20 @@ function getPreviewColumnFractions(group) {
   return inlineRatios.length === colCount
     ? inlineRatios
     : Array.from({ length: colCount }, () => 1 / colCount)
+}
+
+// normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享
+// computeFillLineCharCount 公式以保证逐字一致。仅 normal 表；unified/inline 维持 16。
+const PREVIEW_AVAILABLE_CM_PORTRAIT = 14.66
+const PREVIEW_AVAILABLE_CM_LANDSCAPE = 23.36
+function normalFillChars(group, groupIndex) {
+  if (group?.type !== 'normal') return null
+  const controlFrac = getPreviewColumnFractions(group, groupIndex)?.[1]
+  if (controlFrac == null) return null
+  const availableCm = previewLandscapeMode.value
+    ? PREVIEW_AVAILABLE_CM_LANDSCAPE
+    : PREVIEW_AVAILABLE_CM_PORTRAIT
+  return computeFillLineCharCount(controlFrac * availableCm)
 }
 
 function getPreviewRowResizer(group) {
@@ -741,7 +756,7 @@ async function toggleCell(visitId, formId) {
                       ></span>
                     </td>
                     <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                      <span v-html="renderCellHtml(ff)"></span>
+                      <span v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></span>
                       <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"

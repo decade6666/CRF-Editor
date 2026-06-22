@@ -22,6 +22,7 @@ import {
   renderCtrl,
   renderCtrlHtml,
   toHtml,
+  computeFillLineCharCount,
 } from '../src/composables/useCRFRenderer.js'
 import {
   readColumnWidthRatios,
@@ -124,6 +125,33 @@ test('9.3c2 preview_choice_marker_label_spacing: default options have no interna
 test('9.3d fill-line estimator: 6 个下划线映射为 3.0em', () => {
   assert.match(toHtml('______'), /min-width:3\.0em/)
   assert.match(toHtml('________________'), /min-width:8\.0em/)
+})
+
+test('9.3e computeFillLineCharCount: 随列宽单调增长并夹在 [6, 80]', () => {
+  assert.equal(computeFillLineCharCount(0), 6)
+  assert.equal(computeFillLineCharCount(-5), 6)
+  assert.equal(computeFillLineCharCount(1000), 80)
+  assert.ok(computeFillLineCharCount(9.0) > computeFillLineCharCount(4.0))
+  // 跨栈边界：与后端 compute_fill_line_char_count(8.77) == 43 逐位一致
+  assert.equal(computeFillLineCharCount(8.77), 43)
+})
+
+test('9.3e2 computeFillLineCharCount: 物理宽度不超过列宽（绝不换行）', () => {
+  for (const cm of [5.0, 7.33, 8.8, 12.0, 20.0]) {
+    assert.ok(computeFillLineCharCount(cm) * 0.19 <= cm, `cm=${cm}`)
+  }
+})
+
+test('9.3f renderCtrl 接受 fillLineChars：文本字段输出对应根数的下划线', () => {
+  const field = { field_type: '文本' }
+  assert.equal(renderCtrl(field, 30), '_'.repeat(30))
+  // 未传参数时保持旧固定 16 根（向后兼容，不破坏 parity 默认值）
+  assert.equal(renderCtrl(field), '________________')
+})
+
+test('9.3f2 renderCtrlHtml 透传 fillLineChars：min-width 随根数放大', () => {
+  const html = renderCtrlHtml({ field_type: '文本' }, 30)
+  assert.match(html, /min-width:15\.0em/)
 })
 
 test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {

@@ -55,7 +55,7 @@
                   <template v-for="ff in gv.fields" :key="ff.id">
                     <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
+                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></td></tr>
                   </template>
                 </table>
                 <!-- inline 类型：横向表格 -->
@@ -136,6 +136,7 @@ import {
   planNormalColumnFractions,
   planUnifiedColumnFractions,
   toHtml,
+  computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
@@ -251,13 +252,23 @@ function getColumnFractions(g, groupIndex) {
 }
 
 // Task 3.3: 单元格渲染
-function renderCellHtml(ff) {
+function renderCellHtml(ff, fillLineChars = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const defaultValue = ff.default_value
   if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)) {
     return toHtml(normalizeDefaultValue(defaultValue, false))
   }
-  return renderCtrlHtml(ff)
+  return renderCtrlHtml(ff, fillLineChars)
+}
+
+// normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享公式。
+// 模板预览无纸张方向信息，按竖版 14.66cm 估算；unified/inline 维持旧固定 16。
+const TEMPLATE_AVAILABLE_CM_PORTRAIT = 14.66
+function normalFillChars(group, groupIndex) {
+  if (group?.type !== 'normal') return null
+  const controlFrac = getColumnFractions(group, groupIndex)?.[1]
+  if (controlFrac == null) return null
+  return computeFillLineCharCount(controlFrac * TEMPLATE_AVAILABLE_CM_PORTRAIT)
 }
 
 watch(() => props.modelValue, (val) => {

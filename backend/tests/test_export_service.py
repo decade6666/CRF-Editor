@@ -233,6 +233,59 @@ def test_export_project_renders_one_table_per_form_for_standard_fields(
 
 
 
+def test_export_text_field_fill_line_scales_with_column_width(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    from src.services.width_planning import (
+        compute_fill_line_char_count,
+        plan_normal_table_width,
+    )
+
+    project = create_project(session)
+    form = create_form(session, project.id, name="备注表", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+    note = create_field_definition(
+        session,
+        project.id,
+        variable_name="NOTE",
+        label="备注",
+        field_type="文本",
+    )
+    note_field = create_form_field(session, form.id, note.id, order_index=1)
+
+    doc = export_document(session, project.id, tmp_path)
+    form_table = doc.tables[2]
+    fill_cell_text = form_table.cell(0, 1).text
+
+    widths = plan_normal_table_width([note_field], available_cm=14.66)
+    expected = compute_fill_line_char_count(widths[1])
+
+    # 填写线根数随 control 列宽自适应，比旧固定 16 更长且不换行
+    assert fill_cell_text == "_" * expected
+    assert expected > 16
+    assert "\n" not in fill_cell_text
+
+
+def test_render_field_control_defaults_to_legacy_sixteen_underscores(
+    session: Session,
+) -> None:
+    project = create_project(session)
+    text_field = create_field_definition(
+        session,
+        project.id,
+        variable_name="MEMO",
+        label="说明",
+        field_type="文本",
+    )
+
+    # 未传 fill_line_chars 的调用方（inline / unified / 空占位）保持旧行为
+    rendered = ExportService(session)._render_field_control(text_field)
+
+    assert rendered == "________________"
+
+
 def test_export_project_sorts_form_headings_by_order_index_then_id(
     session: Session,
     tmp_path: Path,
