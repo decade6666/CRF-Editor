@@ -13,8 +13,9 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units
+- **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
-- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit and a strict preview/export table-field parity comparator
+- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and a strict preview/export table-field parity comparator
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
 - **Form Preview**: Preview form field layout directly from the visits management panel and reuse the Word-preview row-height resize experience
 - **Session Management**: Shows remaining JWT session lifetime in the header, warns near expiry, and supports click-to-refresh
@@ -33,6 +34,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Document Export**: python-docx
 - **Testing Framework**: pytest + hypothesis
 - **Frontend Testing**: node:test + a lightweight property-test helper (testProperty.js)
+- **Optional Runtime**: LibreOffice for server-side Word table-of-contents page-number precomputation; missing LibreOffice keeps non-empty fallback page numbers and Word field correction
 
 ### Project Structure
 
@@ -83,7 +85,8 @@ These documents support AI-assisted development by recording module boundaries, 
 
 - Python 3.10 or higher
 - Node.js 18 or higher (for frontend development)
-- Windows OS (for Word export functionality)
+- LibreOffice (optional, for server-side real page numbers in Word table-of-contents entries; without it, exported files keep non-empty fallback page numbers, and Word/WPS can correct them by updating fields)
+- Windows + MS Word (optional, only required by the Word-import original-document screenshot evidence panel)
 
 ### Installation Steps
 
@@ -225,7 +228,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 The exported Word document contains:
 
 - **Cover Page**: Trial name, version number, protocol number, center number, screening number, etc.
-- **Table of Contents**: Pre-rendered entries visible on open with clickable navigation; real page numbers are baked in when exported on a server with LibreOffice, otherwise refreshed after updating fields in Word
+- **Table of Contents**: Pre-rendered entries visible on open with clickable navigation; real page numbers are baked in when exported on a server with LibreOffice, otherwise non-empty fallback numbers are shown and corrected after updating fields in Word
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
 
@@ -252,7 +255,7 @@ node --test tests/*.test.js
 
 In the current repository:
 - `backend/tests/` currently contains 39 `pytest` regression files, including some `hypothesis` property tests
-- `frontend/tests/` currently contains 25 `node:test` source-level regression files, with a homegrown lightweight property-test helper (`testProperty.js`)
+- `frontend/tests/` currently contains 29 `node:test` source-level regression files, with a homegrown lightweight property-test helper (`testProperty.js`)
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing
