@@ -1,125 +1,131 @@
-[根目录](../../.claude/CLAUDE.md) > **frontend**
+[Root](../../.claude/CLAUDE.md) > **frontend**
 
-# frontend 模块说明
+# frontend Module Notes
 
-> 最近更新：2026年6月15日
+> Last updated: 2026-06-18
 
-## 模块职责
-- 提供 CRF 编辑器的 Vue 3 单页界面。
-- 管理登录、项目、访视、表单、字段、单位、字典、设置与管理员页面。
-- 承担模板导入、项目导入、Word 导入双栏证据预览、导出、主题切换与侧边栏交互。
-- 提供 CRF 预览渲染、排序、缓存刷新、字段实例快编、列宽 / 行高拖拽与会话倒计时体验。
+## Module Responsibilities
+- Provide the Vue 3 single-page interface for the CRF editor.
+- Manage login, projects, visits, forms, fields, units, dictionaries, settings, and admin pages.
+- Handle template import, project import, Word import two-column evidence preview, export, theme switching, and sidebar interaction.
+- Provide CRF preview rendering, ordering, cache refresh, field instance quick edit, column width / row height dragging, and session countdown experience.
 
-## 关键入口
-- `frontend/src/main.js`：创建 Vue 应用并挂载 `App.vue`，注册 Element Plus 与全量图标。
-- `frontend/src/App.vue`：应用壳层，管理登录状态、`/api/auth/me` 登录后分流、普通项目工作台、管理员独立工作台、导入导出、刷新、主题、设置弹窗与改密弹窗。
-- `frontend/src/composables/useApi.js`：统一请求、错误解析、401 失效处理、GET 缓存与自动失效。
-- `frontend/src/composables/useCRFRenderer.js`：统一字段渲染、HTML 预览与内容驱动列宽规划。
-- `frontend/src/composables/formFieldPresentation.js`：字段实例展示属性、颜色、默认值等表现层规则。
-- `frontend/src/composables/useColumnResize.js`：表单设计器列宽拖拽与本地持久化协作。
-- `frontend/src/composables/useRowResize.js`：Word 预览行高拖拽、稳定行 key 与本地持久化。
-- `frontend/src/composables/useSessionTimer.js`：JWT `exp` 展示、临期提醒与复用 `/api/auth/me` 的点击续期。
-- `frontend/src/composables/formDesignerPreviewModel.js`：表单设计器 / 模板预览的派生视图模型缓存，避免模板重复重算。
-- `frontend/vite.config.js`：开发服务器、`/api` 代理与构建分包配置。
+## Key Entry Points
+- `frontend/src/main.js`: creates the Vue app, mounts `App.vue`, and registers Element Plus with the full icon set.
+- `frontend/src/App.vue`: application shell; manages login state, post-login routing through `/api/auth/me`, regular project workbench, standalone admin workbench, import/export, refresh, theme, settings dialog, and password-change dialog.
+- `frontend/src/composables/useApi.js`: unified requests, error parsing, 401 invalidation handling, GET cache, and automatic invalidation.
+- `frontend/src/composables/useCRFRenderer.js`: unified field rendering, HTML preview, and content-driven column width planning.
+- `frontend/src/composables/formFieldPresentation.js`: presentation-layer rules for field instance display attributes, colors, default values, and related behavior.
+- `frontend/src/composables/useColumnResize.js`: form designer column width dragging and local persistence coordination.
+- `frontend/src/composables/useRowResize.js`: Word preview row height dragging, stable row keys, and local persistence.
+- `frontend/src/composables/useSessionTimer.js`: JWT `exp` display, near-expiration reminders, and click-to-renew by reusing `/api/auth/me`.
+- `frontend/src/composables/formDesignerPreviewModel.js`: derived view-model cache for form designer / template preview, avoiding repeated recalculation for templates.
+- `frontend/vite.config.js`: development server, `/api` proxy, and build chunking configuration.
 
-## 核心目录
-- `src/components/`（13 个 Vue 组件）：项目、字典、单位、字段、表单设计、访视、登录、管理、会话倒计时、导入预览、CRF 模拟渲染等页面组件。
-- `src/composables/`（15 个 JS 模块）：API、排序、字段渲染、表单设计器属性编辑、预览视图模型、导出下载状态、列宽 / 行高拖拽、会话倒计时、设计器撤销/恢复历史、访视预览方向、标签页懒加载、性能基线等共享逻辑。
-- `src/styles/`：全局样式与主题变量。
-- `scripts/`（3 个脚本）：fixture 生成（`generatePlannerFixtures.mjs`）、构建指标采集（`collectBuildMetrics.mjs`）、浏览器性能基线（`runBrowserPerfBaseline.mjs`）。
-- `tests/`（28 个文件：27 个 `.test.js` + `testProperty.js`）：基于 `node:test` 的前端回归、契约测试与属性测试辅助工具。
+## Core Directories
+- `src/components/` (13 Vue components): page components for projects, dictionaries, units, fields, form design, visits, login, admin, session countdown, import preview, simulated CRF rendering, and more.
+- `src/composables/` (15 JS modules): shared logic for API, ordering, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
+- `src/styles/`: global styles and theme variables.
+- `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
+- `tests/` (30 files: 29 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
-## 关键组件与流程
-- `components/LoginView.vue`：账号 + 密码登录表单；development 下展示迁移提示，production 下显示通用认证失败文案。
-- `components/SessionTimer.vue`：顶栏会话剩余时间展示、临期状态样式与点击续期入口。
-- `components/AdminView.vue`：管理员独立工作台，负责用户列表、密码状态展示、创建用户、密码重置、批量项目操作与回收站。
-- `components/ProjectInfoTab.vue`：项目信息、元数据与 Logo 操作。
-- `components/VisitsTab.vue`：访视结构、访视表单矩阵、访视预览与排序。
-- `components/FieldsTab.vue`：字段库维护。
-- `components/FormDesignerTab.vue`：表单设计、字段实例编辑、实时预览、列宽拖拽、快编与内存撤销/恢复（撤回/恢复按钮 + Ctrl+Z / Ctrl+Y）。
-- `components/TemplatePreviewDialog.vue`：模板导入预览。
-- `components/DocxCompareDialog.vue`：Word 导入对比预览与 AI 建议应用。
-- `components/DocxScreenshotPanel.vue`：Word 导入截图展示。
-- `components/SimulatedCRFForm.vue`：CRF 模拟渲染。
-- `App.vue` 负责登录后先拉取 `/api/auth/me` 再决定管理员/普通用户主工作台，并管理项目复制、数据库导入导出、Word 导出频率限制、设置弹窗、AI 连通性测试、暗色模式切换和普通用户改密。
+## Key Components and Flows
+- `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
+- `components/SessionTimer.vue`: top-bar remaining session time display, near-expiration status styling, and click-to-renew entry point.
+- `components/AdminView.vue`: standalone admin workbench, responsible for user list, password status display, creating users, password reset, batch project operations, and recycle bin.
+- `components/ProjectInfoTab.vue`: project information, metadata, and Logo operations.
+- `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, and ordering.
+- `components/FieldsTab.vue`: field library maintenance.
+- `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, column width dragging, quick edit, and in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y).
+- `components/TemplatePreviewDialog.vue`: template import preview.
+- `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application.
+- `components/DocxScreenshotPanel.vue`: Word import screenshot display.
+- `components/SimulatedCRFForm.vue`: simulated CRF rendering.
+- `App.vue` first fetches `/api/auth/me` after login, then decides whether to enter the admin workbench or regular-user main workbench; it also manages project copy, database import/export, Word export rate limiting, settings dialog, AI connectivity test, dark mode switching, and regular-user password change.
 
-## 依赖与脚本
-- 技术栈：Vue 3、Vite、Element Plus、vuedraggable、sortablejs。
-- 测试依赖：`node:test`、自研轻量属性测试工具 `tests/testProperty.js`。
-- 常用命令：`npm run dev`、`npm run build`、`npm run lint`、`npm run format`。
-- 测试命令：`node --test tests/*.test.js`。
-- 开发服务器默认监听 `0.0.0.0:5173`，`/api` 代理到 `http://127.0.0.1:8888`。
+## Dependencies and Scripts
+- Tech stack: Vue 3, Vite, Element Plus, vuedraggable, sortablejs.
+- Test dependencies: `node:test`, self-developed lightweight property testing utility `tests/testProperty.js`.
+- Common commands: `npm run dev`, `npm run build`, `npm run lint`, `npm run format`.
+- Test command: `node --test tests/*.test.js`.
+- The development server listens on `0.0.0.0:5173` by default, and `/api` proxies to `http://127.0.0.1:8888`.
 
-## 开发约定
-- 复杂复用逻辑放 `composables/`。
-- API 请求统一走 `useApi.js`。
-- 字段预览与 HTML 渲染统一复用 `useCRFRenderer.js`。
-- 字段展示规则优先复用 `formFieldPresentation.js`，避免在组件中重复拼接表现层逻辑。
-- 排序交互优先复用 `useOrderableList.js` 与 `useSortableTable.js`。
-- `FormDesignerTab.vue` 的设计备注展示已从右侧 aside 迁移到 canvas header / designer-section-title 的摘要 + tooltip 路径；仅 VisitsTab 仍保留原 aside 样式。
-- 新增字段为本地草稿态：点「新建字段」（`newField`）只构造临时草稿对象（`id='__draft__'`、`__draft:true`、带完整本地 `field_definition`）插入 `formFields` 并选中，不发请求；顶栏出现「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿、刷新并作为一次「新建字段」入撤销栈。草稿态下属性自动保存链路在 watcher 入口短路为 `applyEditorToDraft` 本地写回；`removeField` 对草稿仅移除本地、不调 DELETE；同一时刻仅允许一个草稿，切换表单/选其它字段/再次新建前经 `confirmDiscardDraft`（保存/丢弃/取消）；**切换项目时只要设计器 tab 已激活，也必须先走 `canLeaveProject` 守卫，避免懒加载组件仍挂载时草稿被静默清空**；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库不变。
-- 字段属性自动保存的离开策略统一走 `resolveFieldPropLeave`：关闭设计窗口（`before-close`）、切换表单、切换项目都先尝试 flush；`missing_codelist`（单选/多选未选字典）这类不可自动保存但可放弃的错误，使用 `confirmDiscardFieldPropChanges` 给出“继续修改 / 放弃并离开”出口；网络/服务端错误则阻断离开并提示原因。放弃未保存字段属性只清理本地 autosave 队列与编辑器状态，不额外 reload，避免在离开过程中引入新的网络失败面。
-- 设计器撤销/恢复为纯内存双栈（`useDesignerHistory.js`，上限 20，刷新即清空，不做后端持久化）。覆盖属性编辑、排序、新增（含 log 行）、新建字段、删除、批量删除六类操作；删除/批量删除的逆操作用删除前快照按原 `order_index` 重建并 `remapId` 回写新 id；新建字段撤销时对称删除自动创建的字段定义（被其他表单引用返回 409 则降级保留并提示）。切换表单清空历史；`toggleInline` 等其他快编路径暂不入栈。
-- 表单方向（`paper_orientation`）应以 `selectedFormPaperOrientation` + `resolveLandscape` 为主；首次加载会迁移一次 `localStorage['crf_forceLandscape']` 到 per-form 设置，迁移完成后不再依赖旧全局开关。
-- 前端测试集中在 `frontend/tests/`，主要覆盖应用壳层、设置、导入反馈、排序、设计器、字段展示、主题、侧边栏与端口约定。
+## Development Conventions
+- Put complex reusable logic in `composables/`.
+- API requests must go uniformly through `useApi.js`.
+- Field preview and HTML rendering must uniformly reuse `useCRFRenderer.js`.
+- Field display rules should preferably reuse `formFieldPresentation.js` to avoid repeating presentation-layer concatenation logic in components.
+- Ordering interactions should preferably reuse `useOrderableList.js` and `useSortableTable.js`.
+- `FormDesignerTab.vue` design note display has moved from the right-side aside to the canvas header / designer-section-title summary + tooltip path; only VisitsTab still keeps the original aside style.
+- `App.vue` provides global `editMode` (persistence key `crf_edit_mode`). Brief mode hides advanced identifiers such as OID / variable names by default, and when leaving full mode resets the current advanced maintenance tab back to project information; in full mode, the lists and add/edit dialogs of `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` uniformly show the corresponding advanced identifiers.
+- New fields are local drafts: clicking "New Field" (`newField`) only constructs a temporary draft object (`id='__draft__'`, `__draft:true`, with a complete local `field_definition`), inserts it into `formFields`, and selects it, without sending a request; only when the top-bar "Save" button (`saveDraftField`) appears and is clicked does it sequentially `POST field-definitions` + `POST forms/{id}/fields` to persist, replace the draft, refresh, and record one "new field" action in the undo stack. In draft state, the property autosave chain short-circuits at the watcher entry to `applyEditorToDraft` local write-back; `removeField` only removes drafts locally and does not call DELETE; only one draft is allowed at a time, and before switching forms / selecting another field / creating another field, `confirmDiscardDraft` (save/discard/cancel) is used; **when switching projects, as long as the designer tab has been activated, it must first go through the `canLeaveProject` guard, avoiding silently clearing drafts while the lazy-loaded component is still mounted**; sorting is disabled while a draft exists, and draft rows do not participate in batch selection or inline quick toggles. `addField`, which drags an existing definition from the field library, keeps immediate persistence unchanged.
+- The leave strategy for field property autosave goes uniformly through `resolveFieldPropLeave`: closing the design window (`before-close`), switching forms, and switching projects all try to flush first; errors such as `missing_codelist` (single/multiple choice without dictionary selected), which cannot be autosaved but can be abandoned, use `confirmDiscardFieldPropChanges` to provide "continue editing / discard and leave" exits; network/server errors block leaving and show the reason. Discarding unsaved field property changes only clears the local autosave queue and editor state, without extra reload, to avoid introducing a new network failure surface during leaving.
+- Designer undo/redo uses pure in-memory dual stacks (`useDesignerHistory.js`, limit 20, cleared on refresh, no backend persistence). It covers six action types: property editing, ordering, adding (including log rows), new field, delete, and batch delete; inverse operations for delete/batch delete rebuild from pre-delete snapshots according to the original `order_index` and write new ids back through `remapId`; undoing new field symmetrically deletes the automatically created field definition (if referenced by other forms and returning 409, it degrades by keeping it and showing a prompt). Switching forms clears history; other quick-edit paths such as `toggleInline` are not currently recorded in the stack.
+- Form orientation (`paper_orientation`) should primarily use `selectedFormPaperOrientation` + `resolveLandscape`; first load migrates `localStorage['crf_forceLandscape']` once to per-form settings, and no longer relies on the old global switch after migration.
+- Frontend tests are concentrated in `frontend/tests/`, mainly covering the application shell, settings, import feedback, ordering, designer, field display, theme, sidebar, and port conventions.
+- Global Element Plus table headers uniformly use `--color-primary-subtle` fill, `--color-text-primary` text color, and center alignment; fixed column headers need to override the white-background fallback of `.el-table-fixed-column--left/right` and `.el-table__fixed-right-patch`. Handwritten list headers reuse `.manual-list-header`, avoiding inline left/right alignment styles that cause option / visit-form list headers to drift.
 
-## 预览列宽（内容驱动）
-- `useCRFRenderer.js` 暴露 `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` 作为三类表格的统一 planner 入口。
-- 字符权重常量与 CJK 码点范围与后端 `backend/src/services/width_planning.py` 共享契约，任一端改动需同步另一端。共享常量包含 `WEIGHT_CHINESE=2`、`WEIGHT_ASCII=1`、`FILL_LINE_WEIGHT=6`、`INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8`（仅作用于 inline 表，保护 ≤4 字短表头如 `未查` / `项目` / `单位` 与长邻居共存时不被挤压到不可单行）、`AVAILABLE_CM=14.66`。
-- `FormDesignerTab.vue` 使用 `useColumnResize` 管理列宽拖拽；默认值源接受数组/工厂函数/Ref，切换 `formId` 或 `tableKind` 时自动 rehydrate。
-- `FormDesignerTab.vue` 与 `VisitsTab.vue` 复用 `useRowResize` 管理 Word 预览行高拖拽；行高 key 由字段 id 与表格实例组成，hover / active 指示线需覆盖整行。
-- localStorage 键：`crf:designer:col-widths:<form_id>:<table_kind>`；只有设计器写入，`TemplatePreviewDialog` / `SimulatedCRFForm` 仅读取。
-- 行高 localStorage 键：`crf:designer:row-heights:<form_id>:<table_instance_id>`；设计器与访视预览共享读取 / 写入语义。
-- 读取列宽缓存失败（非数组/元素越界/和不为 1）时回退内容驱动默认值。
-- 跨栈 fixture：`backend/tests/fixtures/planner_cases.json` 同时被前端 `columnWidthPlanning.test.js` 与后端 `test_width_planning.py` 加载；**唯一权威生成器** `frontend/scripts/generatePlannerFixtures.mjs`，新增/修改 case 必须改 generator 后重跑。
-- `.wp-form-title` 必须保持 `text-align: left` 与 Word 导出 `add_heading(level=1)` 默认左对齐对齐，由 `frontend/tests/wordPageGeometry.test.js` 锁住，禁止改回 `center` 或引入 `margin: 0 auto` 触发块居中。
+## Preview Column Widths (Content-Driven)
+- `useCRFRenderer.js` exposes `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` as the unified planner entry points for the three table types.
+- Character weight constants and CJK code point ranges share the same contract with backend `backend/src/services/width_planning.py`; changes on either side require syncing the other side. Shared constants include `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters such as "Unchecked" / "Item" / "Unit" from being squeezed by long neighbors to the point they cannot fit on one line), `AVAILABLE_CM=14.66`.
+- `FormDesignerTab.vue` uses `useColumnResize` to manage column width dragging; default value sources accept arrays / factory functions / Refs, and automatically rehydrate when switching `formId` or `tableKind`.
+- `FormDesignerTab.vue` and `VisitsTab.vue` reuse `useRowResize` to manage Word preview row height dragging; row height keys are composed from field id and table instance, and hover / active indicator lines need to cover the whole row.
+- localStorage key: `crf:designer:col-widths:<form_id>:<table_kind>`; only the designer writes it, while `TemplatePreviewDialog` / `SimulatedCRFForm` only read it.
+- Row height localStorage key: `crf:designer:row-heights:<form_id>:<table_instance_id>`; the designer and visit preview share read/write semantics.
+- If reading cached column widths fails (non-array / element out of bounds / sum not equal to 1), fall back to content-driven defaults.
+- Cross-stack fixture: `backend/tests/fixtures/planner_cases.json` is loaded by both frontend `columnWidthPlanning.test.js` and backend `test_width_planning.py`; the **single authoritative generator** is `frontend/scripts/generatePlannerFixtures.mjs`, and adding/modifying cases must update and rerun the generator.
+- `.wp-form-title` must keep `text-align: left` to align with Word export `add_heading(level=1)` default left alignment; this is locked by `frontend/tests/wordPageGeometry.test.js`, and changing it back to `center` or introducing `margin: 0 auto` that causes block centering is forbidden.
 
-## 认证与管理员交互
-- 登录后由 `App.vue` 调用 `/api/auth/me` 获取 `username` 与 `is_admin`，再分流到管理员工作台或普通项目工作台。
-- 管理员工作台不渲染普通项目列表、设计器与 CRF 编辑入口。
-- 普通用户改密属于认证链路，需与后端 `auth.py`、`auth_service.py`、`rate_limit.py` 同步验证。
-- 401 失效处理统一在 `useApi.js` 中处理，组件不应各自维护不一致的认证错误分支。
-- `SessionTimer.vue` / `useSessionTimer.js` 仅解码本地 JWT `exp` 用于展示；真实有效性仍以后端鉴权为准；点击续期复用 `GET /api/auth/me` 与 `X-Refreshed-Token` 写回路径。
+## Authentication and Admin Interaction
+- After login, `App.vue` calls `/api/auth/me` to obtain `username` and `is_admin`, then routes to either the admin workbench or regular project workbench.
+- The admin workbench does not render the regular project list, designer, or CRF editing entry points.
+- Regular-user password change belongs to the authentication chain and needs to be validated in sync with backend `auth.py`, `auth_service.py`, and `rate_limit.py`.
+- 401 invalidation handling is centralized in `useApi.js`; components should not maintain inconsistent authentication error branches individually.
+- `SessionTimer.vue` / `useSessionTimer.js` only decode local JWT `exp` for display; real validity still depends on backend authorization. Click-to-renew reuses `GET /api/auth/me` and the `X-Refreshed-Token` write-back path.
 
-## 测试关注点
-- `adminViewStructure.test.js`：管理员界面结构。
-- `appSettingsShell.test.js`、`appCollapse.test.js`、`sidebarCollapseBehavior.test.js`：应用壳层、设置与折叠行为。
-- `columnWidthPlanning.test.js`、`columnWidthPlanning.pbt.test.js`：列宽规划契约与属性测试。
-- `formDesignerPropertyEditor.runtime.test.js`、`quickEditBehavior.test.js`、`formFieldPresentation.test.js`：设计器属性编辑、快编与字段展示。
-- `exportDownloadState.test.js`：导出下载状态。
-- `portDefaults.test.js`：开发端口约定。
-- `visitPreviewLandscape.test.js`：访视预览方向。
-- `orderingStructure.test.js`：排序结构契约。
-- `themePalette.test.js`：主题调色板。
-- `importRenameFeedback.test.js`：导入重命名反馈。
-- `projectInfoMetadata.test.js`：项目信息元数据。
-- `appTabLazyLoad.test.js`：标签页懒加载。
-- `sidebarCopyButtonScope.test.js`：侧边栏复制按钮作用域。
-- `browserPerfBaselineScript.test.js`、`perfBaselineHelpers.test.js`：性能基线相关。
-- `sessionTimer.test.js`：JWT `exp` 解码、会话剩余时间展示、临期提醒与点击续期。
-- `rowHeightResize.test.js`：行高持久化、稳定行 key、整行 hover 指示线和设计器 / 访视预览拖拽锚点。
-- `designerHistory.test.js`：撤销/恢复双栈上限 20、新操作清空 redo、undo/redo 栈迁移、删除撤销后的 id 重映射、数组 id 重映射、回放失败保栈与清空语义。
-- `designerNewFieldDraft.test.js`：新增字段本地草稿——`newField` 不落库、`saveDraftField` 先建定义后建实例并入栈、草稿删除不调 DELETE、属性自动保存对草稿短路、切换前确认与排序/批量选择守卫、保存按钮与草稿行模板契约。
-- `formDesignerPreviewModel.test.js`：表单设计器 / 模板预览派生视图模型与旧模板纯函数输出等价。
-- `docxBimodalPreview.test.js`：Word 导入双栏截图证据面板、温和定位提示与调试日志清理。
-- `wordPageGeometry.test.js`：Word 预览 A4 几何契约——`.word-page` 21cm×29.7cm、`.word-page.landscape` 翻转、`--word-page-margin-x/y` 变量、`@media print` 回退、`.designer-scaled-word-page` 保持 A4 几何而非 100% 宽度，以及 `inline-table` / `unified-table` 的 `table-layout: fixed` 与 `<colgroup>` 契约。
-- `testProperty.js`：属性测试工具库（seeded 随机生成器、`forAll` runner），为契约与属性测试提供轻量替代 fast-check 的基础设施。
+## Testing Focus
+- `adminViewStructure.test.js`: admin interface structure.
+- `appSettingsShell.test.js`, `appCollapse.test.js`, `sidebarCollapseBehavior.test.js`: application shell, settings, and collapse behavior.
+- `columnWidthPlanning.test.js`, `columnWidthPlanning.pbt.test.js`: column width planning contract and property tests.
+- `formDesignerPropertyEditor.runtime.test.js`, `quickEditBehavior.test.js`, `formFieldPresentation.test.js`: designer property editing, quick edit, and field display.
+- `exportDownloadState.test.js`: export download state.
+- `portDefaults.test.js`: development port conventions.
+- `visitPreviewLandscape.test.js`: visit preview orientation.
+- `orderingStructure.test.js`: ordering structure contract.
+- `themePalette.test.js`: theme palette.
+- `importRenameFeedback.test.js`: import rename feedback.
+- `projectInfoMetadata.test.js`: project information metadata.
+- `appTabLazyLoad.test.js`: tab lazy loading.
+- `sidebarCopyButtonScope.test.js`: sidebar copy button scope.
+- `browserPerfBaselineScript.test.js`, `perfBaselineHelpers.test.js`: performance baseline related tests.
+- `sessionTimer.test.js`: JWT `exp` decoding, remaining session time display, near-expiration reminders, and click-to-renew.
+- `rowHeightResize.test.js`: row height persistence, stable row keys, full-row hover indicator line, and designer / visit preview drag anchors.
+- `designerHistory.test.js`: undo/redo dual-stack limit 20, new operations clearing redo, undo/redo stack migration, id remapping after delete undo, array id remapping, keeping stacks on replay failure, and clear semantics.
+- `designerNewFieldDraft.test.js`: new field local draft — `newField` does not persist, `saveDraftField` first creates the definition then creates the instance and records history, draft delete does not call DELETE, property autosave short-circuits for drafts, confirmation before switching and sorting/batch-selection guards, save button and draft row template contract.
+- `formDesignerPreviewModel.test.js`: derived view model for form designer / template preview and equivalence with pure function output for old templates.
+- `docxBimodalPreview.test.js`: Word import two-column screenshot evidence panel, gentle positioning prompt, and debug log cleanup.
+- `wordPageGeometry.test.js`: Word preview A4 geometry contract — `.word-page` 21cm×29.7cm, `.word-page.landscape` flips, `--word-page-margin-x/y` variables, `@media print` fallback, `.designer-scaled-word-page` keeps A4 geometry instead of 100% width, and the `table-layout: fixed` + `<colgroup>` contract for `inline-table` / `unified-table`.
+- `editModeHiddenIdentifiers.test.js`: show/hide, order, and no-hard-hidden-style contracts for dictionary, unit, field, form, and visit OID / variable-name controls under brief / full editing modes.
+- `tableHeaderStyle.test.js`: Element Plus table header and fixed column header theme fill, plus handwritten list header centering contract.
+- `testProperty.js`: property testing utility library (seeded random generator, `forAll` runner), providing lightweight infrastructure for contract and property tests as an alternative to fast-check.
 
-## 相关文件清单
-| 类别 | 文件 |
+
+## Related File List
+| Category | Files |
 |------|------|
-| 入口 | `src/main.js`、`src/App.vue` |
-| 组件 | `src/components/AdminView.vue`、`src/components/LoginView.vue`、`src/components/SessionTimer.vue`、`src/components/ProjectInfoTab.vue`、`src/components/CodelistsTab.vue`、`src/components/UnitsTab.vue`、`src/components/FieldsTab.vue`、`src/components/FormDesignerTab.vue`、`src/components/VisitsTab.vue`、`src/components/SimulatedCRFForm.vue`、`src/components/TemplatePreviewDialog.vue`、`src/components/DocxCompareDialog.vue`、`src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`、`src/composables/useCRFRenderer.js`、`src/composables/formFieldPresentation.js`、`src/composables/formDesignerPreviewModel.js`、`src/composables/useColumnResize.js`、`src/composables/useRowResize.js`、`src/composables/useSessionTimer.js`、`src/composables/useDesignerHistory.js`、`src/composables/useOrderableList.js`、`src/composables/useSortableTable.js`、`src/composables/formDesignerPropertyEditor.js`、`src/composables/exportDownloadState.js`、`src/composables/visitPreviewLandscape.js`、`src/composables/useLazyTabs.js`、`src/composables/usePerfBaseline.js` |
-| 样式 | `src/styles/main.css` |
-| 配置 | `package.json`、`vite.config.js` |
+| Entry | `src/main.js`, `src/App.vue` |
+| Components | `src/components/AdminView.vue`, `src/components/LoginView.vue`, `src/components/SessionTimer.vue`, `src/components/ProjectInfoTab.vue`, `src/components/CodelistsTab.vue`, `src/components/UnitsTab.vue`, `src/components/FieldsTab.vue`, `src/components/FormDesignerTab.vue`, `src/components/VisitsTab.vue`, `src/components/SimulatedCRFForm.vue`, `src/components/TemplatePreviewDialog.vue`, `src/components/DocxCompareDialog.vue`, `src/components/DocxScreenshotPanel.vue` |
+| Composables | `src/composables/useApi.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
+| Styles | `src/styles/main.css` |
+| Config | `package.json`, `vite.config.js` |
 
-## 变更记录
-- `2026年6月15日`（任务 `06-15-designer-new-field-draft`）：新增字段改为本地草稿态。`newField` 不再立即落库，构造带完整本地 `field_definition` 的草稿（`id='__draft__'`、`__draft:true`）插入 `formFields` 并选中；顶栏「保存」按钮（`saveDraftField`）才依次 `POST field-definitions` + `POST forms/{id}/fields` 落库、替换草稿并作为一次「新建字段」入撤销栈。属性自动保存 watcher 对草稿短路为 `applyEditorToDraft` 本地写回；`removeField`、`openQuickEdit`、`toggleInline` 对草稿加函数级 guard，`addField` / `addLogRow` 落库前 `confirmDiscardDraft` 防止 `loadFormFields` 覆盖草稿；切换表单/选字段/再次新建前统一经 `confirmDiscardDraft`（保存/丢弃/取消）；草稿存在时禁止排序、草稿行不参与批量选择与 inline 快切。从字段库拖入已有定义的 `addField` 维持立即落库。测试目录 27→28（新增 `designerNewFieldDraft.test.js`，16 个用例），全量 257 passed。
-- `2026年6月15日`（任务 `06-15-designer-undo-redo-20`）：新增设计器内存撤销/恢复。composables 14→15（新增 `useDesignerHistory.js`，undo/redo 双栈、上限 20、id 重映射、busy 锁），测试目录 26→27（新增 `designerHistory.test.js`，11 个用例）。`FormDesignerTab.vue` 顶栏新增「撤回」「恢复」按钮并绑定 Ctrl+Z / Ctrl+Y（焦点在输入控件内时让出原生撤销），六类操作（属性编辑/排序/新增/新建字段/删除/批量删除）接入历史；排序在拖拽与键盘两条路径均经 `recordReorderHistory` 入栈；属性回放对日志行与普通字段都回放颜色（与正向保存一致）；回放失败时快照还原本条记录 id 防止栈污染；后端无改动，删除逆操作复用现有 `POST /forms/{id}/fields`（携 `order_index` 与全属性）。
-- `2026年6月14日`：文档同步刷新。组件 12→13（新增 `SessionTimer.vue`），composables 11→14（新增 `useSessionTimer.js`、`useRowResize.js`、`formDesignerPreviewModel.js`），测试目录 22→26（25 个 `.test.js` + `testProperty.js`，新增会话倒计时、行高拖拽、预览视图模型与 Docx 双栏证据面板相关回归）；补充会话续期、行高拖拽与预览模型缓存约定。
-- `2026年5月12日 17:42:57`：增量扫描刷新。测试 21→22 文件（新增 `wordPageGeometry.test.js`，固化 Word 预览/导出的 A4 页面几何与表格布局 CSS 契约）；同步更新测试关注点列表。
-- `2026年5月8日 18:26:34`：增量扫描刷新。测试 20→21 文件（新增 `testProperty.js`）；补充 `scripts/` 目录条目与测试工具说明。
-- `2026年5月8日`：FormDesignerTab 备注展示迁移到顶栏/section-title、新增 per-form `paper_orientation` 控制与旧 `forceLandscape` 迁移；同步更新前端测试与样式。
-- `2026年4月28日 星期二 08:31:55 PDT`：全量扫描刷新。源码 26 文件（组件 12、composables 11、样式 1、入口 2）、测试 20 文件。补充完整测试关注点列表与文件清单。
-- `2026年4月27日 星期一 05:45:45 PDT`：初始生成。
+## Change Log
+- `2026-06-18`: Documentation sync refresh. Test directory 28→30 (added `editModeHiddenIdentifiers.test.js` and `tableHeaderStyle.test.js`, currently 29 `.test.js` + `testProperty.js`); added global `editMode` brief/full modes, OID/variable-name show/hide contracts, and Element Plus fixed column header plus handwritten list header style conventions.
+- `2026-06-15` (task `06-15-designer-new-field-draft`): new fields changed to local draft state. `newField` no longer persists immediately; it constructs a draft with a complete local `field_definition` (`id='__draft__'`, `__draft:true`), inserts it into `formFields`, and selects it; only the top-bar "Save" button (`saveDraftField`) sequentially `POST field-definitions` + `POST forms/{id}/fields` to persist, replace the draft, and record one "new field" action in the undo stack. The property autosave watcher short-circuits drafts to `applyEditorToDraft` local write-back; `removeField`, `openQuickEdit`, and `toggleInline` add function-level guards for drafts; `addField` / `addLogRow` call `confirmDiscardDraft` before persisting to prevent `loadFormFields` from overwriting the draft; switching forms / selecting fields / creating again uniformly goes through `confirmDiscardDraft` (save/discard/cancel); when a draft exists, sorting is disabled and draft rows do not participate in batch selection or inline quick toggles. Dragging an existing definition from the field library through `addField` keeps immediate persistence. Test directory 27→28 (added `designerNewFieldDraft.test.js`, 16 cases), full suite 257 passed.
+- `2026-06-15` (task `06-15-designer-undo-redo-20`): added designer in-memory undo/redo. Composables 14→15 (added `useDesignerHistory.js`, undo/redo dual stacks, limit 20, id remapping, busy lock), test directory 26→27 (added `designerHistory.test.js`, 11 cases). `FormDesignerTab.vue` top bar added "Undo" and "Redo" buttons and binds Ctrl+Z / Ctrl+Y (when focus is inside input controls, native undo takes precedence). Six action types (property edit / ordering / add / new field / delete / batch delete) are connected to history; ordering records history through `recordReorderHistory` in both drag and keyboard paths; property replay replays colors for both log rows and regular fields (consistent with forward save); replay failure restores the record id snapshot to prevent stack pollution; backend unchanged, and delete inverse operations reuse existing `POST /forms/{id}/fields` (carrying `order_index` and full attributes).
+- `2026-06-14`: Documentation sync refresh. Components 12→13 (added `SessionTimer.vue`), composables 11→14 (added `useSessionTimer.js`, `useRowResize.js`, `formDesignerPreviewModel.js`), test directory 22→26 (25 `.test.js` + `testProperty.js`; added regressions for session countdown, row height dragging, preview view model, and Docx two-column evidence panel); added conventions for session renewal, row height dragging, and preview model caching.
+- `2026-05-12 17:42:57`: Incremental scan refresh. Tests 21→22 files (added `wordPageGeometry.test.js`, locking the A4 page geometry and table layout CSS contract for Word preview/export); updated the testing focus list.
+- `2026-05-08 18:26:34`: Incremental scan refresh. Tests 20→21 files (added `testProperty.js`); added `scripts/` directory entry and testing utility notes.
+- `2026-05-08`: FormDesignerTab note display migrated to top bar/section-title, added per-form `paper_orientation` control and old `forceLandscape` migration; synced frontend tests and styles.
+- `2026-04-28 Tuesday 08:31:55 PDT`: Full scan refresh. Source 26 files (components 12, composables 11, styles 1, entries 2), tests 20 files. Added complete testing focus list and file list.
+- `2026-04-27 Monday 05:45:45 PDT`: Initial generation.
