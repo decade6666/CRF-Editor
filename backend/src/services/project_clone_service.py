@@ -313,6 +313,8 @@ class ProjectCloneService:
                         inline_mark=form_field.inline_mark,
                         bg_color=form_field.bg_color,
                         text_color=form_field.text_color,
+                        label_bold=form_field.label_bold,
+                        label_font_size=form_field.label_font_size,
                     ))
 
             session.flush()

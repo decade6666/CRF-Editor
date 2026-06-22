@@ -95,7 +95,13 @@ class ImportService:
     # Task 3.4: 必需列检查（只读访问，不再 ALTER TABLE）
     _TEMPLATE_REQUIRED_COLUMNS: Dict[str, List[str]] = {
         "form": ["order_index"],
-        "form_field": ["order_index", "is_log_row", "inline_mark"],
+        "form_field": [
+            "order_index",
+            "is_log_row",
+            "inline_mark",
+            "label_bold",
+            "label_font_size",
+        ],
         "field_definition": ["order_index"],
         "codelist_option": ["order_index"],
         "unit": ["order_index"],
@@ -281,6 +287,8 @@ class ImportService:
                         "is_log_row": ff.is_log_row,
                         "bg_color": ff.bg_color,
                         "text_color": ff.text_color,
+                        "label_bold": ff.label_bold,
+                        "label_font_size": ff.label_font_size,
                         "field_definition": None,
                     })
                     continue
@@ -323,6 +331,8 @@ class ImportService:
                     "is_log_row": ff.is_log_row,
                     "bg_color": ff.bg_color,
                     "text_color": ff.text_color,
+                    "label_bold": ff.label_bold,
+                    "label_font_size": ff.label_font_size,
                     "field_definition": field_def_preview,
                 })
             return result
@@ -679,6 +689,8 @@ class ImportService:
                     inline_mark=ff.inline_mark,
                     bg_color=ff.bg_color,  # Task 3.6: 复制背景色
                     text_color=ff.text_color,  # Task 3.6: 复制文字色
+                    label_bold=ff.label_bold,
+                    label_font_size=ff.label_font_size,
                 )
                 s.add(new_ff)
                 summary["created_form_fields"] += 1

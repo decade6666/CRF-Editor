@@ -35,14 +35,14 @@
                   </colgroup>
                   <template v-for="seg in gv.segments" :key="seg.fields[0]?.id">
                     <tr v-if="seg.type === 'regular_field'">
-                      <td class="unified-label" :colspan="gv.labelValueSpans.labelSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
+                      <td class="unified-label" :colspan="gv.labelValueSpans.labelSpan" :style="getFormFieldLabelPreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) }}</td>
                       <td class="unified-value" :colspan="gv.labelValueSpans.valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])" v-html="renderCellHtml(seg.fields[0])"></td>
                     </tr>
                     <tr v-else-if="seg.type === 'full_row'">
-                      <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="gv.colCount" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(seg.fields[0])">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
+                      <td :class="{ 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签' }" :colspan="gv.colCount" :style="getFormFieldLabelPreviewStyle(seg.fields[0], { structure: true })">{{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}</td>
                     </tr>
                     <template v-else-if="seg.type === 'inline_block'">
-                      <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="seg.mergeSpans[idx]" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                      <tr><td v-for="(ff, idx) in seg.fields" :key="ff.id" class="wp-inline-header" :colspan="seg.mergeSpans[idx]" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                       <tr v-for="(row, ri) in seg.inlineRows" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :colspan="seg.mergeSpans[ci]" :style="getFormFieldPreviewStyle(seg.fields[ci])" v-html="cell"></td></tr>
                     </template>
                   </template>
@@ -53,9 +53,9 @@
                     <col v-for="(f, i) in getColumnFractions(gv, gi)" :key="i" :style="{ width: (f * 100) + '%' }" />
                   </colgroup>
                   <template v-for="ff in gv.fields" :key="ff.id">
-                    <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
-                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="'font-weight:bold;' + getFormFieldStructurePreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                    <tr v-else><td class="wp-label" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
+                    <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                    <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
+                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff)"></td></tr>
                   </template>
                 </table>
                 <!-- inline 类型：横向表格 -->
@@ -63,7 +63,7 @@
                   <colgroup>
                     <col v-for="(f, i) in getColumnFractions(gv, gi)" :key="i" :style="{ width: (f * 100) + '%' }" />
                   </colgroup>
-                  <tr><td v-for="ff in gv.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
+                  <tr><td v-for="ff in gv.fields" :key="ff.id" class="wp-inline-header" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                   <tr v-for="(row, ri) in gv.inlineRows" :key="ri"><td v-for="(cell, ci) in row" :key="ci" class="wp-ctrl" :style="getFormFieldPreviewStyle(gv.fields[ci])" v-html="cell"></td></tr>
                 </table>
               </template>
@@ -124,7 +124,7 @@ import {
   buildFormDesignerUnifiedSegments,
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
-  getFormFieldStructurePreviewStyle,
+  getFormFieldLabelPreviewStyle,
   normalizePreviewHexColor,
 } from '../composables/formFieldPresentation'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'

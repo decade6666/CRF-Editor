@@ -43,13 +43,14 @@ test('quick edit is limited to field instance properties only', () => {
   // 检查 quickEditProp 初始化只含实例级字段（不含 variable_name）
   assert.match(
     formDesignerSource,
-    /const quickEditProp = reactive\(\{[\s\S]*label:\s*''[\s\S]*field_type:\s*''[\s\S]*bg_color:\s*''[\s\S]*text_color:\s*''[\s\S]*inline_mark:\s*false[\s\S]*default_value:\s*''[\s\S]*\}\)/,
+    /const quickEditProp = reactive\(\{[\s\S]*label:\s*''[\s\S]*field_type:\s*''[\s\S]*bg_color:\s*''[\s\S]*text_color:\s*''[\s\S]*inline_mark:\s*false[\s\S]*default_value:\s*''[\s\S]*label_bold:\s*1[\s\S]*label_font_size:\s*'default'[\s\S]*\}\)/,
   )
   const quickEditDialog = /<el-dialog v-model="showQuickEdit"[\s\S]*?<\/el-dialog>/.exec(formDesignerSource)?.[0] ?? ''
   assert.match(
     quickEditDialog,
     /label="文字颜色"[\s\S]*class="color-option color-option-default"[\s\S]*@click="quickEditProp\.text_color = null"/,
   )
+  assert.match(quickEditDialog, /v-model="quickEditProp\.label_bold" :active-value="1" :inactive-value="0"/)
   // 快捷编辑表单不应包含 field_definition 级别的编辑控件
   const hasVariableNameEdit = /v-model="quickEditProp\.variable_name"/.test(quickEditDialog)
   const hasFieldTypeEditInQuickEdit = /<el-select[^>]*v-model="quickEditProp\.field_type"/s.test(quickEditDialog)
@@ -101,8 +102,9 @@ test('choice codelist row exposes icon actions with disable guard', () => {
 test('property editor restores type-specific controls', () => {
   assert.match(
     formDesignerSource,
-    /<el-form-item label="变量标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
+    /<el-form :model="editProp" label-width="88px" size="small">[\s\S]*<el-form-item label="字段标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
   )
+  assert.match(formDesignerSource, /<el-form-item v-if="isChoiceField\(editProp\.field_type\)" label="字段选项">/)
   assert.match(formDesignerSource, /:autosize="editProp\.field_type === '标签' \? \{ minRows: 2, maxRows: 4 \} : undefined"/)
   assert.match(formDesignerSource, /v-model="editProp\.integer_digits"/)
   assert.match(formDesignerSource, /v-model="editProp\.decimal_digits"/)

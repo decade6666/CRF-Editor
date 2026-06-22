@@ -202,7 +202,7 @@ POST /api/forms/{form_id}/fields/reorder
 |--------|----------------------|-------------------------|
 | **Files** | `backend/src/services/export_service.py`, `backend/src/services/width_planning.py`, `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/composables/formFieldPresentation.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue`, `frontend/src/components/TemplatePreviewDialog.vue`, `frontend/src/styles/main.css` |
 | **Purpose** | Render the authoritative `.docx` and expose a strict comparator for exported table fields | Render on-screen table fields with the same form/table/row/cell text model |
-| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, table-cell vertical rhythm **5.25pt / 1.0**, vertical-choice inter-option gap `VERTICAL_OPTION_GAP_PT = 3` | Same; vertical gap mirrored by `.choice-group--vertical .choice-atom + .choice-atom { margin-top: 3pt }` |
+| **Shared Constants** | `FILL_LINE_WEIGHT = 6`, trailing-underscore literal length **6**, default text fill-line length **16**, page font **SimSun 10.5pt**, label font-size tiers `default=10.5pt`, `large=12pt`, `small=9pt`, table-cell vertical rhythm **5.25pt / 1.0**, vertical-choice inter-option gap `VERTICAL_OPTION_GAP_PT = 3` | Same text constants; label font-size tiers map to preview pixels `default=CSS default`, `large=16px`, `small=11px`; vertical gap mirrored by `.choice-group--vertical .choice-atom + .choice-atom { margin-top: 3pt }` |
 
 **Scope / Trigger**: any change to Word preview or Word export table-field text, choice options, fill-lines, numeric/date placeholders, inline grouping, form section pagination, or strict parity extraction.
 
@@ -234,6 +234,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Group ordering | continuous normal/inline segments preserve `order_index` | `_group_form_fields` preserves the same segments | Never aggregate all normal fields before or after inline blocks. |
 | Merged export cells | preview has one logical cell | comparator collapses duplicate `python-docx` merged-cell aliases by `cell._tc` identity | Row/cell denominators must count logical cells. |
 | Structure-row shading | `getFormFieldStructurePreviewStyle()` applies default `#D9D9D9` only to log rows; label rows have no default fill; any custom `bg_color` renders as solid `#RRGGBB` with no alpha suffix | `_add_log_row()` uses `bg_color or 'D9D9D9'`; `_add_label_row()` adds no default shading; `_add_unified_full_row()` keeps the same log-vs-label split | Preview must not append `40` alpha to structure-row colors; default gray applies only to log rows, never to labels. |
+| Label font-size tiers | `LABEL_FONT_SIZE_PX = { large: '16px', small: '11px' }`; `default` writes no inline `font-size` and keeps the CSS baseline | `DEFAULT_LABEL_FONT_PT = 10.5`; `_LABEL_FONT_SIZE_PT = { 'large': 12.0, 'small': 9.0 }` | Changing any tier must update the counterpart mapping and the frontend/backend label-style tests together. |
 | Form section pagination | preview form order matches export form order | portrait forms use next-page section breaks | Do not replace portrait section breaks with plain page breaks. |
 | Title and table geometry | `.wp-form-title` left-aligned; `.word-page td` keeps 5.25pt / 1.0 rhythm | `python-docx` Heading-1 default left alignment and matching paragraph spacing | CSS geometry tests lock the visual baseline. |
 
@@ -248,6 +249,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Normal/inline grouping or ordering | `backend/tests/test_export_service.py` and preview grouping tests |
 | Merged/log-row table extraction | `backend/tests/test_word_table_parity.py` |
 | Structure/log-row shading | `frontend/tests/formFieldPresentation.test.js`, `backend/tests/test_export_unified.py::test_export_unified_preserves_cell_shading`, and manual A4 side-by-side preview vs exported `.docx` at 100% zoom |
+| Label font-size tiers | `frontend/tests/formFieldPresentation.test.js` and backend export label-style tests that cover `resolve_label_font_pt` / rendered Word runs |
 | Section break or Word geometry | `backend/tests/test_export_service.py`, `frontend/tests/wordPageGeometry.test.js`, manual A4 side-by-side if browser/Word is available |
 
 **Synchronization Checklist**:

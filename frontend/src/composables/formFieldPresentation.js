@@ -32,6 +32,31 @@ export function getFormFieldStructurePreviewStyle(formField) {
   return getFormFieldPreviewStyle(formField, defaultBackground)
 }
 
+// 标签字号档位 -> 预览像素值；默认档位不写 font-size，沿用 CSS 默认
+const LABEL_FONT_SIZE_PX = { large: '16px', small: '11px' }
+
+export function isFormFieldLabelBold(formField) {
+  // label_bold 为 0 表示不加粗；NULL/1/undefined 视为加粗以兼容旧数据
+  return formField?.label_bold !== 0
+}
+
+export function getFormFieldLabelFontSizeStyle(formField) {
+  const px = LABEL_FONT_SIZE_PX[formField?.label_font_size]
+  return px ? `font-size:${px};` : ''
+}
+
+// 标签单元格的完整预览样式：加粗 + 字号 + 底纹/文字颜色。
+// includeBackground=false 用于保留组件自有单元格底色/默认文字色的场景，仅追加自定义文字色；
+// 此时 structure 不再参与样式分支，只有 includeBackground=true 时才会切到结构行灰底逻辑。
+export function getFormFieldLabelPreviewStyle(formField, { structure = false, includeBackground = true } = {}) {
+  let base = getFormFieldTextColorStyle(formField)
+  if (includeBackground) {
+    base = structure ? getFormFieldStructurePreviewStyle(formField) : getFormFieldPreviewStyle(formField)
+  }
+  const weight = isFormFieldLabelBold(formField) ? 'bold' : 'normal'
+  return `font-weight:${weight};${getFormFieldLabelFontSizeStyle(formField)}${base}`
+}
+
 export function buildFormDesignerUnifiedSegments(fields) {
   const sorted = [...fields].sort(
     (a, b) => (a.order_index ?? ORDER_INDEX_FALLBACK) - (b.order_index ?? ORDER_INDEX_FALLBACK) || a.id - b.id,

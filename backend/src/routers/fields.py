@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy import select
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from src.schemas.field import HexColor
+from src.schemas.field import HexColor, LabelFontSize, LabelBold
 
 
 
@@ -370,11 +370,22 @@ class InlineMarkUpdate(BaseModel):
 
 
 
-class ColorUpdate(BaseModel):
+class FormFieldStyleUpdate(BaseModel):
 
     bg_color: Optional[HexColor] = None
 
     text_color: Optional[HexColor] = None
+
+    label_bold: Optional[LabelBold] = None
+
+    label_font_size: Optional[LabelFontSize] = None
+
+    @field_validator("label_bold", mode="before")
+    @classmethod
+    def reject_null_label_bold(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("label_bold must be 0 or 1")
+        return value
 
 
 
@@ -400,9 +411,14 @@ def update_inline_mark(ff_id: int, data: InlineMarkUpdate, session: Session = De
 
 @router.patch("/form-fields/{ff_id}/colors", response_model=FormFieldResponse)
 
-def update_colors(ff_id: int, data: ColorUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def update_field_style(
+    ff_id: int,
+    data: FormFieldStyleUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
-    """更新字段底纹颜色和文字颜色"""
+    """更新字段底纹颜色、文字颜色和标签样式。"""
 
     repo = FormFieldRepository(session)
 

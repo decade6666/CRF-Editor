@@ -1,7 +1,9 @@
-from typing import Optional, List
+from typing import Optional, List, Literal
 from typing_extensions import Annotated
 from datetime import datetime
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, StringConstraints, field_validator
+
+LabelBold = Literal[0, 1]
 
 
 class UnitSimple(BaseModel):
@@ -74,6 +76,7 @@ class FieldDefinitionResponse(BaseModel):
 
 
 HexColor = Annotated[str, StringConstraints(pattern=r"^[0-9A-Fa-f]{6}$")]
+LabelFontSize = Annotated[str, StringConstraints(pattern=r"^(large|default|small)$")]
 
 
 class FormFieldCreate(BaseModel):
@@ -87,6 +90,8 @@ class FormFieldCreate(BaseModel):
     inline_mark: int = 0
     bg_color: Optional[HexColor] = None
     text_color: Optional[HexColor] = None
+    label_bold: LabelBold = 1
+    label_font_size: Optional[LabelFontSize] = None
 
 
 class FormFieldUpdate(BaseModel):
@@ -97,6 +102,15 @@ class FormFieldUpdate(BaseModel):
     inline_mark: Optional[int] = None
     bg_color: Optional[HexColor] = None
     text_color: Optional[HexColor] = None
+    label_bold: Optional[LabelBold] = None
+    label_font_size: Optional[LabelFontSize] = None
+
+    @field_validator("label_bold", mode="before")
+    @classmethod
+    def reject_null_label_bold(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("label_bold must be 0 or 1")
+        return value
 
 
 class FormFieldResponse(BaseModel):
@@ -112,6 +126,8 @@ class FormFieldResponse(BaseModel):
     inline_mark: int
     bg_color: Optional[str] = None
     text_color: Optional[str] = None
+    label_bold: Optional[int] = None
+    label_font_size: Optional[str] = None
     field_definition: Optional[FieldDefinitionResponse] = None
 
     model_config = {"from_attributes": True}

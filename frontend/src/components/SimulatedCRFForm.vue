@@ -14,14 +14,14 @@
         >
           <!-- 日志行：跨列显示 -->
           <template v-if="field.is_log_row || field.field_type === '日志行'">
-            <td colspan="2" class="crf-log-row">
+            <td colspan="2" class="crf-log-row" :style="getLabelCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
             </td>
           </template>
 
           <!-- 标签型：跨列显示 -->
           <template v-else-if="field.field_type === '标签'">
-            <td colspan="2" class="crf-label-only" :style="getCellStyle(field)">
+            <td colspan="2" class="crf-label-only" :style="getLabelCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
               <el-tag
                 v-if="field._aiModified && viewMode === 'ai'"
@@ -34,7 +34,7 @@
 
           <!-- 普通字段：左标签 + 右控件 -->
           <template v-else>
-            <td class="crf-label-cell" :style="getCellStyle(field)">
+            <td class="crf-label-cell" :style="getLabelCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
               <el-tag
                 v-if="field._aiModified && viewMode === 'ai'"
@@ -66,6 +66,7 @@ import {
 } from '../composables/useCRFRenderer'
 // Task 3.3: 复用 formFieldPresentation.js 设计器预览语义
 import {
+  getFormFieldLabelPreviewStyle,
   getFormFieldPreviewStyle,
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation'
@@ -110,6 +111,11 @@ function getRowStyle(field) {
 
 function getCellStyle(field) {
   return getFormFieldTextColorStyle(field)
+}
+
+// 标签单元格样式：加粗 + 字号 + 文字颜色（不含背景，沿用组件自有单元格底色）
+function getLabelCellStyle(field) {
+  return getFormFieldLabelPreviewStyle(field, { includeBackground: false })
 }
 
 const displayFields = computed(() => {
@@ -200,15 +206,10 @@ const columnFractions = computed(() => {
   background: #fafafa;
 }
 
-/* 标签型字段（跨列） */
+/* 标签型字段（跨列）；加粗由内联 label 样式驱动（label_bold） */
 .crf-label-only {
   padding: 6px 10px;
-  font-weight: bold;
   background: #fafafa;
-}
-
-.crf-label {
-  font-weight: 600;
 }
 
 .ai-badge {

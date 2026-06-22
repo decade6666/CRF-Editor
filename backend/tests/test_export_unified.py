@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
@@ -26,7 +27,11 @@ from src.models.form import Form
 from src.models.visit_form import VisitForm
 from src.models.field_definition import FieldDefinition
 from src.models.form_field import FormField
-from src.services.export_service import ExportService
+from src.services.export_service import (
+    ExportService,
+    resolve_label_bold,
+    resolve_label_font_pt,
+)
 
 
 @pytest.fixture
@@ -1262,3 +1267,68 @@ def test_export_unified_cell_widths_match_gridcol(session: Session, tmp_path: Pa
     assert grid_widths[4] > grid_widths[0], (
         f"长标签列应比短标签列更宽: w0={grid_widths[0]}, w4={grid_widths[4]}"
     )
+
+
+def test_resolve_label_font_pt_maps档位到磅值() -> None:
+    assert resolve_label_font_pt(SimpleNamespace(label_font_size="large")) == 12.0
+    assert resolve_label_font_pt(SimpleNamespace(label_font_size="small")) == 9.0
+    # 默认档位与缺省/未知值都回退到 10.5pt
+    assert resolve_label_font_pt(SimpleNamespace(label_font_size="default")) == 10.5
+    assert resolve_label_font_pt(SimpleNamespace(label_font_size=None)) == 10.5
+    assert resolve_label_font_pt(SimpleNamespace()) == 10.5
+
+
+def test_resolve_label_bold_treats_null_as_bold() -> None:
+    assert resolve_label_bold(SimpleNamespace(label_bold=1)) is True
+    assert resolve_label_bold(SimpleNamespace(label_bold=None)) is True
+    assert resolve_label_bold(SimpleNamespace()) is True
+    assert resolve_label_bold(SimpleNamespace(label_bold=0)) is False
+
+
+def test_export_applies_label_bold_and_font_size_to_docx(session: Session, tmp_path: Path) -> None:
+    """关闭加粗 + 大字号应真实写入导出 .docx 的 run 字体（w:b/w:sz）。"""
+    from docx.shared import Pt
+
+    project, _ = create_minimal_project(session)
+
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+    form = Form(project_id=project.id, name="标签样式表单", code="F_LBL", order_index=1)
+    session.add(form)
+    session.flush()
+    session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=1))
+    session.flush()
+
+    fd = create_text_field_def(session, project.id, "粗体测试标签")
+    ff = add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
+    ff.label_bold = 0
+    ff.label_font_size = "large"
+    session.commit()
+
+    output_path = tmp_path / "label_style.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+
+    doc = Document(str(output_path))
+    label_runs = [
+        run
+        for table in doc.tables
+        for row in table.rows
+        for cell in row.cells
+        for para in cell.paragraphs
+        for run in para.runs
+        if run.text == "粗体测试标签"
+    ]
+    assert label_runs, "应能在导出文档中定位到标签 run"
+    run = label_runs[0]
+    assert run.font.size == Pt(12), "大字号应写入 w:sz=24（12pt）"
+    assert run.font.bold is False, "关闭加粗后 run 应显式写入非粗体"
+
+    r_pr = run._r.rPr
+    assert r_pr is not None
+    size_element = r_pr.find(qn("w:sz"))
+    bold_element = r_pr.find(qn("w:b"))
+    assert size_element is not None
+    assert size_element.get(qn("w:val")) == "24"
+    assert bold_element is not None
+    assert bold_element.get(qn("w:val")) in {"0", "false"}
