@@ -6,10 +6,77 @@
 
 ## Overview
 
-- **Naming**: All composables start with `use` prefix
+- **Naming**: Stateful composables start with the `use` prefix; pure stateless helper modules in `composables/` may use domain names such as `searchRanking.js`.
 - **Purpose**: Encapsulate and reuse stateful logic
 - **Return**: Return reactive refs and functions
 - **API Layer**: ALL API calls go through `useApi.js`
+
+---
+
+## Pure Helper Modules in `composables/`
+
+Pure stateless helpers may live in `frontend/src/composables/` when several components need the same behavior and no Vue lifecycle state is required. These modules do not need the `use*` prefix.
+
+### Scenario: Ranked Fuzzy Search
+
+#### 1. Scope / Trigger
+
+- Trigger: any user-facing list search box that filters frontend-held rows and displays a ranked fuzzy result list.
+- Current shared helper: `frontend/src/composables/searchRanking.js`.
+- Current consumers: `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue`.
+
+#### 2. Signatures
+
+```javascript
+function normalizeSearchText(value): string
+function rankFuzzyMatches(items, keyword, getCandidates): Array
+```
+
+- `items`: the already ordered source list; empty keyword returns this list unchanged.
+- `keyword`: user-entered search text; normalized with `String(value ?? '').trim().toLowerCase()`.
+- `getCandidates(item)`: returns one candidate value or an array of candidate values to match against.
+
+#### 3. Contracts
+
+| Step | Rule | Why |
+|---|---|---|
+| Caller builds base order first | Sort by existing `order_index` / `id` rules before calling `rankFuzzyMatches` | Empty search and equal-rank ties must preserve the existing UI order. |
+| Empty keyword | Return `items` unchanged | Clearing search must restore the exact base list and keep drag-order behavior stable. |
+| Exact match | Candidate text equal to keyword ranks before partial-only matches | Users see the strongest semantic match first. |
+| Partial match | Sort by shortest matching candidate text length | Among partial-only matches, shorter matched text is more specific. |
+| Multi-field item | Use the shortest matching candidate length across all candidate texts | Avoids penalizing an item because another non-primary field is longer. |
+| Equal rank and length | Preserve input index order | Keeps sorting stable and predictable. |
+| Legacy concatenated search | Preserve previous combined-field candidates where they existed, such as unit `code + symbol` and codelist option `code + decode` | Prevents regressions for searches spanning adjacent displayed fields. |
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Keyword is blank or whitespace | Original `items` reference/order is returned without filtering. |
+| One item exactly equals keyword and others contain it | Exact item appears before partial items. |
+| Multiple partial matches | Items order by shortest matching candidate text length. |
+| Multiple candidate fields match | Item rank uses the shortest matching field text. |
+| Candidate value is `null` or `undefined` | Value is ignored and does not throw. |
+| Unit query spans `code + symbol` | Unit still matches through the concatenated candidate. |
+| Codelist option query spans `code + decode` | Option still matches through the concatenated candidate. |
+| Option search is active | Dragging stays disabled and `draggableOptions` must not write filtered order back to `selected.options`. |
+
+#### 5. Good/Base/Bad Cases
+
+- **Good**: `['Alpha Beta', 'Beta', 'Beta Gamma']` searched with `beta` renders `Beta` first, then the two partial matches in stable order when their candidate lengths are equal.
+- **Good**: unit `{ code: 'UNIT', symbol: 'kg' }` searched with `unitkg` still matches because the extractor includes `` `${code}${symbol}` ``.
+- **Base**: clearing a search box restores the existing backend/order-index list without re-ranking.
+- **Bad**: every component reimplements `trim().toLowerCase().includes(...)`; rules drift and exact-first ranking can differ per tab.
+- **Bad**: replacing `v-show` option filtering with ranked data but leaving drag writes enabled can persist filtered order back to the backend.
+
+#### 6. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/searchRanking.test.js` | Normalization, exact-first ranking, shortest partial ranking, shortest multi-field match, stable tie order, and nullish candidate handling. |
+| `frontend/tests/searchRankingWiring.test.js` | Search components import `rankFuzzyMatches`, route filtered lists through it, and preserve unit/option concatenated candidates. |
+| `frontend/tests/orderingStructure.test.js` | Codelist option drag uses `draggableOptions` and only writes back when search is inactive. |
+| `node --test tests/*.test.js` | Full frontend source-level regression suite remains green. |
 
 ---
 

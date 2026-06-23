@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-06-18
+> Last updated: 2026-06-23
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -16,6 +16,7 @@
 - `frontend/src/composables/useApi.js`: unified requests, error parsing, 401 invalidation handling, GET cache, and automatic invalidation.
 - `frontend/src/composables/useCRFRenderer.js`: unified field rendering, HTML preview, and content-driven column width planning.
 - `frontend/src/composables/formFieldPresentation.js`: presentation-layer rules for field instance display attributes, colors, default values, and related behavior.
+- `frontend/src/composables/searchRanking.js`: shared pure helper for user-facing fuzzy search ordering; empty keywords keep source order, exact matches rank first, partial matches rank by shortest matching candidate text length, and equal ranks stay stable.
 - `frontend/src/composables/useColumnResize.js`: form designer column width dragging and local persistence coordination.
 - `frontend/src/composables/useRowResize.js`: Word preview row height dragging, stable row keys, and local persistence.
 - `frontend/src/composables/useSessionTimer.js`: JWT `exp` display, near-expiration reminders, and click-to-renew by reusing `/api/auth/me`.
@@ -24,10 +25,10 @@
 
 ## Core Directories
 - `src/components/` (13 Vue components): page components for projects, dictionaries, units, fields, form design, visits, login, admin, session countdown, import preview, simulated CRF rendering, and more.
-- `src/composables/` (15 JS modules): shared logic for API, ordering, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
+- `src/composables/` (16 JS modules): shared logic for API, ordering, ranked fuzzy search, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (30 files: 29 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (32 files: 31 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
@@ -56,6 +57,7 @@
 - Field preview and HTML rendering must uniformly reuse `useCRFRenderer.js`.
 - Field display rules should preferably reuse `formFieldPresentation.js` to avoid repeating presentation-layer concatenation logic in components.
 - Ordering interactions should preferably reuse `useOrderableList.js` and `useSortableTable.js`.
+- User-facing fuzzy search boxes should reuse `searchRanking.js`; components pass the base ordered list and candidate text extractor, and must preserve legacy concatenated candidates where previous behavior matched combined fields such as unit `code + symbol` or option `code + decode`.
 - `FormDesignerTab.vue` design note display has moved from the right-side aside to the canvas header / designer-section-title summary + tooltip path; only VisitsTab still keeps the original aside style.
 - `App.vue` provides global `editMode` (persistence key `crf_edit_mode`). Brief mode hides advanced identifiers such as OID / variable names by default, and when leaving full mode resets the current advanced maintenance tab back to project information; in full mode, the lists and add/edit dialogs of `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` uniformly show the corresponding advanced identifiers.
 - New fields are local drafts: clicking "New Field" (`newField`) only constructs a temporary draft object (`id='__draft__'`, `__draft:true`, with a complete local `field_definition`), inserts it into `formFields`, and selects it, without sending a request; only when the top-bar "Save" button (`saveDraftField`) appears and is clicked does it sequentially `POST field-definitions` + `POST forms/{id}/fields` to persist, replace the draft, refresh, and record one "new field" action in the undo stack. In draft state, the property autosave chain short-circuits at the watcher entry to `applyEditorToDraft` local write-back; `removeField` only removes drafts locally and does not call DELETE; only one draft is allowed at a time, and before switching forms / selecting another field / creating another field, `confirmDiscardDraft` (save/discard/cancel) is used; **when switching projects, as long as the designer tab has been activated, it must first go through the `canLeaveProject` guard, avoiding silently clearing drafts while the lazy-loaded component is still mounted**; sorting is disabled while a draft exists, and draft rows do not participate in batch selection or inline quick toggles. `addField`, which drags an existing definition from the field library, keeps immediate persistence unchanged.
@@ -67,7 +69,7 @@
 
 ## Preview Column Widths (Content-Driven)
 - `useCRFRenderer.js` exposes `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` as the unified planner entry points for the three table types.
-- Character weight constants and CJK code point ranges share the same contract with backend `backend/src/services/width_planning.py`; changes on either side require syncing the other side. Shared constants include `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters such as "Unchecked" / "Item" / "Unit" from being squeezed by long neighbors to the point they cannot fit on one line), `AVAILABLE_CM=14.66`.
+- Character weight constants and CJK code point ranges share the same contract with backend `backend/src/services/width_planning.py`; changes on either side require syncing the other side. Shared constants include `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, `FILL_LINE_MIN_CHARS=6`, `FILL_LINE_MAX_CHARS=80`, `FILL_LINE_EPSILON=1e-9`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters such as "Unchecked" / "Item" / "Unit" from being squeezed by long neighbors to the point they cannot fit on one line), `AVAILABLE_CM=14.66`; width-aware preview callers pass the computed full-cell underscore count to text fill-lines, while choice trailing underscores subtract marker + label width before rendering the tail line.
 - `FormDesignerTab.vue` uses `useColumnResize` to manage column width dragging; default value sources accept arrays / factory functions / Refs, and automatically rehydrate when switching `formId` or `tableKind`.
 - `FormDesignerTab.vue` and `VisitsTab.vue` reuse `useRowResize` to manage Word preview row height dragging; row height keys are composed from field id and table instance, and hover / active indicator lines need to cover the whole row.
 - localStorage key: `crf:designer:col-widths:<form_id>:<table_kind>`; only the designer writes it, while `TemplatePreviewDialog` / `SimulatedCRFForm` only read it.
@@ -92,6 +94,7 @@
 - `portDefaults.test.js`: development port conventions.
 - `visitPreviewLandscape.test.js`: visit preview orientation.
 - `orderingStructure.test.js`: ordering structure contract.
+- `searchRanking.test.js` and `searchRankingWiring.test.js`: exact-first fuzzy search helper behavior and component wiring.
 - `themePalette.test.js`: theme palette.
 - `importRenameFeedback.test.js`: import rename feedback.
 - `projectInfoMetadata.test.js`: project information metadata.
@@ -115,11 +118,12 @@
 |------|------|
 | Entry | `src/main.js`, `src/App.vue` |
 | Components | `src/components/AdminView.vue`, `src/components/LoginView.vue`, `src/components/SessionTimer.vue`, `src/components/ProjectInfoTab.vue`, `src/components/CodelistsTab.vue`, `src/components/UnitsTab.vue`, `src/components/FieldsTab.vue`, `src/components/FormDesignerTab.vue`, `src/components/VisitsTab.vue`, `src/components/SimulatedCRFForm.vue`, `src/components/TemplatePreviewDialog.vue`, `src/components/DocxCompareDialog.vue`, `src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
+| Composables | `src/composables/useApi.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
 | Styles | `src/styles/main.css` |
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-06-23`: Frontend ranked fuzzy search refresh. Composables 15→16 (added `searchRanking.js`, a pure helper for exact-first fuzzy ordering and shortest partial-match ordering), test directory 30→32 (31 `.test.js` + `testProperty.js`; added `searchRanking.test.js` and `searchRankingWiring.test.js`). `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` now route user-facing search lists through the shared helper; unit and codelist option searches preserve previous concatenated-field matching.
 - `2026-06-18`: Documentation sync refresh. Test directory 28→30 (added `editModeHiddenIdentifiers.test.js` and `tableHeaderStyle.test.js`, currently 29 `.test.js` + `testProperty.js`); added global `editMode` brief/full modes, OID/variable-name show/hide contracts, and Element Plus fixed column header plus handwritten list header style conventions.
 - `2026-06-15` (task `06-15-designer-new-field-draft`): new fields changed to local draft state. `newField` no longer persists immediately; it constructs a draft with a complete local `field_definition` (`id='__draft__'`, `__draft:true`), inserts it into `formFields`, and selects it; only the top-bar "Save" button (`saveDraftField`) sequentially `POST field-definitions` + `POST forms/{id}/fields` to persist, replace the draft, and record one "new field" action in the undo stack. The property autosave watcher short-circuits drafts to `applyEditorToDraft` local write-back; `removeField`, `openQuickEdit`, and `toggleInline` add function-level guards for drafts; `addField` / `addLogRow` call `confirmDiscardDraft` before persisting to prevent `loadFormFields` from overwriting the draft; switching forms / selecting fields / creating again uniformly goes through `confirmDiscardDraft` (save/discard/cancel); when a draft exists, sorting is disabled and draft rows do not participate in batch selection or inline quick toggles. Dragging an existing definition from the field library through `addField` keeps immediate persistence. Test directory 27→28 (added `designerNewFieldDraft.test.js`, 16 cases), full suite 257 passed.
 - `2026-06-15` (task `06-15-designer-undo-redo-20`): added designer in-memory undo/redo. Composables 14→15 (added `useDesignerHistory.js`, undo/redo dual stacks, limit 20, id remapping, busy lock), test directory 26→27 (added `designerHistory.test.js`, 11 cases). `FormDesignerTab.vue` top bar added "Undo" and "Redo" buttons and binds Ctrl+Z / Ctrl+Y (when focus is inside input controls, native undo takes precedence). Six action types (property edit / ordering / add / new field / delete / batch delete) are connected to history; ordering records history through `recordReorderHistory` in both drag and keyboard paths; property replay replays colors for both log rows and regular fields (consistent with forward save); replay failure restores the record id snapshot to prevent stack pollution; backend unchanged, and delete inverse operations reuse existing `POST /forms/{id}/fields` (carrying `order_index` and full attributes).

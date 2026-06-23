@@ -25,8 +25,10 @@ test('CodelistsTab wires left list drag sorting through useSortableTable', () =>
 test('CodelistsTab disables option drag when search filter is active', () => {
   assert.match(
     codelistsSource,
-    /<draggable v-model="selected\.options" item-key="id" handle="\.drag-handle" :disabled="Boolean\(searchOpt\.trim\(\)\)"/,
+    /<draggable v-model="draggableOptions" item-key="id" handle="\.drag-handle" :disabled="Boolean\(searchOpt\.trim\(\)\)"/,
   );
+  assert.match(codelistsSource, /set: \(nextOptions\) => \{/);
+  assert.match(codelistsSource, /if \(selected\.value && !searchOpt\.value\.trim\(\)\) selected\.value\.options = nextOptions/);
 });
 
 test('VisitsTab wires visit form drag sorting through useOrderableList', () => {

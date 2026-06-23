@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { useSortableTable } from '../composables/useSortableTable';
+import { rankFuzzyMatches } from '../composables/searchRanking';
 import { useColumnResize } from '../composables/useColumnResize';
 import { useDesignerHistory } from '../composables/useDesignerHistory';
 import {
@@ -50,21 +51,13 @@ const editMode = inject('editMode', ref(false));
 const forms = ref([]);
 const searchForm = ref('');
 const filteredForms = computed(() => {
-  const kw = searchForm.value.trim().toLowerCase();
   const orderedForms = [...forms.value].sort((a, b) => {
     const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER;
     const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER;
     if (orderA !== orderB) return orderA - orderB;
     return (a?.id ?? 0) - (b?.id ?? 0);
   });
-  if (!kw) return orderedForms;
-  return orderedForms.filter((item) =>
-    Object.values(item).some((v) =>
-      String(v ?? '')
-        .toLowerCase()
-        .includes(kw),
-    ),
-  );
+  return rankFuzzyMatches(orderedForms, searchForm.value, (item) => Object.values(item));
 });
 const selectedForm = ref(null);
 const fieldDefs = ref([]);
@@ -660,13 +653,9 @@ const usedDefIds = computed(() => new Set(formFields.value.map((f) => f.field_de
 
 // 字段库搜索
 const fieldSearch = ref('');
-const filteredFieldDefs = computed(() => {
-  const q = fieldSearch.value.trim().toLowerCase();
-  if (!q) return fieldDefs.value;
-  return fieldDefs.value.filter(
-    (fd) => fd.label?.toLowerCase().includes(q) || fd.variable_name?.toLowerCase().includes(q),
-  );
-});
+const filteredFieldDefs = computed(() =>
+  rankFuzzyMatches(fieldDefs.value, fieldSearch.value, (fd) => [fd.label, fd.variable_name]),
+);
 
 // 渲染逻辑
 function renderCtrl(fd, fillLineChars = null) {
@@ -717,7 +706,7 @@ function renderCellHtml(ff, fillLineChars = null) {
 
 // normal 表 control 列填写线根数：按当前 control 列宽（cm）自适应，与后端
 // export_service._add_field_row 共享 computeFillLineCharCount 公式以保证逐字一致。
-// 仅 normal 表接入；unified / inline 维持旧固定 16 根（两端一致）。
+// 该计数同时传给文本整格填写线与选项尾部填写线；无列宽上下文时仍回退旧长度。
 // 可用宽度按整张表单的 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36），
 // 镜像后端 _build_form_table 的 force_landscape / mixed_landscape 宽度选择。
 function normalFillChars(groupIndex, group, scope) {

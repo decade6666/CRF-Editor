@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-06-18
+> Last updated: 2026-06-23
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -23,9 +23,9 @@ graph TD
     B --> B6["tests (39)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (15)"];
+    C --> C2["src/composables (16)"];
     C --> C3["src/styles"];
-    C --> C4["tests (30)"];
+    C --> C4["tests (32)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,7 +36,7 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (30 files, including 29 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (32 files, including 31 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
@@ -46,7 +46,7 @@ graph TD
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel
 - Form designer real-time preview, field instance quick edit, simulated CRF rendering, column width and row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
-- AI configuration testing, session countdown with click-to-renew, theme switching, desktop packaging and release
+- AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
 ## Key Entry Points
 - Backend development entry: `backend/main.py`
@@ -77,7 +77,7 @@ cd frontend && node --test tests/*.test.js
 - Put heavy logic in `backend/src/services/`, keeping the interface layer lightweight.
 - Data structure evolution is centralized in the lightweight migration logic of `backend/src/database.py`.
 - Put complex reusable frontend logic in `frontend/src/composables/`.
-- Frontend reuse constraints: APIs go uniformly through `useApi.js`; field rendering goes uniformly through `useCRFRenderer.js`; field display attributes and preview display logic go uniformly through `formFieldPresentation.js`.
+- Frontend reuse constraints: APIs go uniformly through `useApi.js`; field rendering goes uniformly through `useCRFRenderer.js`; field display attributes and preview display logic go uniformly through `formFieldPresentation.js`; user-facing fuzzy search ordering goes uniformly through `searchRanking.js`.
 - When features, commands, or test entry points change, synchronously update `README.md`, `README.en.md`, the module-level `CLAUDE.md`, and `.claude/index.json`.
 
 ## Security and Deployment Constraints
@@ -89,7 +89,7 @@ cd frontend && node --test tests/*.test.js
 - On first startup with an empty database in production, the reserved admin account is automatically created or repaired; after going live, an admin account audit and access-surface review must be completed immediately.
 
 ## Cross-Stack Contracts
-- Column width planning: the backend `backend/src/services/width_planning.py` and the frontend `frontend/src/composables/useCRFRenderer.js` must evolve in sync. Shared constants `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters from being squeezed by long neighbors to the point they cannot fit on a single line), `AVAILABLE_CM=14.66`. Changing either side requires syncing the other and regenerating fixtures via `frontend/scripts/generatePlannerFixtures.mjs`.
+- Column width planning: the backend `backend/src/services/width_planning.py` and the frontend `frontend/src/composables/useCRFRenderer.js` must evolve in sync. Shared constants `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, `FILL_LINE_MIN_CHARS=6`, `FILL_LINE_MAX_CHARS=80`, `FILL_LINE_EPSILON=1e-9`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters from being squeezed by long neighbors to the point they cannot fit on a single line), `AVAILABLE_CM=14.66`. The adaptive underscore count is used directly for whole-cell text fill-lines; choice trailing underscores use the same width-derived count after subtracting the marker + label footprint so the atom stays within the column. Changing either side requires syncing the other and regenerating fixtures via `frontend/scripts/generatePlannerFixtures.mjs`.
 - Column width fixtures: `backend/tests/fixtures/planner_cases.json` is output from the generator as a single source of truth, and is used simultaneously by the backend `backend/tests/test_width_planning.py` and the frontend `frontend/tests/columnWidthPlanning.test.js`.
 - Ordering contract: the backend `backend/src/services/order_service.py` and the frontend `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` need to keep consistent interface semantics.
 - Authentication contract: the backend `backend/src/routers/auth.py`, `backend/src/services/auth_service.py` and the frontend `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/AdminView.vue` need to be checked in sync.
@@ -124,5 +124,6 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-06-23`: Frontend search ranking refresh. Frontend composables 15→16 (added `searchRanking.js` for exact-first fuzzy search ranking), frontend test directory 30→32 (31 `.test.js` + `testProperty.js`; added helper and wiring regressions for ranked fuzzy search). Synced README feature text, frontend module context, and code-spec guidance for reusable search ordering.
 - `2026-06-18`: Documentation sync refresh. Backend services 13→14 (added and indexed `toc_pagination.py` for optional LibreOffice table-of-contents page number pre-calculation), frontend composables 14→15 (completed the count for `useDesignerHistory.js`), frontend test directory 26→30 (29 `.test.js` + `testProperty.js`; added regressions for designer undo/redo, new field drafts, full-edit-mode identifier show/hide, and header styling). Synced README environment requirements, clarifying that Word export does not strictly depend on Windows; only the Word import source screenshot evidence panel requires Windows + MS Word.
 - `2026-06-14`: Documentation sync refresh. Backend services 12→13 (added `word_table_parity.py`), backend tests 37→39 (currently including batch-delete isolation, Docx screenshot failure semantics, performance FK indexes, Word table parity, and other new regressions), scripts 3→4 (added `compare_word_table_parity.py`). Frontend components 12→13 (added `SessionTimer.vue`), composables 11→14 (added `useSessionTimer.js`, `useRowResize.js`, `formDesignerPreviewModel.js`), frontend test directory 22→26 (25 `.test.js` + `testProperty.js`; added regressions related to session countdown, row height dragging, preview view model, and the Docx two-column evidence panel).

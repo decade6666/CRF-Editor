@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-18T08:48:19-07:00",
+  "timestamp": "2026-06-23T00:00:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -167,6 +167,7 @@
         "frontend/src/composables/formDesignerPreviewModel.js",
         "frontend/src/composables/formDesignerPropertyEditor.js",
         "frontend/src/composables/formFieldPresentation.js",
+        "frontend/src/composables/searchRanking.js",
         "frontend/src/composables/useApi.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
@@ -214,6 +215,8 @@
         "frontend/tests/projectInfoMetadata.test.js",
         "frontend/tests/quickEditBehavior.test.js",
         "frontend/tests/rowHeightResize.test.js",
+        "frontend/tests/searchRanking.test.js",
+        "frontend/tests/searchRankingWiring.test.js",
         "frontend/tests/sessionTimer.test.js",
         "frontend/tests/sidebarCollapseBehavior.test.js",
         "frontend/tests/sidebarCopyButtonScope.test.js",
@@ -224,8 +227,8 @@
         "frontend/tests/testProperty.js"
       ],
       "coverage": {
-        "estimated_files": 66,
-        "scanned_files": 66,
+        "estimated_files": 69,
+        "scanned_files": 69,
         "percent": 100
       },
       "gaps": [
@@ -252,8 +255,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 167,
-    "scanned_files": 167,
+    "estimated_total_files": 170,
+    "scanned_files": 170,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

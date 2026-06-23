@@ -5,6 +5,7 @@ import { api, genCode, truncRefs } from '../composables/useApi'
 import draggable from 'vuedraggable'
 import { useOrderableList } from '../composables/useOrderableList'
 import { useSortableTable } from '../composables/useSortableTable'
+import { rankFuzzyMatches } from '../composables/searchRanking'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -13,17 +14,25 @@ const editMode = inject('editMode', ref(false))
 const codelists = ref([])
 // 左侧：字典搜索
 const searchCl = ref('')
-const filteredCodelists = computed(() => {
-  const kw = searchCl.value.trim().toLowerCase()
-  if (!kw) return codelists.value
-  return codelists.value.filter(item =>
-    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
-  )
-})
+const filteredCodelists = computed(() =>
+  rankFuzzyMatches(codelists.value, searchCl.value, (item) => Object.values(item))
+)
 
-// 右侧：选项搜索（使用 v-show 保留拖拽）
+// 右侧：选项搜索（搜索时禁用拖拽，保留原始数据顺序）
 const searchOpt = ref('')
 const selected = ref(null)
+function optionSearchTexts(option) {
+  return [option.code, option.decode, `${option.code ?? ''}${option.decode ?? ''}`]
+}
+const visibleOptions = computed(() =>
+  rankFuzzyMatches(selected.value?.options || [], searchOpt.value, optionSearchTexts)
+)
+const draggableOptions = computed({
+  get: () => (searchOpt.value.trim() ? visibleOptions.value : selected.value?.options || []),
+  set: (nextOptions) => {
+    if (selected.value && !searchOpt.value.trim()) selected.value.options = nextOptions
+  },
+})
 const showAddCl = ref(false)
 const showAddOpt = ref(false)
 const clForm = reactive({ name: '', code: '', description: '' })
@@ -286,10 +295,9 @@ async function onOptDragEnd() {
         </div>
         <span class="option-action-header">操作</span>
       </div>
-      <draggable v-model="selected.options" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
+      <draggable v-model="draggableOptions" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
         <template #item="{ element, index }">
           <div
-            v-show="!searchOpt.trim() || (String(element.code ?? '') + String(element.decode ?? '')).toLowerCase().includes(searchOpt.trim().toLowerCase())"
             style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)"
           >
             <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
