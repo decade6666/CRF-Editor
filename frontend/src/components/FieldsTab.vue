@@ -428,7 +428,7 @@ async function quickSaveCodelist() {
           </el-form-item>
         </el-form>
         <div style="display:flex;gap:8px;margin-top:4px">
-          <el-button size="small" @click="clearSelection">取消</el-button>
+          <el-button size="small" style="flex:1" @click="clearSelection">取消</el-button>
           <el-button type="primary" size="small" style="flex:1" @click="save">保存</el-button>
         </div>
       </div>
