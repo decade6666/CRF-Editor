@@ -28,7 +28,7 @@
 - `src/composables/` (16 JS modules): shared logic for API, ordering, ranked fuzzy search, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (32 files: 31 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (33 files: 32 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
@@ -36,7 +36,7 @@
 - `components/AdminView.vue`: standalone admin workbench, responsible for user list, password status display, creating users, password reset, batch project operations, and recycle bin.
 - `components/ProjectInfoTab.vue`: project information, metadata, and Logo operations.
 - `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, and ordering.
-- `components/FieldsTab.vue`: field library maintenance.
+- `components/FieldsTab.vue`: field library maintenance; the choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync.
 - `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, column width dragging, quick edit, and in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y).
 - `components/TemplatePreviewDialog.vue`: template import preview.
 - `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application.
@@ -95,6 +95,7 @@
 - `visitPreviewLandscape.test.js`: visit preview orientation.
 - `orderingStructure.test.js`: ordering structure contract.
 - `searchRanking.test.js` and `searchRankingWiring.test.js`: exact-first fuzzy search helper behavior and component wiring.
+- `fieldsTabCodelistQuickEdit.test.js`: field library inline codelist editing — add/edit button wiring and disabled state, create/snapshot endpoints, references impact confirmation, cache invalidation + `refreshKey` sync, failure refresh, and trailing-underscore toggle.
 - `themePalette.test.js`: theme palette.
 - `importRenameFeedback.test.js`: import rename feedback.
 - `projectInfoMetadata.test.js`: project information metadata.
@@ -123,6 +124,7 @@
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-06-23`: Field library inline codelist editing. `FieldsTab.vue` choice-field option row now offers inline 新增字典 / 编辑字典 (icon buttons + two dialogs), reusing `POST /codelists`, `PUT /codelists/{id}/snapshot`, and `GET /codelists/{id}/references` with impact confirmation, dual cache invalidation (codelists + field-definitions), and global `refreshKey` sync; on save failure it refreshes to the latest codelist data and reports the error. Implemented standalone in FieldsTab (no `FormDesignerTab.vue` changes, backend unchanged); brief mode hides option OID/编码 consistent with `CodelistsTab`. Test directory 32→33 (added `fieldsTabCodelistQuickEdit.test.js`).
 - `2026-06-23`: Frontend ranked fuzzy search refresh. Composables 15→16 (added `searchRanking.js`, a pure helper for exact-first fuzzy ordering and shortest partial-match ordering), test directory 30→32 (31 `.test.js` + `testProperty.js`; added `searchRanking.test.js` and `searchRankingWiring.test.js`). `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` now route user-facing search lists through the shared helper; unit and codelist option searches preserve previous concatenated-field matching.
 - `2026-06-18`: Documentation sync refresh. Test directory 28→30 (added `editModeHiddenIdentifiers.test.js` and `tableHeaderStyle.test.js`, currently 29 `.test.js` + `testProperty.js`); added global `editMode` brief/full modes, OID/variable-name show/hide contracts, and Element Plus fixed column header plus handwritten list header style conventions.
 - `2026-06-15` (task `06-15-designer-new-field-draft`): new fields changed to local draft state. `newField` no longer persists immediately; it constructs a draft with a complete local `field_definition` (`id='__draft__'`, `__draft:true`), inserts it into `formFields`, and selects it; only the top-bar "Save" button (`saveDraftField`) sequentially `POST field-definitions` + `POST forms/{id}/fields` to persist, replace the draft, and record one "new field" action in the undo stack. The property autosave watcher short-circuits drafts to `applyEditorToDraft` local write-back; `removeField`, `openQuickEdit`, and `toggleInline` add function-level guards for drafts; `addField` / `addLogRow` call `confirmDiscardDraft` before persisting to prevent `loadFormFields` from overwriting the draft; switching forms / selecting fields / creating again uniformly goes through `confirmDiscardDraft` (save/discard/cancel); when a draft exists, sorting is disabled and draft rows do not participate in batch selection or inline quick toggles. Dragging an existing definition from the field library through `addField` keeps immediate persistence. Test directory 27→28 (added `designerNewFieldDraft.test.js`, 16 cases), full suite 257 passed.

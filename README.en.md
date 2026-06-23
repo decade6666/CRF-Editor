@@ -12,7 +12,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values
-- **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units
+- **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
 - **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit, width-adaptive fill lines and choice trailing underscores, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and a strict preview/export table-field parity comparator

@@ -25,7 +25,7 @@ graph TD
     C --> C1["src/components (13)"];
     C --> C2["src/composables (16)"];
     C --> C3["src/styles"];
-    C --> C4["tests (32)"];
+    C --> C4["tests (33)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,7 +36,7 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (32 files, including 31 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (33 files, including 32 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
@@ -124,6 +124,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-06-23`: Field library inline codelist editing. `frontend/src/components/FieldsTab.vue` adds 新增字典 / 编辑字典 inline entries on the choice-field option row (parity with the form designer), reusing existing codelist `create` / `snapshot` / `references` endpoints with impact confirmation, cache invalidation, and global `refreshKey` sync; implemented standalone in FieldsTab without touching `FormDesignerTab.vue` (backend unchanged). Frontend test directory 32→33 (32 `.test.js` + `testProperty.js`; added `fieldsTabCodelistQuickEdit.test.js`).
 - `2026-06-23`: Frontend search ranking refresh. Frontend composables 15→16 (added `searchRanking.js` for exact-first fuzzy search ranking), frontend test directory 30→32 (31 `.test.js` + `testProperty.js`; added helper and wiring regressions for ranked fuzzy search). Synced README feature text, frontend module context, and code-spec guidance for reusable search ordering.
 - `2026-06-18`: Documentation sync refresh. Backend services 13→14 (added and indexed `toc_pagination.py` for optional LibreOffice table-of-contents page number pre-calculation), frontend composables 14→15 (completed the count for `useDesignerHistory.js`), frontend test directory 26→30 (29 `.test.js` + `testProperty.js`; added regressions for designer undo/redo, new field drafts, full-edit-mode identifier show/hide, and header styling). Synced README environment requirements, clarifying that Word export does not strictly depend on Windows; only the Word import source screenshot evidence panel requires Windows + MS Word.
 - `2026-06-14`: Documentation sync refresh. Backend services 12→13 (added `word_table_parity.py`), backend tests 37→39 (currently including batch-delete isolation, Docx screenshot failure semantics, performance FK indexes, Word table parity, and other new regressions), scripts 3→4 (added `compare_word_table_parity.py`). Frontend components 12→13 (added `SessionTimer.vue`), composables 11→14 (added `useSessionTimer.js`, `useRowResize.js`, `formDesignerPreviewModel.js`), frontend test directory 22→26 (25 `.test.js` + `testProperty.js`; added regressions related to session countdown, row height dragging, preview view model, and the Docx two-column evidence panel).

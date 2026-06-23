@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, EditPen } from '@element-plus/icons-vue'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { rankFuzzyMatches } from '../composables/searchRanking'
@@ -153,6 +154,189 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
   isFiltered,
   renderList: visibleFields,
 })
+
+// 选项字典内联快速增/改：字典写操作后失效字典与字段定义缓存并联动刷新
+async function reloadAfterCodelistChange() {
+  api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
+  api.invalidateCache(`/api/projects/${props.projectId}/field-definitions`)
+  await load()
+  refreshKey.value++
+}
+
+function normalizeQuickOptions(rows) {
+  return rows.map((opt) => ({
+    ...opt,
+    code: String(opt.code ?? '').trim(),
+    decode: String(opt.decode ?? '').trim(),
+    trailing_underscore: opt.trailing_underscore || 0,
+  }))
+}
+
+function toggleTrailingLine(row) {
+  row.trailing_underscore = row.trailing_underscore ? 0 : 1
+}
+
+// 新增字典
+const showQuickAddCodelist = ref(false)
+const quickCodelistName = ref('')
+const quickCodelistDescription = ref('')
+const quickCodelistOpts = ref([])
+const quickOptCode = ref('')
+const quickOptDecode = ref('')
+const quickAddCodelistSaving = ref(false)
+
+function openQuickAddCodelist() {
+  quickCodelistName.value = ''
+  quickCodelistDescription.value = ''
+  quickCodelistOpts.value = []
+  quickOptCode.value = 'C.1'
+  quickOptDecode.value = ''
+  quickAddCodelistSaving.value = false
+  showQuickAddCodelist.value = true
+}
+function quickAddOptRow() {
+  if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
+  const n = quickCodelistOpts.value.length
+  quickCodelistOpts.value.push({
+    id: null,
+    code: quickOptCode.value.trim() || `C.${n + 1}`,
+    decode: quickOptDecode.value.trim(),
+    trailing_underscore: 0,
+  })
+  quickOptCode.value = `C.${n + 2}`
+  quickOptDecode.value = ''
+}
+function quickDelOptRow(idx) {
+  quickCodelistOpts.value.splice(idx, 1)
+}
+function closeQuickAddCodelist() {
+  showQuickAddCodelist.value = false
+  quickCodelistName.value = ''
+  quickCodelistDescription.value = ''
+  quickCodelistOpts.value = []
+  quickOptCode.value = ''
+  quickOptDecode.value = ''
+  quickAddCodelistSaving.value = false
+}
+async function quickAddCodelist() {
+  if (quickAddCodelistSaving.value) return
+  const savedName = quickCodelistName.value.trim()
+  if (!savedName) return ElMessage.warning('请输入字典名称')
+  const normalizedOptions = normalizeQuickOptions(quickCodelistOpts.value)
+  const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
+  if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
+
+  quickAddCodelistSaving.value = true
+  try {
+    const created = await api.post(`/api/projects/${props.projectId}/codelists`, {
+      name: savedName,
+      description: quickCodelistDescription.value,
+      options: normalizedOptions.map((opt, index) => ({
+        code: opt.code,
+        decode: opt.decode,
+        trailing_underscore: opt.trailing_underscore || 0,
+        order_index: index + 1,
+      })),
+    })
+    await reloadAfterCodelistChange()
+    editProp.codelist_id = created.id
+    closeQuickAddCodelist()
+    ElMessage.success('新增成功')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    quickAddCodelistSaving.value = false
+  }
+}
+
+// 编辑已引用字典
+const showQuickEditCodelist = ref(false)
+const quickEditCodelistId = ref(null)
+const quickEditCodelistName = ref('')
+const quickEditCodelistDescription = ref('')
+const quickEditCodelistOpts = ref([])
+const quickEditOptCode = ref('')
+const quickEditOptDecode = ref('')
+const quickEditCodelistSaving = ref(false)
+
+function openQuickEditCodelist() {
+  if (!editProp.codelist_id) return
+  const cl = codelists.value.find((c) => c.id === editProp.codelist_id)
+  if (!cl) return
+  quickEditCodelistId.value = cl.id
+  quickEditCodelistName.value = cl.name
+  quickEditCodelistDescription.value = cl.description || ''
+  quickEditCodelistOpts.value = (cl.options || []).map((o) => ({
+    id: o.id,
+    code: o.code,
+    decode: o.decode,
+    trailing_underscore: o.trailing_underscore || 0,
+  }))
+  quickEditOptCode.value = `C.${(cl.options || []).length + 1}`
+  quickEditOptDecode.value = ''
+  showQuickEditCodelist.value = true
+}
+function quickEditAddOptRow() {
+  if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签')
+  const n = quickEditCodelistOpts.value.length
+  quickEditCodelistOpts.value.push({
+    id: null,
+    code: quickEditOptCode.value.trim() || `C.${n + 1}`,
+    decode: quickEditOptDecode.value.trim(),
+    trailing_underscore: 0,
+  })
+  quickEditOptCode.value = `C.${n + 2}`
+  quickEditOptDecode.value = ''
+}
+function quickEditDelOptRow(idx) {
+  quickEditCodelistOpts.value.splice(idx, 1)
+}
+function closeQuickEditCodelist() {
+  showQuickEditCodelist.value = false
+  quickEditCodelistId.value = null
+  quickEditCodelistName.value = ''
+  quickEditCodelistDescription.value = ''
+  quickEditCodelistOpts.value = []
+  quickEditOptCode.value = ''
+  quickEditOptDecode.value = ''
+}
+async function quickSaveCodelist() {
+  if (quickEditCodelistSaving.value) return
+  const savedName = quickEditCodelistName.value.trim()
+  if (!savedName) return ElMessage.warning('请输入字典名称')
+  const normalizedOptions = normalizeQuickOptions(quickEditCodelistOpts.value)
+  const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
+  if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
+
+  quickEditCodelistSaving.value = true
+  try {
+    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/references`)
+    if (refs.length) {
+      const msg = truncRefs(refs.map((r) => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
+      await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
+    }
+    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/snapshot`, {
+      name: savedName,
+      description: quickEditCodelistDescription.value,
+      options: normalizedOptions.map((opt) => ({
+        id: opt.id,
+        code: opt.code,
+        decode: opt.decode,
+        trailing_underscore: opt.trailing_underscore || 0,
+      })),
+    })
+    await reloadAfterCodelistChange()
+    closeQuickEditCodelist()
+    ElMessage.success('保存成功')
+  } catch (e) {
+    if (e === 'cancel') return
+    await reloadAfterCodelistChange()
+    closeQuickEditCodelist()
+    ElMessage.error(`保存失败：${e.message}。已刷新为最新字典数据，请重新检查后再编辑。`)
+  } finally {
+    quickEditCodelistSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -229,9 +413,13 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
             </el-select>
           </el-form-item>
           <el-form-item v-if="['单选','多选','单选（纵向）','多选（纵向）'].includes(editProp.field_type)" label="选项">
-            <el-select v-model="editProp.codelist_id" clearable filterable style="width:100%" placeholder="请选择">
-              <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
-            </el-select>
+            <div style="display:flex;align-items:center;gap:4px;width:100%">
+              <el-select v-model="editProp.codelist_id" clearable filterable style="flex:1;min-width:0" placeholder="请选择">
+                <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+              <el-button size="small" circle type="primary" plain :icon="Plus" aria-label="新增字典" title="新增字典" @click="openQuickAddCodelist" />
+              <el-button size="small" circle type="warning" plain :icon="EditPen" aria-label="编辑字典" title="编辑字典" :disabled="!editProp.codelist_id" @click="openQuickEditCodelist" />
+            </div>
           </el-form-item>
           <el-form-item v-if="['文本','数值'].includes(editProp.field_type)" label="单位">
             <el-select v-model="editProp.unit_id" clearable filterable style="width:100%" placeholder="请选择">
@@ -245,5 +433,67 @@ const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
         </div>
       </div>
     </div>
+
+    <!-- 新增字典弹窗 -->
+    <el-dialog v-model="showQuickAddCodelist" title="新增选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="名称"><el-input v-model="quickCodelistName" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="quickCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
+      </el-form>
+      <el-table :data="quickCodelistOpts" size="small" border>
+        <el-table-column v-if="editMode" prop="code" label="编码" width="120">
+          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
+        </el-table-column>
+        <el-table-column prop="decode" label="标签">
+          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="后加下划线" width="110" align="center">
+          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <el-input v-if="editMode" v-model="quickOptCode" size="small" style="width:100px" placeholder="编码" />
+        <el-input v-model="quickOptDecode" size="small" style="flex:1" placeholder="标签" />
+        <el-button size="small" @click="quickAddOptRow">添加</el-button>
+      </div>
+      <template #footer>
+        <el-button :disabled="quickAddCodelistSaving" @click="closeQuickAddCodelist">取消</el-button>
+        <el-button type="primary" :loading="quickAddCodelistSaving" :disabled="quickAddCodelistSaving" @click="quickAddCodelist">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑字典弹窗 -->
+    <el-dialog v-model="showQuickEditCodelist" title="编辑选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <el-form label-width="80px" size="small">
+        <el-form-item label="名称"><el-input v-model="quickEditCodelistName" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="quickEditCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
+      </el-form>
+      <el-table :data="quickEditCodelistOpts" size="small" border>
+        <el-table-column v-if="editMode" prop="code" label="编码" width="120">
+          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
+        </el-table-column>
+        <el-table-column prop="decode" label="标签">
+          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="后加下划线" width="110" align="center">
+          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickEditDelOptRow($index)">删除</el-button></template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <el-input v-if="editMode" v-model="quickEditOptCode" size="small" style="width:100px" placeholder="编码" />
+        <el-input v-model="quickEditOptDecode" size="small" style="flex:1" placeholder="标签" />
+        <el-button size="small" @click="quickEditAddOptRow">添加</el-button>
+      </div>
+      <template #footer>
+        <el-button :disabled="quickEditCodelistSaving" @click="closeQuickEditCodelist">取消</el-button>
+        <el-button type="primary" :loading="quickEditCodelistSaving" :disabled="quickEditCodelistSaving" @click="quickSaveCodelist">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
