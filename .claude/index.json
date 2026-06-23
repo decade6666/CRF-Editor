@@ -205,6 +205,7 @@
         "frontend/tests/docxBimodalPreview.test.js",
         "frontend/tests/editModeHiddenIdentifiers.test.js",
         "frontend/tests/exportDownloadState.test.js",
+        "frontend/tests/fieldsTabCodelistQuickEdit.test.js",
         "frontend/tests/formDesignerPreviewModel.test.js",
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
         "frontend/tests/formFieldPresentation.test.js",
