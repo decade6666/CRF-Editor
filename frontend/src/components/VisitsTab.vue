@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { rankFuzzyMatches } from '../composables/searchRanking'
 import { useOrderableList } from '../composables/useOrderableList'
 import {
   buildFormDesignerRenderGroups,
@@ -43,13 +44,9 @@ const editMode = inject('editMode', ref(false))
 
 const visits = ref([])
 const searchVisit = ref('')
-const filteredVisits = computed(() => {
-  const kw = searchVisit.value.trim().toLowerCase()
-  if (!kw) return visits.value
-  return visits.value.filter(item =>
-    Object.values(item).some(v => String(v ?? '').toLowerCase().includes(kw))
-  )
-})
+const filteredVisits = computed(() =>
+  rankFuzzyMatches(visits.value, searchVisit.value, (item) => Object.values(item))
+)
 const matrixData = ref(null)
 // 所有表单列表（用于右侧面板添加表单）
 const allForms = ref([])
@@ -239,14 +236,10 @@ function getScopedDefaultValue(ff, singleLine = false) {
 function renderCellHtml(ff, fillLineChars = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const fd = ff.field_definition
-  const ft = fd.field_type
   const field = toRendererField(fd)
   const defaultValue = getScopedDefaultValue(ff, true)
   if (defaultValue) {
     return escapePreviewText(defaultValue)
-  }
-  if (ft && ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(ft)) {
-    return renderCtrlHtml(field)
   }
   return renderCtrlHtml(field, fillLineChars)
 }
@@ -358,7 +351,7 @@ function getPreviewColumnFractions(group) {
 }
 
 // normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享
-// computeFillLineCharCount 公式以保证逐字一致。仅 normal 表；unified/inline 维持 16。
+// computeFillLineCharCount 公式以保证逐字一致；同时用于文本整格填写线与选项尾部填写线。
 // 可用宽度按整张表单 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36）。
 function normalFillChars(group, groupIndex) {
   if (group?.type !== 'normal') return null

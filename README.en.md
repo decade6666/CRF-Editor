@@ -15,12 +15,12 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
-- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and a strict preview/export table-field parity comparator
+- **Export Flows**: Supports Word export and database export; Word export includes a short-term rate limit, width-adaptive fill lines and choice trailing underscores, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and a strict preview/export table-field parity comparator
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
 - **Form Preview**: Preview form field layout directly from the visits management panel and reuse the Word-preview row-height resize experience
 - **Session Management**: Shows remaining JWT session lifetime in the header, warns near expiry, and supports click-to-refresh
 - **AI and Settings**: Supports AI endpoint configuration, connectivity testing, and import / export related settings
-- **Global Fuzzy Search and Dark Mode**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists) plus light / dark theme switching
+- **Global Fuzzy Search and Dark Mode**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists), ranking exact matches first and partial matches by matched text length, plus light / dark theme switching
 - **Desktop Distribution**: Supports PyInstaller packaging, auto-opening the browser, and running from a system tray icon
 
 ## Technical Architecture
