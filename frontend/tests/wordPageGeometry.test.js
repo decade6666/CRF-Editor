@@ -114,3 +114,22 @@ test('word preview table cells mirror Word paragraph vertical rhythm', () => {
     `.word-page td line-height should mirror Word line_spacing=1.0, got ${lineHeight}`,
   )
 })
+
+test('whole-cell fill-line stretches to fill its column in preview (adaptive underline)', () => {
+  const css = readMainCss()
+  // 整格填写线（单元格唯一内容）应 flex 填满列；行内 em min-width 必须被 !important 覆盖
+  assert.match(
+    css,
+    /\.word-page \.wp-ctrl > span:has\(> \.fill-line:only-child\)[^{]*\{[^}]*display:\s*flex/s,
+    'whole-cell fill-line host span must become a flex container',
+  )
+  assert.match(
+    css,
+    /\.word-page \.wp-ctrl > span > \.fill-line:only-child[^{]*\{[^}]*min-width:\s*0\s*!important/s,
+    'whole-cell fill-line must override inline em min-width with min-width:0 !important',
+  )
+  // 选项尾部填写线（.choice-atom 内）保持原契约，不被整格规则影响
+  const choiceFill = extractRuleBody(css, '.word-page .choice-atom .fill-line')
+  assert.ok(choiceFill && /align-self:\s*flex-end/.test(choiceFill),
+    'trailing .choice-atom .fill-line must keep align-self: flex-end')
+})

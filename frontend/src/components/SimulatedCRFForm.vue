@@ -70,7 +70,9 @@ import {
   getFormFieldLabelPreviewStyle,
   getFormFieldPreviewStyle,
   getFormFieldTextColorStyle,
+  buildFormDesignerRenderGroups,
 } from '../composables/formFieldPresentation'
+import { resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
 
@@ -80,9 +82,13 @@ const props = defineProps({
   viewMode: { type: String, default: 'direct' }, // 'direct' | 'ai'
   // 可选：宿主组件传入 formId 后，优先读取设计器保存的列宽
   formId: { type: [Number, String], default: null },
-  // 可用内容宽度（厘米），用于填写线下划线根数按 control 列宽自适应。
-  // 默认竖版 14.66cm，与后端 PORTRAIT_CONTENT_WIDTH_CM 对齐；横版预览可传 23.36。
-  availableCm: { type: Number, default: 14.66 },
+  // 表单纸张方向（'auto' | 'portrait' | 'landscape'）。normal 表填写线宽度经
+  // resolveNormalTableAvailableCm 解析：显式 landscape 或 mixed_landscape（auto 下普通字段
+  // + 连续 inline>4）→ 23.36，否则 14.66；与后端 _build_form_table 宽度选择一致。
+  paperOrientation: { type: String, default: 'auto' },
+  // 显式覆盖可用内容宽度（厘米）。为 null 时按 paperOrientation 解析；
+  // 与后端 PORTRAIT/LANDSCAPE_CONTENT_WIDTH_CM（14.66 / 23.36）对齐。
+  availableCm: { type: Number, default: null },
 })
 
 defineEmits(['field-click'])
@@ -139,10 +145,18 @@ const displayFields = computed(() => {
   return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
 })
 
+// 可用内容宽度（cm）：显式 availableCm 优先；否则按整张表单 render groups + paperOrientation
+// 解析（显式 landscape 或 mixed_landscape → 23.36），镜像后端 _build_form_table 宽度选择。
+const resolvedAvailableCm = computed(() => {
+  if (props.availableCm != null) return props.availableCm
+  const groups = buildFormDesignerRenderGroups(displayFields.value)
+  return resolveNormalTableAvailableCm(groups, props.paperOrientation)
+})
+
 // 填写线下划线根数按 control 列实际宽度自适应（不换行），与后端导出共享估算公式。
 function controlCellHtml(field) {
   const controlFrac = columnFractions.value[1]
-  const fillLineChars = computeFillLineCharCount(controlFrac * props.availableCm)
+  const fillLineChars = computeFillLineCharCount(controlFrac * resolvedAvailableCm.value)
   return renderCtrlHtml(field, fillLineChars)
 }
 

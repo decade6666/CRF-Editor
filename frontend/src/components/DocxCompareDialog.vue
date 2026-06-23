@@ -31,7 +31,7 @@
           <SimulatedCRFForm
             :fields="formData.fields || []"
             view-mode="direct"
-            :available-cm="formData.paper_orientation === 'landscape' ? 23.36 : 14.66"
+            :paper-orientation="formData.paper_orientation || 'auto'"
             @field-click="handleFieldClick"
           />
         </div>

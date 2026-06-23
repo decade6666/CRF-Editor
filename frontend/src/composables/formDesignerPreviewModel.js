@@ -44,10 +44,14 @@ export function buildGroupViewModel(group, helpers) {
   }
 
   if (group.type === 'inline') {
+    // 仅独立 inline 组传入按列宽自适应的填写线根数；unified 内的 inline band 不传（维持旧固定 16）。
+    const fillCharsByCol = helpers.getInlineFillChars
+      ? helpers.getInlineFillChars(group.fields)
+      : null;
     return {
       type: group.type,
       fields: group.fields,
-      inlineRows: getInlineRows(group.fields),
+      inlineRows: getInlineRows(group.fields, fillCharsByCol),
     };
   }
 
