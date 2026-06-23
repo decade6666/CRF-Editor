@@ -40,6 +40,7 @@ import {
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
+import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
@@ -668,7 +669,7 @@ const filteredFieldDefs = computed(() => {
 });
 
 // 渲染逻辑
-function renderCtrl(fd) {
+function renderCtrl(fd, fillLineChars = null) {
   if (!fd) return '________________';
   const field = {
     field_type: fd.field_type,
@@ -678,7 +679,7 @@ function renderCtrl(fd) {
     decimal_digits: fd.decimal_digits,
     date_format: fd.date_format,
   };
-  return renderCtrlBase(field);
+  return renderCtrlBase(field, fillLineChars);
 }
 
 function getPreviewField(ff) {
@@ -717,19 +718,20 @@ function renderCellHtml(ff, fillLineChars = null) {
 // normal 表 control 列填写线根数：按当前 control 列宽（cm）自适应，与后端
 // export_service._add_field_row 共享 computeFillLineCharCount 公式以保证逐字一致。
 // 仅 normal 表接入；unified / inline 维持旧固定 16 根（两端一致）。
-const AVAILABLE_CM_PORTRAIT = 14.66;   // 与后端 PORTRAIT_CONTENT_WIDTH_CM 对齐
-const AVAILABLE_CM_LANDSCAPE = 23.36;  // 与后端 LANDSCAPE_CONTENT_WIDTH_CM 对齐
+// 可用宽度按整张表单的 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36），
+// 镜像后端 _build_form_table 的 force_landscape / mixed_landscape 宽度选择。
 function normalFillChars(groupIndex, group, scope) {
   const resizer = getResizer('normal', 2, groupIndex, group, scope);
   const controlFrac = resizer?.colRatios?.[1];
   if (controlFrac == null) return null;
-  const landscape = scope === 'designer' ? designerLandscapeMode.value : landscapeMode.value;
-  const availableCm = landscape ? AVAILABLE_CM_LANDSCAPE : AVAILABLE_CM_PORTRAIT;
+  const formGroups = scope === 'designer' ? designerRenderGroups.value : renderGroups.value;
+  const availableCm = resolveNormalTableAvailableCm(formGroups, selectedFormPaperOrientation.value);
   return computeFillLineCharCount(controlFrac * availableCm);
 }
 
-function getInlineRows(fields) {
-  const cols = fields.map((ff) => {
+function getInlineRows(fields, fillCharsByCol = null) {
+  const cols = fields.map((ff, i) => {
+    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null;
     const defaultValue = getScopedDefaultValue(ff);
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n');
@@ -737,16 +739,28 @@ function getInlineRows(fields) {
       return {
         lines: lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(ff.field_definition)),
+        fallback: toHtml(renderCtrl(ff.field_definition, fillChars)),
       };
     }
-    const ctrl = toHtml(renderCtrl(ff.field_definition));
+    const ctrl = toHtml(renderCtrl(ff.field_definition, fillChars));
     return { lines: [ctrl], repeat: true, fallback: ctrl };
   });
   const maxRows = Math.max(1, ...cols.filter((c) => !c.repeat).map((c) => c.lines.length));
   return Array.from({ length: maxRows }, (_, i) =>
     cols.map((col) => (col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))),
   );
+}
+
+// inline 整格文本填写线：每列按其规划宽度（cm）自适应根数，与后端 _add_inline_table
+// 共享 compute_fill_line_char_count 公式。仅独立 inline 组使用（unified band 不传）。
+function getInlineFillChars(fields) {
+  const fractions = planInlineColumnFractions(fields);
+  const availableCm = resolveInlineTableAvailableCm(
+    renderGroups.value,
+    { type: 'inline', fields },
+    selectedFormPaperOrientation.value,
+  );
+  return fractions.map((f) => computeFillLineCharCount(f * availableCm));
 }
 
 function computeMergeSpans(N, M) {
@@ -769,6 +783,7 @@ const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.val
 const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
+  getInlineFillChars,
   computeMergeSpans,
   computeLabelValueSpans,
 };

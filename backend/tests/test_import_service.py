@@ -153,6 +153,7 @@ def build_template_db(
     with_trailing_underscore: bool = False,
     codelist_name: str = "性别",
     option_metadata: list[tuple[str | None, str, int]] | None = None,
+    paper_orientation: str = "auto",
 ) -> tuple[Path, int]:
     db_path = tmp_path / ("template_with_unit.db" if with_unit else "template_without_unit.db")
     engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
@@ -162,6 +163,8 @@ def build_template_db(
     with session_factory() as template_session:
         project = create_project(template_session, name="模板项目")
         form = create_form(template_session, project.id, name="模板表单")
+        form.paper_orientation = paper_orientation
+        template_session.flush()
         unit_id = None
         codelist_id = None
 
@@ -214,6 +217,28 @@ def test_get_template_form_fields_returns_unit_symbol(tmp_path: Path, session: S
 
     assert len(fields) == 1
     assert fields[0]["unit_symbol"] == "支"
+
+
+def test_get_template_form_paper_orientation_returns_explicit_landscape(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path, with_unit=False, paper_orientation="landscape"
+    )
+    service = ImportService(session)
+
+    assert service.get_template_form_paper_orientation(str(template_path), form_id) == "landscape"
+
+
+def test_get_template_form_paper_orientation_defaults_to_auto(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False)
+    service = ImportService(session)
+
+    assert service.get_template_form_paper_orientation(str(template_path), form_id) == "auto"
 
 
 def test_get_template_form_fields_returns_none_unit_when_no_unit(

@@ -34,7 +34,7 @@ import {
   toHtml,
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
-import { shouldUseLandscapePreview } from '../composables/visitPreviewLandscape'
+import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -251,8 +251,9 @@ function renderCellHtml(ff, fillLineChars = null) {
   return renderCtrlHtml(field, fillLineChars)
 }
 
-function getInlineRows(fields) {
-  const cols = fields.map(ff => {
+function getInlineRows(fields, fillCharsByCol = null) {
+  const cols = fields.map((ff, i) => {
+    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
     const defaultValue = getScopedDefaultValue(ff)
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n')
@@ -260,16 +261,27 @@ function getInlineRows(fields) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition))),
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars)),
       }
     }
-    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition)))
+    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars))
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) =>
     cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))
   )
+}
+
+// inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
+function getInlineFillChars(fields) {
+  const fractions = planInlineColumnFractions(fields)
+  const availableCm = resolveInlineTableAvailableCm(
+    previewRenderGroups.value,
+    { type: 'inline', fields },
+    formPreviewPaperOrientation.value,
+  )
+  return fractions.map(f => computeFillLineCharCount(f * availableCm))
 }
 
 function readPersistedColRatios(kind, fields) {
@@ -347,15 +359,15 @@ function getPreviewColumnFractions(group) {
 
 // normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享
 // computeFillLineCharCount 公式以保证逐字一致。仅 normal 表；unified/inline 维持 16。
-const PREVIEW_AVAILABLE_CM_PORTRAIT = 14.66
-const PREVIEW_AVAILABLE_CM_LANDSCAPE = 23.36
+// 可用宽度按整张表单 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36）。
 function normalFillChars(group, groupIndex) {
   if (group?.type !== 'normal') return null
   const controlFrac = getPreviewColumnFractions(group, groupIndex)?.[1]
   if (controlFrac == null) return null
-  const availableCm = previewLandscapeMode.value
-    ? PREVIEW_AVAILABLE_CM_LANDSCAPE
-    : PREVIEW_AVAILABLE_CM_PORTRAIT
+  const availableCm = resolveNormalTableAvailableCm(
+    previewRenderGroups.value,
+    formPreviewPaperOrientation.value,
+  )
   return computeFillLineCharCount(controlFrac * availableCm)
 }
 
@@ -383,6 +395,7 @@ const previewRenderGroups = computed(() => buildFormDesignerRenderGroups(formPre
 const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
+  getInlineFillChars,
   computeMergeSpans,
   computeLabelValueSpans,
 }

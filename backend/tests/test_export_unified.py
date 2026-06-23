@@ -172,6 +172,44 @@ def test_export_normal_form_remains_2col_portrait(session: Session, tmp_path: Pa
 
 # ========== Task 3.2: 纯 inline 表单回归测试 ==========
 
+def test_export_inline_text_fill_line_scales_with_column_width(
+    session: Session, tmp_path: Path
+) -> None:
+    """inline 表整格文本填写线按各列实际宽度自适应：窄列短、宽列长，且不换行。"""
+    from src.services.width_planning import FILL_LINE_MAX_CHARS, FILL_LINE_MIN_CHARS
+
+    project, _ = create_minimal_project(session)
+    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
+    session.add(visit)
+    session.flush()
+    form = Form(project_id=project.id, name="inline 文本表单", code="F_INLINE_TXT", order_index=1)
+    session.add(form)
+    session.flush()
+    session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=1))
+    session.flush()
+
+    # 两个 inline 文本字段：短标签列窄、长标签列宽 → 列宽不同 → 填写线根数不同
+    narrow = create_text_field_def(session, project.id, "短")
+    wide = create_text_field_def(session, project.id, "这是一个很长的字段标签用于显著拉宽该列")
+    add_field_to_form(session, form.id, narrow.id, order_index=1, inline_mark=1)
+    add_field_to_form(session, form.id, wide.id, order_index=2, inline_mark=1)
+    session.commit()
+
+    output_path = tmp_path / "inline_text.docx"
+    ExportService(session).export_project_to_word(project.id, str(output_path))
+    inline_table = Document(str(output_path)).tables[-1]
+
+    narrow_cell = inline_table.cell(1, 0).text
+    wide_cell = inline_table.cell(1, 1).text
+
+    for text in (narrow_cell, wide_cell):
+        assert text and set(text) == {"_"}, f"应为纯下划线填写线: {text!r}"
+        assert "\n" not in text
+        assert FILL_LINE_MIN_CHARS <= len(text) <= FILL_LINE_MAX_CHARS
+    # 宽列填写线明显长于窄列（自适应，而非旧的固定 16）
+    assert len(wide_cell) > len(narrow_cell)
+
+
 def test_export_inline_form_max4_remains_portrait(session: Session, tmp_path: Path) -> None:
     """验证 ≤4 列 inline 表单保持 portrait。"""
     project, _ = create_minimal_project(session)

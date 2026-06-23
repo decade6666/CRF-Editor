@@ -113,6 +113,9 @@ class TemplateFieldPreview(BaseModel):
 class TemplateFormFieldsResponse(BaseModel):
     form_id: int
     fields: List[TemplateFieldPreview]
+    # 模板表单纸张方向（auto/portrait/landscape）；旧模板缺列时回退 'auto'。
+    # 供前端模板预览解析 normal 表填写线可用宽度，与导出 _build_form_table 一致。
+    paper_orientation: str = "auto"
 
 
 # ---- Endpoints ----
@@ -160,6 +163,7 @@ def preview_form_fields(
     try:
         svc = ImportService(session)
         fields = svc.get_template_form_fields(cfg.template_path, form_id)
+        paper_orientation = svc.get_template_form_paper_orientation(cfg.template_path, form_id)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
@@ -168,7 +172,9 @@ def preview_form_fields(
         if "模板库不兼容" in msg:
             return _compatibility_error(msg)
         raise HTTPException(400, msg)
-    return TemplateFormFieldsResponse(form_id=form_id, fields=fields)
+    return TemplateFormFieldsResponse(
+        form_id=form_id, fields=fields, paper_orientation=paper_orientation
+    )
 
 
 @router.post(
