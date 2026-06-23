@@ -340,6 +340,25 @@ class ImportService:
             tmpl.close()
 
 
+    def get_template_form_paper_orientation(self, template_path: str, form_id: int) -> str:
+        """读取模板表单的纸张方向（只读），兼容旧模板缺少 paper_orientation 列时回退 'auto'。
+
+        供前端模板预览解析 normal 表可用宽度（mixed_landscape / 显式 landscape → 23.36cm），
+        与正式导入链路 `_build_template_form_snapshot` 的方向语义保持一致。
+        """
+        db_path = self._resolve_existing_template_path(template_path)
+        if not self._has_template_paper_orientation(db_path):
+            return "auto"
+        tmpl = self._open_template_session(template_path)
+        try:
+            form = tmpl.get(Form, form_id)
+            if form is None:
+                return "auto"
+            return getattr(form, "paper_orientation", "auto") or "auto"
+        finally:
+            tmpl.close()
+
+
     # ------------------------------------------------------------------
     # 冲突处理辅助方法
     # ------------------------------------------------------------------

@@ -2958,7 +2958,15 @@ class ExportService:
 
                     else:
 
-                        run = para.add_run(self._render_field_control(field_def))
+                        # inline 整格文本填写线：按该列实际宽度自适应（不换行），
+                        # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
+                        inline_fill_chars = (
+                            compute_fill_line_char_count(col_widths[col_idx])
+                            if col_idx < len(col_widths) else None
+                        )
+                        run = para.add_run(
+                            self._render_field_control(field_def, fill_line_chars=inline_fill_chars)
+                        )
 
                         self._set_run_font(run, size=Pt(10.5))
 

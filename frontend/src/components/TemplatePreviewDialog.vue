@@ -140,6 +140,7 @@ import {
 } from '../composables/useCRFRenderer'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
+import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { api } from '../composables/useApi'
 
 const props = defineProps({
@@ -157,6 +158,8 @@ const importing = ref(false)
 const errorMsg = ref('')
 const fields = ref([])
 const selectedIds = ref(new Set())
+// 模板表单纸张方向（来自 form-fields 接口）；用于解析 normal 表填写线可用宽度
+const paperOrientation = ref('auto')
 
 // Task 3.2: 过滤已选项（包含日志行、标签行）
 const filteredFields = computed(() =>
@@ -171,6 +174,7 @@ const previewRenderGroups = computed(() => buildFormDesignerRenderGroups(filtere
 const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
+  getInlineFillChars,
   computeMergeSpans,
   computeLabelValueSpans,
 }
@@ -191,8 +195,9 @@ function computeLabelValueSpans(N) {
 }
 
 // Task 3.3: 内联块多行渲染
-function getInlineRows(fields) {
-  const cols = fields.map(ff => {
+function getInlineRows(fields, fillCharsByCol = null) {
+  const cols = fields.map((ff, i) => {
+    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
     const defaultValue = ff.default_value
     if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
       const lines = normalizeDefaultValue(defaultValue, true).split('\n')
@@ -200,14 +205,25 @@ function getInlineRows(fields) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: renderCtrlHtml(ff),
+        fallback: renderCtrlHtml(ff, fillChars),
       }
     }
-    const ctrl = renderCtrlHtml(ff)
+    const ctrl = renderCtrlHtml(ff, fillChars)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
   return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback)))
+}
+
+// inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
+function getInlineFillChars(fields) {
+  const fractions = planInlineColumnFractions(fields)
+  const availableCm = resolveInlineTableAvailableCm(
+    previewRenderGroups.value,
+    { type: 'inline', fields },
+    paperOrientation.value,
+  )
+  return fractions.map(f => computeFillLineCharCount(f * availableCm))
 }
 
 // 计算预览表格的列宽比例：优先设计器保存值，否则回退内容驱动 planner 结果
@@ -262,13 +278,14 @@ function renderCellHtml(ff, fillLineChars = null) {
 }
 
 // normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享公式。
-// 模板预览无纸张方向信息，按竖版 14.66cm 估算；unified/inline 维持旧固定 16。
-const TEMPLATE_AVAILABLE_CM_PORTRAIT = 14.66
+// 使用模板表单真实纸张方向（form-fields 接口返回 paper_orientation），可覆盖显式 landscape
+// 及 mixed_landscape，与导出 _build_form_table 的宽度选择逐字一致。
 function normalFillChars(group, groupIndex) {
   if (group?.type !== 'normal') return null
   const controlFrac = getColumnFractions(group, groupIndex)?.[1]
   if (controlFrac == null) return null
-  return computeFillLineCharCount(controlFrac * TEMPLATE_AVAILABLE_CM_PORTRAIT)
+  const availableCm = resolveNormalTableAvailableCm(previewRenderGroups.value, paperOrientation.value)
+  return computeFillLineCharCount(controlFrac * availableCm)
 }
 
 watch(() => props.modelValue, (val) => {
@@ -288,6 +305,7 @@ async function loadFields() {
       `/api/projects/${props.projectId}/import-template/form-fields?form_id=${props.formId}`
     )
     fields.value = data.fields || []
+    paperOrientation.value = data.paper_orientation || 'auto'
     if (!fields.value.length) {
       errorMsg.value = '该表单暂无可导入项'
     } else {
