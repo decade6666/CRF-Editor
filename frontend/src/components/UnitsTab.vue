@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { rankFuzzyMatches } from '../composables/searchRanking'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -14,18 +15,18 @@ const symbol = ref('')
 const unitCode = ref('')
 const showAdd = ref(false)
 
+function unitSearchTexts(unit) {
+  return [unit.code, unit.symbol, `${unit.code ?? ''}${unit.symbol ?? ''}`]
+}
+
 const visibleUnits = computed(() => {
-  const kw = searchUnit.value.trim().toLowerCase()
   const orderedUnits = [...units.value].sort((a, b) => {
     const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
     const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
     if (orderA !== orderB) return orderA - orderB
     return (a?.id ?? 0) - (b?.id ?? 0)
   })
-  if (!kw) return orderedUnits
-  return orderedUnits.filter(u =>
-    (String(u.code ?? '') + String(u.symbol ?? '')).toLowerCase().includes(kw)
-  )
+  return rankFuzzyMatches(orderedUnits, searchUnit.value, unitSearchTexts)
 })
 
 async function load() { units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`) }

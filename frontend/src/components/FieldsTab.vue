@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { rankFuzzyMatches } from '../composables/searchRanking'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -54,18 +55,14 @@ watch(refreshKey, load)
 // 字段库不展示日志行
 const searchField = ref('')
 const visibleFields = computed(() => {
-  const kw = searchField.value.trim().toLowerCase()
   const orderedFields = [...fields.value].sort((a, b) => {
     const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER
     const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER
     if (orderA !== orderB) return orderA - orderB
     return (a?.id ?? 0) - (b?.id ?? 0)
   })
-  return orderedFields.filter(f => {
-    if (f.field_type === '日志行') return false
-    if (!kw) return true
-    return Object.values(f).some(v => String(v ?? '').toLowerCase().includes(kw))
-  })
+  const visibleDefinitions = orderedFields.filter(f => f.field_type !== '日志行')
+  return rankFuzzyMatches(visibleDefinitions, searchField.value, (field) => Object.values(field))
 })
 
 function resetProp(data) {
