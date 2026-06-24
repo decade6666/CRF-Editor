@@ -37,15 +37,15 @@ test('Element Plus fixed operation column headers override the fixed-column back
   )
 })
 
-test('CodelistsTab option list header centers all visible header labels', () => {
-  const optionHeader = extractBetween(codelistsSource, '<!-- 选项列表表头 -->', '<draggable')
+test('CodelistsTab option list uses Element Plus bordered table headers', () => {
+  const optionTable = extractBetween(codelistsSource, '<!-- 选项列表 -->', '</el-table>')
 
-  assert.match(optionHeader, /class="manual-list-header option-list-header"/)
-  assert.match(optionHeader, /class="option-order-header">序号<\/span>/)
-  assert.match(optionHeader, /class="option-label-header">标签<\/span>/)
-  assert.match(optionHeader, /class="option-trailing-header">后加下划线<\/span>/)
-  assert.match(optionHeader, /class="option-action-header">操作<\/span>/)
-  assert.doesNotMatch(optionHeader, /text-align\s*:\s*(right|left)/)
+  assert.match(optionTable, /<el-table[\s\S]*border/)
+  assert.match(optionTable, /label="序号"/)
+  assert.match(optionTable, /label="标签"/)
+  assert.match(optionTable, /label="后加下划线"/)
+  assert.match(optionTable, /label="操作"/)
+  assert.doesNotMatch(optionTable, /manual-list-header option-list-header/)
 })
 
 test('VisitsTab visit-form list header centers all visible header labels', () => {
