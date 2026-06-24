@@ -37,7 +37,7 @@ import {
 } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
-import { confirmDeleteTwice } from '../composables/projectDeleteConfirmation'
+import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -200,7 +200,7 @@ async function removeFormFromVisit(formId) {
   if (!selectedVisit.value) return
   const form = visitForms.value.find(item => item.id === formId)
   try {
-    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `访视中的表单 "${form?.name || formId}"` })
+    await confirmDelete(ElMessageBox.confirm, { targetText: `访视中的表单 "${form?.name || formId}"` })
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
     syncVisitForms()
@@ -482,7 +482,7 @@ async function toggleCell(visitId, formId) {
     if (has) {
       const visit = visits.value.find(item => item.id === visitId)
       const form = allForms.value.find(item => item.id === formId)
-      await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `访视 "${visit?.name || visitId}" 中的表单 "${form?.name || formId}"` })
+      await confirmDelete(ElMessageBox.confirm, { targetText: `访视 "${visit?.name || visitId}" 中的表单 "${form?.name || formId}"` })
       await api.del(`/api/visits/${visitId}/forms/${formId}`)
     } else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)

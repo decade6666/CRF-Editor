@@ -52,6 +52,7 @@ async function del(u) {
       const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
       return ElMessageBox.alert(`该单位被以下字段引用，需先删除相关字段：\n${msg}`, '无法删除', { type: 'warning' })
     }
+    await ElMessageBox.confirm(`确认删除单位 "${u.symbol}"？`, '删除确认', { type: 'warning' })
     await api.del(`/api/units/${u.id}`); reloadUnits()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
@@ -90,6 +91,7 @@ async function batchDelUnits() {
       if (refs.length) allRefs.push(`【${u.symbol}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`), 3, '、'))
     }
     if (allRefs.length) return ElMessageBox.alert(`以下单位被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除选中的 ${ids.length} 个单位？`, '批量删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids }); selUnits.value = []; reloadUnits()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }

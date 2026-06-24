@@ -5,7 +5,7 @@ import { Plus, EditPen } from '@element-plus/icons-vue'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { rankFuzzyMatches } from '../composables/searchRanking'
-import { confirmDeleteTwice } from '../composables/projectDeleteConfirmation'
+import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -209,7 +209,7 @@ function quickAddOptRow() {
 }
 async function quickDelOptRow(idx) {
   try {
-    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` })
+    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` })
     quickCodelistOpts.value.splice(idx, 1)
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
@@ -294,7 +294,7 @@ function quickEditAddOptRow() {
 }
 async function quickEditDelOptRow(idx) {
   try {
-    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` })
+    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` })
     quickEditCodelistOpts.value.splice(idx, 1)
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
