@@ -22,13 +22,17 @@ test('CodelistsTab wires left list drag sorting through useSortableTable', () =>
   assert.match(codelistsSource, /<el-table-column width="32" v-if="!isCodelistsFiltered">/);
 });
 
-test('CodelistsTab disables option drag when search filter is active', () => {
+test('CodelistsTab wires option list drag sorting through useSortableTable', () => {
+  assert.match(codelistsSource, /const optionsTableRef = ref\(null\)/);
+  assert.match(codelistsSource, /const isOptionsFiltered = computed\(\(\) => searchOpt\.value\.trim\(\)\.length > 0\)/);
   assert.match(
     codelistsSource,
-    /<draggable v-model="draggableOptions" item-key="id" handle="\.drag-handle" :disabled="Boolean\(searchOpt\.trim\(\)\)"/,
+    /const optionsReorderUrl = computed\(\(\) => selected\.value \? `\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{selected\.value\.id\}\/options\/reorder` : ''\)/,
   );
-  assert.match(codelistsSource, /set: \(nextOptions\) => \{/);
-  assert.match(codelistsSource, /if \(selected\.value && !searchOpt\.value\.trim\(\)\) selected\.value\.options = nextOptions/);
+  assert.match(codelistsSource, /useSortableTable\(\s*optionsTableRef,\s*optionSourceList,\s*optionsReorderUrl,/s);
+  assert.match(codelistsSource, /renderList: visibleOptions/);
+  assert.match(codelistsSource, /ref="optionsTableRef"/);
+  assert.match(codelistsSource, /<el-table-column width="32" v-if="!isOptionsFiltered">/);
 });
 
 test('VisitsTab wires visit form drag sorting through useOrderableList', () => {

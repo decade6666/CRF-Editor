@@ -42,7 +42,7 @@ test('search components route filtered lists through rankFuzzyMatches', () => {
 test('codelist option search uses ranked data instead of v-show substring filtering', () => {
   const source = readSource('src/components/CodelistsTab.vue');
 
-  assert.match(source, /<draggable v-model="draggableOptions"/);
+  assert.match(source, /<el-table[\s\S]*:data="visibleOptions"[\s\S]*border/);
   assert.match(source, /function optionSearchTexts\(option\) \{/);
   assert.match(source, /`\$\{option\.code \?\? ''\}\$\{option\.decode \?\? ''\}`/);
   assert.equal(source.includes('v-show="!searchOpt.trim()'), false);
