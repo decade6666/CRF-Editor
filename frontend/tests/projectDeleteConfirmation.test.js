@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import {
   buildFinalDeleteConfirmMessage,
   buildFinalProjectDeleteConfirmMessage,
-  confirmDeleteTwice,
+  confirmDelete,
   confirmFinalProjectDelete,
 } from '../src/composables/projectDeleteConfirmation.js'
 
@@ -51,16 +51,22 @@ test('buildFinalDeleteConfirmMessage describes generic delete targets', () => {
   )
 })
 
-test('confirmDeleteTwice runs first and final confirmations in order', async () => {
+test('confirmDelete runs a single confirmation with the expected message', async () => {
   const calls = []
-  await confirmDeleteTwice((...args) => {
+  await confirmDelete((...args) => {
     calls.push(args)
     return Promise.resolve()
   }, { targetText: '单位 "kg"' })
 
-  assert.equal(calls.length, 2)
-  assert.equal(calls[0][0], '确认删除单位 "kg" 吗？')
-  assert.equal(calls[1][0], '请再次确认：确定要删除单位 "kg" 吗？此操作不可恢复。')
+  assert.deepEqual(calls, [[
+    '确认删除单位 "kg" 吗？',
+    '确认',
+    {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+    },
+  ]])
 })
 
 test('confirmFinalProjectDelete uses final warning confirmation options', async () => {
@@ -120,19 +126,21 @@ test('hard project delete keeps irreversible warning and waits for final confirm
 
 test('management delete handlers require final confirmation before delete API calls', () => {
   const cases = [
-    [codelistsSource, 'batchDelCl', 'api.post', 'batch-delete'],
+    [codelistsSource, 'delCl', 'ElMessageBox.confirm', 'api.del'],
+    [codelistsSource, 'batchDelCl', 'ElMessageBox.confirm', 'batch-delete'],
+    [codelistsSource, 'delOpt', 'ElMessageBox.confirm', 'api.del'],
     [codelistsSource, 'batchDelOpt', 'ElMessageBox.confirm', 'options/batch-delete'],
-    [unitsSource, 'del', 'api.get', 'api.del'],
-    [unitsSource, 'batchDelUnits', 'api.post', 'batch-delete'],
+    [unitsSource, 'del', 'ElMessageBox.confirm', 'api.del'],
+    [unitsSource, 'batchDelUnits', 'ElMessageBox.confirm', 'batch-delete'],
     [fieldsSource, 'del', 'ElMessageBox.confirm', 'api.del'],
     [fieldsSource, 'batchDelFields', 'ElMessageBox.confirm', 'batch-delete'],
     [visitsSource, 'del', 'ElMessageBox.confirm', 'api.del'],
     [visitsSource, 'batchDelVisits', 'ElMessageBox.confirm', 'batch-delete'],
-    [visitsSource, 'removeFormFromVisit', 'confirmDeleteTwice', 'api.del'],
-    [visitsSource, 'toggleCell', 'confirmDeleteTwice', 'api.del'],
+    [visitsSource, 'removeFormFromVisit', 'confirmDelete', 'api.del'],
+    [visitsSource, 'toggleCell', 'confirmDelete', 'api.del'],
     [designerSource, 'delForm', 'ElMessageBox.confirm', 'api.del'],
     [designerSource, 'batchDelForms', 'ElMessageBox.confirm', 'forms/batch-delete'],
-    [designerSource, 'removeField', 'confirmDeleteTwice', 'api.del'],
+    [designerSource, 'removeField', 'confirmFormChange', 'api.del'],
     [designerSource, 'batchDelete', 'confirmFormChange', 'fields/batch-delete'],
     [adminViewSource, 'deleteUser', 'ElMessageBox.confirm', 'api.del'],
   ]
@@ -146,11 +154,20 @@ test('management delete handlers require final confirmation before delete API ca
     )
   }
 
+  // All handlers should NOT use double-confirm helpers
   for (const [source, functionName] of [
     [codelistsSource, 'delCl'],
     [codelistsSource, 'delOpt'],
+    [codelistsSource, 'batchDelCl'],
     [unitsSource, 'del'],
     [unitsSource, 'batchDelUnits'],
+    [fieldsSource, 'del'],
+    [fieldsSource, 'batchDelFields'],
+    [visitsSource, 'del'],
+    [visitsSource, 'batchDelVisits'],
+    [designerSource, 'delForm'],
+    [designerSource, 'batchDelForms'],
+    [adminViewSource, 'deleteUser'],
   ]) {
     const body = getFunctionBody(source, functionName)
     assert.doesNotMatch(body, /confirmDeleteTwice\(ElMessageBox\.confirm/)
@@ -158,7 +175,7 @@ test('management delete handlers require final confirmation before delete API ca
   }
 })
 
-test('quick codelist option row deletes require double confirmation before local removal', () => {
+test('quick codelist option row deletes require a single confirmation before local removal', () => {
   for (const [source, functionName] of [
     [fieldsSource, 'quickDelOptRow'],
     [fieldsSource, 'quickEditDelOptRow'],
@@ -166,7 +183,8 @@ test('quick codelist option row deletes require double confirmation before local
     [designerSource, 'quickEditDelOptRow'],
   ]) {
     const body = getFunctionBody(source, functionName)
-    assert.match(body, /confirmDeleteTwice\(ElMessageBox\.confirm/)
-    assert.ok(body.indexOf('confirmDeleteTwice') < body.indexOf('.splice('))
+    assert.match(body, /confirmDelete\(ElMessageBox\.confirm/)
+    assert.doesNotMatch(body, /confirmDeleteTwice\(ElMessageBox\.confirm/)
+    assert.ok(body.indexOf('confirmDelete') < body.indexOf('.splice('))
   }
 })

@@ -638,6 +638,119 @@ DOCX are structurally identical.
 
 ---
 
+## Scenario: Delete Confirmation Dialogs
+
+### 1. Scope / Trigger
+
+- Trigger: any user-initiated delete, batch-delete, or destructive removal action in the frontend.
+- Applies to all list/tab components that expose delete buttons or batch-delete operations.
+- Goal: prevent accidental data loss while avoiding redundant confirmation dialogs.
+
+### 2. Signatures
+
+```javascript
+// Element Plus confirm dialog
+ElMessageBox.confirm(message, title, options)
+
+// Shared helper for generic single confirmation
+import { confirmDelete } from '@/composables/projectDeleteConfirmation.js'
+await confirmDelete(ElMessageBox.confirm, { targetText: '单位 "kg"' })
+
+// Shared helper for project-specific final confirmation
+import { confirmFinalProjectDelete } from '@/composables/projectDeleteConfirmation.js'
+await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: '测试项目' })
+```
+
+### 3. Contracts
+
+| Delete Path | Confirmation Level | Pattern |
+|-------------|-------------------|---------|
+| **Project delete** (normal/batch/hard) | Double | First: context warning → Second: `confirmFinalProjectDelete` |
+| **Already-confirmed deletes** (field/form/visit/user/batch) | Single | Existing `ElMessageBox.confirm` stays unchanged |
+| **Reference-check deletes** (codelist/unit) | Single + Gate | Reference check first → alert if blocked → `ElMessageBox.confirm` if clear |
+| **Local/removal paths** (option row, relation, draft field) | Single | Use `confirmDelete` helper |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|-----------|-------------------|
+| User clicks delete on project | Two dialogs: first shows project name warning, second is `confirmFinalProjectDelete` |
+| User clicks delete on codelist with references | Alert shows "该字典被以下字段引用，需先删除相关字段" — no delete API call |
+| User clicks delete on codelist without references | Single confirm dialog: "确认删除字典 \"xxx\"？" |
+| User clicks delete on codelist option | Single confirm dialog: "确认删除选项 \"xxx\"？" |
+| User clicks delete on unit with references | Alert shows "该单位被以下字段引用，需先删除相关字段" — no delete API call |
+| User clicks delete on unit without references | Single confirm dialog: "确认删除单位 \"xxx\"？" |
+| User clicks delete on draft field | Single confirm via `confirmDelete` |
+| User cancels any confirmation | `catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }` — no error toast |
+| User cancels first confirmation of double-confirm | Second dialog never appears, no API call |
+
+### 5. Good/Base/Bad Cases
+
+- **Good**: Project delete shows two distinct dialogs with escalating warning tone.
+- **Good**: Codelist delete checks references first, then shows single confirm only when safe to proceed.
+- **Base**: Field delete keeps its existing single `ElMessageBox.confirm`.
+- **Base**: Inline option row delete uses `confirmDelete` with target text from option label.
+- **Bad**: Adding extra confirmation to paths that already have confirmation creates redundant UX.
+- **Bad**: Skipping confirmation on persistent delete paths (like `delOpt`) creates click-to-delete risk.
+
+### 6. Tests Required
+
+| Test | Assertion |
+|------|-----------|
+| `projectDeleteConfirmation.test.js` | All delete handlers have expected confirmation call before API call |
+| `projectDeleteConfirmation.test.js` | Confirmation appears before delete API in function body order |
+| `projectDeleteConfirmation.test.js` | Project delete uses `confirmFinalProjectDelete` |
+| `projectDeleteConfirmation.test.js` | Non-project deletes do NOT use `confirmFinalDelete` |
+
+### 7. Wrong vs Correct
+
+#### Wrong: Add extra confirmation to already-confirmed path
+
+```javascript
+// del() in FieldsTab already has ElMessageBox.confirm
+async function del(f) {
+  await confirmDelete(ElMessageBox.confirm, { targetText: `字段 "${f.name}"` })  // REDUNDANT
+  await ElMessageBox.confirm(`确认删除字段 "${f.name}"？`, '确认', { type: 'warning' })  // SECOND DIALOG
+  await api.del(`/api/fields/${f.id}`)
+}
+```
+
+**Why wrong**: User sees two confirmation dialogs for the same action — friction without added safety.
+
+#### Correct: Keep single confirmation for already-confirmed paths
+
+```javascript
+async function del(f) {
+  await ElMessageBox.confirm(`确认删除字段 "${f.name}"？`, '确认', { type: 'warning' })
+  await api.del(`/api/fields/${f.id}`)
+}
+```
+
+#### Wrong: Reference-check delete skips confirmation
+
+```javascript
+async function delCl(c) {
+  const refs = await api.get(`/api/codelists/${c.id}/references`)
+  if (refs.length) return ElMessageBox.alert('该字典被引用...', '无法删除', { type: 'warning' })
+  await api.del(`/api/codelists/${c.id}`)  // NO CONFIRMATION when refs are empty!
+}
+```
+
+**Why wrong**: When no references exist, user can delete with a single click — no chance to reconsider.
+
+#### Correct: Add confirmation after reference check passes
+
+```javascript
+async function delCl(c) {
+  const refs = await api.get(`/api/codelists/${c.id}/references`)
+  if (refs.length) return ElMessageBox.alert('该字典被引用...', '无法删除', { type: 'warning' })
+  await ElMessageBox.confirm(`确认删除字典 "${c.name}"？`, '删除确认', { type: 'warning' })
+  await api.del(`/api/codelists/${c.id}`)
+}
+```
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Using `<script setup>`

@@ -41,7 +41,7 @@ import {
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
-import { confirmDeleteTwice } from '../composables/projectDeleteConfirmation';
+import { confirmDelete } from '../composables/projectDeleteConfirmation';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
@@ -484,7 +484,7 @@ async function addField(fd) {
 async function removeField(ff) {
   if (isDraftField(ff)) {
     try {
-      await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `草稿字段 "${getFormFieldDisplayLabel(ff)}"` });
+      await confirmDelete(ElMessageBox.confirm, { targetText: `草稿字段 "${getFormFieldDisplayLabel(ff)}"` });
       removeDraftFromState();
     } catch (e) {
       if (e !== 'cancel') ElMessage.error(e.message);
@@ -2020,7 +2020,7 @@ function quickAddOptRow() {
 }
 async function quickDelOptRow(idx) {
   try {
-    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` });
     quickCodelistOpts.value.splice(idx, 1);
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
@@ -2122,7 +2122,7 @@ function quickEditAddOptRow() {
 }
 async function quickEditDelOptRow(idx) {
   try {
-    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` });
     quickEditCodelistOpts.value.splice(idx, 1);
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
