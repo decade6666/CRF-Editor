@@ -538,7 +538,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 |---|---|---|---|
 | Choice marker-label spacing | `○有尾线`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
 | Choice option separator | horizontal choices join with two ASCII spaces | same | The two spaces separate options, not marker and label. |
-| Trailing underscore | `label______` (6 `_`) and `buildFillLineHtml(6)` for HTML | `label + "_" * 6` | No NBSP and no extra separator between label and underscores. |
+| Trailing underscore | `label + "_".repeat(fillLineChars)` and `buildFillLineHtml(fillLineChars)` when a width-derived count is provided; fallback stays 6 `_` without column context | same count via `fill_line_chars`; fallback stays `label + "_" * 6` | No NBSP and no extra separator between label and underscores; width-aware callers must pass the same column-derived count as text fill-lines. |
 | Default text fill-line | `________________` (16 `_`) | `"_" * 16` | Character count stays 16. |
 | Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
 | Datetime placeholder | date + two ASCII spaces + time | same | Date/time separator is exactly two spaces. |
@@ -553,7 +553,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 | Condition | Expected Behavior |
 |---|---|
-| Choice option has `trailing_underscore=1` | Preview path A, preview path B, inline preview, and export all render marker + label with no internal space and exactly six trailing underscores. |
+| Choice option has `trailing_underscore=1` | Width-aware preview paths and export render marker + label with no internal space, then the same column-derived underscore count as text fill-lines; no-width fallback remains six trailing underscores. |
 | Horizontal choice has two options | Output is `○A  ○B` / `□A  □B`; there is no `○ A` or `□ A`. |
 | Text field has no default | Preview and export both use 16 underscores as the plain-text placeholder. |
 | Numeric field uses `integer_digits=3`, `decimal_digits=1` | Preview and export emit `|__||__||__|.|__|`. |
@@ -566,11 +566,11 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 ### 5. Good/Base/Bad Cases
 
-- **Good**: `单选` option `有尾线` with `trailing_underscore=1` renders as `○有尾线______` in exported table text and as marker + label + a 6-character fill-line in preview HTML.
+- **Good**: `单选` option `有尾线` with `trailing_underscore=1` renders as `○有尾线` followed by the column-derived underscore count in width-aware paths; no-width fallback remains `○有尾线______`.
 - **Good**: an interleaved form `normal A → inline B/C → normal D` appears in the same order in designer preview, visit preview, template preview, and exported DOCX.
-- **Base**: a plain text field with no default renders `________________` on both sides.
+- **Base**: a plain text field with no default renders `________________` on both sides when no column-width context is provided.
 - **Base**: an empty default-control inline cell repeats its full field-specific placeholder on every generated inline row.
-- **Bad**: using `label + " " + "_" * 6` in export or `○ label` in preview creates strict cell-text mismatches.
+- **Bad**: using `label + " " + underscores` in export or `○ label` in preview creates strict cell-text mismatches.
 - **Bad**: shortening inline fallback controls to `______` makes preview cells differ from exported default placeholders such as `________________`.
 - **Bad**: replacing portrait section breaks with `doc.add_page_break()` keeps visual pages apart but loses section parity and can change downstream page geometry.
 
@@ -593,7 +593,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 ```python
 # export_service.py
-atom_text = label + " " + "_" * 6
+atom_text = label + " " + trailing_fill
 ```
 
 ```javascript
@@ -602,7 +602,7 @@ return options.map(option => `○ ${option.text}`).join('  ')
 ```
 
 This renders `○ 有尾线` in preview and joins label/underscores with NBSP in export,
-while the strict table-text contract expects `○有尾线______`.
+while the strict table-text contract expects `○有尾线` followed immediately by the agreed underscore count.
 
 #### Correct: keep only the option separator spaces
 

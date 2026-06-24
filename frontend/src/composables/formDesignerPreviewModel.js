@@ -19,13 +19,14 @@
  * @param {{ type: string, fields: Array, colCount?: number }} group 原始渲染分组
  * @param {object} helpers 注入的纯函数集合
  * @param {(fields: Array) => Array} helpers.buildSegments 统一表分段（含排序）
- * @param {(fields: Array) => Array<Array<string>>} helpers.getInlineRows 横向表多行渲染
+ * @param {(fields: Array, fillCharsByCol?: Array<number>|null, columnCmsByCol?: Array<number>|null) => Array<Array<string>>} helpers.getInlineRows 横向表多行渲染
  * @param {(n: number, m: number) => number[]} helpers.computeMergeSpans 合并列跨度
  * @param {(n: number) => { labelSpan: number, valueSpan: number }} helpers.computeLabelValueSpans 标签/值列跨度
+ * @param {(fields: Array) => Array<number>|null} [helpers.getInlineColumnCms] inline 列宽（厘米）
  * @returns {object} group 视图模型
  */
 export function buildGroupViewModel(group, helpers) {
-  const { buildSegments, getInlineRows, computeMergeSpans, computeLabelValueSpans } = helpers;
+  const { buildSegments, getInlineRows, computeMergeSpans, computeLabelValueSpans, getInlineColumnCms } = helpers;
   const colCount = group.colCount;
 
   if (group.type === 'unified') {
@@ -44,14 +45,18 @@ export function buildGroupViewModel(group, helpers) {
   }
 
   if (group.type === 'inline') {
-    // 仅独立 inline 组传入按列宽自适应的填写线根数；unified 内的 inline band 不传（维持旧固定 16）。
+    // 仅独立 inline 组传入按列宽自适应的填写线根数；该计数同时用于整格文本填写线与选项尾线。
+    // unified 内的 inline band 不传（维持无列宽上下文的旧回退）。
     const fillCharsByCol = helpers.getInlineFillChars
       ? helpers.getInlineFillChars(group.fields)
+      : null;
+    const columnCmsByCol = getInlineColumnCms
+      ? getInlineColumnCms(group.fields)
       : null;
     return {
       type: group.type,
       fields: group.fields,
-      inlineRows: getInlineRows(group.fields, fillCharsByCol),
+      inlineRows: getInlineRows(group.fields, fillCharsByCol, columnCmsByCol),
     };
   }
 

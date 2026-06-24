@@ -230,6 +230,9 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
 .word-page .choice-label--aligned { display: inline-block; min-width: min(var(--choice-label-min), calc(100% - 1.25em)); }
 /* 尾部填写线仍贴单元格底边，与文字基线底对齐 */
 .word-page .choice-atom .fill-line { vertical-align: bottom; align-self: flex-end; }
+/* 纵向选项尾线：填满 marker+label 之后的剩余宽度（视觉自适应至单元格右边线，不溢出）。
+   覆盖 buildFillLineHtml 写入的行内 min-width(em)；导出与预览 JSON 的真实下划线根数不变，strict parity 不受影响。 */
+.word-page .choice-group--vertical .choice-atom .fill-line { flex: 1 1 0; min-width: 0 !important; }
 
 /* 整格填写线：作为单元格唯一内容时，在预览中按列宽填满（视觉自适应，不溢出）。
    仅作用于单元格直属、唯一子级的填写线；选项尾部 .choice-atom 内的填写线不受影响。
@@ -244,6 +247,11 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   flex: 1 1 0;
   /* 覆盖 buildFillLineHtml 写入的行内 min-width(em)，否则行内样式优先级更高会撑破列宽 */
   min-width: 0 !important;
+}
+/* 整格填写线作为单元格唯一内容时贴单元格底部，呈“下划线”而非垂直居中的横线（与导出 vAlign=BOTTOM 一致） */
+.word-page .wp-ctrl:has(> span > .fill-line:only-child),
+.word-page .unified-value:has(> span > .fill-line:only-child) {
+  vertical-align: bottom;
 }
 
 .word-page .row-resize-host { position: relative; }

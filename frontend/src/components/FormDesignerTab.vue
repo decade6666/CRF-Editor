@@ -41,6 +41,7 @@ import {
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
+import { confirmDeleteTwice } from '../composables/projectDeleteConfirmation';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
@@ -482,7 +483,12 @@ async function addField(fd) {
 
 async function removeField(ff) {
   if (isDraftField(ff)) {
-    removeDraftFromState();
+    try {
+      await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `草稿字段 "${getFormFieldDisplayLabel(ff)}"` });
+      removeDraftFromState();
+    } catch (e) {
+      if (e !== 'cancel') ElMessage.error(e.message);
+    }
     return;
   }
   if (deletingFieldIds.value.has(ff.id)) return;
@@ -696,31 +702,34 @@ function getScopedDefaultValue(ff, singleLine = false) {
   return normalizeDefaultValue(ff.default_value, singleLine);
 }
 
-function renderCellHtml(ff, fillLineChars = null) {
+function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
   const previewField = getPreviewField(ff);
   if (!previewField) return '<span class="fill-line"></span>';
   const defaultValue = getScopedDefaultValue(ff, false);
   if (defaultValue) return toHtml(defaultValue);
-  return renderCtrlHtml(previewField, fillLineChars);
+  return renderCtrlHtml(previewField, fillLineChars, columnCm);
 }
 
-// normal 表 control 列填写线根数：按当前 control 列宽（cm）自适应，与后端
-// export_service._add_field_row 共享 computeFillLineCharCount 公式以保证逐字一致。
-// 该计数同时传给文本整格填写线与选项尾部填写线；无列宽上下文时仍回退旧长度。
-// 可用宽度按整张表单的 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36），
-// 镜像后端 _build_form_table 的 force_landscape / mixed_landscape 宽度选择。
-function normalFillChars(groupIndex, group, scope) {
+// normal 表 control 列宽（cm）：按整张表单的 render groups + 纸张方向解析（显式
+// landscape 或 mixed_landscape → 23.36），镜像后端 _build_form_table 的宽度选择。
+function normalColumnCm(groupIndex, group, scope) {
   const resizer = getResizer('normal', 2, groupIndex, group, scope);
   const controlFrac = resizer?.colRatios?.[1];
   if (controlFrac == null) return null;
   const formGroups = scope === 'designer' ? designerRenderGroups.value : renderGroups.value;
   const availableCm = resolveNormalTableAvailableCm(formGroups, selectedFormPaperOrientation.value);
-  return computeFillLineCharCount(controlFrac * availableCm);
+  return controlFrac * availableCm;
 }
 
-function getInlineRows(fields, fillCharsByCol = null) {
+function normalFillChars(groupIndex, group, scope) {
+  const columnCm = normalColumnCm(groupIndex, group, scope);
+  return columnCm == null ? null : computeFillLineCharCount(columnCm);
+}
+
+function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null;
+    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null;
     const defaultValue = getScopedDefaultValue(ff);
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n');
@@ -728,10 +737,13 @@ function getInlineRows(fields, fillCharsByCol = null) {
       return {
         lines: lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(ff.field_definition, fillChars)),
+        fallback: toHtml(renderCtrl(ff.field_definition, fillChars, columnCm)),
       };
     }
-    const ctrl = toHtml(renderCtrl(ff.field_definition, fillChars));
+    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），
+    // 使纵向选项尾线按 .choice-group--vertical .choice-atom .fill-line 的 flex 规则填满剩余宽、不溢出；
+    // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
+    const ctrl = renderCtrlHtml(getPreviewField(ff), fillChars, columnCm);
     return { lines: [ctrl], repeat: true, fallback: ctrl };
   });
   const maxRows = Math.max(1, ...cols.filter((c) => !c.repeat).map((c) => c.lines.length));
@@ -740,16 +752,28 @@ function getInlineRows(fields, fillCharsByCol = null) {
   );
 }
 
+function resolveInlineHostGroups(fields) {
+  if (renderGroups.value.some((group) => group.type === 'inline' && group.fields === fields)) return renderGroups.value;
+  if (designerRenderGroups.value.some((group) => group.type === 'inline' && group.fields === fields)) {
+    return designerRenderGroups.value;
+  }
+  return renderGroups.value;
+}
+
 // inline 整格文本填写线：每列按其规划宽度（cm）自适应根数，与后端 _add_inline_table
 // 共享 compute_fill_line_char_count 公式。仅独立 inline 组使用（unified band 不传）。
-function getInlineFillChars(fields) {
+function getInlineColumnCms(fields) {
   const fractions = planInlineColumnFractions(fields);
   const availableCm = resolveInlineTableAvailableCm(
-    renderGroups.value,
+    resolveInlineHostGroups(fields),
     { type: 'inline', fields },
     selectedFormPaperOrientation.value,
   );
-  return fractions.map((f) => computeFillLineCharCount(f * availableCm));
+  return fractions.map((f) => f * availableCm);
+}
+
+function getInlineFillChars(fields) {
+  return getInlineColumnCms(fields).map((columnCm) => computeFillLineCharCount(columnCm));
 }
 
 function computeMergeSpans(N, M) {
@@ -773,6 +797,7 @@ const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
   getInlineFillChars,
+  getInlineColumnCms,
   computeMergeSpans,
   computeLabelValueSpans,
 };
@@ -1993,8 +2018,13 @@ function quickAddOptRow() {
   quickOptCode.value = `C.${n + 2}`;
   quickOptDecode.value = '';
 }
-function quickDelOptRow(idx) {
-  quickCodelistOpts.value.splice(idx, 1);
+async function quickDelOptRow(idx) {
+  try {
+    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    quickCodelistOpts.value.splice(idx, 1);
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message);
+  }
 }
 function closeQuickAddCodelist() {
   showQuickAddCodelist.value = false;
@@ -2090,8 +2120,13 @@ function quickEditAddOptRow() {
   quickEditOptCode.value = `C.${n + 2}`;
   quickEditOptDecode.value = '';
 }
-function quickEditDelOptRow(idx) {
-  quickEditCodelistOpts.value.splice(idx, 1);
+async function quickEditDelOptRow(idx) {
+  try {
+    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    quickEditCodelistOpts.value.splice(idx, 1);
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message);
+  }
 }
 function toggleTrailingLine(row) {
   row.trailing_underscore = row.trailing_underscore ? 0 : 1;
@@ -2581,7 +2616,7 @@ function openAddForm() {
                               ></span>
                             </td>
                             <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                              <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'main'))"></span>
+                              <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'main'), normalColumnCm(gi, gv, 'main'))"></span>
                               <span
                                 class="row-resizer-handle"
                                 @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
@@ -3027,7 +3062,7 @@ function openAddForm() {
                                         class="wp-ctrl row-resize-anchor"
                                         :style="getFormFieldPreviewStyle(ff)"
                                       >
-                                        <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'designer'))"></span>
+                                        <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'designer'), normalColumnCm(gi, gv, 'designer'))"></span>
                                         <span
                                           class="row-resizer-handle"
                                           @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"

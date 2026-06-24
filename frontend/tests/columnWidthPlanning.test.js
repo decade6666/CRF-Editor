@@ -23,6 +23,7 @@ import {
   renderCtrlHtml,
   toHtml,
   computeFillLineCharCount,
+  computeChoiceTrailingFillCharCount,
 } from '../src/composables/useCRFRenderer.js'
 import {
   readColumnWidthRatios,
@@ -42,6 +43,19 @@ const visitsSource = readFileSync(
   path.resolve(currentDir, '../src/components/VisitsTab.vue'),
   'utf8',
 )
+
+const UNDERSCORE_CHAR_CM = 0.19
+const CELL_HPAD_CM = 0.4
+const FILL_LINE_SAFETY_CM = 0.2
+
+function assertChoiceAtomFitsColumn(columnCm, label, trailingChars) {
+  const markerLabelChars = computeChoiceAtomWeight(label, false)
+  const usableCm = columnCm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+  assert.ok(
+    (markerLabelChars + trailingChars) * UNDERSCORE_CHAR_CM <= usableCm + 1e-9,
+    `label=${label}, columnCm=${columnCm}, trailingChars=${trailingChars}`,
+  )
+}
 
 // ─── 9.1–9.7：planner 纯函数用例 ────────────────────────────────────────────
 
@@ -90,22 +104,54 @@ test('9.3 inline_choice_with_trailing_underscore: trailing 增加 FILL_LINE_WEIG
   assert.ok(demands[0].weight >= 6, `inline choice without options falls back to FILL_LINE_WEIGHT, got ${demands[0].weight}`)
 })
 
-test('9.3b preview_choice_trailing_underscore: HTML 路径使用 6 个下划线等效宽度', () => {
+test('9.3b preview_choice_trailing_underscore: HTML 路径按 marker+label 后剩余宽度缩短尾线', () => {
+  const columnCm = 5.0
+  const fillLineChars = computeFillLineCharCount(columnCm)
+  const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
   const html = renderCtrlHtml({
     field_type: '单选',
     options: [
       { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
       { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
     ],
-  })
+  }, fillLineChars, columnCm)
 
+  assert.equal(fillLineChars, 23)
+  assert.equal(trailingChars, 16)
   assert.match(html, /有尾线/)
-  assert.match(html, /min-width:3\.0em/)
-  assert.doesNotMatch(html, /min-width:6\.[0-9]em/)
+  assert.match(html, /min-width:8\.0em/)
+  assert.doesNotMatch(html, /min-width:11\.5em/)
   assert.doesNotMatch(html, /gap:0\.2em/)
 })
 
-test('9.3c preview_choice_trailing_underscore: plain-text 路径输出 6 个 literal underscore', () => {
+test('9.3b2 preview_choice_trailing_underscore: marker-label-tail 估算宽度不超过列宽', () => {
+  for (const columnCm of [5.0, 7.33, 10.0, 14.66]) {
+    const fullLineChars = computeFillLineCharCount(columnCm)
+    const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
+
+    assert.ok(trailingChars < fullLineChars, `columnCm=${columnCm}`)
+    assertChoiceAtomFitsColumn(columnCm, '有尾线', trailingChars)
+  }
+
+  assert.equal(computeChoiceTrailingFillCharCount(1.0, '有尾线'), 0)
+})
+
+test('9.3c preview_choice_trailing_underscore: plain-text 路径输出剩余宽度根数的 literal underscore', () => {
+  const columnCm = 5.0
+  const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
+  const text = renderCtrl({
+    field_type: '单选',
+    options: [
+      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
+      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+    ],
+  }, computeFillLineCharCount(columnCm), columnCm)
+
+  assert.equal(trailingChars, 16)
+  assert.equal(text, `○有尾线${'_'.repeat(trailingChars)}  ○无尾线`)
+})
+
+test('9.3c1 preview_choice_trailing_underscore: 无列宽上下文时回退 6 个 underscore', () => {
   const text = renderCtrl({
     field_type: '单选',
     options: [
@@ -721,6 +767,19 @@ test('16.1.5i visits inline column fractions reuse the resolved ratios once', ()
     visitsSource,
     /resolveInlineColRatios\(group\.fields\)\.length[\s\S]{0,120}\?\s*resolveInlineColRatios\(group\.fields\)/,
     'getPreviewColumnFractions should not call resolveInlineColRatios twice for the same fields',
+  )
+})
+
+test('16.1.5j visits normal choice preview preserves fillLineChars forwarding', () => {
+  assert.doesNotMatch(
+    visitsSource,
+    /\['单选', '多选', '单选（纵向）', '多选（纵向）'\][\s\S]{0,120}return renderCtrlHtml\(field\)/,
+    'VisitsTab choice fields must not bypass fillLineChars in normal table preview',
+  )
+  assert.match(
+    visitsSource,
+    /return renderCtrlHtml\(field, fillLineChars, columnCm\)/,
+    'VisitsTab renderCellHtml should forward fillLineChars and columnCm to all field types',
   )
 })
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import logging
+import math
 import os
 import re
 import tempfile
@@ -265,6 +266,73 @@ def test_export_text_field_fill_line_scales_with_column_width(
     # 填写线根数随 control 列宽自适应，比旧固定 16 更长且不换行
     assert fill_cell_text == "_" * expected
     assert expected > 16
+    assert "\n" not in fill_cell_text
+
+
+
+def test_export_choice_trailing_fill_line_scales_with_column_width(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    from src.models.codelist import CodeList, CodeListOption
+    from src.services.width_planning import (
+        CELL_HPAD_CM,
+        FILL_LINE_SAFETY_CM,
+        UNDERSCORE_CHAR_CM,
+        compute_choice_atom_weight,
+        compute_choice_trailing_fill_char_count,
+        compute_horizontal_choice_trailing_fill_chars,
+        compute_fill_line_char_count,
+        plan_normal_table_width,
+    )
+
+    project = create_project(session)
+    form = create_form(session, project.id, name="选择表", order_index=1)
+    visit = create_visit(session, project.id, name="筛选期", sequence=1)
+    create_visit_form(session, visit.id, form.id, sequence=1)
+
+    codelist = CodeList(project_id=project.id, name="诊断结果", code="CL_DIAG")
+    session.add(codelist)
+    session.flush()
+    session.add_all([
+        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", trailing_underscore=1, order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", trailing_underscore=0, order_index=2),
+    ])
+    session.flush()
+
+    choice = create_field_definition(
+        session,
+        project.id,
+        variable_name="DIAG",
+        label="诊断",
+        field_type="单选",
+    )
+    choice.codelist_id = codelist.id
+    session.flush()
+    choice_field = create_form_field(session, form.id, choice.id, order_index=1)
+
+    doc = export_document(session, project.id, tmp_path)
+    fill_cell_text = doc.tables[2].cell(0, 1).text
+
+    widths = plan_normal_table_width([choice_field], available_cm=14.66)
+    full_line_count = compute_fill_line_char_count(widths[1])
+    # 横向单选：尾线按扣除所有选项 marker+label+分隔符后的剩余宽度计算
+    expected = compute_horizontal_choice_trailing_fill_chars(
+        widths[1], [("有尾线", True), ("无尾线", False)]
+    )
+
+    usable_cm = widths[1] - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+    # 整行（两个选项 marker+label + 分隔符 + 尾线）估算宽度不超过列宽预算 → 不换行
+    line_chars = (
+        math.ceil(compute_choice_atom_weight("有尾线", False))
+        + math.ceil(compute_choice_atom_weight("无尾线", False))
+        + 2
+        + expected
+    )
+
+    assert fill_cell_text == f"○有尾线{'_' * expected}  ○无尾线"
+    assert 6 < expected < full_line_count
+    assert line_chars * UNDERSCORE_CHAR_CM <= usable_cm
     assert "\n" not in fill_cell_text
 
 

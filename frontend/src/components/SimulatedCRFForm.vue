@@ -156,8 +156,9 @@ const resolvedAvailableCm = computed(() => {
 // 填写线下划线根数按 control 列实际宽度自适应（不换行），与后端导出共享估算公式。
 function controlCellHtml(field) {
   const controlFrac = columnFractions.value[1]
-  const fillLineChars = computeFillLineCharCount(controlFrac * resolvedAvailableCm.value)
-  return renderCtrlHtml(field, fillLineChars)
+  const columnCm = controlFrac * resolvedAvailableCm.value
+  const fillLineChars = computeFillLineCharCount(columnCm)
+  return renderCtrlHtml(field, fillLineChars, columnCm)
 }
 
 // 计算 normal 表两列比例：优先读取设计器当前 field-id key，旧 group-index key 仅作兼容兜底。

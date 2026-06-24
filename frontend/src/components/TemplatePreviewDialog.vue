@@ -55,7 +55,7 @@
                   <template v-for="ff in gv.fields" :key="ff.id">
                     <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></td></tr>
+                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff, normalFillChars(gv, gi), normalColumnCm(gv, gi))"></td></tr>
                   </template>
                 </table>
                 <!-- inline 类型：横向表格 -->
@@ -175,6 +175,7 @@ const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
   getInlineFillChars,
+  getInlineColumnCms,
   computeMergeSpans,
   computeLabelValueSpans,
 }
@@ -195,9 +196,10 @@ function computeLabelValueSpans(N) {
 }
 
 // Task 3.3: 内联块多行渲染
-function getInlineRows(fields, fillCharsByCol = null) {
+function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
+    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null
     const defaultValue = ff.default_value
     if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
       const lines = normalizeDefaultValue(defaultValue, true).split('\n')
@@ -205,10 +207,10 @@ function getInlineRows(fields, fillCharsByCol = null) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: renderCtrlHtml(ff, fillChars),
+        fallback: renderCtrlHtml(ff, fillChars, columnCm),
       }
     }
-    const ctrl = renderCtrlHtml(ff, fillChars)
+    const ctrl = renderCtrlHtml(ff, fillChars, columnCm)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
@@ -216,14 +218,18 @@ function getInlineRows(fields, fillCharsByCol = null) {
 }
 
 // inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
-function getInlineFillChars(fields) {
+function getInlineColumnCms(fields) {
   const fractions = planInlineColumnFractions(fields)
   const availableCm = resolveInlineTableAvailableCm(
     previewRenderGroups.value,
     { type: 'inline', fields },
     paperOrientation.value,
   )
-  return fractions.map(f => computeFillLineCharCount(f * availableCm))
+  return fractions.map(f => f * availableCm)
+}
+
+function getInlineFillChars(fields) {
+  return getInlineColumnCms(fields).map(columnCm => computeFillLineCharCount(columnCm))
 }
 
 // 计算预览表格的列宽比例：优先设计器保存值，否则回退内容驱动 planner 结果
@@ -268,24 +274,29 @@ function getColumnFractions(g, groupIndex) {
 }
 
 // Task 3.3: 单元格渲染
-function renderCellHtml(ff, fillLineChars = null) {
+function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const defaultValue = ff.default_value
   if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)) {
     return toHtml(normalizeDefaultValue(defaultValue, false))
   }
-  return renderCtrlHtml(ff, fillLineChars)
+  return renderCtrlHtml(ff, fillLineChars, columnCm)
 }
 
-// normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享公式。
-// 使用模板表单真实纸张方向（form-fields 接口返回 paper_orientation），可覆盖显式 landscape
-// 及 mixed_landscape，与导出 _build_form_table 的宽度选择逐字一致。
-function normalFillChars(group, groupIndex) {
+// normal 表 control 列宽（cm）：使用模板表单真实纸张方向（form-fields 接口返回
+// paper_orientation），可覆盖显式 landscape 及 mixed_landscape，与导出 _build_form_table
+// 的宽度选择逐字一致。
+function normalColumnCm(group, groupIndex) {
   if (group?.type !== 'normal') return null
   const controlFrac = getColumnFractions(group, groupIndex)?.[1]
   if (controlFrac == null) return null
   const availableCm = resolveNormalTableAvailableCm(previewRenderGroups.value, paperOrientation.value)
-  return computeFillLineCharCount(controlFrac * availableCm)
+  return controlFrac * availableCm
+}
+
+function normalFillChars(group, groupIndex) {
+  const columnCm = normalColumnCm(group, groupIndex)
+  return columnCm == null ? null : computeFillLineCharCount(columnCm)
 }
 
 watch(() => props.modelValue, (val) => {

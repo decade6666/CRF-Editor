@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import logging
 
+import math
+
 import os
 
 import sqlite3
@@ -143,6 +145,8 @@ from src.services.width_planning import (
 
     plan_normal_table_width,
 
+    compute_choice_trailing_fill_char_count,
+    compute_horizontal_choice_trailing_fill_chars,
     compute_fill_line_char_count,
 
 )
@@ -2744,11 +2748,11 @@ class ExportService:
 
             if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
 
-                self._render_vertical_choices(right_cell, field_def)
+                self._render_vertical_choices(right_cell, field_def, column_cm=widths[1])
 
             elif field_def.field_type in ["单选", "多选"]:
 
-                self._render_choice_field(right_para, field_def)
+                self._render_choice_field(right_para, field_def, column_cm=widths[1])
 
             else:
 
@@ -2773,7 +2777,12 @@ class ExportService:
             right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
         )
 
-        right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        # 文本/标签填写线贴单元格底部，使下划线呈“下划线”而非垂直居中时看起来像横线；
+        # 方框占位（日期/数值等）与选项保持垂直居中。
+        is_plain_fill_line = not default_lines and field_def.field_type in ("文本", "标签")
+        right_cell.vertical_alignment = (
+            WD_ALIGN_VERTICAL.BOTTOM if is_plain_fill_line else WD_ALIGN_VERTICAL.CENTER
+        )
 
 
 
@@ -2950,11 +2959,13 @@ class ExportService:
 
                     if is_vertical_choice:
 
-                        self._render_vertical_choices(cell, field_def)
+                        column_cm = col_widths[col_idx] if col_idx < len(col_widths) else None
+                        self._render_vertical_choices(cell, field_def, column_cm=column_cm)
 
                     elif field_def.field_type in ["单选", "多选"]:
 
-                        self._render_choice_field(para, field_def)
+                        column_cm = col_widths[col_idx] if col_idx < len(col_widths) else None
+                        self._render_choice_field(para, field_def, column_cm=column_cm)
 
                     else:
 
@@ -3011,8 +3022,8 @@ class ExportService:
         """渲染字段控件文本。
 
         Args:
-            fill_line_chars: 文本/标签等填写线场景的下划线根数。None 时回退到旧的
-                固定 16 个（用于尚未接入列宽的调用方，保持预览/导出逐字一致）。
+            fill_line_chars: 文本/标签及选项尾部填写线场景的下划线根数。None 时回退到旧的
+                固定 16 个（整格填写线）或 6 个（选项尾线），保持未接入列宽调用方兼容。
         """
 
         field_type = field_def.field_type or ""
@@ -3033,19 +3044,19 @@ class ExportService:
 
         if field_type == "单选":
 
-            return self._render_single_choice(field_def)
+            return self._render_single_choice(field_def, fill_line_chars=fill_line_chars)
 
         elif field_type == "多选":
 
-            return self._render_multi_choice(field_def)
+            return self._render_multi_choice(field_def, fill_line_chars=fill_line_chars)
 
         elif field_type in ["单选（纵向）", "下拉框"]:
 
-            return self._render_single_choice_vertical(field_def)
+            return self._render_single_choice_vertical(field_def, fill_line_chars=fill_line_chars)
 
         elif field_type == "多选（纵向）":
 
-            return self._render_multi_choice_vertical(field_def)
+            return self._render_multi_choice_vertical(field_def, fill_line_chars=fill_line_chars)
 
         elif field_type == "日期":
 
@@ -3107,11 +3118,11 @@ class ExportService:
 
 
 
-    def _render_single_choice(self, field_def) -> str:
+    def _render_single_choice(self, field_def, fill_line_chars: int | None = None) -> str:
 
         """渲染单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = self._get_option_labels(field_def, fill_line_chars=fill_line_chars)
 
         if not options:
 
@@ -3121,11 +3132,11 @@ class ExportService:
 
 
 
-    def _render_single_choice_vertical(self, field_def) -> str:
+    def _render_single_choice_vertical(self, field_def, fill_line_chars: int | None = None) -> str:
 
         """渲染纵向单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = self._get_option_labels(field_def, fill_line_chars=fill_line_chars)
 
         if not options:
 
@@ -3135,11 +3146,11 @@ class ExportService:
 
 
 
-    def _render_multi_choice(self, field_def) -> str:
+    def _render_multi_choice(self, field_def, fill_line_chars: int | None = None) -> str:
 
         """渲染多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = self._get_option_labels(field_def, fill_line_chars=fill_line_chars)
 
         if not options:
 
@@ -3149,11 +3160,11 @@ class ExportService:
 
 
 
-    def _render_multi_choice_vertical(self, field_def) -> str:
+    def _render_multi_choice_vertical(self, field_def, fill_line_chars: int | None = None) -> str:
 
         """渲染纵向多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = self._get_option_labels(field_def, fill_line_chars=fill_line_chars)
 
         if not options:
 
@@ -3163,7 +3174,28 @@ class ExportService:
 
 
 
-    def _render_vertical_choices(self, cell, field_def):
+    def _choice_trailing_fill_chars(
+        self,
+        label: str,
+        fill_line_chars: int | None = None,
+        column_cm: float | None = None,
+    ) -> int:
+        if column_cm is not None:
+            return compute_choice_trailing_fill_char_count(column_cm, label)
+        if fill_line_chars is None:
+            return 6
+        marker_label_count = math.ceil(compute_choice_atom_weight(label or "", False))
+        return max(0, fill_line_chars - marker_label_count)
+
+
+
+    def _render_vertical_choices(
+        self,
+        cell,
+        field_def,
+        fill_line_chars: int | None = None,
+        column_cm: float | None = None,
+    ):
 
         """纵向排列选项：每个选项独占单元格内一个独立段落。
 
@@ -3186,6 +3218,16 @@ class ExportService:
             return
 
 
+
+        # 单元格上下加内边距，避免纵向选项紧贴上/下框线（与段落间距正交，行仍随内容自然增高）
+        tcPr = cell._tc.get_or_add_tcPr()
+        tcMar = OxmlElement("w:tcMar")
+        for side in ("top", "bottom"):
+            node = OxmlElement(f"w:{side}")
+            node.set(qn("w:w"), str(int(self.CELL_VPAD_PT * 20)))
+            node.set(qn("w:type"), "dxa")
+            tcMar.append(node)
+        tcPr.append(tcMar)
 
         symbol = "○" if "单选" in field_type else "□"
 
@@ -3243,7 +3285,12 @@ class ExportService:
 
             if has_trailing:
 
-                atom_text = label + "_" * 6
+                trailing_fill = "_" * self._choice_trailing_fill_chars(
+                    label,
+                    fill_line_chars=fill_line_chars,
+                    column_cm=column_cm,
+                )
+                atom_text = label + trailing_fill
 
                 atom_run = para.add_run(atom_text)
 
@@ -3259,7 +3306,13 @@ class ExportService:
 
 
 
-    def _render_choice_field(self, paragraph, field_def):
+    def _render_choice_field(
+        self,
+        paragraph,
+        field_def,
+        fill_line_chars: int | None = None,
+        column_cm: float | None = None,
+    ):
 
         """渲染单选或多选字段，确保○□符号使用宋体
 
@@ -3287,7 +3340,13 @@ class ExportService:
 
         symbol = "○" if "单选" in field_type else "□"
 
-
+        # 横向所有选项共享一行：尾线按扣除全部选项 marker+label+分隔符后的剩余宽计算，
+        # 平均分给带尾线的选项，避免单个尾线按整列计算导致整行换行。
+        horizontal_trailing = (
+            compute_horizontal_choice_trailing_fill_chars(column_cm, option_data)
+            if column_cm is not None
+            else None
+        )
 
         for idx, (label, has_trailing) in enumerate(option_data):
 
@@ -3327,7 +3386,17 @@ class ExportService:
 
             if has_trailing:
 
-                atom_text = label + "_" * 6
+                fill_count = (
+                    horizontal_trailing
+                    if horizontal_trailing is not None
+                    else self._choice_trailing_fill_chars(
+                        label,
+                        fill_line_chars=fill_line_chars,
+                        column_cm=column_cm,
+                    )
+                )
+                trailing_fill = "_" * fill_count
+                atom_text = label + trailing_fill
 
                 atom_run = paragraph.add_run(atom_text)
 
@@ -3343,7 +3412,12 @@ class ExportService:
 
 
 
-    def _get_option_labels(self, field_def) -> list:
+    def _get_option_labels(
+        self,
+        field_def,
+        fill_line_chars: int | None = None,
+        column_cm: float | None = None,
+    ) -> list:
 
         """获取选项标签列表，trailing_underscore=1 时在标签末尾拼接下划线
 
@@ -3353,13 +3427,18 @@ class ExportService:
 
         """
 
-        return [
-
-            f"{label}______" if has_trailing and not label.endswith("_") else label
-
-            for label, has_trailing in self._get_option_data(field_def)
-
-        ]
+        labels = []
+        for label, has_trailing in self._get_option_data(field_def):
+            if has_trailing and not label.endswith("_"):
+                trailing_fill = "_" * self._choice_trailing_fill_chars(
+                    label,
+                    fill_line_chars=fill_line_chars,
+                    column_cm=column_cm,
+                )
+                labels.append(f"{label}{trailing_fill}")
+            else:
+                labels.append(label)
+        return labels
 
 
 
@@ -3905,6 +3984,11 @@ class ExportService:
 
 
 
+        # 仅重新着色（未指定 size/bold）时直接返回，不重置字体，
+        # 避免覆盖 _render_choice_field/_render_vertical_choices 已强制为宋体的 ○/□ 标记字体。
+        if size is None and bold is None and color is not None:
+            return
+
         run.font.name = self.FONT_ASCII
 
         rPr = run._element.get_or_add_rPr()
@@ -3916,6 +4000,11 @@ class ExportService:
         rFonts.set(qn("w:hAnsi"), self.FONT_ASCII)
 
         rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
+
+        # ○/□ 选项标记按 ascii 字体解析，统一强制宋体，覆盖默认值/字符串路径下的 Times New Roman
+        if "○" in run.text or "□" in run.text:
+            rFonts.set(qn("w:ascii"), self.FONT_EAST_ASIA)
+            rFonts.set(qn("w:hAnsi"), self.FONT_EAST_ASIA)
 
 
 
