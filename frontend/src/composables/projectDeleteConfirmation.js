@@ -26,11 +26,6 @@ export async function confirmFinalDelete(confirm, options = {}) {
   })
 }
 
-export async function confirmDeleteTwice(confirm, options = {}) {
-  await confirmDelete(confirm, options)
-  await confirmFinalDelete(confirm, options)
-}
-
 export function getProjectDeleteTargetText({ projectName = '', projectCount = 0 } = {}) {
   if (projectCount > 0) return `选中的 ${projectCount} 个项目`
   if (projectName) return `项目 "${projectName}"`

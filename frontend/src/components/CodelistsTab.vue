@@ -93,6 +93,7 @@ async function delCl(c) {
       const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
       return ElMessageBox.alert(`该字典被以下字段引用，需先删除相关字段：\n${msg}`, '无法删除', { type: 'warning' })
     }
+    await ElMessageBox.confirm(`确认删除字典 "${c.name}"？`, '删除确认', { type: 'warning' })
     await api.del(`/api/projects/${props.projectId}/codelists/${c.id}`)
     if (selected.value?.id === c.id) selected.value = null
     reload()
@@ -111,6 +112,7 @@ async function batchDelCl() {
       if (refs.length) allRefs.push(`【${c.name}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`), 3, '、'))
     }
     if (allRefs.length) return ElMessageBox.alert(`以下字典被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除选中的 ${ids.length} 个字典？`, '批量删除', { type: 'warning' })
     await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids })
     selCls.value = []; selected.value = null; reload()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
@@ -150,6 +152,7 @@ async function addOpt() {
 
 async function delOpt(o) {
   try {
+    await ElMessageBox.confirm(`确认删除选项 "${o.decode || o.code}"？`, '删除确认', { type: 'warning' })
     const id = selected.value.id
     await api.del(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options/${o.id}`)
     await reload(); selected.value = codelists.value.find(c => c.id === id) || null
