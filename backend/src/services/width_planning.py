@@ -49,6 +49,35 @@ def compute_fill_line_char_count(column_cm: float) -> int:
     count = math.floor(usable / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON) if usable > 0 else 0
     return max(FILL_LINE_MIN_CHARS, min(FILL_LINE_MAX_CHARS, count))
 
+
+def compute_choice_trailing_fill_char_count(column_cm: float, label: str) -> int:
+    """根据选项标签后的剩余列宽估算尾部下划线根数。"""
+    usable = column_cm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+    marker_label_count = math.ceil(compute_choice_atom_weight(label or "", False))
+    remaining_cm = usable - marker_label_count * UNDERSCORE_CHAR_CM
+    if remaining_cm <= 0:
+        return 0
+    return max(0, min(FILL_LINE_MAX_CHARS, math.floor(remaining_cm / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON)))
+
+
+def compute_horizontal_choice_trailing_fill_chars(column_cm: float, option_data) -> int:
+    """横向 choice：所有选项共享一行，尾部下划线根数 = 扣除全部 marker+label+分隔符后的剩余
+    列宽，平均分给带尾线的选项；避免单个尾线按整列计算导致整行换行。
+
+    option_data: [(label, has_trailing), ...]，与 _get_option_data 一致。
+    """
+    usable = column_cm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+    total_chars = math.floor(usable / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON) if usable > 0 else 0
+    marker_label = sum(math.ceil(compute_choice_atom_weight(lbl or "", False)) for lbl, _ in option_data)
+    separators = 2 * max(0, len(option_data) - 1)  # 选项间 "  " 两个 ASCII 空格
+    trailing = sum(1 for _, has_trailing in option_data if has_trailing)
+    if trailing == 0:
+        return 0
+    remaining = total_chars - marker_label - separators
+    if remaining <= 0:
+        return 0
+    return max(0, min(FILL_LINE_MAX_CHARS, remaining // trailing))
+
 # inline 表头权重下限：4 个中文字符等效宽度。
 # 防止 ≤4 个中文字符的短表头（如 "未查"/"项目"/"单位"）在与长邻居共存时
 # 被压缩到不可单行显示的窄宽——典型受害场景见
