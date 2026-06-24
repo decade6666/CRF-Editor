@@ -113,6 +113,21 @@ export function computeChoiceAtomWeight(label, hasTrailing) {
   return weight
 }
 
+export function computeChoiceTrailingFillCharCount(columnCm, label) {
+  const numericColumnCm = Number(columnCm)
+  if (!Number.isFinite(numericColumnCm)) return 0
+  const usable = numericColumnCm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
+  // marker + label 权重按整数字符权重契约（中文 2 / ASCII 1 / marker 1）向上取整，
+  // 与后端 compute_choice_trailing_fill_char_count 的 math.ceil 保持跨栈一致。
+  const markerLabelChars = Math.ceil(computeChoiceAtomWeight(label || '', false))
+  const remainingCm = usable - markerLabelChars * UNDERSCORE_CHAR_CM
+  if (remainingCm <= 0) return 0
+  return Math.max(
+    0,
+    Math.min(FILL_LINE_MAX_CHARS, Math.floor(remainingCm / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON)),
+  )
+}
+
 /**
  * 构建 inline 表格各列的内容需求权重。
  * 兼容 designer 字段（{ field_definition: {...}, label_override, ... }）与
@@ -359,8 +374,9 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
 }
 
-function buildFillLineHtml(length = 20) {
-  const safeLength = Math.max(4, Number(length) || 20)
+function buildFillLineHtml(length = 20, minLength = 4) {
+  const numericLength = Number(length)
+  const safeLength = Math.max(minLength, Number.isFinite(numericLength) ? numericLength : 20)
   const minWidth = (safeLength * 0.5).toFixed(1)
   return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
 }
@@ -416,7 +432,7 @@ export function normalizeDefaultValue(defaultValue, singleLine = false) {
   return normalized.split(/\r?\n/, 1)[0]
 }
 
-function renderChoiceHtml(fieldType, rawOptions) {
+function renderChoiceHtml(fieldType, rawOptions, fillLineChars = null, columnCm = null) {
   const options = normalizeChoiceOptions(rawOptions)
   if (!options.length) {
     return toHtml(renderCtrl({ field_type: fieldType, options: [] }))
@@ -424,6 +440,8 @@ function renderChoiceHtml(fieldType, rawOptions) {
 
   const symbol = getChoiceSymbol(fieldType)
   const vertical = isVerticalChoice(fieldType)
+  const numericColumnCm = columnCm == null ? null : Number(columnCm)
+  const trailingFillChars = fillLineChars == null ? null : Number(fillLineChars)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
   // 纵向：每个选项作为块级 choice-atom 独占一行，由 .choice-group--vertical 的
   // margin-top 提供选项间距（与 Word 导出的段前间距同值，见 main.css / export_service）。
@@ -437,8 +455,15 @@ function renderChoiceHtml(fieldType, rawOptions) {
     const optionTextHtml = option.trailingUnderscore
       ? `<span class="choice-label">${labelHtml}</span>`
       : `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
-    const suffixHtml = option.trailingUnderscore
-      ? buildFillLineHtml(6)
+    const choiceFillChars = option.trailingUnderscore
+      ? (
+        numericColumnCm != null
+          ? computeChoiceTrailingFillCharCount(numericColumnCm, option.text)
+          : (trailingFillChars == null ? 6 : Math.max(0, trailingFillChars - Math.ceil(computeChoiceAtomWeight(option.text, false))))
+      )
+      : 0
+    const suffixHtml = choiceFillChars > 0
+      ? buildFillLineHtml(choiceFillChars, 0)
       : ''
     return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
   }).join(separator)}</span>`
@@ -474,10 +499,10 @@ export function toHtml(text) {
  * @param {Object} field - 扁平形态字段对象
  * @returns {string} HTML 字符串
  */
-export function renderCtrlHtml(field, fillLineChars = null) {
+export function renderCtrlHtml(field, fillLineChars = null, columnCm = null) {
   if (!field) return ''
   if (isChoiceField(field.field_type)) {
-    return renderChoiceHtml(field.field_type, field.options)
+    return renderChoiceHtml(field.field_type, field.options, fillLineChars, columnCm)
   }
   return toHtml(renderCtrl(field, fillLineChars))
 }
@@ -493,12 +518,18 @@ export function renderCtrlHtml(field, fillLineChars = null) {
  * @param {string} field.date_format - 日期格式
  * @returns {string} 渲染后的控件字符串
  */
-export function renderCtrl(field, fillLineChars = null) {
+export function renderCtrl(field, fillLineChars = null, columnCm = null) {
   if (!field) return LEGACY_FILL_LINE
   const fillLine = fillLineChars ? '_'.repeat(fillLineChars) : LEGACY_FILL_LINE
-  const opts = normalizeChoiceOptions(field.options).map(option => (
-    option.trailingUnderscore ? `${option.text}______` : option.text
-  ))
+  const trailingFillChars = fillLineChars == null ? null : Number(fillLineChars)
+  const numericColumnCm = columnCm == null ? null : Number(columnCm)
+  const opts = normalizeChoiceOptions(field.options).map(option => {
+    if (!option.trailingUnderscore) return option.text
+    const choiceFillChars = numericColumnCm != null
+      ? computeChoiceTrailingFillCharCount(numericColumnCm, option.text)
+      : (trailingFillChars == null ? 6 : Math.max(0, trailingFillChars - Math.ceil(computeChoiceAtomWeight(option.text, false))))
+    return `${option.text}${'_'.repeat(choiceFillChars)}`
+  })
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 
   function boxes(n, repeated = false) {

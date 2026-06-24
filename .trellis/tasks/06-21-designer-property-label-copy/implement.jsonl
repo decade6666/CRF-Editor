@@ -1,6 +1,0 @@
-{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
-{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Element Plus component and scoped style conventions"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend testing and lint expectations"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "FormDesignerTab and composable organization"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Search-before-change and reuse checks"}
