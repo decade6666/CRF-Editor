@@ -2,8 +2,6 @@
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
-import draggable from 'vuedraggable'
-import { useOrderableList } from '../composables/useOrderableList'
 import { useSortableTable } from '../composables/useSortableTable'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 
@@ -27,27 +25,27 @@ function optionSearchTexts(option) {
 const visibleOptions = computed(() =>
   rankFuzzyMatches(selected.value?.options || [], searchOpt.value, optionSearchTexts)
 )
-const draggableOptions = computed({
-  get: () => (searchOpt.value.trim() ? visibleOptions.value : selected.value?.options || []),
-  set: (nextOptions) => {
-    if (selected.value && !searchOpt.value.trim()) selected.value.options = nextOptions
-  },
-})
 const showAddCl = ref(false)
 const showAddOpt = ref(false)
 const clForm = reactive({ name: '', code: '', description: '' })
 const optForm = reactive({ code: '', decode: '', trailing_underscore: 0 })
 
 const codelistsTableRef = ref(null)
+const optionsTableRef = ref(null)
 const isCodelistsFiltered = computed(() => searchCl.value.trim().length > 0)
+const isOptionsFiltered = computed(() => searchOpt.value.trim().length > 0)
 const codelistsReorderUrl = computed(() => `/api/projects/${props.projectId}/codelists/reorder`)
+const optionsReorderUrl = computed(() => selected.value ? `/api/projects/${props.projectId}/codelists/${selected.value.id}/options/reorder` : '')
 
 async function load() {
   codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`)
   if (selected.value) {
     selected.value = codelists.value.find(item => item.id === selected.value.id) || null
   }
-  nextTick(() => initCodelistsSortable())
+  nextTick(() => {
+    initCodelistsSortable()
+    initOptionsSortable()
+  })
 }
 // 写操作后强制刷新：先失效缓存，再重新加载，最后 bump 全局 refreshKey 让其他 Tab 同步字典名/选项
 async function reload() {
@@ -61,8 +59,21 @@ const { initSortable: initCodelistsSortable } = useSortableTable(
   codelistsReorderUrl,
   { reloadFn: reload, isFiltered: isCodelistsFiltered }
 )
+const optionSourceList = computed(() => selected.value?.options || [])
+async function reloadSelectedOptions() {
+  const id = selected.value?.id
+  await reload()
+  if (id) selected.value = codelists.value.find(c => c.id === id) || null
+}
+const { initSortable: initOptionsSortable } = useSortableTable(
+  optionsTableRef,
+  optionSourceList,
+  optionsReorderUrl,
+  { reloadFn: reloadSelectedOptions, isFiltered: isOptionsFiltered, renderList: visibleOptions }
+)
 onMounted(load)
-watch(() => props.projectId, () => { selected.value = null; load() })
+watch(() => props.projectId, () => { selected.value = null; selOpts.value = []; load() })
+watch(() => selected.value?.id, () => { selOpts.value = []; nextTick(() => initOptionsSortable()) })
 watch(refreshKey, load)
 
 // 字典名称列宽持久化
@@ -214,22 +225,6 @@ function openAddCl() {
   showAddCl.value = true
 }
 
-const { dragging: draggingOpt, handleDragEnd: handleOptDragEnd } = useOrderableList(
-  computed(() => selected.value ? `/api/projects/${props.projectId}/codelists/${selected.value.id}/options/reorder` : '')
-)
-
-async function onOptDragEnd() {
-  if (!selected.value) return
-  await handleOptDragEnd(
-    selected.value.options,
-    async () => {
-      const id = selected.value.id
-      await reload()
-      selected.value = codelists.value.find(c => c.id === id) || null
-    },
-    (err) => ElMessage.error(err.message)
-  )
-}
 </script>
 
 <template>
@@ -251,7 +246,7 @@ async function onOptDragEnd() {
         @current-change="r => selected = r" @header-dragend="onClTableHeaderDragend"
         @selection-change="r => selCls = r" style="width:100%" height="100%" row-key="id">
         <el-table-column width="32" v-if="!isCodelistsFiltered">
-          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)" role="button" aria-label="拖拽排序" tabindex="0">☰</span></template>
         </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
@@ -286,36 +281,40 @@ async function onOptDragEnd() {
         />
         <b>{{ selected.name }}</b>
       </div>
-      <!-- 选项列表表头 -->
-      <div class="manual-list-header option-list-header">
-        <span class="option-drag-spacer"></span>
-        <span class="option-select-spacer"></span>
-        <span class="option-order-header">序号</span>
-        <div class="manual-list-header-group option-main-header">
-          <span v-if="editMode" class="option-code-header">OID</span>
-          <span class="option-label-header">标签</span>
-          <span class="option-trailing-header">后加下划线</span>
-        </div>
-        <span class="option-action-header">操作</span>
-      </div>
-      <draggable v-model="draggableOptions" item-key="id" handle=".drag-handle" :disabled="Boolean(searchOpt.trim())" @start="draggingOpt = true" @end="onOptDragEnd">
-        <template #item="{ element, index }">
-          <div
-            style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)"
-          >
-            <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
-            <el-checkbox :model-value="selOpts.some(o => o.id === element.id)" @change="v => v ? selOpts.push(element) : selOpts.splice(selOpts.findIndex(o => o.id === element.id), 1)" style="flex-shrink:0" />
-            <span class="ordinal-cell">{{ element.order_index ?? (index + 1) }}</span>
-            <div style="flex:1;display:flex;gap:12px;align-items:center">
-              <span v-if="editMode" style="color:var(--color-text-secondary);font-size:13px;width:100px;flex-shrink:0">{{ element.code }}</span>
-              <span style="flex:1;font-size:13px">{{ element.decode }}</span>
-              <el-checkbox :model-value="element.trailing_underscore === 1" disabled style="width:60px;justify-content:center" />
-            </div>
-            <el-button size="small" link @click="openEditOpt(element)">编辑</el-button>
-            <el-button type="danger" size="small" link @click="delOpt(element)">删除</el-button>
-          </div>
-        </template>
-      </draggable>
+      <!-- 选项列表 -->
+      <el-table
+        ref="optionsTableRef"
+        :data="visibleOptions"
+        size="small"
+        border
+        style="width:100%"
+        height="100%"
+        row-key="id"
+        @selection-change="r => selOpts = r"
+      >
+        <el-table-column width="32" v-if="!isOptionsFiltered">
+          <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)" role="button" aria-label="拖拽排序" tabindex="0">☰</span></template>
+        </el-table-column>
+        <el-table-column type="selection" width="40" />
+        <el-table-column label="序号" width="100">
+          <template #default="{ row, $index }">
+            <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="editMode" prop="code" label="OID" width="100" show-overflow-tooltip />
+        <el-table-column prop="decode" label="标签" show-overflow-tooltip />
+        <el-table-column label="后加下划线" width="110">
+          <template #default="{ row }">
+            <el-checkbox :model-value="row.trailing_underscore === 1" disabled />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" link @click="openEditOpt(row)">编辑</el-button>
+            <el-button type="danger" size="small" link @click="delOpt(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <!-- 新增字典弹窗 -->
