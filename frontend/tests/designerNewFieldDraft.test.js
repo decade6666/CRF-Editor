@@ -64,8 +64,9 @@ test('选项字段保存前要求选择字典', () => {
 
 test('removeField 对草稿仅移除本地、不调 DELETE', () => {
   const body = fnBody('removeField')
-  const draftBranch = /if \(isDraftField\(ff\)\) \{\s*removeDraftFromState\(\);\s*return;\s*\}/
+  const draftBranch = /if \(isDraftField\(ff\)\) \{[\s\S]*?removeDraftFromState\(\);[\s\S]*?return;[\s\S]*?\}/
   assert.match(body, draftBranch)
+  assert.match(body, /if \(isDraftField\(ff\)\) \{[\s\S]*?confirmDeleteTwice\(ElMessageBox\.confirm/)
   // 草稿分支在真实删除（DELETE）之前短路
   const branchIdx = body.search(draftBranch)
   const delIdx = body.indexOf('api.del(`/api/form-fields/')

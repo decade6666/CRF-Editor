@@ -153,7 +153,7 @@ async function delOpt(o) {
     const id = selected.value.id
     await api.del(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options/${o.id}`)
     await reload(); selected.value = codelists.value.find(c => c.id === id) || null
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
 const showEditCl = ref(false)
