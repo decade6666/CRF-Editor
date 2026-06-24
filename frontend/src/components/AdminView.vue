@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../composables/useApi'
+import { confirmFinalProjectDelete } from '../composables/projectDeleteConfirmation'
 
 const adminApiBase = '/api/admin'
 
@@ -212,6 +213,9 @@ async function executeBatchCopy() {
 async function executeBatchDelete() {
   if (!selectedProjectIds.value.length) return
   try {
+    await confirmFinalProjectDelete(ElMessageBox.confirm, {
+      projectCount: selectedProjectIds.value.length,
+    })
     await api.post(`${adminApiBase}/projects/batch-delete`, {
       project_ids: selectedProjectIds.value,
     })
@@ -219,7 +223,7 @@ async function executeBatchDelete() {
     resetBatchActionState()
     await Promise.all([loadUsers(), loadRecycleBin()])
   } catch (e) {
-    ElMessage.error('删除失败: ' + e.message)
+    if (e !== 'cancel') ElMessage.error('删除失败: ' + e.message)
   }
 }
 
@@ -245,6 +249,11 @@ async function restoreProject(project) {
 async function hardDeleteProject(project) {
   try {
     await ElMessageBox.confirm(`确定彻底删除项目 "${project.name}" 吗？此操作不可逆！`, '彻底删除', { type: 'warning' })
+    await confirmFinalProjectDelete(ElMessageBox.confirm, {
+      actionText: '彻底删除',
+      confirmButtonText: '确认彻底删除',
+      projectName: project.name,
+    })
     await api.del(`${adminApiBase}/projects/${project.id}/hard-delete`)
     ElMessage.success('已彻底删除')
     await Promise.all([loadRecycleBin(), loadUsers()])

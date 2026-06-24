@@ -36,6 +36,7 @@ import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
 import SessionTimer from './components/SessionTimer.vue';
 import { useOrderableList } from './composables/useOrderableList';
+import { confirmFinalProjectDelete } from './composables/projectDeleteConfirmation';
 
 const VisitsTab = defineAsyncComponent(() => import('./components/VisitsTab.vue'));
 const FormDesignerTab = defineAsyncComponent(() => import('./components/FormDesignerTab.vue'));
@@ -241,12 +242,17 @@ async function createProject() {
 }
 
 async function deleteProject(p) {
-  await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' });
-  await api.del(`/api/projects/${p.id}`);
-  if (selectedProject.value?.id === p.id) {
-    selectedProject.value = null;
+  try {
+    await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' });
+    await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: p.name });
+    await api.del(`/api/projects/${p.id}`);
+    if (selectedProject.value?.id === p.id) {
+      selectedProject.value = null;
+    }
+    loadProjects();
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败: ' + e.message);
   }
-  loadProjects();
 }
 
 async function copyProject(p) {

@@ -37,6 +37,7 @@ import {
 } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
+import { confirmDeleteTwice } from '../composables/projectDeleteConfirmation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -197,11 +198,13 @@ async function addFormToVisit() {
 // 从访视移除表单
 async function removeFormFromVisit(formId) {
   if (!selectedVisit.value) return
+  const form = visitForms.value.find(item => item.id === formId)
   try {
+    await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `访视中的表单 "${form?.name || formId}"` })
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
     syncVisitForms()
-  } catch (e) { ElMessage.error(e.message) }
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
 function toRendererField(fd) {
@@ -233,7 +236,7 @@ function getScopedDefaultValue(ff, singleLine = false) {
 }
 
 // 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
-function renderCellHtml(ff, fillLineChars = null) {
+function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const fd = ff.field_definition
   const field = toRendererField(fd)
@@ -241,12 +244,13 @@ function renderCellHtml(ff, fillLineChars = null) {
   if (defaultValue) {
     return escapePreviewText(defaultValue)
   }
-  return renderCtrlHtml(field, fillLineChars)
+  return renderCtrlHtml(field, fillLineChars, columnCm)
 }
 
-function getInlineRows(fields, fillCharsByCol = null) {
+function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
+    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null
     const defaultValue = getScopedDefaultValue(ff)
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n')
@@ -254,10 +258,12 @@ function getInlineRows(fields, fillCharsByCol = null) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars)),
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars, columnCm)),
       }
     }
-    const ctrl = toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars))
+    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），纵向尾线按 flex 填满剩余宽、不溢出；
+    // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
+    const ctrl = renderCtrlHtml(toRendererField(ff.field_definition), fillChars, columnCm)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
@@ -267,14 +273,18 @@ function getInlineRows(fields, fillCharsByCol = null) {
 }
 
 // inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
-function getInlineFillChars(fields) {
+function getInlineColumnCms(fields) {
   const fractions = planInlineColumnFractions(fields)
   const availableCm = resolveInlineTableAvailableCm(
     previewRenderGroups.value,
     { type: 'inline', fields },
     formPreviewPaperOrientation.value,
   )
-  return fractions.map(f => computeFillLineCharCount(f * availableCm))
+  return fractions.map(f => f * availableCm)
+}
+
+function getInlineFillChars(fields) {
+  return getInlineColumnCms(fields).map(columnCm => computeFillLineCharCount(columnCm))
 }
 
 function readPersistedColRatios(kind, fields) {
@@ -350,10 +360,9 @@ function getPreviewColumnFractions(group) {
     : Array.from({ length: colCount }, () => 1 / colCount)
 }
 
-// normal 表 control 列填写线根数：按 control 列宽（cm）自适应，与后端导出共享
-// computeFillLineCharCount 公式以保证逐字一致；同时用于文本整格填写线与选项尾部填写线。
-// 可用宽度按整张表单 render groups + 纸张方向解析（显式 landscape 或 mixed_landscape → 23.36）。
-function normalFillChars(group, groupIndex) {
+// normal 表 control 列宽（cm）：按整张表单 render groups + 纸张方向解析
+// （显式 landscape 或 mixed_landscape → 23.36），与后端导出共享宽度选择。
+function normalColumnCm(group, groupIndex) {
   if (group?.type !== 'normal') return null
   const controlFrac = getPreviewColumnFractions(group, groupIndex)?.[1]
   if (controlFrac == null) return null
@@ -361,7 +370,12 @@ function normalFillChars(group, groupIndex) {
     previewRenderGroups.value,
     formPreviewPaperOrientation.value,
   )
-  return computeFillLineCharCount(controlFrac * availableCm)
+  return controlFrac * availableCm
+}
+
+function normalFillChars(group, groupIndex) {
+  const columnCm = normalColumnCm(group, groupIndex)
+  return columnCm == null ? null : computeFillLineCharCount(columnCm)
 }
 
 function getPreviewRowResizer(group) {
@@ -389,6 +403,7 @@ const previewModelHelpers = {
   buildSegments: buildFormDesignerUnifiedSegments,
   getInlineRows,
   getInlineFillChars,
+  getInlineColumnCms,
   computeMergeSpans,
   computeLabelValueSpans,
 }
@@ -464,11 +479,15 @@ async function toggleCell(visitId, formId) {
   if (!m) return
   const has = m[visitId] && m[visitId][formId] != null
   try {
-    if (has) await api.del(`/api/visits/${visitId}/forms/${formId}`)
-    else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
+    if (has) {
+      const visit = visits.value.find(item => item.id === visitId)
+      const form = allForms.value.find(item => item.id === formId)
+      await confirmDeleteTwice(ElMessageBox.confirm, { targetText: `访视 "${visit?.name || visitId}" 中的表单 "${form?.name || formId}"` })
+      await api.del(`/api/visits/${visitId}/forms/${formId}`)
+    } else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
     matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
     syncVisitForms()
-  } catch (e) { ElMessage.error(e.message || '操作失败') }
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '操作失败') }
 }
 </script>
 
@@ -762,7 +781,7 @@ async function toggleCell(visitId, formId) {
                       ></span>
                     </td>
                     <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                      <span v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></span>
+                      <span v-html="renderCellHtml(ff, normalFillChars(gv, gi), normalColumnCm(gv, gi))"></span>
                       <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
