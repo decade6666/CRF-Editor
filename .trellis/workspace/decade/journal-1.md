@@ -1511,3 +1511,54 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义
+
+**Date**: 2026-06-24
+**Task**: feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Feature | Description |
+|---------|-------------|
+| 前端可见性过滤 | 新增 `fieldDefinitionVisibility.js` 纯辅助模块，标签和日志行类型不显示在字段库中 |
+| 后端孤儿清理 | 新增 `field_cleanup_service.py`，删除标签字段时自动清理无引用的 FieldDefinition |
+| Undo/Redo 修复 | FormDesignerTab 支持标签字段 404 重建，解决后端自动清理导致撤销失败的问题 |
+| 测试覆盖 | 后端 5 个清理测试 + 前端可见性与回放测试 |
+
+**Updated Files**:
+- `frontend/src/composables/fieldDefinitionVisibility.js` (NEW)
+- `backend/src/services/field_cleanup_service.py` (NEW)
+- `frontend/src/components/FormDesignerTab.vue` (MOD)
+- `frontend/src/components/FieldsTab.vue` (MOD)
+- `backend/src/routers/fields.py` (MOD)
+- `.trellis/spec/frontend/hook-guidelines.md` (MOD)
+- `backend/tests/test_field_cleanup_service.py` (NEW)
+- `frontend/tests/fieldLibraryVisibility.test.js` (NEW)
+
+**PR**: https://github.com/decade6666/CRF-Editor/pull/33
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b51ea62` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

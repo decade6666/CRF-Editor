@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
+- **Total Sessions**: 30
 - **Last Active**: 2026-06-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1513 | Active |
+| `journal-1.md` | ~1564 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-06-24 | feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义 | `b51ea62` | `draft` |
 | 29 | 2026-06-24 | feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义 | - | `draft` |
 | 28 | 2026-06-24 | UI 改进与删除确认统一 | `125156e`, `c761f08`, `735651a` | `draft` |
 | 27 | 2026-06-21 | fix: 字段库缓存刷新 — 切回设计页时同步字段定义 | `533d565` | `draft` |
