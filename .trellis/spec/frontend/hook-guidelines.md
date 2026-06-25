@@ -114,6 +114,81 @@ function buildFieldDefinitionCreatePayload(fieldDefinition): object
 | `frontend/tests/searchRankingWiring.test.js` | Both consumers import and apply `isVisibleInFieldLibrary` to filter field lists. |
 | Source-level check | `FieldsTab.vue` `fieldTypes` excludes `标签`; `FormDesignerTab.vue` `designerFieldTypes` includes `标签`. |
 
+### Scenario: Ordinal Quick Edit for Ordered Lists
+
+#### 1. Scope / Trigger
+
+- Trigger: any ordered frontend list that already persists drag reordering through a reorder endpoint and also needs direct target-position input on the ordinal cell.
+- Current shared helper: `frontend/src/composables/useOrdinalQuickEdit.js`.
+- Current consumers: `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `VisitsTab.vue`, and `FormDesignerTab.vue`.
+
+#### 2. Signatures
+
+```javascript
+function clampOrdinal(value, min, max): number
+function moveItem(items, fromIndex, toIndex): Array
+function resequenceItems(items, orderKey = 'order_index'): Array
+function useOrdinalQuickEdit(sourceList, reorderUrl, options): {
+  editingId,
+  editingValue,
+  inputRef,
+  startEdit,
+  commitEdit,
+  cancelEdit,
+}
+```
+
+- `sourceList`: the full writable list that will be resequenced and posted back to the backend.
+- `reorderUrl`: the existing reorder endpoint; the helper must keep backend contracts unchanged by posting the reordered id array only.
+- `options.renderList`: the visible list order shown to the user; required whenever filtering or hidden rows make the rendered ordinal differ from the source index.
+- `options.orderKey`: defaults to `order_index`; pass `sequence` for visits and visit-form relations.
+- `options.applyList(nextList)`: writes the optimistic reordered array back to component state; needed when the source is nested or computed-backed.
+- `options.reloadFn(oldIndex, newIndex)`: optional refresh hook after save or rollback.
+
+#### 3. Contracts
+
+| Rule | Why |
+|---|---|
+| Double-click ordinal only when not filtered | Keeps behavior aligned with drag sorting, which is disabled during search/filter mode. |
+| Use `renderList` for the displayed ordinal | Hidden rows or filtered-out items can make `row.order_index` or `row.sequence` differ from what the user sees. |
+| Use `sourceList` for the actual move and POST payload | The backend reorder APIs still expect the full persistent order, not only the visible subset. |
+| Clamp only for validation, not for implicit reorder | Out-of-range input must cancel without posting a clamped reorder the user did not request. |
+| No-op when target ordinal equals the current rendered ordinal | Prevents unnecessary optimistic writes and reorder requests. |
+| Roll back optimistic state on save failure | Reuses the existing `排序保存失败，已恢复` UX and keeps frontend state aligned with backend truth. |
+| Clear edit state before awaiting `reloadFn` | A refresh failure must not leave the inline input stuck open or turn a handled reorder into an uncaught error. |
+| Component-owned nested lists must provide a custom `applyList` | Computed or nested state like codelist options and visit-form relations cannot be assigned directly. |
+| Selected row references must be re-linked after array replacement | Components that replace arrays (`selectedVisit`, `selected`, `selectedForm`) must keep their selected object references pointing at the new collection. |
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Filter/search is active | `startEdit()` returns `false`; no input opens. |
+| Rendered ordinal differs from persisted source order because of hidden rows | Input opens with the rendered ordinal, and committing the same visible ordinal becomes a no-op. |
+| Requested ordinal is `NaN`, `< 1`, or `> renderedItems.length` | Edit cancels without POST. |
+| Requested ordinal equals the current rendered ordinal | Edit cancels without POST or reload. |
+| Save succeeds and `reloadFn` succeeds | Edit closes, optimistic order remains, and backend truth is refreshed. |
+| Save fails | Snapshot is restored, warning toast appears, optional reload realigns local state, and edit state stays cleared. |
+| Save succeeds but `reloadFn` fails | Reorder still reports success, edit state stays cleared, and a dedicated reload error message can be shown. |
+| Consumer uses `orderKey: 'sequence'` | Re-sequenced items become `1..N` on `sequence`, not `order_index`. |
+
+#### 5. Good/Base/Bad Cases
+
+- **Good**: move visit form 3 to ordinal 1; optimistic UI rewrites `sequence` to `[1, 2, 3]`, posts ids once, then refreshes the matrix-backed list.
+- **Good**: in the field library, a visible row with persisted `order_index = 3` but rendered ordinal 2 opens with input value `2`.
+- **Base**: typing the current ordinal and pressing Enter closes the editor without network traffic.
+- **Bad**: seeding the input from `row.order_index` when hidden rows exist; unchanged input can unexpectedly reorder the row.
+- **Bad**: awaiting `reloadFn` before clearing `editingId`; a refresh rejection leaves the inline editor stuck.
+
+#### 6. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/useOrdinalQuickEdit.test.js` | Covers clamp/no-op/out-of-range behavior, hidden-row rendered ordinals, rollback on save failure, and success semantics when reload fails. |
+| `frontend/tests/ordinalQuickEditWiring.test.js` | Each consumer imports the helper and wires double-click / Enter / Esc / blur handlers to the correct list. |
+| `frontend/tests/orderingStructure.test.js` | Fields and designer forms keep the expected wiring shape and exclude the canvas field-instance double-click path. |
+| `node --test tests/*.test.js` | Full frontend source-level regression suite remains green. |
+
 ---
 
 ## Custom Hook Patterns

@@ -47,6 +47,7 @@ import {
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
+import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
@@ -2265,6 +2266,26 @@ const { initSortable: initFormsSortable } = useSortableTable(formsTableRef, form
   isFiltered: isFormsFiltered,
   renderList: filteredForms,
 });
+function applyForms(nextForms) {
+  const selectedFormId = selectedForm.value?.id ?? null;
+  forms.value = nextForms;
+  if (selectedFormId != null) {
+    selectedForm.value = nextForms.find((item) => item.id === selectedFormId) || null;
+  }
+}
+const {
+  editingId: editingFormId,
+  editingValue: editingFormOrdinal,
+  inputRef: formOrdinalInputRef,
+  startEdit: startFormOrdinalEdit,
+  commitEdit: commitFormOrdinalEdit,
+  cancelEdit: cancelFormOrdinalEdit,
+} = useOrdinalQuickEdit(forms, formsReorderUrl, {
+  applyList: applyForms,
+  isFiltered: isFormsFiltered,
+  reloadFn: reloadForms,
+  renderList: filteredForms,
+});
 
 async function ensureDesignerAuxiliaryDataLoaded() {
   if (designerAuxiliaryLoaded.value || designerAuxiliaryLoading.value) return;
@@ -2418,9 +2439,28 @@ function openAddForm() {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }"
-            ><div @click.stop>
+            ><el-input-number
+              v-if="editingFormId === row.id"
+              ref="formOrdinalInputRef"
+              v-model="editingFormOrdinal"
+              :min="1"
+              :max="filteredForms.length"
+              size="small"
+              style="width: 80px"
+              @click.stop
+              @keyup.enter.stop="commitFormOrdinalEdit"
+              @keydown.esc.stop.prevent="cancelFormOrdinalEdit"
+              @blur="cancelFormOrdinalEdit"
+            />
+            <button
+              v-else
+              type="button"
+              style="border: none; background: transparent; padding: 0; cursor: pointer"
+              @click.stop
+              @dblclick.stop="startFormOrdinalEdit(row)"
+            >
               <span class="ordinal-cell">{{ row.order_index }}</span>
-            </div></template
+            </button></template
           >
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />

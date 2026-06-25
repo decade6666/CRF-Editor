@@ -79,10 +79,14 @@ test('FieldsTab keeps field list sorted by order_index after reload', () => {
   );
 });
 
-test('FieldsTab manual order column renders read-only ordinal cell after R1', () => {
-  // R1：el-input-number 被替换为 .ordinal-cell span，手动修改入口从 UI 移除
-  assert.match(fieldsSource, /<span class="ordinal-cell">\{\{ row\.order_index \}\}<\/span>/);
-  assert.doesNotMatch(fieldsSource, /<el-input-number[^>]*:model-value="row\.order_index"/);
+test('FieldsTab ordinal column wires double-click quick edit through useOrdinalQuickEdit', () => {
+  assert.match(fieldsSource, /import \{ useOrdinalQuickEdit \} from '\.\.\/composables\/useOrdinalQuickEdit'/);
+  assert.match(fieldsSource, /startEdit: startFieldOrdinalEdit/);
+  assert.match(fieldsSource, /@dblclick\.stop="startFieldOrdinalEdit\(row\)"/);
+  assert.match(fieldsSource, /v-if="editingFieldId === row\.id"/);
+  assert.match(fieldsSource, /@keyup\.enter\.stop="commitFieldOrdinalEdit"/);
+  assert.match(fieldsSource, /@keydown\.esc\.stop\.prevent="cancelFieldOrdinalEdit"/);
+  assert.match(fieldsSource, /@blur="cancelFieldOrdinalEdit"/);
 });
 
 test('FieldsTab has no imperative updateOrder handler after R1', () => {
@@ -120,10 +124,14 @@ test('FormDesignerTab keeps form list sorted by order_index after reload', () =>
   assert.match(formsSource, /row-key="id"/);
 });
 
-test('FormDesignerTab form order column renders read-only ordinal cell after R1', () => {
-  // R1：el-input-number 被替换为 .ordinal-cell span，无 :disabled 条件
-  assert.match(formsSource, /<span class="ordinal-cell">\{\{ row\.order_index \}\}<\/span>/);
-  assert.doesNotMatch(formsSource, /<el-input-number[^>]*:model-value="row\.order_index"/);
+test('FormDesignerTab form order column wires double-click quick edit through useOrdinalQuickEdit', () => {
+  assert.match(formsSource, /import \{ useOrdinalQuickEdit \} from '\.\.\/composables\/useOrdinalQuickEdit'/);
+  assert.match(formsSource, /startEdit: startFormOrdinalEdit/);
+  assert.match(formsSource, /@dblclick\.stop="startFormOrdinalEdit\(row\)"/);
+  assert.match(formsSource, /v-if="editingFormId === row\.id"/);
+  assert.match(formsSource, /@keyup\.enter\.stop="commitFormOrdinalEdit"/);
+  assert.match(formsSource, /@keydown\.esc\.stop\.prevent="cancelFormOrdinalEdit"/);
+  assert.match(formsSource, /@blur="cancelFormOrdinalEdit"/);
 });
 
 test('FormDesignerTab has no imperative updateFormOrder handler after R1', () => {

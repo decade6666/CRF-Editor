@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -109,6 +110,22 @@ const { initSortable } = useSortableTable(unitsTableRef, units, reorderUrl, {
   isFiltered,
   renderList: visibleUnits,
 })
+function applyUnits(nextUnits) {
+  units.value = nextUnits
+}
+const {
+  editingId: editingUnitId,
+  editingValue: editingUnitOrdinal,
+  inputRef: unitOrdinalInputRef,
+  startEdit: startUnitOrdinalEdit,
+  commitEdit: commitUnitOrdinalEdit,
+  cancelEdit: cancelUnitOrdinalEdit,
+} = useOrdinalQuickEdit(units, reorderUrl, {
+  applyList: applyUnits,
+  isFiltered,
+  reloadFn: reloadUnits,
+  renderList: visibleUnits,
+})
 </script>
 
 <template>
@@ -133,7 +150,28 @@ const { initSortable } = useSortableTable(unitsTableRef, units, reorderUrl, {
       <el-table-column type="selection" width="40" />
       <el-table-column label="序号" width="100">
         <template #default="{ row }">
-          <span class="ordinal-cell">{{ row.order_index }}</span>
+          <el-input-number
+            v-if="editingUnitId === row.id"
+            ref="unitOrdinalInputRef"
+            v-model="editingUnitOrdinal"
+            :min="1"
+            :max="visibleUnits.length"
+            size="small"
+            style="width:80px"
+            @click.stop
+            @keyup.enter.stop="commitUnitOrdinalEdit"
+            @keydown.esc.stop.prevent="cancelUnitOrdinalEdit"
+            @blur="cancelUnitOrdinalEdit"
+          />
+          <button
+            v-else
+            type="button"
+            style="border:none;background:transparent;padding:0;cursor:pointer"
+            @click.stop
+            @dblclick.stop="startUnitOrdinalEdit(row)"
+          >
+            <span class="ordinal-cell">{{ row.order_index }}</span>
+          </button>
         </template>
       </el-table-column>
       <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
