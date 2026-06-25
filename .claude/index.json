@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-23T00:00:00-07:00",
+  "timestamp": "2026-06-24T00:00:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -164,9 +164,11 @@
       ],
       "composables": [
         "frontend/src/composables/exportDownloadState.js",
+        "frontend/src/composables/fieldDefinitionVisibility.js",
         "frontend/src/composables/formDesignerPreviewModel.js",
         "frontend/src/composables/formDesignerPropertyEditor.js",
         "frontend/src/composables/formFieldPresentation.js",
+        "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/searchRanking.js",
         "frontend/src/composables/useApi.js",
         "frontend/src/composables/useCRFRenderer.js",
@@ -174,6 +176,7 @@
         "frontend/src/composables/useDesignerHistory.js",
         "frontend/src/composables/useLazyTabs.js",
         "frontend/src/composables/useOrderableList.js",
+        "frontend/src/composables/useOrdinalQuickEdit.js",
         "frontend/src/composables/usePerfBaseline.js",
         "frontend/src/composables/useRowResize.js",
         "frontend/src/composables/useSessionTimer.js",
@@ -198,6 +201,7 @@
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",
         "frontend/tests/browserPerfBaselineScript.test.js",
+        "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
         "frontend/tests/designerHistory.test.js",
@@ -206,13 +210,16 @@
         "frontend/tests/editModeHiddenIdentifiers.test.js",
         "frontend/tests/exportDownloadState.test.js",
         "frontend/tests/fieldsTabCodelistQuickEdit.test.js",
+        "frontend/tests/fieldsTabEditorFooterButtons.test.js",
         "frontend/tests/formDesignerPreviewModel.test.js",
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
         "frontend/tests/formFieldPresentation.test.js",
         "frontend/tests/importRenameFeedback.test.js",
         "frontend/tests/orderingStructure.test.js",
+        "frontend/tests/ordinalQuickEditWiring.test.js",
         "frontend/tests/perfBaselineHelpers.test.js",
         "frontend/tests/portDefaults.test.js",
+        "frontend/tests/projectDeleteConfirmation.test.js",
         "frontend/tests/projectInfoMetadata.test.js",
         "frontend/tests/quickEditBehavior.test.js",
         "frontend/tests/rowHeightResize.test.js",
@@ -222,14 +229,15 @@
         "frontend/tests/sidebarCollapseBehavior.test.js",
         "frontend/tests/sidebarCopyButtonScope.test.js",
         "frontend/tests/tableHeaderStyle.test.js",
+        "frontend/tests/testProperty.js",
         "frontend/tests/themePalette.test.js",
+        "frontend/tests/useOrdinalQuickEdit.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",
-        "frontend/tests/wordPageGeometry.test.js",
-        "frontend/tests/testProperty.js"
+        "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 69,
-        "scanned_files": 69,
+        "estimated_files": 78,
+        "scanned_files": 78,
         "percent": 100
       },
       "gaps": [
@@ -256,8 +264,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 170,
-    "scanned_files": 170,
+    "estimated_total_files": 179,
+    "scanned_files": 179,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

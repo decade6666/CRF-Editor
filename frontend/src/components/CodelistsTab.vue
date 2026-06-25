@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -71,6 +72,48 @@ const { initSortable: initOptionsSortable } = useSortableTable(
   optionsReorderUrl,
   { reloadFn: reloadSelectedOptions, isFiltered: isOptionsFiltered, renderList: visibleOptions }
 )
+function applyCodelists(nextCodelists) {
+  const selectedId = selected.value?.id ?? null
+  codelists.value = nextCodelists
+  if (selectedId != null) {
+    selected.value = nextCodelists.find((item) => item.id === selectedId) || null
+  }
+}
+function applyOptions(nextOptions) {
+  if (!selected.value) return
+  const selectedId = selected.value.id
+  const nextCodelists = codelists.value.map((item) => (
+    item.id === selectedId ? { ...item, options: nextOptions } : item
+  ))
+  codelists.value = nextCodelists
+  selected.value = nextCodelists.find((item) => item.id === selectedId) || null
+}
+const {
+  editingId: editingCodelistId,
+  editingValue: editingCodelistOrdinal,
+  inputRef: codelistOrdinalInputRef,
+  startEdit: startCodelistOrdinalEdit,
+  commitEdit: commitCodelistOrdinalEdit,
+  cancelEdit: cancelCodelistOrdinalEdit,
+} = useOrdinalQuickEdit(codelists, codelistsReorderUrl, {
+  applyList: applyCodelists,
+  isFiltered: isCodelistsFiltered,
+  reloadFn: reload,
+  renderList: filteredCodelists,
+})
+const {
+  editingId: editingOptionId,
+  editingValue: editingOptionOrdinal,
+  inputRef: optionOrdinalInputRef,
+  startEdit: startOptionOrdinalEdit,
+  commitEdit: commitOptionOrdinalEdit,
+  cancelEdit: cancelOptionOrdinalEdit,
+} = useOrdinalQuickEdit(optionSourceList, optionsReorderUrl, {
+  applyList: applyOptions,
+  isFiltered: isOptionsFiltered,
+  reloadFn: reloadSelectedOptions,
+  renderList: visibleOptions,
+})
 onMounted(load)
 watch(() => props.projectId, () => { selected.value = null; selOpts.value = []; load() })
 watch(() => selected.value?.id, () => { selOpts.value = []; nextTick(() => initOptionsSortable()) })
@@ -251,7 +294,28 @@ function openAddCl() {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row, $index }">
-            <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
+            <el-input-number
+              v-if="editingCodelistId === row.id"
+              ref="codelistOrdinalInputRef"
+              v-model="editingCodelistOrdinal"
+              :min="1"
+              :max="filteredCodelists.length"
+              size="small"
+              style="width:80px"
+              @click.stop
+              @keyup.enter.stop="commitCodelistOrdinalEdit"
+              @keydown.esc.stop.prevent="cancelCodelistOrdinalEdit"
+              @blur="cancelCodelistOrdinalEdit"
+            />
+            <button
+              v-else
+              type="button"
+              style="border:none;background:transparent;padding:0;cursor:pointer"
+              @click.stop
+              @dblclick.stop="startCodelistOrdinalEdit(row)"
+            >
+              <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
+            </button>
           </template>
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="100" show-overflow-tooltip />
@@ -298,7 +362,28 @@ function openAddCl() {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row, $index }">
-            <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
+            <el-input-number
+              v-if="editingOptionId === row.id"
+              ref="optionOrdinalInputRef"
+              v-model="editingOptionOrdinal"
+              :min="1"
+              :max="visibleOptions.length"
+              size="small"
+              style="width:80px"
+              @click.stop
+              @keyup.enter.stop="commitOptionOrdinalEdit"
+              @keydown.esc.stop.prevent="cancelOptionOrdinalEdit"
+              @blur="cancelOptionOrdinalEdit"
+            />
+            <button
+              v-else
+              type="button"
+              style="border:none;background:transparent;padding:0;cursor:pointer"
+              @click.stop
+              @dblclick.stop="startOptionOrdinalEdit(row)"
+            >
+              <span class="ordinal-cell">{{ row.order_index ?? ($index + 1) }}</span>
+            </button>
           </template>
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" width="100" show-overflow-tooltip />

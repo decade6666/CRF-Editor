@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 import { useOrderableList } from '../composables/useOrderableList'
 import {
@@ -101,6 +102,27 @@ async function reloadVisits() {
 const { initSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
   reloadFn: reloadVisits,
   isFiltered,
+})
+function applyVisits(nextVisits) {
+  const selectedVisitId = selectedVisit.value?.id ?? null
+  visits.value = nextVisits
+  if (selectedVisitId != null) {
+    selectedVisit.value = nextVisits.find((item) => item.id === selectedVisitId) || null
+  }
+}
+const {
+  editingId: editingVisitId,
+  editingValue: editingVisitOrdinal,
+  inputRef: visitOrdinalInputRef,
+  startEdit: startVisitOrdinalEdit,
+  commitEdit: commitVisitOrdinalEdit,
+  cancelEdit: cancelVisitOrdinalEdit,
+} = useOrdinalQuickEdit(visits, reorderUrl, {
+  applyList: applyVisits,
+  isFiltered,
+  orderKey: 'sequence',
+  reloadFn: reloadVisits,
+  renderList: filteredVisits,
 })
 
 // 当前访视已关联的表单列表（带 sequence）
@@ -460,6 +482,24 @@ function resetFormPreviewState() {
 // 更新访视中表单的 sequence
 const visitFormReorderUrl = computed(() => selectedVisit.value ? `/api/visits/${selectedVisit.value.id}/forms/reorder` : '')
 const { dragging: draggingVisitForms, handleDragEnd: handleVisitFormDragEnd } = useOrderableList(visitFormReorderUrl)
+function applyVisitForms(nextVisitForms) {
+  visitForms.value = nextVisitForms
+}
+const {
+  editingId: editingVisitFormId,
+  editingValue: editingVisitFormOrdinal,
+  inputRef: visitFormOrdinalInputRef,
+  startEdit: startVisitFormOrdinalEdit,
+  commitEdit: commitVisitFormOrdinalEdit,
+  cancelEdit: cancelVisitFormOrdinalEdit,
+} = useOrdinalQuickEdit(visitForms, visitFormReorderUrl, {
+  applyList: applyVisitForms,
+  orderKey: 'sequence',
+  reloadFn: async () => {
+    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+    syncVisitForms()
+  },
+})
 
 async function onVisitFormDragEnd() {
   if (!selectedVisit.value) return
@@ -516,9 +556,28 @@ async function toggleCell(visitId, formId) {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
-            <div @click.stop>
+            <el-input-number
+              v-if="editingVisitId === row.id"
+              ref="visitOrdinalInputRef"
+              v-model="editingVisitOrdinal"
+              :min="1"
+              :max="filteredVisits.length"
+              size="small"
+              style="width:80px"
+              @click.stop
+              @keyup.enter.stop="commitVisitOrdinalEdit"
+              @keydown.esc.stop.prevent="cancelVisitOrdinalEdit"
+              @blur="cancelVisitOrdinalEdit"
+            />
+            <button
+              v-else
+              type="button"
+              style="border:none;background:transparent;padding:0;cursor:pointer"
+              @click.stop
+              @dblclick.stop="startVisitOrdinalEdit(row)"
+            >
               <span class="ordinal-cell">{{ row.sequence }}</span>
-            </div>
+            </button>
           </template>
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
@@ -561,7 +620,30 @@ async function toggleCell(visitId, formId) {
           <template #item="{ element: f }">
             <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
               <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
-              <span class="ordinal-cell" style="flex-shrink:0">{{ f.sequence }}</span>
+              <div style="flex-shrink:0">
+                <el-input-number
+                  v-if="editingVisitFormId === f.id"
+                  ref="visitFormOrdinalInputRef"
+                  v-model="editingVisitFormOrdinal"
+                  :min="1"
+                  :max="visitForms.length"
+                  size="small"
+                  style="width:80px"
+                  @click.stop
+                  @keyup.enter.stop="commitVisitFormOrdinalEdit"
+                  @keydown.esc.stop.prevent="cancelVisitFormOrdinalEdit"
+                  @blur="cancelVisitFormOrdinalEdit"
+                />
+                <button
+                  v-else
+                  type="button"
+                  style="border:none;background:transparent;padding:0;cursor:pointer"
+                  @click.stop
+                  @dblclick.stop="startVisitFormOrdinalEdit(f)"
+                >
+                  <span class="ordinal-cell" style="flex-shrink:0">{{ f.sequence }}</span>
+                </button>
+              </div>
               <span style="flex:1;font-size:13px">{{ f.name }}</span>
               <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
               <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
