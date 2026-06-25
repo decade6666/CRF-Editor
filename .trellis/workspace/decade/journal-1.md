@@ -1429,3 +1429,85 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: UI 改进与删除确认统一
+
+**Date**: 2026-06-24
+**Task**: UI 改进与删除确认统一
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 任务 | 状态 |
+|------|------|
+| 选项字典列表复制按钮 | 已归档 |
+| 搜索框模糊搜索排序规则 | 已归档 |
+| 删除操作二次确认弹窗 | 已归档 |
+| 字段编辑窗口按钮尺寸统一 | 已归档 |
+| 字段界面直接编辑引用字典 | 已归档 |
+| 选项列表分割线 | 已归档 |
+
+**主要改动**:
+- 选项列表改为 `el-table border` 统一视觉风格
+- 删除操作统一二次确认规则（项目删除保留双重确认，其他单次确认）
+- 字段编辑窗口按钮尺寸统一
+- 搜索框改用 `rankFuzzyMatches` 精确优先模糊排序
+
+**测试**: 331/331 frontend tests pass
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `125156e` | (see git log) |
+| `c761f08` | (see git log) |
+| `735651a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 29: feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义
+
+**Date**: 2026-06-24
+**Task**: feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义
+**Branch**: `draft`
+
+### Summary
+
+标签类型字段不再显示在字段库（FieldsTab/FormDesignerTab）；删除表单中的标签字段时后端自动清理孤儿 FieldDefinition；undo/redo 支持标签字段回放重建
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

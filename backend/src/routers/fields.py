@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from sqlalchemy import select
 
@@ -48,6 +48,10 @@ from src.schemas.field import (
 
 from src.schemas import BatchDeleteRequest
 
+from src.services.field_cleanup_service import (
+    batch_delete_form_fields_and_cleanup_label_definitions,
+    delete_form_field_and_cleanup_label_definition,
+)
 from src.services.order_service import OrderService
 
 
@@ -356,7 +360,7 @@ def delete_form_field(ff_id: int, session: Session = Depends(get_session), curre
 
     ff = verify_form_field_owner(ff_id, current_user, session)
 
-    OrderService.delete_and_compact(session, FormField, FormField.form_id == ff.form_id, ff)
+    delete_form_field_and_cleanup_label_definition(session, ff)
 
 
 
@@ -462,14 +466,16 @@ def batch_delete_form_fields(form_id: int, data: BatchDeleteRequest, session: Se
 
     verify_form_owner(form_id, current_user, session)
 
-    scoped_ids = set(session.scalars(
-        select(FormField.id).where(FormField.form_id == form_id, FormField.id.in_(data.ids))
+    form_fields = list(session.scalars(
+        select(FormField)
+        .where(FormField.form_id == form_id, FormField.id.in_(data.ids))
+        .options(selectinload(FormField.field_definition))
     ).all())
+    scoped_ids = {form_field.id for form_field in form_fields}
     if scoped_ids != set(data.ids):
         raise HTTPException(403, "无权批量删除该表单外的字段")
 
-    count = FormFieldRepository(session).batch_delete(data.ids)
-    OrderService.compact_after_batch_delete(session, FormField, FormField.form_id == form_id)
+    count = batch_delete_form_fields_and_cleanup_label_definitions(session, form_fields)
 
     return {"deleted": count}
 
