@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { isVisibleInFieldLibrary } from '../src/composables/fieldDefinitionVisibility.js';
 
 const root = resolve(import.meta.dirname, '..');
 
@@ -24,11 +25,18 @@ test('search components import the shared ranked fuzzy search helper', () => {
   }
 });
 
+test('field library visibility helper hides label and log-row definitions', () => {
+  assert.equal(isVisibleInFieldLibrary({ field_type: '文本' }), true);
+  assert.equal(isVisibleInFieldLibrary({ field_type: '标签' }), false);
+  assert.equal(isVisibleInFieldLibrary({ field_type: '日志行' }), false);
+  assert.equal(isVisibleInFieldLibrary(null), false);
+});
+
 test('search components route filtered lists through rankFuzzyMatches', () => {
   const expectations = [
     ['src/components/CodelistsTab.vue', /rankFuzzyMatches\(codelists\.value, searchCl\.value/, /rankFuzzyMatches\(selected\.value\?\.options \|\| \[\], searchOpt\.value/],
     ['src/components/FieldsTab.vue', /rankFuzzyMatches\(visibleDefinitions, searchField\.value/],
-    ['src/components/FormDesignerTab.vue', /rankFuzzyMatches\(orderedForms, searchForm\.value/, /rankFuzzyMatches\(fieldDefs\.value, fieldSearch\.value/],
+    ['src/components/FormDesignerTab.vue', /rankFuzzyMatches\(orderedForms, searchForm\.value/, /rankFuzzyMatches\(fieldDefs\.value\.filter\(isVisibleInFieldLibrary\), fieldSearch\.value/],
     ['src/components/UnitsTab.vue', /rankFuzzyMatches\(orderedUnits, searchUnit\.value/],
     ['src/components/VisitsTab.vue', /rankFuzzyMatches\(visits\.value, searchVisit\.value/],
   ];

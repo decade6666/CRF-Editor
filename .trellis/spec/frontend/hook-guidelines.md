@@ -78,6 +78,42 @@ function rankFuzzyMatches(items, keyword, getCandidates): Array
 | `frontend/tests/orderingStructure.test.js` | Codelist option drag uses `draggableOptions` and only writes back when search is inactive. |
 | `node --test tests/*.test.js` | Full frontend source-level regression suite remains green. |
 
+### Scenario: Field Definition Visibility
+
+#### 1. Scope / Trigger
+
+- Trigger: any UI that renders the reusable field library list (field library page, form designer left panel).
+- Current shared helper: `frontend/src/composables/fieldDefinitionVisibility.js`.
+- Current consumers: `FieldsTab.vue`, `FormDesignerTab.vue`.
+
+#### 2. Signatures
+
+```javascript
+function isVisibleInFieldLibrary(fieldDefinition): boolean
+function isLabelFieldDefinition(fieldDefinition): boolean
+function buildFieldDefinitionCreatePayload(fieldDefinition): object
+```
+
+- `isVisibleInFieldLibrary`: returns `false` for `标签` and `日志行` types, `true` otherwise. Guards against `null`/`undefined`.
+- `isLabelFieldDefinition`: returns `true` iff `fieldDefinition?.field_type === '标签'`.
+- `buildFieldDefinitionCreatePayload`: extracts a POST-ready payload for creating a field definition from a field instance's local `field_definition` object.
+
+#### 3. Contracts
+
+| Rule | Why |
+|---|---|
+| Label fields hidden from field library | Labels are structural per-form elements, not reusable assets. |
+| Log-row fields hidden from field library | Log rows are auto-generated and managed per-table, not user-editable library items. |
+| Null-safe predicates | Prevents runtime errors when field definition is missing or null. |
+| Designer can still create labels | `designerFieldTypes` in `FormDesignerTab.vue` keeps `标签` so users can create labels within a form. |
+
+#### 4. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/searchRankingWiring.test.js` | Both consumers import and apply `isVisibleInFieldLibrary` to filter field lists. |
+| Source-level check | `FieldsTab.vue` `fieldTypes` excludes `标签`; `FormDesignerTab.vue` `designerFieldTypes` includes `标签`. |
+
 ---
 
 ## Custom Hook Patterns
