@@ -156,6 +156,7 @@ const {
             v-model="editingUnitOrdinal"
             :min="1"
             :max="visibleUnits.length"
+            :controls="false"
             size="small"
             style="width:80px"
             @click.stop

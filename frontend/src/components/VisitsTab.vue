@@ -562,6 +562,7 @@ async function toggleCell(visitId, formId) {
               v-model="editingVisitOrdinal"
               :min="1"
               :max="filteredVisits.length"
+              :controls="false"
               size="small"
               style="width:80px"
               @click.stop
@@ -627,6 +628,7 @@ async function toggleCell(visitId, formId) {
                   v-model="editingVisitFormOrdinal"
                   :min="1"
                   :max="visitForms.length"
+                  :controls="false"
                   size="small"
                   style="width:80px"
                   @click.stop

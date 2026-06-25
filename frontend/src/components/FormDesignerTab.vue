@@ -2445,6 +2445,7 @@ function openAddForm() {
               v-model="editingFormOrdinal"
               :min="1"
               :max="filteredForms.length"
+              :controls="false"
               size="small"
               style="width: 80px"
               @click.stop
