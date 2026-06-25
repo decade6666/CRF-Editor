@@ -5,6 +5,11 @@ import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
+import {
+  buildFieldDefinitionCreatePayload,
+  isLabelFieldDefinition,
+  isVisibleInFieldLibrary,
+} from '../composables/fieldDefinitionVisibility';
 import { useColumnResize } from '../composables/useColumnResize';
 import { useDesignerHistory } from '../composables/useDesignerHistory';
 import {
@@ -359,6 +364,43 @@ function buildFormFieldCreatePayload(ff) {
   };
 }
 
+function buildReplaySnapshot(ff) {
+  return {
+    formFieldPayload: buildFormFieldCreatePayload(ff),
+    fieldDefinitionPayload: isLabelFieldDefinition(ff?.field_definition)
+      ? buildFieldDefinitionCreatePayload(ff.field_definition)
+      : null,
+  };
+}
+
+async function recreateFieldFromSnapshot(formId, snapshot) {
+  try {
+    return await api.post(`/api/forms/${formId}/fields`, snapshot.formFieldPayload);
+  } catch (error) {
+    const status = Number(error?.status ?? error?.response?.status);
+    if (status !== 404) throw error;
+    if (!snapshot.fieldDefinitionPayload) throw error;
+
+    const recreatedDefinition = await api.post(
+      `/api/projects/${props.projectId}/field-definitions`,
+      snapshot.fieldDefinitionPayload,
+    );
+    try {
+      return await api.post(`/api/forms/${formId}/fields`, {
+        ...snapshot.formFieldPayload,
+        field_definition_id: recreatedDefinition.id,
+      });
+    } catch (recreateError) {
+      try {
+        await api.del(`/api/field-definitions/${recreatedDefinition.id}`);
+      } catch {
+        // 清理失败时保留原始回放错误，避免吞掉真正的失败原因。
+      }
+      throw recreateError;
+    }
+  }
+}
+
 // 抓取属性编辑前/后的字段定义 + 实例状态，用于属性编辑的正/逆回放。
 function snapshotFieldPropState(ff) {
   if (!ff) return null;
@@ -493,24 +535,25 @@ async function removeField(ff) {
   }
   if (deletingFieldIds.value.has(ff.id)) return;
   const formId = selectedForm.value?.id;
-  const snapshot = buildFormFieldCreatePayload(ff);
+  const snapshot = buildReplaySnapshot(ff);
+  const shouldReloadDefs = Boolean(snapshot.fieldDefinitionPayload);
   try {
     await confirmFormChange();
     deletingFieldIds.value = new Set([...deletingFieldIds.value, ff.id]);
     await api.del(`/api/form-fields/${ff.id}`);
     formFields.value = formFields.value.filter((f) => f.id !== ff.id);
-    await reloadAfterReplay(formId);
+    await reloadAfterReplay(formId, { defs: shouldReloadDefs });
     designerHistory.record({
       label: '删除字段',
       ids: { ffId: ff.id },
       undo: async (ids, { remapId }) => {
-        const recreated = await api.post(`/api/forms/${formId}/fields`, snapshot);
+        const recreated = await recreateFieldFromSnapshot(formId, snapshot);
         remapId(ids.ffId, recreated.id);
-        await reloadAfterReplay(formId);
+        await reloadAfterReplay(formId, { defs: shouldReloadDefs });
       },
       redo: async (ids) => {
         await api.del(`/api/form-fields/${ids.ffId}`);
-        await reloadAfterReplay(formId);
+        await reloadAfterReplay(formId, { defs: shouldReloadDefs });
       },
     });
   } catch (e) {
@@ -528,27 +571,28 @@ async function batchDelete() {
   const ids = [...selectedIds.value];
   const snapshots = formFields.value
     .filter((f) => ids.includes(f.id))
-    .map((f) => ({ ffId: f.id, payload: buildFormFieldCreatePayload(f) }));
+    .map((f) => ({ ffId: f.id, snapshot: buildReplaySnapshot(f) }));
+  const shouldReloadDefs = snapshots.some((item) => Boolean(item.snapshot.fieldDefinitionPayload));
   try {
     await confirmFormChange();
     await api.post(`/api/forms/${formId}/fields/batch-delete`, { ids });
     selectedIds.value = [];
-    await reloadAfterReplay(formId);
+    await reloadAfterReplay(formId, { defs: shouldReloadDefs });
     designerHistory.record({
       label: '批量删除',
       ids: { ffIds: ids },
       undo: async (entryIds, { remapId }) => {
         // 逐条重建（按原 order_index 携带全部属性），并回写新 id。
         for (let i = 0; i < snapshots.length; i += 1) {
-          const recreated = await api.post(`/api/forms/${formId}/fields`, snapshots[i].payload);
+          const recreated = await recreateFieldFromSnapshot(formId, snapshots[i].snapshot);
           remapId(snapshots[i].ffId, recreated.id);
           snapshots[i].ffId = recreated.id;
         }
-        await reloadAfterReplay(formId);
+        await reloadAfterReplay(formId, { defs: shouldReloadDefs });
       },
       redo: async (entryIds) => {
         await api.post(`/api/forms/${formId}/fields/batch-delete`, { ids: entryIds.ffIds });
-        await reloadAfterReplay(formId);
+        await reloadAfterReplay(formId, { defs: shouldReloadDefs });
       },
     });
   } catch (e) {
@@ -660,7 +704,7 @@ const usedDefIds = computed(() => new Set(formFields.value.map((f) => f.field_de
 // 字段库搜索
 const fieldSearch = ref('');
 const filteredFieldDefs = computed(() =>
-  rankFuzzyMatches(fieldDefs.value, fieldSearch.value, (fd) => [fd.label, fd.variable_name]),
+  rankFuzzyMatches(fieldDefs.value.filter(isVisibleInFieldLibrary), fieldSearch.value, (fd) => [fd.label, fd.variable_name]),
 );
 
 // 渲染逻辑
@@ -1887,16 +1931,7 @@ async function saveDraftField() {
   }
   savingDraft.value = true;
   try {
-    const definitionPayload = {
-      variable_name: fd.variable_name,
-      label: fd.label,
-      field_type: fd.field_type,
-      integer_digits: fd.integer_digits ?? null,
-      decimal_digits: fd.decimal_digits ?? null,
-      date_format: fd.date_format ?? null,
-      codelist_id: fd.codelist_id ?? null,
-      unit_id: fd.unit_id ?? null,
-    };
+    const definitionPayload = buildFieldDefinitionCreatePayload(fd);
     const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
     const instancePayload = {
       default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : '',

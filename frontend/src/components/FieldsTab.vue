@@ -5,6 +5,7 @@ import { Plus, EditPen } from '@element-plus/icons-vue'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -21,7 +22,7 @@ const editProp = reactive({
   integer_digits: null, decimal_digits: null, date_format: null,
   codelist_id: null, unit_id: null,
 })
-const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '标签']
+const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）']
 
 const DATE_FORMAT_OPTIONS = {
   '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
@@ -54,7 +55,7 @@ onMounted(async () => { await load(); nextTick(() => initSortable()) })
 watch(() => props.projectId, () => { selectedFieldId.value = null; isCreating.value = false; load() })
 watch(refreshKey, load)
 
-// 字段库不展示日志行
+// 字段库不展示结构性字段
 const searchField = ref('')
 const visibleFields = computed(() => {
   const orderedFields = [...fields.value].sort((a, b) => {
@@ -63,7 +64,7 @@ const visibleFields = computed(() => {
     if (orderA !== orderB) return orderA - orderB
     return (a?.id ?? 0) - (b?.id ?? 0)
   })
-  const visibleDefinitions = orderedFields.filter(f => f.field_type !== '日志行')
+  const visibleDefinitions = orderedFields.filter(isVisibleInFieldLibrary)
   return rankFuzzyMatches(visibleDefinitions, searchField.value, (field) => Object.values(field))
 })
 

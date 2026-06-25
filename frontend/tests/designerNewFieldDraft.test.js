@@ -38,6 +38,7 @@ test('saveDraftField 先建定义后建实例并替换草稿、入撤销栈', ()
   const defPost = body.indexOf('/api/projects/${projectId}/field-definitions`')
   const ffPost = body.indexOf('/api/forms/${formId}/fields`')
   assert.ok(defPost > -1, '应 POST 字段定义')
+  assert.match(body, /const definitionPayload = buildFieldDefinitionCreatePayload\(fd\)/)
   assert.ok(ffPost > -1, '应 POST 字段实例')
   assert.ok(defPost < ffPost, '应先建定义再建实例')
   // 实例创建携带 field_definition_id 与实例属性
@@ -72,6 +73,20 @@ test('removeField 对草稿仅移除本地、不调 DELETE', () => {
   const delIdx = body.indexOf('api.del(`/api/form-fields/')
   assert.ok(branchIdx > -1 && (delIdx === -1 || branchIdx < delIdx), '草稿短路应先于 DELETE')
 })
+
+test('removeField 删除标签字段后可通过快照重建定义与实例', () => {
+  const body = fnBody('removeField')
+  assert.match(source, /function buildReplaySnapshot\(ff\) \{/)
+  assert.match(source, /function recreateFieldFromSnapshot\(formId, snapshot\) \{/)
+  assert.match(source, /if \(status !== 404\) throw error;/)
+  assert.match(source, /await api\.del\(`\/api\/field-definitions\/\$\{recreatedDefinition\.id\}`\);/)
+  assert.match(body, /const snapshot = buildReplaySnapshot\(ff\)/)
+  assert.match(body, /const shouldReloadDefs = Boolean\(snapshot\.fieldDefinitionPayload\)/)
+  assert.match(body, /const recreated = await recreateFieldFromSnapshot\(formId, snapshot\)/)
+  assert.match(body, /reloadAfterReplay\(formId, \{ defs: shouldReloadDefs \}\)/)
+  // undo 复用外层 shouldReloadDefs，不再独立重算 Boolean(snapshot.fieldDefinitionPayload)
+})
+
 
 test('removeDraftFromState 不发请求，只过滤本地草稿', () => {
   const body = fnBody('removeDraftFromState')
@@ -114,6 +129,14 @@ test('切换项目时设计器已激活就必须经过 canLeaveProject 守卫', 
 
 test('草稿存在时禁止排序', () => {
   assert.match(fnBody('onDrop'), /if \(hasDraft\.value\) return ElMessage\.warning/)
+})
+
+test('batchDelete 删除标签字段后回放时可重建被清理的字段定义', () => {
+  const body = fnBody('batchDelete')
+  assert.match(body, /const shouldReloadDefs = snapshots\.some\(\(item\) => Boolean\(item\.snapshot\.fieldDefinitionPayload\)\)/)
+  assert.match(body, /const recreated = await recreateFieldFromSnapshot\(formId, snapshots\[i\]\.snapshot\)/)
+  // undo/redo 均复用外层的 shouldReloadDefs，不再在 undo 闭包内重复计算
+  assert.match(body, /reloadAfterReplay\(formId, \{ defs: shouldReloadDefs \}\)/)
 })
 
 test('模板：草稿态显示顶部保存按钮，草稿行无批量选择框', () => {

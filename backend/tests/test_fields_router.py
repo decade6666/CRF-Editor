@@ -159,6 +159,47 @@ def choice_field_definition_id(client: TestClient, project_id: int, codelist_id:
     return resp.json()["id"]
 
 
+def create_form(client: TestClient, project_id: int, auth_token: str, *, name: str) -> int:
+    resp = client.post(
+        f"/api/projects/{project_id}/forms",
+        json={"name": name},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def create_label_field_definition(
+    client: TestClient,
+    project_id: int,
+    auth_token: str,
+    *,
+    variable_name: str,
+    label: str,
+) -> int:
+    resp = client.post(
+        f"/api/projects/{project_id}/field-definitions",
+        json={
+            "variable_name": variable_name,
+            "label": label,
+            "field_type": "标签",
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def add_form_field(client: TestClient, form_id: int, field_definition_id: int, auth_token: str) -> dict:
+    resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
 def test_update_field_definition_can_clear_unit_with_null(
     client: TestClient,
     project_id: int,
@@ -615,3 +656,195 @@ def test_form_field_label_bold_rejects_null(
         headers=auth_headers(auth_token),
     )
     assert put_resp.status_code == 422, put_resp.text
+
+
+def test_delete_label_form_field_removes_orphan_field_definition(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    auth_token: str,
+) -> None:
+    field_definition_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_ORPHAN",
+        label="章节标题",
+    )
+    form_field = add_form_field(client, form_id, field_definition_id, auth_token)
+
+    delete_resp = client.delete(
+        f"/api/form-fields/{form_field['id']}",
+        headers=auth_headers(auth_token),
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    list_resp = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    assert all(item["id"] != field_definition_id for item in list_resp.json())
+
+    get_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    assert get_resp.status_code == 200, get_resp.text
+    assert all(item["id"] != form_field["id"] for item in get_resp.json())
+
+
+
+def test_delete_normal_form_field_keeps_field_definition(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    form_field = add_form_field(client, form_id, field_definition_id, auth_token)
+
+    delete_resp = client.delete(
+        f"/api/form-fields/{form_field['id']}",
+        headers=auth_headers(auth_token),
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    list_resp = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    matched = [item for item in list_resp.json() if item["id"] == field_definition_id]
+    assert len(matched) == 1
+
+
+
+def test_delete_shared_label_form_field_keeps_definition_until_last_reference_removed(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    auth_token: str,
+) -> None:
+    second_form_id = create_form(client, project_id, auth_token, name="共享标签第二表单")
+    field_definition_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_SHARED",
+        label="共享标题",
+    )
+    first_field = add_form_field(client, form_id, field_definition_id, auth_token)
+    second_field = add_form_field(client, second_form_id, field_definition_id, auth_token)
+
+    first_delete = client.delete(
+        f"/api/form-fields/{first_field['id']}",
+        headers=auth_headers(auth_token),
+    )
+    assert first_delete.status_code == 204, first_delete.text
+
+    list_after_first = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_after_first.status_code == 200, list_after_first.text
+    matched_after_first = [item for item in list_after_first.json() if item["id"] == field_definition_id]
+    assert len(matched_after_first) == 1
+
+    second_delete = client.delete(
+        f"/api/form-fields/{second_field['id']}",
+        headers=auth_headers(auth_token),
+    )
+    assert second_delete.status_code == 204, second_delete.text
+
+    list_after_second = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_after_second.status_code == 200, list_after_second.text
+    assert all(item["id"] != field_definition_id for item in list_after_second.json())
+
+
+
+def test_batch_delete_label_form_fields_removes_orphan_definitions(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    auth_token: str,
+) -> None:
+    field_definition_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_BATCH",
+        label="批量标题",
+    )
+    label_field = add_form_field(client, form_id, field_definition_id, auth_token)
+    normal_field = add_form_field(client, form_id, create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_BATCH_2",
+        label="批量标题二",
+    ), auth_token)
+
+    delete_resp = client.post(
+        f"/api/forms/{form_id}/fields/batch-delete",
+        json={"ids": [label_field["id"], normal_field["id"]]},
+        headers=auth_headers(auth_token),
+    )
+    assert delete_resp.status_code == 200, delete_resp.text
+    assert delete_resp.json()["deleted"] == 2
+
+    list_resp = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    ids = {item["id"] for item in list_resp.json()}
+    assert field_definition_id not in ids
+
+
+
+def test_delete_label_field_compacts_field_definition_order(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    auth_token: str,
+) -> None:
+    first_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_ORDER_1",
+        label="第一标题",
+    )
+    second_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_ORDER_2",
+        label="第二标题",
+    )
+    third_id = create_label_field_definition(
+        client,
+        project_id,
+        auth_token,
+        variable_name="LABEL_ORDER_3",
+        label="第三标题",
+    )
+    middle_field = add_form_field(client, form_id, second_id, auth_token)
+
+    delete_resp = client.delete(
+        f"/api/form-fields/{middle_field['id']}",
+        headers=auth_headers(auth_token),
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    list_resp = client.get(
+        f"/api/projects/{project_id}/field-definitions",
+        headers=auth_headers(auth_token),
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    matched = [item for item in list_resp.json() if item["id"] in {first_id, third_id}]
+    assert [item["order_index"] for item in matched] == [1, 2]
