@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, EditPen } from '@element-plus/icons-vue'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
+import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
@@ -154,6 +155,22 @@ const reorderUrl = computed(() => `/api/projects/${props.projectId}/field-defini
 const { initSortable } = useSortableTable(fieldsTableRef, fields, reorderUrl, {
   reloadFn: reloadFields,
   isFiltered,
+  renderList: visibleFields,
+})
+function applyFields(nextFields) {
+  fields.value = nextFields
+}
+const {
+  editingId: editingFieldId,
+  editingValue: editingFieldOrdinal,
+  inputRef: fieldOrdinalInputRef,
+  startEdit: startFieldOrdinalEdit,
+  commitEdit: commitFieldOrdinalEdit,
+  cancelEdit: cancelFieldOrdinalEdit,
+} = useOrdinalQuickEdit(fields, reorderUrl, {
+  applyList: applyFields,
+  isFiltered,
+  reloadFn: reloadFields,
   renderList: visibleFields,
 })
 
@@ -372,9 +389,28 @@ async function quickSaveCodelist() {
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
           <template #default="{ row }">
-            <div @click.stop>
+            <el-input-number
+              v-if="editingFieldId === row.id"
+              ref="fieldOrdinalInputRef"
+              v-model="editingFieldOrdinal"
+              :min="1"
+              :max="visibleFields.length"
+              size="small"
+              style="width:80px"
+              @click.stop
+              @keyup.enter.stop="commitFieldOrdinalEdit"
+              @keydown.esc.stop.prevent="cancelFieldOrdinalEdit"
+              @blur="cancelFieldOrdinalEdit"
+            />
+            <button
+              v-else
+              type="button"
+              style="border:none;background:transparent;padding:0;cursor:pointer"
+              @click.stop
+              @dblclick.stop="startFieldOrdinalEdit(row)"
+            >
               <span class="ordinal-cell">{{ row.order_index }}</span>
-            </div>
+            </button>
           </template>
         </el-table-column>
         <el-table-column v-if="editMode" prop="variable_name" label="OID" min-width="100" />

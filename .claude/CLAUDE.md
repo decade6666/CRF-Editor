@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-06-23
+> Last updated: 2026-06-24
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -23,9 +23,9 @@ graph TD
     B --> B6["tests (39)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (16)"];
+    C --> C2["src/composables (19)"];
     C --> C3["src/styles"];
-    C --> C4["tests (33)"];
+    C --> C4["tests (38)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,11 +36,12 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (33 files, including 32 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (38 files, including 37 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
 - Management of projects, visits, forms, fields, units, and option dictionaries
+- Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel
@@ -77,7 +78,7 @@ cd frontend && node --test tests/*.test.js
 - Put heavy logic in `backend/src/services/`, keeping the interface layer lightweight.
 - Data structure evolution is centralized in the lightweight migration logic of `backend/src/database.py`.
 - Put complex reusable frontend logic in `frontend/src/composables/`.
-- Frontend reuse constraints: APIs go uniformly through `useApi.js`; field rendering goes uniformly through `useCRFRenderer.js`; field display attributes and preview display logic go uniformly through `formFieldPresentation.js`; user-facing fuzzy search ordering goes uniformly through `searchRanking.js`.
+- Frontend reuse constraints: APIs go uniformly through `useApi.js`; field rendering goes uniformly through `useCRFRenderer.js`; field display attributes and preview display logic go uniformly through `formFieldPresentation.js`; user-facing fuzzy search ordering goes uniformly through `searchRanking.js`; ordinal jump sorting goes uniformly through `useOrdinalQuickEdit.js` alongside `useSortableTable.js` / `useOrderableList.js`.
 - When features, commands, or test entry points change, synchronously update `README.md`, `README.en.md`, the module-level `CLAUDE.md`, and `.claude/index.json`.
 
 ## Security and Deployment Constraints
@@ -124,6 +125,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-06-24`: Ordered-list ordinal quick edit. Added shared frontend composable `frontend/src/composables/useOrdinalQuickEdit.js` and wired double-click ordinal input for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`, all reusing existing reorder endpoints with filter-disabled semantics and restore-on-failure behavior. Frontend composables 16→19, frontend test directory 33→38 (37 `.test.js` + `testProperty.js`; added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, plus expanded ordering structure coverage).
 - `2026-06-23`: Field library inline codelist editing. `frontend/src/components/FieldsTab.vue` adds 新增字典 / 编辑字典 inline entries on the choice-field option row (parity with the form designer), reusing existing codelist `create` / `snapshot` / `references` endpoints with impact confirmation, cache invalidation, and global `refreshKey` sync; implemented standalone in FieldsTab without touching `FormDesignerTab.vue` (backend unchanged). Frontend test directory 32→33 (32 `.test.js` + `testProperty.js`; added `fieldsTabCodelistQuickEdit.test.js`).
 - `2026-06-23`: Frontend search ranking refresh. Frontend composables 15→16 (added `searchRanking.js` for exact-first fuzzy search ranking), frontend test directory 30→32 (31 `.test.js` + `testProperty.js`; added helper and wiring regressions for ranked fuzzy search). Synced README feature text, frontend module context, and code-spec guidance for reusable search ordering.
 - `2026-06-18`: Documentation sync refresh. Backend services 13→14 (added and indexed `toc_pagination.py` for optional LibreOffice table-of-contents page number pre-calculation), frontend composables 14→15 (completed the count for `useDesignerHistory.js`), frontend test directory 26→30 (29 `.test.js` + `testProperty.js`; added regressions for designer undo/redo, new field drafts, full-edit-mode identifier show/hide, and header styling). Synced README environment requirements, clarifying that Word export does not strictly depend on Windows; only the Word import source screenshot evidence panel requires Windows + MS Word.

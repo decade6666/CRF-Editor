@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-06-23
+> Last updated: 2026-06-24
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -17,6 +17,7 @@
 - `frontend/src/composables/useCRFRenderer.js`: unified field rendering, HTML preview, and content-driven column width planning.
 - `frontend/src/composables/formFieldPresentation.js`: presentation-layer rules for field instance display attributes, colors, default values, and related behavior.
 - `frontend/src/composables/searchRanking.js`: shared pure helper for user-facing fuzzy search ordering; empty keywords keep source order, exact matches rank first, partial matches rank by shortest matching candidate text length, and equal ranks stay stable.
+- `frontend/src/composables/useOrdinalQuickEdit.js`: shared list ordinal quick-edit helper; double-clicking a visible ordinal cell opens direct target-position input, keeps filter-disabled semantics aligned with drag sorting, and reuses existing reorder endpoints with the common restore-on-failure message.
 - `frontend/src/composables/useColumnResize.js`: form designer column width dragging and local persistence coordination.
 - `frontend/src/composables/useRowResize.js`: Word preview row height dragging, stable row keys, and local persistence.
 - `frontend/src/composables/useSessionTimer.js`: JWT `exp` display, near-expiration reminders, and click-to-renew by reusing `/api/auth/me`.
@@ -25,19 +26,19 @@
 
 ## Core Directories
 - `src/components/` (13 Vue components): page components for projects, dictionaries, units, fields, form design, visits, login, admin, session countdown, import preview, simulated CRF rendering, and more.
-- `src/composables/` (16 JS modules): shared logic for API, ordering, ranked fuzzy search, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
+- `src/composables/` (19 JS modules): shared logic for API, drag ordering, ordinal quick edit, ranked fuzzy search, field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (33 files: 32 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (38 files: 37 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
 - `components/SessionTimer.vue`: top-bar remaining session time display, near-expiration status styling, and click-to-renew entry point.
 - `components/AdminView.vue`: standalone admin workbench, responsible for user list, password status display, creating users, password reset, batch project operations, and recycle bin.
 - `components/ProjectInfoTab.vue`: project information, metadata, and Logo operations.
-- `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, and ordering.
-- `components/FieldsTab.vue`: field library maintenance; the choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync.
-- `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, column width dragging, quick edit, and in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y).
+- `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, ordering, and visit / visit-form ordinal quick edit.
+- `components/FieldsTab.vue`: field library maintenance; the choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync, and the main list supports ordinal quick edit.
+- `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), and ordinal quick edit for the left-side form list.
 - `components/TemplatePreviewDialog.vue`: template import preview.
 - `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application.
 - `components/DocxScreenshotPanel.vue`: Word import screenshot display.
@@ -56,7 +57,7 @@
 - API requests must go uniformly through `useApi.js`.
 - Field preview and HTML rendering must uniformly reuse `useCRFRenderer.js`.
 - Field display rules should preferably reuse `formFieldPresentation.js` to avoid repeating presentation-layer concatenation logic in components.
-- Ordering interactions should preferably reuse `useOrderableList.js` and `useSortableTable.js`.
+- Ordering interactions should preferably reuse `useOrderableList.js`, `useSortableTable.js`, and `useOrdinalQuickEdit.js`; drag sorting and direct ordinal jumps must keep filter-disabled behavior and the shared `排序保存失败，已恢复` recovery semantics aligned.
 - User-facing fuzzy search boxes should reuse `searchRanking.js`; components pass the base ordered list and candidate text extractor, and must preserve legacy concatenated candidates where previous behavior matched combined fields such as unit `code + symbol` or option `code + decode`.
 - `FormDesignerTab.vue` design note display has moved from the right-side aside to the canvas header / designer-section-title summary + tooltip path; only VisitsTab still keeps the original aside style.
 - `App.vue` provides global `editMode` (persistence key `crf_edit_mode`). Brief mode hides advanced identifiers such as OID / variable names by default, and when leaving full mode resets the current advanced maintenance tab back to project information; in full mode, the lists and add/edit dialogs of `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` uniformly show the corresponding advanced identifiers.
@@ -93,7 +94,9 @@
 - `exportDownloadState.test.js`: export download state.
 - `portDefaults.test.js`: development port conventions.
 - `visitPreviewLandscape.test.js`: visit preview orientation.
-- `orderingStructure.test.js`: ordering structure contract.
+- `orderingStructure.test.js`: drag-ordering structure contract and existing reorder wiring invariants.
+- `ordinalQuickEditWiring.test.js`: source-level wiring checks for ordinal quick edit across codelists, options, units, fields, visits, visit forms, and the designer form list.
+- `useOrdinalQuickEdit.test.js`: pure ordinal quick-edit behavior — commit, cancel, no-op, clamp rejection, render-list semantics, custom order keys, and failure restore.
 - `searchRanking.test.js` and `searchRankingWiring.test.js`: exact-first fuzzy search helper behavior and component wiring.
 - `fieldsTabCodelistQuickEdit.test.js`: field library inline codelist editing — add/edit button wiring and disabled state, create/snapshot endpoints, references impact confirmation, cache invalidation + `refreshKey` sync, failure refresh, and trailing-underscore toggle.
 - `themePalette.test.js`: theme palette.
@@ -119,11 +122,12 @@
 |------|------|
 | Entry | `src/main.js`, `src/App.vue` |
 | Components | `src/components/AdminView.vue`, `src/components/LoginView.vue`, `src/components/SessionTimer.vue`, `src/components/ProjectInfoTab.vue`, `src/components/CodelistsTab.vue`, `src/components/UnitsTab.vue`, `src/components/FieldsTab.vue`, `src/components/FormDesignerTab.vue`, `src/components/VisitsTab.vue`, `src/components/SimulatedCRFForm.vue`, `src/components/TemplatePreviewDialog.vue`, `src/components/DocxCompareDialog.vue`, `src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
+| Composables | `src/composables/useApi.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/useOrdinalQuickEdit.js`, `src/composables/fieldDefinitionVisibility.js`, `src/composables/projectDeleteConfirmation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
 | Styles | `src/styles/main.css` |
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-06-24`: Ordinal quick edit for ordered frontend lists. Added `useOrdinalQuickEdit.js` as the shared double-click ordinal input helper for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`; it reuses existing reorder endpoints, rejects out-of-range ordinal jumps instead of silently clamping them into writes, keeps filter-disabled semantics aligned with drag sorting, restores the previous order on save failure, and focuses the temporary `el-input-number` through a shared input ref. Added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, and expanded `orderingStructure.test.js` to cover the new wiring contract.
 - `2026-06-23`: Field library inline codelist editing. `FieldsTab.vue` choice-field option row now offers inline 新增字典 / 编辑字典 (icon buttons + two dialogs), reusing `POST /codelists`, `PUT /codelists/{id}/snapshot`, and `GET /codelists/{id}/references` with impact confirmation, dual cache invalidation (codelists + field-definitions), and global `refreshKey` sync; on save failure it refreshes to the latest codelist data and reports the error. Implemented standalone in FieldsTab (no `FormDesignerTab.vue` changes, backend unchanged); brief mode hides option OID/编码 consistent with `CodelistsTab`. Test directory 32→33 (added `fieldsTabCodelistQuickEdit.test.js`).
 - `2026-06-23`: Frontend ranked fuzzy search refresh. Composables 15→16 (added `searchRanking.js`, a pure helper for exact-first fuzzy ordering and shortest partial-match ordering), test directory 30→32 (31 `.test.js` + `testProperty.js`; added `searchRanking.test.js` and `searchRankingWiring.test.js`). `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, and `VisitsTab.vue` now route user-facing search lists through the shared helper; unit and codelist option searches preserve previous concatenated-field matching.
 - `2026-06-18`: Documentation sync refresh. Test directory 28→30 (added `editModeHiddenIdentifiers.test.js` and `tableHeaderStyle.test.js`, currently 29 `.test.js` + `testProperty.js`); added global `editMode` brief/full modes, OID/variable-name show/hide contracts, and Element Plus fixed column header plus handwritten list header style conventions.
