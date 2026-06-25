@@ -11,6 +11,10 @@ const fieldsSource = readFileSync(path.resolve(currentDir, '../src/components/Fi
 const visitsSource = readFileSync(path.resolve(currentDir, '../src/components/VisitsTab.vue'), 'utf8')
 const formsSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
 
+function countMatches(source, pattern) {
+  return [...source.matchAll(pattern)].length
+}
+
 test('CodelistsTab wires quick ordinal edit for codelists and options', () => {
   assert.match(codelistsSource, /import \{ useOrdinalQuickEdit \} from '\.\.\/composables\/useOrdinalQuickEdit'/)
   assert.match(codelistsSource, /startEdit: startCodelistOrdinalEdit/)
@@ -20,6 +24,7 @@ test('CodelistsTab wires quick ordinal edit for codelists and options', () => {
   assert.match(codelistsSource, /v-if="editingCodelistId === row\.id"/)
   assert.match(codelistsSource, /v-if="editingOptionId === row\.id"/)
   assert.match(codelistsSource, /@keyup\.enter\.stop="commitCodelistOrdinalEdit"/)
+  assert.equal(countMatches(codelistsSource, /:controls="false"/g), 2)
   assert.match(codelistsSource, /@keydown\.esc\.stop\.prevent="cancelCodelistOrdinalEdit"/)
   assert.match(codelistsSource, /@blur="cancelCodelistOrdinalEdit"/)
   assert.match(codelistsSource, /@keyup\.enter\.stop="commitOptionOrdinalEdit"/)
@@ -33,6 +38,7 @@ test('UnitsTab wires quick ordinal edit for unit rows', () => {
   assert.match(unitsSource, /@dblclick\.stop="startUnitOrdinalEdit\(row\)"/)
   assert.match(unitsSource, /v-if="editingUnitId === row\.id"/)
   assert.match(unitsSource, /@keyup\.enter\.stop="commitUnitOrdinalEdit"/)
+  assert.equal(countMatches(unitsSource, /:controls="false"/g), 1)
   assert.match(unitsSource, /@keydown\.esc\.stop\.prevent="cancelUnitOrdinalEdit"/)
   assert.match(unitsSource, /@blur="cancelUnitOrdinalEdit"/)
 })
@@ -44,6 +50,7 @@ test('FieldsTab wires quick ordinal edit for visible field-definition rows only'
   assert.match(fieldsSource, /@dblclick\.stop="startFieldOrdinalEdit\(row\)"/)
   assert.match(fieldsSource, /v-if="editingFieldId === row\.id"/)
   assert.match(fieldsSource, /@keyup\.enter\.stop="commitFieldOrdinalEdit"/)
+  assert.equal(countMatches(fieldsSource, /:controls="false"/g), 1)
   assert.match(fieldsSource, /@keydown\.esc\.stop\.prevent="cancelFieldOrdinalEdit"/)
   assert.match(fieldsSource, /@blur="cancelFieldOrdinalEdit"/)
 })
@@ -58,6 +65,7 @@ test('VisitsTab wires quick ordinal edit for visits and visit forms', () => {
   assert.match(visitsSource, /v-if="editingVisitId === row\.id"/)
   assert.match(visitsSource, /v-if="editingVisitFormId === f\.id"/)
   assert.match(visitsSource, /@keyup\.enter\.stop="commitVisitOrdinalEdit"/)
+  assert.equal(countMatches(visitsSource, /:controls="false"/g), 2)
   assert.match(visitsSource, /@keydown\.esc\.stop\.prevent="cancelVisitOrdinalEdit"/)
   assert.match(visitsSource, /@blur="cancelVisitOrdinalEdit"/)
   assert.match(visitsSource, /@keyup\.enter\.stop="commitVisitFormOrdinalEdit"/)
@@ -71,6 +79,7 @@ test('FormDesignerTab wires quick ordinal edit only for the left-side forms tabl
   assert.match(formsSource, /@dblclick\.stop="startFormOrdinalEdit\(row\)"/)
   assert.match(formsSource, /v-if="editingFormId === row\.id"/)
   assert.match(formsSource, /@keyup\.enter\.stop="commitFormOrdinalEdit"/)
+  assert.equal(countMatches(formsSource, /:controls="false"/g), 1)
   assert.match(formsSource, /@keydown\.esc\.stop\.prevent="cancelFormOrdinalEdit"/)
   assert.match(formsSource, /@blur="cancelFormOrdinalEdit"/)
   assert.match(formsSource, /ff\._displayOrder/)

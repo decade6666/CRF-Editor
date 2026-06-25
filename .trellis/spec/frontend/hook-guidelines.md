@@ -150,6 +150,7 @@ function useOrdinalQuickEdit(sourceList, reorderUrl, options): {
 | Rule | Why |
 |---|---|
 | Double-click ordinal only when not filtered | Keeps behavior aligned with drag sorting, which is disabled during search/filter mode. |
+| Inline edit shows a plain numeric text box only | Use `el-input-number` with `:controls="false"` so the quick-jump interaction stays focused on direct target-position input instead of plus/minus stepping. |
 | Use `renderList` for the displayed ordinal | Hidden rows or filtered-out items can make `row.order_index` or `row.sequence` differ from what the user sees. |
 | Use `sourceList` for the actual move and POST payload | The backend reorder APIs still expect the full persistent order, not only the visible subset. |
 | Clamp only for validation, not for implicit reorder | Out-of-range input must cancel without posting a clamped reorder the user did not request. |
@@ -185,7 +186,7 @@ function useOrdinalQuickEdit(sourceList, reorderUrl, options): {
 | Test / Check | Assertion |
 |---|---|
 | `frontend/tests/useOrdinalQuickEdit.test.js` | Covers clamp/no-op/out-of-range behavior, hidden-row rendered ordinals, rollback on save failure, and success semantics when reload fails. |
-| `frontend/tests/ordinalQuickEditWiring.test.js` | Each consumer imports the helper and wires double-click / Enter / Esc / blur handlers to the correct list. |
+| `frontend/tests/ordinalQuickEditWiring.test.js` | Each consumer imports the helper, wires double-click / Enter / Esc / blur handlers to the correct list, and keeps ordinal quick-edit inputs on `:controls="false"`. |
 | `frontend/tests/orderingStructure.test.js` | Fields and designer forms keep the expected wiring shape and exclude the canvas field-instance double-click path. |
 | `node --test tests/*.test.js` | Full frontend source-level regression suite remains green. |
 

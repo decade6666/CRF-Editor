@@ -395,6 +395,7 @@ async function quickSaveCodelist() {
               v-model="editingFieldOrdinal"
               :min="1"
               :max="visibleFields.length"
+              :controls="false"
               size="small"
               style="width:80px"
               @click.stop
