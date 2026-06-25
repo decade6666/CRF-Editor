@@ -300,6 +300,7 @@ function openAddCl() {
               v-model="editingCodelistOrdinal"
               :min="1"
               :max="filteredCodelists.length"
+              :controls="false"
               size="small"
               style="width:80px"
               @click.stop
@@ -368,6 +369,7 @@ function openAddCl() {
               v-model="editingOptionOrdinal"
               :min="1"
               :max="visibleOptions.length"
+              :controls="false"
               size="small"
               style="width:80px"
               @click.stop
