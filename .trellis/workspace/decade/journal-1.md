@@ -1562,3 +1562,61 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 31: 序号快编与纯文本输入收尾
+
+**Date**: 2026-06-25
+**Task**: 序号快编与纯文本输入收尾
+**Branch**: `draft`
+
+### Summary
+
+前端 7 个有序列表新增双击序号快编，并在收尾中移除步进按钮、补齐测试和前端 spec。
+
+### Main Changes
+
+| Feature | Description |
+|---------|-------------|
+| 序号快编 | 为字典、选项、单位、字段、访视、访视内表单、设计器左侧表单列表增加双击序号直达目标位置输入，复用既有 reorder 接口。 |
+| 运行时修复 | 修复隐藏行场景下回填错误显示序号的问题，并确保 reload 失败不会让编辑态卡住。 |
+| 交互收尾 | 双击后仅显示文本输入框，统一关闭 `el-input-number` 的加减按钮。 |
+| 文档与规范 | 同步 README、`CLAUDE.md`、`.claude/index.json`，并在 `.trellis/spec/frontend/hook-guidelines.md` 记录序号快编契约。 |
+| 验证 | `node --test tests/useOrdinalQuickEdit.test.js`、`node --test tests/ordinalQuickEditWiring.test.js tests/useOrdinalQuickEdit.test.js`、`node --test tests/*.test.js`、`npm run build` 通过；`npm run lint` 无 error（仍有仓库既有 warning）。 |
+
+**Updated Files**:
+- `frontend/src/composables/useOrdinalQuickEdit.js`
+- `frontend/src/components/CodelistsTab.vue`
+- `frontend/src/components/UnitsTab.vue`
+- `frontend/src/components/FieldsTab.vue`
+- `frontend/src/components/VisitsTab.vue`
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/tests/useOrdinalQuickEdit.test.js`
+- `frontend/tests/ordinalQuickEditWiring.test.js`
+- `frontend/tests/orderingStructure.test.js`
+- `README.md`
+- `README.en.md`
+- `.claude/CLAUDE.md`
+- `frontend/.claude/CLAUDE.md`
+- `.claude/index.json`
+- `.trellis/spec/frontend/hook-guidelines.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d0fb8e` | (see git log) |
+| `0fff247` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
