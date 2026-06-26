@@ -1,9 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createSSRApp, defineAsyncComponent, h, ref } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 
 import { createLazyTabState } from '../src/composables/useLazyTabs.js'
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url))
+
+function readTemplatePreviewDialogSource() {
+  return readFileSync(
+    path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
+    'utf8',
+  )
+}
 
 function createCounters() {
   return { loader: 0, api: 0, mount: 0 }
@@ -133,4 +145,11 @@ test('dialog async component loads only after first open flag becomes true', asy
   await renderHarness(ctx)
 
   assert.deepEqual(templatePreview, { loader: 1, api: 1, mount: 1 })
+})
+
+test('template preview dialog immediately syncs an already-open modelValue after lazy mount', () => {
+  assert.match(
+    readTemplatePreviewDialogSource(),
+    /watch\(\s*\(\)\s*=>\s*props\.modelValue,[\s\S]*?\{\s*immediate:\s*true\s*\}\s*\)/,
+  )
 })
