@@ -1620,3 +1620,42 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32 — 2026-06-25 — import-template-preview-no-trigger review follow-up
+
+### Scope
+
+- Task: `.trellis/tasks/06-25-import-template-preview-no-trigger/`
+- Commit under review: `3bd5804c5dc41c17690c17d000d3305a304ef10d`
+- Follow-up focus: address review findings M1/M2/M3/L1 after the implementation commit.
+
+### Changes
+
+| Area | Result |
+|------|--------|
+| M1 behavior test | Replaced the source-string regex check in `frontend/tests/appTabLazyLoad.test.js` with a Vite SSR behavior test that mounts the real `TemplatePreviewDialog.vue` after the lazy-open flag turns true while `modelValue` is already true, then verifies `api.get` receives `/api/projects/11/import-template/form-fields?form_id=22`. |
+| L1/L2 spec capture | Added a `Lazy-Mounted v-model Dialogs` contract to `.trellis/spec/frontend/component-guidelines.md`, documenting the `immediate: true` / equivalent setup-time initialization requirement and parent prop ordering constraint. |
+| M2 runtime validation | Browser validation reached `http://0.0.0.0:8888`, logged in with the project test account, selected project `通用表单`, and opened `导入模板`; runtime preview validation was blocked before the preview button appeared because `POST /api/projects/2/import-template` returned 400: template `form_field` is missing `label_bold, label_font_size`. No local database mutation was performed. |
+| M3 task metadata | Updated `task.json` from planning phase 0 to completed phase 6 with commit `3bd5804c5dc41c17690c17d000d3305a304ef10d`, related files, and blocked runtime-validation notes. |
+
+### Updated Files
+
+- `frontend/tests/appTabLazyLoad.test.js`
+- `.trellis/spec/frontend/component-guidelines.md`
+- `.trellis/tasks/06-25-import-template-preview-no-trigger/prd.md`
+- `.trellis/tasks/06-25-import-template-preview-no-trigger/task.json`
+- `.trellis/workspace/decade/journal-1.md`
+
+### Validation
+
+- `node --test tests/appTabLazyLoad.test.js` passed after the behavior-test rewrite and after review cleanup.
+- `node --test tests/formDesignerPreviewModel.test.js` passed.
+- `npm run lint -- --quiet` passed with 0 errors.
+- `node --test tests/*.test.js` passed: 349 tests.
+- `git diff --check` passed.
+
+### Status
+
+- Code/spec/Trellis follow-up completed.
+- Browser AC remains environment-blocked until the local template database is migrated or replaced with a compatible template library.

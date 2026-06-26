@@ -122,6 +122,23 @@ provide('refreshKey', refreshKey)
 const refreshKey = inject('refreshKey')
 ```
 
+### Lazy-Mounted v-model Dialogs
+
+When a dialog is mounted lazily with `v-if` or `defineAsyncComponent` and its initial load depends on an already-open `modelValue`, the child component must consume the initial prop value during setup.
+
+```javascript
+watch(() => props.modelValue, (visible) => {
+  if (visible && props.formId) loadFields()
+}, { immediate: true })
+```
+
+Contracts:
+
+- Parent code must set required context props such as `formId` before enabling the lazy-mount flag and opening `modelValue`.
+- Child watchers that trigger initial data loading from `modelValue` must use `immediate: true` or an equivalent setup-time initialization path.
+- Tests should prefer behavior-level lazy-mount coverage: mount with `modelValue: true` already set, then assert the expected load/API call happens.
+- Avoid source-string tests that only assert the watcher contains an option; they do not prove the lazy-mount behavior.
+
 ---
 
 ## Styling Patterns
