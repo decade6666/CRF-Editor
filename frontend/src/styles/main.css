@@ -378,40 +378,6 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   text-align: center;
 }
 
-.manual-list-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--color-primary-subtle);
-  border: 1px solid var(--color-border);
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--color-text-primary);
-  font-weight: 600;
-  flex-shrink: 0;
-  text-align: center;
-}
-
-.manual-list-header > span,
-.manual-list-header-group > span {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-}
-
-.manual-list-header-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.visit-form-order-header { width: 80px; flex-shrink: 0; }
-.visit-form-name-header { flex: 1; }
-.visit-form-action-header { width: 110px; flex-shrink: 0; }
-
 /* 暗色模式 CSS 变量覆盖 */
 html[data-theme="dark"] {
   --indigo-900: #111f2a;

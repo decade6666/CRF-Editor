@@ -35,20 +35,24 @@ test('CodelistsTab wires option list drag sorting through useSortableTable', () 
   assert.match(codelistsSource, /<el-table-column width="32" v-if="!isOptionsFiltered">/);
 });
 
-test('VisitsTab wires visit form drag sorting through useOrderableList', () => {
-  assert.match(visitsSource, /import draggable from 'vuedraggable'/);
+test('VisitsTab wires visit form drag sorting through useSortableTable', () => {
+  assert.doesNotMatch(visitsSource, /import draggable from 'vuedraggable'/);
+  assert.match(visitsSource, /const visitFormsTableRef = ref\(null\)/);
   assert.match(
     visitsSource,
     /const visitFormReorderUrl = computed\(\(\) => selectedVisit\.value \? `\/api\/visits\/\$\{selectedVisit\.value\.id\}\/forms\/reorder` : ''\)/,
   );
   assert.match(
     visitsSource,
-    /const \{ dragging: draggingVisitForms, handleDragEnd: handleVisitFormDragEnd \} = useOrderableList\(visitFormReorderUrl\)/,
+    /const \{ initSortable: initVisitFormsSortable \} = useSortableTable\(visitFormsTableRef, visitForms, visitFormReorderUrl,/,
   );
   assert.match(
     visitsSource,
-    /<draggable v-else v-model="visitForms" item-key="id" handle="\.drag-handle" @start="draggingVisitForms = true" @end="onVisitFormDragEnd">/,
+    /watch\(\[selectedVisit, visitForms\], \(\) => \{\s*nextTick\(\(\) => initVisitFormsSortable\(\)\)\s*\}\)/,
   );
+  assert.match(visitsSource, /ref="visitFormsTableRef"/);
+  assert.match(visitsSource, /<el-table[\s\S]*:data="visitForms"[\s\S]*border[\s\S]*highlight-current-row[\s\S]*row-key="id"/);
+  assert.doesNotMatch(visitsSource, /<draggable v-else v-model="visitForms"/);
 });
 
 // ===== Task 2.3: FieldsTab 排序一致性 =====

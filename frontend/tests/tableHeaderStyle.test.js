@@ -48,12 +48,14 @@ test('CodelistsTab option list uses Element Plus bordered table headers', () => 
   assert.doesNotMatch(optionTable, /manual-list-header option-list-header/)
 })
 
-test('VisitsTab visit-form list header centers all visible header labels', () => {
-  const visitFormHeader = extractBetween(visitsSource, '<!-- 表单列表表头 -->', '<!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->')
-
-  assert.match(visitFormHeader, /class="manual-list-header visit-form-list-header"/)
-  assert.match(visitFormHeader, /class="visit-form-order-header">序号<\/span>/)
-  assert.match(visitFormHeader, /class="visit-form-name-header">表单名称<\/span>/)
-  assert.match(visitFormHeader, /class="visit-form-action-header">操作<\/span>/)
-  assert.doesNotMatch(visitFormHeader, /text-align\s*:\s*(right|left)/)
+test('VisitsTab visit-form list uses Element Plus bordered table headers', () => {
+  assert.match(
+    visitsSource,
+    /<el-table[\s\S]*ref="visitFormsTableRef"[\s\S]*:data="visitForms"[\s\S]*size="small"[\s\S]*border[\s\S]*highlight-current-row[\s\S]*row-key="id"/,
+  )
+  assert.match(visitsSource, /<el-table-column width="32">/)
+  assert.match(visitsSource, /<el-table-column label="序号" width="100">/)
+  assert.match(visitsSource, /<el-table-column prop="name" label="表单名称" show-overflow-tooltip \/>/)
+  assert.match(visitsSource, /<el-table-column label="操作" width="110" fixed="right">/)
+  assert.doesNotMatch(visitsSource, /manual-list-header visit-form-list-header/)
 })
