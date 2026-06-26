@@ -1659,3 +1659,48 @@ GPT 实现、Claude review + 浏览器端到端验证的 Word 导出行高修复
 
 - Code/spec/Trellis follow-up completed.
 - Browser AC remains environment-blocked until the local template database is migrated or replaced with a compatible template library.
+
+
+## Session 32: 提交模板预览懒挂载回归
+
+**Date**: 2026-06-25
+**Task**: 提交模板预览懒挂载回归
+**Branch**: `draft`
+
+### Summary
+
+Submitted and pushed the template preview lazy-mount regression follow-up on `draft`, then archived the completed `06-25-import-template-preview-no-trigger` Trellis task. The browser AC remains explicitly environment-blocked by the incompatible local template library, while the source-level behavior regression and full frontend node suite are passing.
+
+### Main Changes
+
+| Area | Result |
+|------|--------|
+| Commit | Created and pushed `5b774912be9e579ed31a1cb9440710c3080e3337` on `draft` for the template preview lazy-mount regression follow-up. |
+| Task | Archived `.trellis/tasks/06-25-import-template-preview-no-trigger/` after the fix and follow-up test/spec work were committed. |
+| Validation | Before commit, `git diff --check`, `npm run lint -- --quiet`, and `node --test tests/*.test.js` passed. |
+
+**Updated Files**:
+- `frontend/tests/appTabLazyLoad.test.js`
+- `.trellis/spec/frontend/component-guidelines.md`
+- `.trellis/workspace/decade/journal-1.md`
+- `.trellis/workspace/decade/index.md`
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b774912be9e579ed31a1cb9440710c3080e3337` | `test(frontend): 补充模板预览懒挂载回归` |
+
+### Testing
+
+- [OK] `git diff --check`
+- [OK] `npm run lint -- --quiet`
+- [OK] `node --test tests/*.test.js` — 349 passed / 0 failed
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
