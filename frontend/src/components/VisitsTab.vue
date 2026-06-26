@@ -1,12 +1,10 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import draggable from 'vuedraggable'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
-import { useOrderableList } from '../composables/useOrderableList'
 import {
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
@@ -86,7 +84,7 @@ async function load() {
   }
   syncVisitForms()
 }
-onMounted(async () => { await load(); nextTick(() => initSortable()) })
+onMounted(async () => { await load(); nextTick(() => initVisitsSortable()) })
 watch(() => props.projectId, () => { selectedVisit.value = null; load() })
 watch(refreshKey, load)
 watch(selectedVisit, syncVisitForms)
@@ -99,7 +97,7 @@ async function reloadVisits() {
   api.invalidateCache(`/api/projects/${props.projectId}/visits`)
   await load()
 }
-const { initSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
+const { initSortable: initVisitsSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
   reloadFn: reloadVisits,
   isFiltered,
 })
@@ -127,6 +125,7 @@ const {
 
 // 当前访视已关联的表单列表（带 sequence）
 const visitForms = ref([])
+const visitFormsTableRef = ref(null)
 
 function syncVisitForms() {
   if (!selectedVisit.value || !matrixData.value) {
@@ -146,6 +145,11 @@ const availableForms = computed(() => {
   const m = matrixData.value.matrix[selectedVisit.value.id] || {}
   return allForms.value.filter(f => m[f.id] == null)
 })
+
+async function reloadVisitForms() {
+  matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
+  syncVisitForms()
+}
 
 async function add() {
   try {
@@ -212,8 +216,7 @@ async function addFormToVisit() {
   try {
     await api.post(`/api/visits/${selectedVisit.value.id}/forms/${addFormId.value}`, {})
     addFormId.value = null
-    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-    syncVisitForms()
+    await reloadVisitForms()
   } catch (e) { ElMessage.error(e.message || '添加失败') }
 }
 
@@ -224,8 +227,7 @@ async function removeFormFromVisit(formId) {
   try {
     await confirmDelete(ElMessageBox.confirm, { targetText: `访视中的表单 "${form?.name || formId}"` })
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
-    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-    syncVisitForms()
+    await reloadVisitForms()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -481,7 +483,9 @@ function resetFormPreviewState() {
 
 // 更新访视中表单的 sequence
 const visitFormReorderUrl = computed(() => selectedVisit.value ? `/api/visits/${selectedVisit.value.id}/forms/reorder` : '')
-const { dragging: draggingVisitForms, handleDragEnd: handleVisitFormDragEnd } = useOrderableList(visitFormReorderUrl)
+const { initSortable: initVisitFormsSortable } = useSortableTable(visitFormsTableRef, visitForms, visitFormReorderUrl, {
+  reloadFn: reloadVisitForms,
+})
 function applyVisitForms(nextVisitForms) {
   visitForms.value = nextVisitForms
 }
@@ -495,23 +499,11 @@ const {
 } = useOrdinalQuickEdit(visitForms, visitFormReorderUrl, {
   applyList: applyVisitForms,
   orderKey: 'sequence',
-  reloadFn: async () => {
-    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-    syncVisitForms()
-  },
+  reloadFn: reloadVisitForms,
 })
-
-async function onVisitFormDragEnd() {
-  if (!selectedVisit.value) return
-  await handleVisitFormDragEnd(
-    visitForms.value,
-    async () => {
-      matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-      syncVisitForms()
-    },
-    (err) => ElMessage.error(err.message)
-  )
-}
+watch([selectedVisit, visitForms], () => {
+  nextTick(() => initVisitFormsSortable())
+})
 
 // 预览弹窗中切换关联（矩阵单元格点击）
 async function toggleCell(visitId, formId) {
@@ -525,8 +517,7 @@ async function toggleCell(visitId, formId) {
       await confirmDelete(ElMessageBox.confirm, { targetText: `访视 "${visit?.name || visitId}" 中的表单 "${form?.name || formId}"` })
       await api.del(`/api/visits/${visitId}/forms/${formId}`)
     } else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
-    matrixData.value = await api.get(`/api/projects/${props.projectId}/visit-form-matrix`)
-    syncVisitForms()
+    await reloadVisitForms()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '操作失败') }
 }
 </script>
@@ -606,52 +597,61 @@ async function toggleCell(visitId, formId) {
         </el-select>
         <el-button type="primary" size="small" :disabled="!addFormId" @click="addFormToVisit">添加</el-button>
       </div>
-      <!-- 表单列表表头 -->
-      <div class="manual-list-header visit-form-list-header">
-        <span class="visit-form-order-header">序号</span>
-        <span class="visit-form-name-header">表单名称</span>
-        <span class="visit-form-action-header">操作</span>
-      </div>
-      <!-- 表单列表（按 sequence 顺序，只读，添加/删除） -->
-      <div style="flex:1;overflow-y:auto">
-        <div v-if="!visitForms.length" style="color:var(--color-text-muted);font-size:13px;padding:20px;text-align:center">
-          暂无关联表单，请在上方选择后点击添加
-        </div>
-        <draggable v-else v-model="visitForms" item-key="id" handle=".drag-handle" @start="draggingVisitForms = true" @end="onVisitFormDragEnd">
-          <template #item="{ element: f }">
-            <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--color-border);margin-bottom:4px;background:var(--color-bg-card)">
-              <span class="drag-handle" style="cursor:move;color:var(--color-text-muted);flex-shrink:0" role="button" aria-label="拖拽排序" tabindex="0">☰</span>
-              <div style="flex-shrink:0">
-                <el-input-number
-                  v-if="editingVisitFormId === f.id"
-                  ref="visitFormOrdinalInputRef"
-                  v-model="editingVisitFormOrdinal"
-                  :min="1"
-                  :max="visitForms.length"
-                  :controls="false"
-                  size="small"
-                  style="width:80px"
-                  @click.stop
-                  @keyup.enter.stop="commitVisitFormOrdinalEdit"
-                  @keydown.esc.stop.prevent="cancelVisitFormOrdinalEdit"
-                  @blur="cancelVisitFormOrdinalEdit"
-                />
-                <button
-                  v-else
-                  type="button"
-                  style="border:none;background:transparent;padding:0;cursor:pointer"
-                  @click.stop
-                  @dblclick.stop="startVisitFormOrdinalEdit(f)"
-                >
-                  <span class="ordinal-cell" style="flex-shrink:0">{{ f.sequence }}</span>
-                </button>
-              </div>
-              <span style="flex:1;font-size:13px">{{ f.name }}</span>
-              <el-button type="primary" size="small" link @click.stop="openFormPreview(f)">预览</el-button>
-              <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(f.id)">移除</el-button>
+      <!-- 表单列表 -->
+      <div style="flex:1;min-height:0">
+        <el-table
+          ref="visitFormsTableRef"
+          :data="visitForms"
+          size="small"
+          border
+          highlight-current-row
+          row-key="id"
+          style="width:100%"
+          height="100%"
+        >
+          <el-table-column width="32">
+            <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+          </el-table-column>
+          <el-table-column label="序号" width="100">
+            <template #default="{ row }">
+              <el-input-number
+                v-if="editingVisitFormId === row.id"
+                ref="visitFormOrdinalInputRef"
+                v-model="editingVisitFormOrdinal"
+                :min="1"
+                :max="visitForms.length"
+                :controls="false"
+                size="small"
+                style="width:80px"
+                @click.stop
+                @keyup.enter.stop="commitVisitFormOrdinalEdit"
+                @keydown.esc.stop.prevent="cancelVisitFormOrdinalEdit"
+                @blur="cancelVisitFormOrdinalEdit"
+              />
+              <button
+                v-else
+                type="button"
+                style="border:none;background:transparent;padding:0;cursor:pointer"
+                @click.stop
+                @dblclick.stop="startVisitFormOrdinalEdit(row)"
+              >
+                <span class="ordinal-cell">{{ row.sequence }}</span>
+              </button>
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
+          <el-table-column label="操作" width="110" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" link @click.stop="openFormPreview(row)">预览</el-button>
+              <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(row.id)">移除</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div style="color:var(--color-text-muted);font-size:13px;padding:20px;text-align:center">
+              暂无关联表单，请在上方选择后点击添加
             </div>
           </template>
-        </draggable>
+        </el-table>
       </div>
     </div>
 
