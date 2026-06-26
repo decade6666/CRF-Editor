@@ -305,7 +305,7 @@ watch(() => props.modelValue, (val) => {
     loadFields()
     selectedIds.value = new Set()
   }
-})
+}, { immediate: true })
 
 async function loadFields() {
   loading.value = true
