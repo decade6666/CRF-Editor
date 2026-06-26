@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-06-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1622 | Active |
+| `journal-1.md` | ~1704 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-06-25 | 提交模板预览懒挂载回归 | `5b774912be9e579ed31a1cb9440710c3080e3337` | `draft` |
 | 31 | 2026-06-25 | 序号快编与纯文本输入收尾 | `6d0fb8e`, `0fff247` | `draft` |
 | 30 | 2026-06-24 | feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义 | `b51ea62` | `draft` |
 | 29 | 2026-06-24 | feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义 | - | `draft` |
