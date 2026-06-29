@@ -365,6 +365,38 @@ test('designer preview page keeps A4 geometry and stretches the stage container'
 });
 
 
+test('template preview page uses designer A4 geometry for wide inline groups', () => {
+  assert.match(templatePreviewSource, /width="95vw"/);
+  assert.match(templatePreviewSource, /class="import-preview-dialog"/);
+  assert.match(
+    templatePreviewSource,
+    /\.import-preview-dialog \{[\s\S]*height: 95vh;[\s\S]*max-height: 95vh;/,
+  );
+  assert.match(
+    templatePreviewSource,
+    /\.import-preview-dialog \.el-dialog__body \{[\s\S]*overflow: auto;/,
+  );
+  assert.match(templatePreviewSource, /'designer-scaled-word-page'/);
+  assert.match(templatePreviewSource, /landscape: previewLandscapeMode/);
+  assert.match(templatePreviewSource, /const previewNeedsLandscape = computed/);
+  assert.match(templatePreviewSource, /const previewLandscapeMode = computed/);
+  assert.match(templatePreviewSource, /\.preview-left-scroll \{[\s\S]*overflow: auto;/);
+  assert.match(
+    templatePreviewSource,
+    /\.preview-left \.designer-scaled-word-page \{[\s\S]*width: 21cm;[\s\S]*max-width: none;/,
+  );
+  assert.match(
+    templatePreviewSource,
+    /\.preview-left \.designer-scaled-word-page\.landscape \{[\s\S]*width: 29\.7cm;/,
+  );
+});
+
+test('template preview keeps multiline inline default values as multiple rows', () => {
+  assert.match(templatePreviewSource, /normalizeDefaultValue\(defaultValue\)\.split\('\\n'\)/);
+  assert.doesNotMatch(templatePreviewSource, /normalizeDefaultValue\(defaultValue, true\)\.split\('\\n'\)/);
+});
+
+
 test('notes autosave failures keep main preview on persisted notes', () => {
   assert.match(
     formDesignerSource,
