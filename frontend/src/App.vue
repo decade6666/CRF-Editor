@@ -354,6 +354,14 @@ async function exportWord() {
   }
 }
 
+function onExportCommand(command) {
+  if (command === 'ecrf') {
+    exportWord();
+  } else if (command === 'acrf') {
+    ElMessage.info('导出aCRF 功能即将上线');
+  }
+}
+
 async function _blobDownload(url, fallbackFilename) {
   const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
@@ -912,9 +920,15 @@ function startResize(e) {
       <div class="header-right-group">
         <div class="header-right">
           <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
-          <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord"
-            >导出Word</el-button
-          >
+          <el-dropdown v-if="selectedProject" trigger="hover" :disabled="exportWordLoading" @command="onExportCommand">
+            <el-button type="warning" size="small" :loading="exportWordLoading" aria-label="导出">导出Word</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="ecrf">导出eCRF</el-dropdown-item>
+                <el-dropdown-item command="acrf">导出aCRF</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <SessionTimer />
       </div>
