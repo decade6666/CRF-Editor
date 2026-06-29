@@ -55,6 +55,7 @@ node_modules/
 .playwright-mcp/
 .obsidian/
 .claude/settings.local.json
+.trellis/workspace/
 
 # ==========================================
 # 临时与调试文件
