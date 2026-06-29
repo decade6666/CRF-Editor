@@ -159,6 +159,42 @@ Contracts:
 </style>
 ```
 
+### Teleported Dialog Root Styling
+
+When an Element Plus dialog uses `append-to-body` (teleported under `<body>`), do **not** rely on scoped selectors for the dialog root box sizing. The teleported root is no longer under the component's scoped style ancestor, so rules such as `:deep(.my-dialog)` can miss the actual `.el-dialog` root.
+
+```vue
+<template>
+  <el-dialog
+    v-model="visible"
+    class="import-preview-dialog"
+    append-to-body
+  />
+</template>
+
+<style>
+.import-preview-dialog {
+  height: 95vh;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.import-preview-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+</style>
+```
+
+Contracts:
+
+- Use a unique root `class` on the dialog itself when the teleported root needs sizing or layout rules.
+- Keep teleported root-box rules in a non-scoped `<style>` block, or another global stylesheet path that can reach `<body>` descendants.
+- Reserve scoped styles for content inside the dialog body that still renders under the component subtree.
+- Prefer `class` over deprecated `custom-class` on Element Plus dialog roots.
+
 ### CSS Variables for Theming
 
 ```css
