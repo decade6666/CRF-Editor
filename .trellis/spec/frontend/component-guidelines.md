@@ -122,6 +122,23 @@ provide('refreshKey', refreshKey)
 const refreshKey = inject('refreshKey')
 ```
 
+### Lazy-Mounted v-model Dialogs
+
+When a dialog is mounted lazily with `v-if` or `defineAsyncComponent` and its initial load depends on an already-open `modelValue`, the child component must consume the initial prop value during setup.
+
+```javascript
+watch(() => props.modelValue, (visible) => {
+  if (visible && props.formId) loadFields()
+}, { immediate: true })
+```
+
+Contracts:
+
+- Parent code must set required context props such as `formId` before enabling the lazy-mount flag and opening `modelValue`.
+- Child watchers that trigger initial data loading from `modelValue` must use `immediate: true` or an equivalent setup-time initialization path.
+- Tests should prefer behavior-level lazy-mount coverage: mount with `modelValue: true` already set, then assert the expected load/API call happens.
+- Avoid source-string tests that only assert the watcher contains an option; they do not prove the lazy-mount behavior.
+
 ---
 
 ## Styling Patterns
@@ -141,6 +158,42 @@ const refreshKey = inject('refreshKey')
 }
 </style>
 ```
+
+### Teleported Dialog Root Styling
+
+When an Element Plus dialog uses `append-to-body` (teleported under `<body>`), do **not** rely on scoped selectors for the dialog root box sizing. The teleported root is no longer under the component's scoped style ancestor, so rules such as `:deep(.my-dialog)` can miss the actual `.el-dialog` root.
+
+```vue
+<template>
+  <el-dialog
+    v-model="visible"
+    class="import-preview-dialog"
+    append-to-body
+  />
+</template>
+
+<style>
+.import-preview-dialog {
+  height: 95vh;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.import-preview-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+</style>
+```
+
+Contracts:
+
+- Use a unique root `class` on the dialog itself when the teleported root needs sizing or layout rules.
+- Keep teleported root-box rules in a non-scoped `<style>` block, or another global stylesheet path that can reach `<body>` descendants.
+- Reserve scoped styles for content inside the dialog body that still renders under the component subtree.
+- Prefer `class` over deprecated `custom-class` on Element Plus dialog roots.
 
 ### CSS Variables for Theming
 

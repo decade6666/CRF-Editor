@@ -2,7 +2,8 @@
   <el-dialog
     v-model="visible"
     :title="`预览导入效果 - ${formName}`"
-    width="960px"
+    width="95vw"
+    class="import-preview-dialog"
     :close-on-click-modal="false"
     :destroy-on-close="true"
     append-to-body
@@ -26,7 +27,14 @@
         <div class="preview-left-hint">CRF 预览（实时反映勾选状态）</div>
         <div class="preview-left-scroll">
           <template v-if="filteredFields.length">
-            <div class="designer-preview-wrap">
+            <div
+              :class="[
+                'word-page',
+                'form-designer-word-page',
+                'designer-scaled-word-page',
+                { landscape: previewLandscapeMode },
+              ]"
+            >
               <template v-for="(gv, gi) in previewRenderGroupsView" :key="gi">
                 <!-- unified 类型：统一表格布局 -->
                 <table v-if="gv.type === 'unified'" class="unified-table">
@@ -182,6 +190,14 @@ const previewModelHelpers = {
 const previewRenderGroupsView = computed(() =>
   buildPreviewGroupViewModels(previewRenderGroups.value, previewModelHelpers),
 )
+const previewNeedsLandscape = computed(() =>
+  previewRenderGroups.value.some(g => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)),
+)
+const previewLandscapeMode = computed(() => {
+  if (paperOrientation.value === 'landscape') return true
+  if (paperOrientation.value === 'portrait') return false
+  return previewNeedsLandscape.value
+})
 
 // Task 3.3: 辅助函数 - 计算 colspan
 function computeMergeSpans(N, M) {
@@ -202,7 +218,7 @@ function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
     const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null
     const defaultValue = ff.default_value
     if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
-      const lines = normalizeDefaultValue(defaultValue, true).split('\n')
+      const lines = normalizeDefaultValue(defaultValue).split('\n')
       while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
@@ -305,7 +321,7 @@ watch(() => props.modelValue, (val) => {
     loadFields()
     selectedIds.value = new Set()
   }
-})
+}, { immediate: true })
 
 async function loadFields() {
   loading.value = true
@@ -404,13 +420,12 @@ async function handleImport() {
 .preview-split {
   display: flex;
   gap: 16px;
-  max-height: 65vh;
-  min-height: 300px;
+  flex: 1;
+  min-height: 0;
 }
 
 .preview-left {
-  flex: 1;
-  min-width: 0;
+  flex: none;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border);
@@ -427,13 +442,13 @@ async function handleImport() {
 
 .preview-left-scroll {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   padding: 12px;
 }
 
 .preview-right {
-  width: 320px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border);
@@ -476,57 +491,37 @@ async function handleImport() {
   font-size: 14px;
 }
 
-/* Task 3.3: 设计器预览样式（与 FormDesignerTab 保持一致） */
-.designer-preview-wrap {
-  width: 100%;
+/* 复用全局 .word-page 预览契约，并保持与设计器一致的 A4 / 横向 A4 宽度 */
+.preview-left .designer-scaled-word-page {
+  width: 21cm;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+  box-sizing: border-box;
 }
 
-.designer-preview-wrap table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  border: 1px solid var(--color-border);
-  margin-bottom: 8px;
+.preview-left .designer-scaled-word-page.landscape {
+  width: 29.7cm;
+}
+</style>
+
+<!-- 弹窗 append-to-body 后被 teleport 到 <body>，scoped :deep 的祖先选择器无法命中，
+     故用非 scoped 块以唯一类名锁定，让弹窗占满窗口 95% 高度且 body 区域内部滚动。 -->
+<style>
+.import-preview-dialog {
+  height: 95vh;
+  max-height: 95vh;
+  margin-top: 2.5vh !important;
+  display: flex;
+  flex-direction: column;
 }
 
-.designer-preview-wrap td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: top;
-  word-break: break-word;
-}
-
-.wp-label {
-  border-right: 1px solid var(--color-border);
-  font-weight: 600;
-}
-
-.wp-ctrl {
-  background: var(--color-bg-card);
-}
-
-.wp-inline-header {
-  background: var(--preview-structure-bg);
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.unified-label {
-  border-right: 1px solid var(--color-border);
-  font-weight: 600;
-}
-
-.unified-value {
-  background: var(--color-bg-card);
-}
-
-.unified-table td,
-.normal-table td {
-  border-right: 1px solid var(--color-border);
-}
-
-.unified-table td:last-child,
-.normal-table td:last-child {
-  border-right: none;
+.import-preview-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 </style>

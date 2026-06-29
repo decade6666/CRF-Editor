@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSSRApp, defineAsyncComponent, h, ref } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { createServer } from 'vite'
 
 import { createLazyTabState } from '../src/composables/useLazyTabs.js'
 
@@ -23,6 +24,17 @@ function createAsyncTab(name, counters) {
   })
 }
 
+function registerElementPlusStubs(app) {
+  const passthrough = {
+    setup(_, { slots }) {
+      return () => h('div', slots.default?.())
+    },
+  }
+  for (const name of ['el-dialog', 'el-icon', 'el-button', 'el-checkbox', 'el-tag']) {
+    app.component(name, passthrough)
+  }
+}
+
 async function renderHarness(ctx) {
   const app = createSSRApp({
     render() {
@@ -31,10 +43,11 @@ async function renderHarness(ctx) {
         ctx.isTabActivated('fields') ? h(ctx.FieldsTab) : null,
         ctx.isTabActivated('designer') ? h(ctx.DesignerTab) : null,
         ctx.isTabActivated('visits') ? h(ctx.VisitsTab) : null,
-        ctx.hasOpenedTemplatePreview.value ? h(ctx.TemplatePreviewDialog) : null,
+        ctx.hasOpenedTemplatePreview.value ? h(ctx.TemplatePreviewDialog, ctx.templatePreviewProps ?? {}) : null,
       ])
     },
   })
+  if (ctx.stubElementPlus) registerElementPlusStubs(app)
   return renderToString(app)
 }
 
@@ -133,4 +146,57 @@ test('dialog async component loads only after first open flag becomes true', asy
   await renderHarness(ctx)
 
   assert.deepEqual(templatePreview, { loader: 1, api: 1, mount: 1 })
+})
+
+test('template preview dialog loads fields when mounted with already-open modelValue', async () => {
+  const server = await createServer({
+    server: { middlewareMode: true },
+    appType: 'custom',
+    logLevel: 'silent',
+  })
+  let restoreApiGet = () => {}
+
+  try {
+    const apiModule = await server.ssrLoadModule('/src/composables/useApi.js')
+    const api = apiModule.api
+    const originalGet = api.get
+    const calls = []
+    api.get = async (url) => {
+      calls.push(url)
+      return { fields: [], paper_orientation: 'auto' }
+    }
+    restoreApiGet = () => {
+      api.get = originalGet
+    }
+
+    const { default: TemplatePreviewDialog } = await server.ssrLoadModule(
+      '/src/components/TemplatePreviewDialog.vue',
+    )
+    const lazyTabs = createLazyTabState('info')
+    const hasOpenedTemplatePreview = ref(false)
+    const ctx = {
+      ...lazyTabs,
+      hasOpenedTemplatePreview,
+      TemplatePreviewDialog,
+      templatePreviewProps: {
+        modelValue: true,
+        projectId: 11,
+        formId: 22,
+        formName: '测试表单',
+        'onUpdate:modelValue': () => {},
+      },
+      stubElementPlus: true,
+    }
+
+    await renderHarness(ctx)
+    assert.deepEqual(calls, [])
+
+    hasOpenedTemplatePreview.value = true
+    await renderHarness(ctx)
+
+    assert.deepEqual(calls, ['/api/projects/11/import-template/form-fields?form_id=22'])
+  } finally {
+    restoreApiGet()
+    await server.close()
+  }
 })
