@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-29T18:35:00-07:00",
+  "timestamp": "2026-06-29T22:05:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -201,6 +201,7 @@
         "frontend/tests/appCollapse.test.js",
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",
+        "frontend/tests/acrfViewToggle.test.js",
         "frontend/tests/browserPerfBaselineScript.test.js",
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",

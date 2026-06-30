@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-06-24
+> Last updated: 2026-06-29
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -25,7 +25,7 @@ graph TD
     C --> C1["src/components (13)"];
     C --> C2["src/composables (19)"];
     C --> C3["src/styles"];
-    C --> C4["tests (38)"];
+    C --> C4["tests (39)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,16 +36,16 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (38 files, including 37 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (39 files, including 38 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
 - Management of projects, visits, forms, fields, units, and option dictionaries
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
-- Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly
+- Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and the form designer preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel
-- Form designer real-time preview, field instance quick edit, simulated CRF rendering, column width and row height dragging
+- Form designer real-time preview, field instance quick edit, simulated CRF rendering, full-mode eCRF / aCRF preview switching, and column width / row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
@@ -125,6 +125,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-06-29`: FormDesignerTab preview now adds a complete-mode-only eCRF / aCRF toggle in both the canvas header and fullscreen designer header, sharing one persisted `crf_view_mode`. aCRF preview overlays field `variable_name` / form `domain` annotations without entering width / row-height cache geometry, and the frontend test directory grows from 38→39 files (38 `.test.js` + `testProperty.js`) with the new `acrfViewToggle.test.js` coverage.
 - `2026-06-25`: VisitsTab right-side visit-form list now uses the same bordered `el-table` + `useSortableTable` mechanism as the left visit list, replacing the handwritten `vuedraggable` block while keeping visit-form ordinal quick edit, preview, remove actions, and drag reinitialization after visit switches / list reloads. Frontend styles dropped the orphaned handwritten visit-form header classes, and the source-level ordering / header wiring tests were updated accordingly.
 - `2026-06-24`: Ordered-list ordinal quick edit. Added shared frontend composable `frontend/src/composables/useOrdinalQuickEdit.js` and wired double-click ordinal input for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`, all reusing existing reorder endpoints with filter-disabled semantics and restore-on-failure behavior. Frontend composables 16→19, frontend test directory 33→38 (37 `.test.js` + `testProperty.js`; added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, plus expanded ordering structure coverage).
 - `2026-06-23`: Field library inline codelist editing. `frontend/src/components/FieldsTab.vue` adds 新增字典 / 编辑字典 inline entries on the choice-field option row (parity with the form designer), reusing existing codelist `create` / `snapshot` / `references` endpoints with impact confirmation, cache invalidation, and global `refreshKey` sync; implemented standalone in FieldsTab without touching `FormDesignerTab.vue` (backend unchanged). Frontend test directory 32→33 (32 `.test.js` + `testProperty.js`; added `fieldsTabCodelistQuickEdit.test.js`).
