@@ -34,6 +34,7 @@ def export_word(
     session: Session = Depends(get_read_session),
     current_user: User = Depends(get_current_user),
     column_width_overrides: Optional[Dict] = Body(default=None, embed=True),
+    annotated: bool = Body(default=False, embed=True),
 ):
     """生成 Word 文档并直接返回文件流
 
@@ -63,6 +64,7 @@ def export_word(
                 tmp_path,
                 column_width_overrides=column_width_overrides,
                 bake_toc_page_numbers=True,
+                annotated=annotated,
             )
         if not ok:
             os.unlink(tmp_path)
@@ -88,6 +90,7 @@ def export_word(
         response = FileResponse(
             tmp_path,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename=f"{project.name}_{'aCRF' if annotated else 'CRF'}.docx",
             background=BackgroundTask(os.unlink, tmp_path),
         )
     return response

@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-06-24
+> Last updated: 2026-06-29
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -43,7 +43,7 @@
 - `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application.
 - `components/DocxScreenshotPanel.vue`: Word import screenshot display.
 - `components/SimulatedCRFForm.vue`: simulated CRF rendering.
-- `App.vue` first fetches `/api/auth/me` after login, then decides whether to enter the admin workbench or regular-user main workbench; it also manages project copy, database import/export, Word export rate limiting, settings dialog, AI connectivity test, dark mode switching, and regular-user password change.
+- `App.vue` first fetches `/api/auth/me` after login, then decides whether to enter the admin workbench or regular-user main workbench; it also manages project copy, database import/export, the Word export dropdown (`导出eCRF` / `导出aCRF`), export rate limiting, settings dialog, AI connectivity test, dark mode switching, and regular-user password change.
 
 ## Dependencies and Scripts
 - Tech stack: Vue 3, Vite, Element Plus, vuedraggable, sortablejs.
@@ -127,6 +127,7 @@
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-06-29`: `App.vue` now wires the Word export dropdown to real eCRF / aCRF downloads. `导出aCRF` reuses the existing export path with `annotated: true`, falls back to `_aCRF.docx`, and the source-level shell test now locks the annotated request body / filename branching so the dropdown no longer regresses back to a toast-only placeholder.
 - `2026-06-25`: VisitsTab right-side visit-form list now mirrors the left visit list with a bordered `el-table`, reuses `useSortableTable` instead of a handwritten `vuedraggable` list, reinitializes drag handling after visit switches / list reloads, and keeps ordinal quick edit, preview, and remove actions inside table columns. Removed the orphaned `.manual-list-header` / `visit-form-*` header styles and updated the related source-level header/ordering wiring tests.
 - `2026-06-24`: Ordinal quick edit for ordered frontend lists. Added `useOrdinalQuickEdit.js` as the shared double-click ordinal input helper for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`; it reuses existing reorder endpoints, rejects out-of-range ordinal jumps instead of silently clamping them into writes, keeps filter-disabled semantics aligned with drag sorting, restores the previous order on save failure, and focuses the temporary `el-input-number` through a shared input ref. Added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, and expanded `orderingStructure.test.js` to cover the new wiring contract.
 - `2026-06-23`: Field library inline codelist editing. `FieldsTab.vue` choice-field option row now offers inline 新增字典 / 编辑字典 (icon buttons + two dialogs), reusing `POST /codelists`, `PUT /codelists/{id}/snapshot`, and `GET /codelists/{id}/references` with impact confirmation, dual cache invalidation (codelists + field-definitions), and global `refreshKey` sync; on save failure it refreshes to the latest codelist data and reports the error. Implemented standalone in FieldsTab (no `FormDesignerTab.vue` changes, backend unchanged); brief mode hides option OID/编码 consistent with `CodelistsTab`. Test directory 32→33 (added `fieldsTabCodelistQuickEdit.test.js`).

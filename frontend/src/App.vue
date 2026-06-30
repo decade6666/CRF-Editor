@@ -314,7 +314,7 @@ function collectColumnWidthOverrides(forms) {
   return overrides;
 }
 
-async function exportWord() {
+async function exportWord(annotated = false) {
   if (!selectedProject.value || exportWordLoading.value) return;
   exportWordLoading.value = true;
   try {
@@ -328,7 +328,7 @@ async function exportWord() {
         ...getAuthHeaders(),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ column_width_overrides: columnWidthOverrides }),
+      body: JSON.stringify({ column_width_overrides: columnWidthOverrides, annotated }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -336,7 +336,7 @@ async function exportWord() {
     }
     const blob = await response.blob();
     const contentDisposition = response.headers.get('content-disposition');
-    const fallbackFilename = `${selectedProject.value.name}_CRF.docx`;
+    const fallbackFilename = `${selectedProject.value.name}_${annotated ? 'aCRF' : 'CRF'}.docx`;
     const filename = getDownloadFilename(contentDisposition, fallbackFilename);
     const objectUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -358,7 +358,7 @@ function onExportCommand(command) {
   if (command === 'ecrf') {
     exportWord();
   } else if (command === 'acrf') {
-    ElMessage.info('导出aCRF 功能即将上线');
+    exportWord(true);
   }
 }
 
