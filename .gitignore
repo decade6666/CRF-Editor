@@ -56,6 +56,7 @@ node_modules/
 .obsidian/
 .claude/settings.local.json
 .trellis/workspace/
+.ccg/
 
 # ==========================================
 # 临时与调试文件
