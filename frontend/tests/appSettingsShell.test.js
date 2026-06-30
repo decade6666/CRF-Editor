@@ -60,7 +60,10 @@ test('header keeps template import and word export only', () => {
   assert.match(appSource, /:loading="exportWordLoading"[\s\S]*>导出Word<\/el-button>/);
   assert.match(appSource, /command="ecrf">导出eCRF<\/el-dropdown-item>/);
   assert.match(appSource, /command="acrf">导出aCRF<\/el-dropdown-item>/);
-  assert.match(appSource, /function onExportCommand\(command\)\s*\{[\s\S]*command === 'ecrf'[\s\S]*exportWord\(\)[\s\S]*command === 'acrf'[\s\S]*ElMessage\.info/);
+  assert.match(appSource, /async function exportWord\(annotated = false\)/);
+  assert.match(appSource, /body: JSON\.stringify\(\{ column_width_overrides: columnWidthOverrides, annotated \}\)/);
+  assert.match(appSource, /const fallbackFilename = `\$\{selectedProject\.value\.name\}_\$\{annotated \? 'aCRF' : 'CRF'\}\.docx`/);
+  assert.match(appSource, /function onExportCommand\(command\)\s*\{[\s\S]*command === 'ecrf'[\s\S]*exportWord\(\)[\s\S]*command === 'acrf'[\s\S]*exportWord\(true\)/);
 });
 
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {

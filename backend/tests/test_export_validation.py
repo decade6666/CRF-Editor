@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from docx import Document
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,6 +16,7 @@ from src.database import get_read_session, get_session
 from src.models import Base
 from src.models.project import Project
 from src.models.user import User
+from src.routers.export import export_word as export_word_route
 from src.services.export_service import (
     ExportService,
     export_full_database,
@@ -127,7 +129,6 @@ def test_validate_output_rejects_zero_byte_file(tmp_path: Path) -> None:
 
 
 def test_export_word_returns_docx_file(
-    client: TestClient,
     engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -135,16 +136,16 @@ def test_export_word_returns_docx_file(
         user = User(username="alice")
         session.add(user)
         session.flush()
-        project = Project(name="导出项目", version="v1.0", owner_id=user.id)
+        project = Project(name="export-project", version="v1.0", owner_id=user.id)
         session.add(project)
         session.commit()
+        user_id = user.id
         project_id = project.id
 
-    token = login_as(client, "alice")
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False: Document().save(output_path) or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Document().save(output_path) or True,
     )
     monkeypatch.setattr(
         ExportService,
@@ -152,19 +153,37 @@ def test_export_word_returns_docx_file(
         staticmethod(lambda path: (True, "")),
     )
 
-    response = client.post(
-        f"/api/projects/{project_id}/export/word",
-        headers=auth_headers(token),
-    )
+    with Session(engine) as session:
+        current_user = session.get(User, user_id)
+        response = export_word_route(
+            project_id,
+            session=session,
+            current_user=current_user,
+            column_width_overrides=None,
+            annotated=True,
+        )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+    assert "export-project_aCRF.docx" in response.headers["content-disposition"]
+
+    with Session(engine) as session:
+        current_user = session.get(User, user_id)
+        response = export_word_route(
+            project_id,
+            session=session,
+            current_user=current_user,
+            column_width_overrides=None,
+            annotated=False,
+        )
+
+    assert response.status_code == 200
+    assert "export-project_CRF.docx" in response.headers["content-disposition"]
 
 
 def test_export_word_rejects_invalid_docx(
-    client: TestClient,
     engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,13 +194,13 @@ def test_export_word_rejects_invalid_docx(
         project = Project(name="导出项目", version="v1.0", owner_id=user.id)
         session.add(project)
         session.commit()
+        user_id = user.id
         project_id = project.id
 
-    token = login_as(client, "alice")
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False: Path(output_path).write_bytes(b"PK") or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Path(output_path).write_bytes(b"PK") or True,
     )
     monkeypatch.setattr(
         ExportService,
@@ -189,13 +208,19 @@ def test_export_word_rejects_invalid_docx(
         staticmethod(lambda path: (False, "无效 docx")),
     )
 
-    response = client.post(
-        f"/api/projects/{project_id}/export/word",
-        headers=auth_headers(token),
-    )
+    with Session(engine) as session:
+        current_user = session.get(User, user_id)
+        with pytest.raises(HTTPException) as excinfo:
+            export_word_route(
+                project_id,
+                session=session,
+                current_user=current_user,
+                column_width_overrides=None,
+                annotated=False,
+            )
 
-    assert response.status_code == 500
-    assert "无效 docx" in response.text
+    assert excinfo.value.status_code == 500
+    assert "无效 docx" in excinfo.value.detail
 
 
 # ── 数据库导出 ──

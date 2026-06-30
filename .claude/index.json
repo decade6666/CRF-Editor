@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-24T00:00:00-07:00",
+  "timestamp": "2026-06-29T18:35:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -94,6 +94,7 @@
         "backend/tests/test_config.py",
         "backend/tests/test_docx_import_contract.py",
         "backend/tests/test_docx_screenshot_service.py",
+        "backend/tests/test_export_acrf.py",
         "backend/tests/test_export_column_width_override.py",
         "backend/tests/test_export_paper_orientation.py",
         "backend/tests/test_export_service.py",
