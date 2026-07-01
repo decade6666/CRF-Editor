@@ -41,7 +41,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ```text
 CRF-Editor/
-├── config.yaml              # Application config (optional, at project root)
+├── config.yaml.example      # Config example (all optional params); copy to config.yaml
 ├── backend/
 │   ├── main.py              # FastAPI application entry point
 │   ├── app_launcher.py      # PyInstaller desktop entry
@@ -123,21 +123,40 @@ npm install
 
 5. (Optional) Customize configuration
 
-Edit `config.yaml` in the project root to configure database path, upload directory, server port, etc.:
+Copy `config.yaml.example` in the project root to `config.yaml` and adjust as needed (the example lists every optional parameter with its default):
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+The full set of optional parameters (unset fields fall back to the commented defaults; relative paths resolve against the project root):
 
 ```yaml
+app:
+  title: CRF编辑器                     # App title, default CRF编辑器
 database:
-  path: crf_editor.db
+  path: ./database/crf_editor.db       # SQLite file path, default ./crf_editor.db
 storage:
-  upload_path: uploads
+  upload_path: ./uploads               # Upload directory, default ./uploads
 server:
-  host: 0.0.0.0
-  port: 8888
-auth:
-  access_token_expire_minutes: 60
+  host: 0.0.0.0                        # Listen address, default 0.0.0.0
+  port: 8888                           # Listen port, default 8888
+template:
+  template_path: ./database/xxx.db     # Template .db path, must stay in allowlist and end with .db, default empty
+ai:
+  enabled: false                       # Enable AI, default false
+  api_url: https://api.example.com/v1  # Endpoint URL, default empty
+  api_key: sk-xxx                      # API key, default empty
+  model: deepseek-chat                 # Model name, default empty
+  api_format: openai                   # openai / anthropic, auto-detected when empty
+  timeout: 30                          # Request timeout in seconds, default 30
 admin:
-  username: admin
-  bootstrap_password: change-this-before-production
+  username: admin                      # Reserved admin username, default admin
+  bootstrap_password: change-this-before-production  # Reserved admin bootstrap password, default empty
+auth:
+  secret_key: change-this-dev-only-secret  # JWT secret, dev only; production must use CRF_AUTH_SECRET_KEY
+  algorithm: HS256                     # JWT algorithm, default HS256
+  access_token_expire_minutes: 60      # Token TTL in minutes, 1-60, default 30
 ```
 
 For public deployment, prefer the `CRF_*` environment variables listed in the root `.env.example`, especially:
