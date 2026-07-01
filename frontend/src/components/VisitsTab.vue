@@ -455,17 +455,19 @@ function mergeFormIntoState(updatedForm) {
     {}
   const nextForm = { ...currentForm, ...updatedForm }
   if (allForms.value.some(item => item.id === updatedForm.id)) {
-    allForms.value = allForms.value.map(item => item.id === updatedForm.id ? nextForm : item)
+    allForms.value = allForms.value.map(item => item.id === updatedForm.id ? { ...item, ...updatedForm } : item)
   } else {
     allForms.value = [...allForms.value, nextForm]
   }
   if (visitForms.value.some(item => item.id === updatedForm.id)) {
-    visitForms.value = visitForms.value.map(item => item.id === updatedForm.id ? nextForm : item)
+    // visitForms 携带 visit_form 关系字段（如 sequence），必须以自身对象为 base 合并，
+    // 不能用 allForms 派生的 nextForm 覆盖，否则右侧访视表单列表序号会丢失。
+    visitForms.value = visitForms.value.map(item => item.id === updatedForm.id ? { ...item, ...updatedForm } : item)
   }
   if (matrixData.value?.forms?.some(item => item.id === updatedForm.id)) {
     matrixData.value = {
       ...matrixData.value,
-      forms: matrixData.value.forms.map(item => item.id === updatedForm.id ? nextForm : item),
+      forms: matrixData.value.forms.map(item => item.id === updatedForm.id ? { ...item, ...updatedForm } : item),
     }
   }
   if (formPreviewForm.value?.id === updatedForm.id) {

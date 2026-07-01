@@ -368,3 +368,32 @@ test('canvas and dialog headers keep titles accessible and resilient after addin
   assert.match(formDesignerSource, /\.designer-dialog-header-main \{[\s\S]*gap: 8px;[\s\S]*max-width: 100%;[\s\S]*\}/);
   assert.match(formDesignerSource, /\.designer-dialog-title \{[\s\S]*flex: 0 1 auto;[\s\S]*white-space: nowrap;[\s\S]*\}/);
 });
+
+
+test('VisitsTab mergeFormIntoState preserves per-collection fields like sequence on aCRF drag save', () => {
+  // aCRF 标注拖动保存回写 updatedForm = { id, annotation_positions }，不含 sequence。
+  // sequence 属于 visit_form 关系，只存在于 visitForms 集合，不在 allForms / matrixData.forms 表单对象里。
+  // 修复契约：各集合 map 必须以自身 item 为 base 合并（{ ...item, ...updatedForm }），
+  // 不能用 allForms 派生的单一 nextForm 覆盖 visitForms，否则右侧访视表单列表序号丢失。
+  assert.match(
+    visitsTabSource,
+    /visitForms\.value = visitForms\.value\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
+    'visitForms map must merge on its own item base to preserve sequence',
+  );
+  assert.match(
+    visitsTabSource,
+    /allForms\.value = allForms\.value\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
+    'allForms map must merge on its own item base',
+  );
+  assert.match(
+    visitsTabSource,
+    /forms: matrixData\.value\.forms\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
+    'matrixData.forms map must merge on its own item base',
+  );
+  // 防回归：不允许再用单一 nextForm 覆盖 visitForms
+  assert.doesNotMatch(
+    visitsTabSource,
+    /visitForms\.value = visitForms\.value\.map\(item => item\.id === updatedForm\.id \? nextForm : item\)/,
+    'visitForms must not be overwritten by external nextForm',
+  );
+});
