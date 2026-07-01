@@ -192,7 +192,7 @@ def test_export_portrait_override_passes_non_wide_inline_flag(tmp_path: Path) ->
         captured_is_wide: list[bool] = []
         original = ExportService._add_inline_table
 
-        def _spy(self, doc, group, is_wide, form_id=None, *, available_cm=None):
+        def _spy(self, doc, group, is_wide, form_id=None, *, available_cm=None, annotated=False):
             captured_is_wide.append(is_wide)
             return original(
                 self,
@@ -221,7 +221,7 @@ def test_export_auto_mode_keeps_wide_inline_flag(tmp_path: Path) -> None:
         captured_is_wide: list[bool] = []
         original = ExportService._add_inline_table
 
-        def _spy(self, doc, group, is_wide, form_id=None, *, available_cm=None):
+        def _spy(self, doc, group, is_wide, form_id=None, *, available_cm=None, annotated=False):
             captured_is_wide.append(is_wide)
             return original(
                 self,

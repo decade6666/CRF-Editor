@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-06-24
+> Last updated: 2026-06-30
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -23,9 +23,9 @@ graph TD
     B --> B6["tests (39)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (19)"];
+    C --> C2["src/composables (21)"];
     C --> C3["src/styles"];
-    C --> C4["tests (38)"];
+    C --> C4["tests (41)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,16 +36,16 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (38 files, including 37 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (41 files, including 40 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
 - Management of projects, visits, forms, fields, units, and option dictionaries
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
-- Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly
+- Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel
-- Form designer real-time preview, field instance quick edit, simulated CRF rendering, column width and row height dragging
+- Form designer real-time preview, field instance quick edit, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
@@ -97,6 +97,7 @@ cd frontend && node --test tests/*.test.js
 - Form orientation contract: the backend `backend/src/models/form.py`, `backend/src/schemas/form.py`, `backend/src/database.py`, `backend/src/routers/forms.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/export_service.py` need to be synced with the frontend `frontend/src/components/FormDesignerTab.vue`; when `paper_orientation` changes, validate `test_form_paper_orientation.py`, `test_export_paper_orientation.py`, `test_project_copy.py` and the frontend source-level tests in sync.
 - Word import screenshot evidence contract: the backend `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` and the frontend `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue` need to keep consistent semantics for task status, page positioning, and failure prompts.
 - Strict preview/export parity: the frontend `frontend/src/styles/main.css` `.wp-form-title` must keep `text-align: left`; `backend/src/services/word_table_parity.py` and `backend/scripts/compare_word_table_parity.py` are used to compare the form / row / cell text of the browser preview JSON and the exported `.docx`; see `.trellis/spec/guides/cross-stack-contracts.md` §5.
+- aCRF annotation geometry and persistence: backend `backend/src/services/export_service.py`, `backend/src/schemas/form.py` (shared parse/serialize/canonicalize helpers), `backend/src/routers/forms.py` (create/update/copy), `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/import_service.py` (template import passthrough + mixed-column legacy read-only fallback), and frontend `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue` must evolve together; `Form.annotation_positions` string storage is canonicalized on every write path so copy/clone/project `.db` import/template import clamp + canonicalize instead of storing raw out-of-range values; see `.trellis/spec/guides/cross-stack-contracts.md` §6.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, and other cases.
@@ -125,6 +126,9 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-06-30`: `annotation_positions` persistence contract gap closed. `schemas/form.py::preserve_annotation_positions_storage` string branch now goes through `serialize_annotation_positions` so copy/clone/project `.db` import/template import canonicalize (clamp + key-sort) on write instead of storing raw out-of-range values. `import_service.py` template import now passes through `annotation_positions` via `preserve_annotation_positions_storage` with mixed-column legacy read-only compatibility (column probe + raw SQL single-column fallback for both `_load_template_forms` and `get_template_form_paper_orientation`, mirroring `paper_orientation`). `routers/import_template.py` converts service `ValueError` into 400 JSON. `VisitsTab.vue::mergeFormIntoState` now merges each collection (`allForms`/`visitForms`/`matrixData.forms`/`formPreviewForm`) on its own item base so aCRF drag-save no longer drops `visitForms.sequence`. Added backend regressions (out-of-range canonicalization on copy/clone/project-import, template import preservation/rejection/legacy-fallback, mixed-column preview tolerance, route-level fail-closed JSON) and a frontend contract test for per-collection base-merge; `test_form_annotation_positions.py` helper fixed to seed ORM `Form` directly (was misusing router `FormResponse`, masking 3 red tests).
+- `2026-06-30`: VisitsTab Word preview now shares the persisted `crf_view_mode` with `FormDesignerTab.vue`, renders the same red aCRF field/domain annotations in the preview dialog, and reuses `frontend/src/composables/acrfAnnotationGeometry.js` + `frontend/src/composables/useAcrfAnnotationDrag.js` for vertical drag persistence to `Form.annotation_positions`. Documentation sync also catches frontend composables 19→21 and the frontend test directory at 41 files (40 `.test.js` + `testProperty.js`).
+- `2026-06-29`: FormDesignerTab preview now adds a complete-mode-only eCRF / aCRF toggle in both the canvas header and fullscreen designer header, sharing one persisted `crf_view_mode`. The same PR family also adds `frontend/src/composables/acrfAnnotationGeometry.js` and `frontend/src/composables/useAcrfAnnotationDrag.js` so designer-side aCRF overlays can be rendered with shared red annotation geometry and persisted vertical dragging, and the frontend test directory grows to 41 files (40 `.test.js` + `testProperty.js`) with `acrfAnnotationGeometry.test.js`, `acrfAnnotationPersistence.test.js`, and `acrfViewToggle.test.js`.
 - `2026-06-25`: VisitsTab right-side visit-form list now uses the same bordered `el-table` + `useSortableTable` mechanism as the left visit list, replacing the handwritten `vuedraggable` block while keeping visit-form ordinal quick edit, preview, remove actions, and drag reinitialization after visit switches / list reloads. Frontend styles dropped the orphaned handwritten visit-form header classes, and the source-level ordering / header wiring tests were updated accordingly.
 - `2026-06-24`: Ordered-list ordinal quick edit. Added shared frontend composable `frontend/src/composables/useOrdinalQuickEdit.js` and wired double-click ordinal input for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`, all reusing existing reorder endpoints with filter-disabled semantics and restore-on-failure behavior. Frontend composables 16→19, frontend test directory 33→38 (37 `.test.js` + `testProperty.js`; added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, plus expanded ordering structure coverage).
 - `2026-06-23`: Field library inline codelist editing. `frontend/src/components/FieldsTab.vue` adds 新增字典 / 编辑字典 inline entries on the choice-field option row (parity with the form designer), reusing existing codelist `create` / `snapshot` / `references` endpoints with impact confirmation, cache invalidation, and global `refreshKey` sync; implemented standalone in FieldsTab without touching `FormDesignerTab.vue` (backend unchanged). Frontend test directory 32→33 (32 `.test.js` + `testProperty.js`; added `fieldsTabCodelistQuickEdit.test.js`).

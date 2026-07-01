@@ -159,7 +159,7 @@ export const api = {
     _autoInvalidate(url);
     return r.status === 204 ? null : _safeJsonParse(r);
   },
-  async patch(url, data) {
+  async patch(url, data, options = {}) {
     const r = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
@@ -167,6 +167,9 @@ export const api = {
     });
     await _checkStatus(r);
     _autoInvalidate(url);
+    for (const prefix of options.invalidate || []) {
+      invalidateCache(prefix);
+    }
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async del(url) {

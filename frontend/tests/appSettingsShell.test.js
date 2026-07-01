@@ -55,12 +55,15 @@ test('app refreshes field definition cache when switching to fields or designer 
 test('header keeps template import and word export only', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || '';
   assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/);
-  assert.match(headerSection, /@click="exportWord"[\s\S]*>导出Word<\/el-button\s*>/);
   assert.doesNotMatch(headerSection, /导入Word/);
-  assert.match(
-    appSource,
-    /<el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板<\/el-button>/,
-  );
+  assert.match(appSource, /<el-dropdown\s+v-if="selectedProject"[\s\S]*trigger="hover"[\s\S]*@command="onExportCommand"/);
+  assert.match(appSource, /:loading="exportWordLoading"[\s\S]*>导出Word<\/el-button>/);
+  assert.match(appSource, /command="ecrf">导出eCRF<\/el-dropdown-item>/);
+  assert.match(appSource, /command="acrf">导出aCRF<\/el-dropdown-item>/);
+  assert.match(appSource, /async function exportWord\(annotated = false\)/);
+  assert.match(appSource, /body: JSON\.stringify\(\{ column_width_overrides: columnWidthOverrides, annotated \}\)/);
+  assert.match(appSource, /const fallbackFilename = `\$\{selectedProject\.value\.name\}_\$\{annotated \? 'aCRF' : 'CRF'\}\.docx`/);
+  assert.match(appSource, /function onExportCommand\(command\)\s*\{[\s\S]*command === 'ecrf'[\s\S]*exportWord\(\)[\s\S]*command === 'acrf'[\s\S]*exportWord\(true\)/);
 });
 
 test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {

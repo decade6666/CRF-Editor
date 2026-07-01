@@ -1467,3 +1467,245 @@ def test_migration_script_outputs_new_file(tmp_path: Path) -> None:
     assert new_col_map["label_bold"][2].upper() == "INTEGER"
     assert new_col_map["label_font_size"][2].upper() == "TEXT"
     assert label_style_values == (1, None)
+
+
+def _build_template_db_with_annotation_positions(
+    tmp_path: Path,
+    *,
+    annotation_positions: str | None,
+    legacy_without_annotation_positions: bool = False,
+) -> tuple[Path, int, int]:
+    """构造带 annotation_positions 的模板库，可选回退为缺列旧结构。"""
+    db_path = tmp_path / "template_annotation.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with session_factory() as template_session:
+        project = create_project(template_session, name="模板项目-标注")
+        form = Form(
+            project_id=project.id,
+            name="带标注表单",
+            code="ANNOT_FORM",
+            annotation_positions=annotation_positions,
+        )
+        template_session.add(form)
+        template_session.flush()
+        field_definition = create_field_definition(
+            template_session, project.id, variable_name="ANNOT_FIELD", label="标注字段"
+        )
+        create_form_field(template_session, form.id, field_definition.id, inline_mark=0)
+        template_session.commit()
+        result = (db_path, project.id, form.id)
+
+    engine.dispose()
+    if legacy_without_annotation_positions:
+        _drop_form_annotation_positions_column(db_path)
+    return result
+
+
+def _drop_form_annotation_positions_column(db_path: Path) -> None:
+    """将模板库 form 表回退到不含 annotation_positions 的旧结构（保留 paper_orientation）。"""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute('ALTER TABLE "form" RENAME TO "form__legacy_with_annotation"')
+        conn.execute(
+            'CREATE TABLE "form" ('
+            'id INTEGER NOT NULL PRIMARY KEY, '
+            'project_id INTEGER NOT NULL, '
+            'name VARCHAR(255) NOT NULL, '
+            'code VARCHAR(100), '
+            'domain VARCHAR(255), '
+            'order_index INTEGER, '
+            'design_notes TEXT, '
+            'paper_orientation VARCHAR(255), '
+            'FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE'
+            ')'
+        )
+        conn.execute(
+            'INSERT INTO "form" (id, project_id, name, code, domain, order_index, design_notes, paper_orientation) '
+            'SELECT id, project_id, name, code, domain, order_index, design_notes, paper_orientation '
+            'FROM "form__legacy_with_annotation"'
+        )
+        conn.execute('DROP TABLE "form__legacy_with_annotation"')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_import_forms_preserves_annotation_positions(tmp_path: Path, session: Session) -> None:
+    """模板导入应保留合法 annotation_positions 并以 canonical 文本落库。"""
+    from src.schemas.form import serialize_annotation_positions
+
+    source_positions = '{"_form":{"y":18},"VAR0":{"y":-24}}'
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path, annotation_positions=source_positions
+    )
+    target_project = create_project(session, name="目标项目-保留标注")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.annotation_positions == serialize_annotation_positions(source_positions)
+
+
+def test_import_forms_canonicalizes_out_of_range_annotation_positions(
+    tmp_path: Path, session: Session
+) -> None:
+    """模板导入的越界 y 应被 clamp + canonical 重序列化落库。"""
+    source_positions = '{"_form":{"y":999},"VAR0":{"y":-999}}'
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path, annotation_positions=source_positions
+    )
+    target_project = create_project(session, name="目标项目-越界标注")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.annotation_positions == '{"VAR0":{"y":-200},"_form":{"y":200}}'
+
+
+def test_import_forms_rejects_invalid_annotation_positions(
+    tmp_path: Path, session: Session
+) -> None:
+    """模板导入遇非法保留 key 时应 fail closed，不静默接受。"""
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path, annotation_positions='{"_bad":{"y":1}}'
+    )
+    target_project = create_project(session, name="目标项目-非法标注")
+
+    with pytest.raises(ValueError, match="annotation_positions"):
+        ImportService(session).import_forms(
+            target_project_id=target_project.id,
+            template_path=str(template_path),
+            source_project_id=src_project_id,
+            form_ids=[src_form_id],
+        )
+
+
+def test_import_forms_defaults_to_none_when_source_missing_annotation_positions(
+    tmp_path: Path, session: Session
+) -> None:
+    """旧模板缺 annotation_positions 列时应只读导入，结果回退 None 且不修改源库。"""
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path,
+        annotation_positions='{"_form":{"y":18}}',
+        legacy_without_annotation_positions=True,
+    )
+    target_project = create_project(session, name="目标项目-缺列标注")
+
+    summary = ImportService(session).import_forms(
+        target_project_id=target_project.id,
+        template_path=str(template_path),
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+    session.commit()
+
+    conn = sqlite3.connect(str(template_path))
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+    finally:
+        conn.close()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.annotation_positions is None
+    assert "annotation_positions" not in cols
+
+
+def test_get_template_form_paper_orientation_tolerates_mixed_column_legacy(
+    tmp_path: Path, session: Session
+) -> None:
+    """有 paper_orientation 列但缺 annotation_positions 列的旧模板，预览读取不应 OperationalError。"""
+    template_path, _src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path,
+        annotation_positions='{"_form":{"y":18}}',
+        legacy_without_annotation_positions=True,
+    )
+    service = ImportService(session)
+
+    # 模板构造时 paper_orientation 默认 auto，缺列只影响 annotation_positions
+    assert service.get_template_form_paper_orientation(str(template_path), src_form_id) == "auto"
+
+
+def test_get_template_form_paper_orientation_returns_landscape_under_mixed_column(
+    tmp_path: Path, session: Session
+) -> None:
+    """mixed-column 旧模板的 paper_orientation 仍能正确读出显式 landscape。"""
+    db_path = tmp_path / "template_mixed_landscape.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with session_factory() as tmpl:
+        project = create_project(tmpl, name="mixed-landscape-project")
+        form = Form(
+            project_id=project.id,
+            name="mixed-landscape-form",
+            code="MIX_LAND",
+            paper_orientation="landscape",
+            annotation_positions='{"_form":{"y":12}}',
+        )
+        tmpl.add(form)
+        tmpl.flush()
+        fd = create_field_definition(tmpl, project.id, variable_name="MIX_FIELD", label="mixed")
+        create_form_field(tmpl, form.id, fd.id, inline_mark=0)
+        tmpl.commit()
+        form_id = form.id
+    engine.dispose()
+    _drop_form_annotation_positions_column(db_path)
+
+    service = ImportService(session)
+    assert service.get_template_form_paper_orientation(str(db_path), form_id) == "landscape"
+
+
+def test_execute_import_route_returns_400_on_invalid_annotation_positions(
+    tmp_path: Path, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """路由级 fail-closed：模板表单 annotation_positions 非法时，execute_import 返回 400 JSON。"""
+    from fastapi import HTTPException
+
+    from src.models.user import User
+    from src.routers.import_template import ImportExecuteRequest, execute_import
+
+    # 构造带非法 annotation_positions 的模板库
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path, annotation_positions='{"_bad":{"y":1}}'
+    )
+
+    # 鉴权与目标项目
+    user = User(username="route-owner", hashed_password="hash")
+    session.add(user)
+    session.flush()
+    project = Project(name="route-target-project", version="1.0", owner_id=user.id)
+    session.add(project)
+    session.flush()
+
+    fake_cfg = SimpleNamespace(template_path=str(template_path))
+    monkeypatch.setattr("src.routers.import_template.get_config", lambda: fake_cfg)
+
+    payload = ImportExecuteRequest(
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        execute_import(project.id, payload, session, user)
+
+    assert exc_info.value.status_code == 400
+    assert "annotation_positions" in str(exc_info.value.detail)

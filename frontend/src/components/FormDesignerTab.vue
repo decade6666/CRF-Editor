@@ -1,5 +1,16 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onBeforeUpdate, nextTick, inject, defineExpose } from 'vue';
+import {
+  ref,
+  reactive,
+  computed,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  onBeforeUpdate,
+  nextTick,
+  inject,
+  defineExpose,
+} from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
@@ -23,6 +34,17 @@ import {
   getUnifiedInlineHeaderRowKey,
   getUnifiedInlineDataRowKey,
 } from '../composables/useRowResize';
+import {
+  ANNOTATION_FORM_KEY,
+  ANNOTATION_KIND_FIELD,
+  ANNOTATION_KIND_FORM,
+  ANNOTATION_KIND_INLINE_HEADER,
+  buildAnnotationStyle,
+  hasAnnotationOverride,
+  normalizeAnnotationPositions,
+  readAnnotationDelta01Cm,
+} from '../composables/acrfAnnotationGeometry.js';
+import { useAcrfAnnotationDrag } from '../composables/useAcrfAnnotationDrag.js';
 import {
   renderCtrl as renderCtrlBase,
   renderCtrlHtml,
@@ -53,6 +75,46 @@ import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '..
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
 const editMode = inject('editMode', ref(false));
+const VIEW_MODE_STORAGE_KEY = 'crf_view_mode';
+
+function normalizeStoredViewMode(value) {
+  return value === 'aCRF' ? 'aCRF' : 'eCRF';
+}
+
+function readStoredViewMode() {
+  if (typeof window === 'undefined' || !window.localStorage) return 'eCRF';
+  try {
+    return normalizeStoredViewMode(window.localStorage.getItem(VIEW_MODE_STORAGE_KEY));
+  } catch {
+    return 'eCRF';
+  }
+}
+
+function writeStoredViewMode(mode) {
+  const normalizedMode = normalizeStoredViewMode(mode);
+  if (typeof window === 'undefined' || !window.localStorage) return normalizedMode;
+  try {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, normalizedMode);
+  } catch {
+    /* ignore localStorage errors */
+  }
+  return normalizedMode;
+}
+
+function resolveInitialViewMode(isEditModeEnabled, storedValue) {
+  if (!isEditModeEnabled) return 'eCRF';
+  return normalizeStoredViewMode(storedValue);
+}
+
+function getFieldOidAnnotationText(formField) {
+  const value = String(formField?.field_definition?.variable_name ?? '').trim();
+  return value || '';
+}
+
+function getFormDomainAnnotationText(form) {
+  const value = String(form?.domain ?? '').trim();
+  return value || '';
+}
 
 // 核心数据
 const forms = ref([]);
@@ -87,9 +149,12 @@ const editFormTarget = ref(null);
 const dragSrcId = ref(null);
 const dragOverIdx = ref(null);
 const deletingFieldIds = ref(new Set());
+const viewMode = ref(resolveInitialViewMode(editMode.value, readStoredViewMode()));
 const designerHistory = useDesignerHistory();
 let formFieldsLoadSession = 0;
 let formSelectionSession = 0;
+
+writeStoredViewMode(viewMode.value);
 
 // 新增字段本地草稿：点「新建字段」先生成临时草稿对象（不落库），保存才 POST 建定义+建实例。
 // 草稿带完整本地 field_definition，预览/渲染按本地数据工作，仅在发起网络请求处按草稿短路。
@@ -117,6 +182,44 @@ async function reloadForms() {
   selectedForm.value = forms.value.find((f) => f.id === selectedFormId) || null;
   if (!selectedForm.value) formFields.value = [];
 }
+
+function mergeFormIntoState(updatedForm) {
+  if (!updatedForm?.id) return null;
+  const currentForm =
+    forms.value.find((item) => item.id === updatedForm.id) ||
+    (selectedForm.value?.id === updatedForm.id ? selectedForm.value : null) ||
+    {};
+  const nextForm = { ...currentForm, ...updatedForm };
+  if (forms.value.some((item) => item.id === updatedForm.id)) {
+    forms.value = forms.value.map((item) => (item.id === updatedForm.id ? nextForm : item));
+  } else {
+    forms.value = [...forms.value, nextForm];
+  }
+  if (selectedForm.value?.id === updatedForm.id && selectedForm.value) {
+    Object.assign(selectedForm.value, nextForm);
+  }
+  return nextForm;
+}
+
+function getFormStateById(formId = selectedForm.value?.id ?? null) {
+  if (formId == null) return null;
+  if (selectedForm.value?.id === formId) return selectedForm.value;
+  return forms.value.find((item) => item.id === formId) || null;
+}
+
+function getFormAnnotationPositions(formId = selectedForm.value?.id ?? null) {
+  return normalizeAnnotationPositions(getFormStateById(formId)?.annotation_positions);
+}
+
+function applyFormAnnotationPositions(formId, annotationPositions) {
+  if (formId == null) return;
+  const normalized = normalizeAnnotationPositions(annotationPositions);
+  mergeFormIntoState({
+    id: formId,
+    annotation_positions: Object.keys(normalized).length > 0 ? normalized : null,
+  });
+}
+
 async function loadFieldDefs() {
   fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`);
 }
@@ -200,6 +303,22 @@ watch(refreshKey, () => {
     loadUnits();
   }
   if (selectedForm.value) loadFormFields();
+});
+watch(viewMode, (nextMode) => {
+  const normalizedMode = resolveInitialViewMode(editMode.value, nextMode);
+  if (normalizedMode !== nextMode) {
+    viewMode.value = normalizedMode;
+    return;
+  }
+  writeStoredViewMode(normalizedMode);
+});
+watch(editMode, (enabled) => {
+  const normalizedMode = resolveInitialViewMode(enabled, viewMode.value);
+  if (normalizedMode !== viewMode.value) {
+    viewMode.value = normalizedMode;
+    return;
+  }
+  writeStoredViewMode(normalizedMode);
 });
 
 // 表单CRUD
@@ -705,7 +824,10 @@ const usedDefIds = computed(() => new Set(formFields.value.map((f) => f.field_de
 // 字段库搜索
 const fieldSearch = ref('');
 const filteredFieldDefs = computed(() =>
-  rankFuzzyMatches(fieldDefs.value.filter(isVisibleInFieldLibrary), fieldSearch.value, (fd) => [fd.label, fd.variable_name]),
+  rankFuzzyMatches(fieldDefs.value.filter(isVisibleInFieldLibrary), fieldSearch.value, (fd) => [
+    fd.label,
+    fd.variable_name,
+  ]),
 );
 
 // 渲染逻辑
@@ -953,6 +1075,76 @@ const designerRenderGroups = computed(() => buildFormDesignerRenderGroups(design
 const designerRenderGroupsView = computed(() =>
   buildPreviewGroupViewModels(designerRenderGroups.value, previewModelHelpers),
 );
+const showAcrfAnnotations = computed(() => editMode.value && viewMode.value === 'aCRF');
+
+const annotationDrag = useAcrfAnnotationDrag({
+  apiClient: api,
+  getCurrentPositions: (formId) => getFormAnnotationPositions(formId),
+  applyOptimisticPositions: (formId, annotationPositions) => applyFormAnnotationPositions(formId, annotationPositions),
+  onPersisted: (updatedForm) => {
+    mergeFormIntoState(updatedForm);
+  },
+  onError: (error, snapshot) => {
+    ElMessage.error(`aCRF 标注位置保存失败：${error.message}`);
+    if (snapshot?.projectId != null) {
+      api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`);
+    }
+    if (snapshot?.formId != null) {
+      api.invalidateCache(`/api/forms/${snapshot.formId}/fields`);
+    }
+    void reloadForms();
+  },
+});
+
+function getFieldAnnotationTarget(formField) {
+  const key = getFieldOidAnnotationText(formField);
+  if (!key || selectedForm.value?.id == null) return null;
+  return {
+    formId: selectedForm.value.id,
+    projectId: props.projectId,
+    key,
+  };
+}
+
+function getFormAnnotationTarget(form) {
+  const text = getFormDomainAnnotationText(form);
+  if (!text || form?.id == null) return null;
+  return {
+    formId: form.id,
+    projectId: props.projectId,
+    key: ANNOTATION_FORM_KEY,
+  };
+}
+
+function isAnnotationDraggable(target) {
+  return Boolean(showAcrfAnnotations.value && target?.formId != null && target?.key);
+}
+
+function hasAnnotationOverrideForTarget(target) {
+  return Boolean(target?.key && hasAnnotationOverride(getFormAnnotationPositions(target.formId), target.key));
+}
+
+function getAnnotationStyle(text, kind, target) {
+  return buildAnnotationStyle({
+    text,
+    kind,
+    deltaY01cm: readAnnotationDelta01Cm(getFormAnnotationPositions(target?.formId), target?.key),
+  });
+}
+
+function onAnnotationPointerDown(target, event) {
+  if (!isAnnotationDraggable(target)) return;
+  annotationDrag.onAnnotationPointerDown(target, event);
+}
+
+function resetAnnotationPosition(target) {
+  if (!target) return;
+  annotationDrag.resetAnnotationPosition(target);
+}
+
+async function flushAnnotationPositionSave(options = {}) {
+  return annotationDrag.flushPending(options);
+}
 
 const needsLandscape = computed(() =>
   renderGroups.value.some((g) => g.type === 'unified' || (g.type === 'inline' && g.fields.length > 4)),
@@ -1065,7 +1257,10 @@ function getRowResizer(kind, group) {
   if (!rowResizerCache.has(tableInstanceId)) {
     rowResizerCache.set(
       tableInstanceId,
-      useRowResize(formIdRef, computed(() => tableInstanceId)),
+      useRowResize(
+        formIdRef,
+        computed(() => tableInstanceId),
+      ),
     );
   }
   return rowResizerCache.get(tableInstanceId);
@@ -1159,10 +1354,7 @@ function buildDesignNotesSaveSnapshot({
 
 async function persistDesignNotesSnapshot(snapshot) {
   await api.put(`/api/forms/${snapshot.formId}`, { design_notes: snapshot.notes });
-  forms.value = forms.value.map((f) => (f.id === snapshot.formId ? { ...f, design_notes: snapshot.notes } : f));
-  if (selectedForm.value?.id === snapshot.formId) {
-    selectedForm.value = forms.value.find((f) => f.id === snapshot.formId) || selectedForm.value;
-  }
+  mergeFormIntoState({ id: snapshot.formId, design_notes: snapshot.notes });
   api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`);
   notesAutoSaveErrorShown = false;
 }
@@ -1210,13 +1402,22 @@ async function selectForm(nextForm) {
       return;
     }
   }
+  const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
+  if (sessionId !== formSelectionSession) return;
+  if (!annotationFlushSucceeded && currentForm?.id) {
+    formsTableRef.value?.setCurrentRow(currentForm);
+    return;
+  }
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }));
   if (sessionId !== formSelectionSession) return;
   if (!flushSucceeded && currentForm?.id) {
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
   }
-  const canLeaveFieldProp = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换表单' });
+  const canLeaveFieldProp = await resolveFieldPropLeave({
+    resetOptions: { preserveEditor: true },
+    actionText: '切换表单',
+  });
   if (sessionId !== formSelectionSession) return;
   if (!canLeaveFieldProp) {
     formsTableRef.value?.setCurrentRow(currentForm);
@@ -1486,7 +1687,9 @@ function classifyFieldPropSaveError(error) {
     code = `http_${status}`;
   }
   const retryable =
-    code !== 'context_changed' && code !== 'missing_codelist' && (!Number.isFinite(status) || status >= 500 || status === 429 || status === 408);
+    code !== 'context_changed' &&
+    code !== 'missing_codelist' &&
+    (!Number.isFinite(status) || status >= 500 || status === 429 || status === 408);
   return {
     code,
     message,
@@ -1513,12 +1716,16 @@ function discardPendingFieldPropChanges(resetOptions = {}) {
 
 async function confirmDiscardFieldPropChanges(failure, { resetOptions = {}, actionText = '关闭' } = {}) {
   try {
-    await ElMessageBox.confirm(`${failure.message}\n是否放弃当前未保存的字段属性修改并继续${actionText}？`, '字段属性未保存', {
-      confirmButtonText: '继续修改',
-      cancelButtonText: `放弃并${actionText}`,
-      distinguishCancelAndClose: true,
-      type: 'warning',
-    });
+    await ElMessageBox.confirm(
+      `${failure.message}\n是否放弃当前未保存的字段属性修改并继续${actionText}？`,
+      '字段属性未保存',
+      {
+        confirmButtonText: '继续修改',
+        cancelButtonText: `放弃并${actionText}`,
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      },
+    );
     return false;
   } catch (e) {
     if (e === 'cancel') {
@@ -1808,16 +2015,10 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
       label: '编辑属性',
       ids: { ffId: propEditFieldId, fdId: propEditDefinitionId },
       undo: async (ids) => {
-        await applyFieldPropState(
-          { formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId },
-          beforePropState,
-        );
+        await applyFieldPropState({ formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId }, beforePropState);
       },
       redo: async (ids) => {
-        await applyFieldPropState(
-          { formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId },
-          afterPropState,
-        );
+        await applyFieldPropState({ formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId }, afterPropState);
       },
     });
   }
@@ -2056,7 +2257,9 @@ function quickAddOptRow() {
 }
 async function quickDelOptRow(idx) {
   try {
-    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    await confirmDelete(ElMessageBox.confirm, {
+      targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"`,
+    });
     quickCodelistOpts.value.splice(idx, 1);
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
@@ -2158,7 +2361,9 @@ function quickEditAddOptRow() {
 }
 async function quickEditDelOptRow(idx) {
   try {
-    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` });
+    await confirmDelete(ElMessageBox.confirm, {
+      targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"`,
+    });
     quickEditCodelistOpts.value.splice(idx, 1);
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
@@ -2330,12 +2535,15 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('keydown', handleHistoryKeydown);
+  void annotationDrag.dispose();
 });
 watch(
   () => props.projectId,
   async (newProjectId, previousProjectId) => {
     if (newProjectId === previousProjectId) return;
     invalidateFormSelectionSession();
+    const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
+    if (!annotationFlushSucceeded) return;
     const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId });
     const flushSucceeded = await flushDesignNotesSave(flushSnapshot);
     if (!flushSucceeded && selectedForm.value?.id) return;
@@ -2360,6 +2568,8 @@ async function canLeaveProject() {
     const proceed = await confirmDiscardDraft();
     if (!proceed) return false;
   }
+  const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
+  if (!annotationFlushSucceeded && selectedForm.value?.id) return false;
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot());
   if (!flushSucceeded && selectedForm.value?.id) return false;
   return resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换项目' });
@@ -2480,31 +2690,67 @@ function openAddForm() {
       <div class="fd-canvas" style="flex: 1">
         <div class="fd-canvas-header">
           <el-button v-if="selectedForm" size="small" type="primary" @click="openDesigner">设计表单</el-button>
-          <span>{{ selectedForm?.name || '未选择表单' }}</span>
-          <el-tooltip
-            v-if="headerDesignNotesSummary"
-            effect="dark"
-            placement="bottom"
-            :content="headerDesignNotesTooltip"
-          >
-            <span class="fd-canvas-header-notes" data-test="canvas-notes-summary">{{ headerDesignNotesSummary }}</span>
-          </el-tooltip>
-          <span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto"
-            >共 {{ formFields.length }} 个字段</span
-          >
+          <el-switch
+            v-if="selectedForm && editMode"
+            v-model="viewMode"
+            inline-prompt
+            active-text="aCRF"
+            inactive-text="eCRF"
+            :active-value="'aCRF'"
+            :inactive-value="'eCRF'"
+          />
+          <div class="fd-canvas-header-main">
+            <span class="fd-canvas-form-title">{{ selectedForm?.name || '未选择表单' }}</span>
+            <el-tooltip
+              v-if="headerDesignNotesSummary"
+              effect="dark"
+              placement="bottom"
+              :content="headerDesignNotesTooltip"
+            >
+              <span class="fd-canvas-header-notes" data-test="canvas-notes-summary">{{
+                headerDesignNotesSummary
+              }}</span>
+            </el-tooltip>
+          </div>
+          <span class="fd-canvas-header-count">共 {{ formFields.length }} 个字段</span>
         </div>
         <div class="word-preview">
           <div
-            :class="[
-              'word-page',
-              'form-designer-word-page',
-              'designer-scaled-word-page',
-              { landscape: landscapeMode },
-            ]"
+            :class="['word-page', 'form-designer-word-page', 'designer-scaled-word-page', { landscape: landscapeMode }]"
           >
             <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
             <template v-else>
-              <div class="wp-form-title">{{ selectedForm.name }}</div>
+              <div class="wp-form-title-row">
+                <div class="wp-form-title">{{ selectedForm.name }}</div>
+                <span
+                  v-if="showAcrfAnnotations && getFormDomainAnnotationText(selectedForm)"
+                  :class="[
+                    'wp-acrf-annotation',
+                    'wp-acrf-annotation--form',
+                    { 'wp-acrf-annotation--interactive': isAnnotationDraggable(getFormAnnotationTarget(selectedForm)) },
+                  ]"
+                  :style="
+                    getAnnotationStyle(
+                      getFormDomainAnnotationText(selectedForm),
+                      ANNOTATION_KIND_FORM,
+                      getFormAnnotationTarget(selectedForm),
+                    )
+                  "
+                  @pointerdown="(event) => onAnnotationPointerDown(getFormAnnotationTarget(selectedForm), event)"
+                >
+                  <span class="wp-acrf-annotation__text">{{ getFormDomainAnnotationText(selectedForm) }}</span>
+                  <button
+                    type="button"
+                    class="wp-acrf-annotation-reset"
+                    :disabled="!hasAnnotationOverrideForTarget(getFormAnnotationTarget(selectedForm))"
+                    aria-label="重置表单 domain 标注位置"
+                    @pointerdown.stop
+                    @click.stop="resetAnnotationPosition(getFormAnnotationTarget(selectedForm))"
+                  >
+                    R
+                  </button>
+                </span>
+              </div>
               <div v-if="!formFields.length" class="wp-empty">暂无字段</div>
               <div class="wp-body">
                 <div class="wp-main">
@@ -2522,7 +2768,9 @@ function openAddForm() {
                           <tr
                             v-if="seg.type === 'regular_field'"
                             class="row-resize-host"
-                            :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedRegularRowKey(seg.fields[0]))"
+                            :style="
+                              getRowHeightStyle(getRowResizer('unified', gv), getUnifiedRegularRowKey(seg.fields[0]))
+                            "
                             @dblclick="openQuickEdit(seg.fields[0])"
                           >
                             <td
@@ -2533,7 +2781,13 @@ function openAddForm() {
                               {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                               <span
                                 class="row-resizer-handle"
-                                @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                                @pointerdown="
+                                  (e) =>
+                                    getRowResizer('unified', gv).onResizeStart(
+                                      getUnifiedRegularRowKey(seg.fields[0]),
+                                      e,
+                                    )
+                                "
                               ></span>
                             </td>
                             <td
@@ -2543,35 +2797,116 @@ function openAddForm() {
                             >
                               <span v-html="renderCellHtml(seg.fields[0])"></span>
                               <span
+                                v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                                :class="[
+                                  'wp-acrf-annotation',
+                                  'wp-acrf-annotation--field',
+                                  {
+                                    'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                      getFieldAnnotationTarget(seg.fields[0]),
+                                    ),
+                                  },
+                                ]"
+                                :style="
+                                  getAnnotationStyle(
+                                    getFieldOidAnnotationText(seg.fields[0]),
+                                    ANNOTATION_KIND_FIELD,
+                                    getFieldAnnotationTarget(seg.fields[0]),
+                                  )
+                                "
+                                @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)"
+                              >
+                                <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(seg.fields[0]) }}</span>
+                                <button
+                                  type="button"
+                                  class="wp-acrf-annotation-reset"
+                                  :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))"
+                                  aria-label="重置字段标注位置"
+                                  @pointerdown.stop
+                                  @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                                >
+                                  R
+                                </button>
+                              </span>
+                              <span
                                 class="row-resizer-handle"
-                                @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                                @pointerdown="
+                                  (e) =>
+                                    getRowResizer('unified', gv).onResizeStart(
+                                      getUnifiedRegularRowKey(seg.fields[0]),
+                                      e,
+                                    )
+                                "
                               ></span>
                             </td>
                           </tr>
                           <tr
                             v-else-if="seg.type === 'full_row'"
                             class="row-resize-host"
-                            :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedFullRowKey(seg.fields[0]))"
+                            :style="
+                              getRowHeightStyle(getRowResizer('unified', gv), getUnifiedFullRowKey(seg.fields[0]))
+                            "
                             @dblclick="openQuickEdit(seg.fields[0])"
                           >
                             <td
                               :class="{
                                 'wp-structure-label--multiline': seg.fields[0].field_definition?.field_type === '标签',
+                                'row-resize-anchor': true,
                               }"
                               :colspan="gv.colCount"
                               :style="getFormFieldLabelPreviewStyle(seg.fields[0], { structure: true })"
                             >
                               {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                               <span
+                                v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                                :class="[
+                                  'wp-acrf-annotation',
+                                  'wp-acrf-annotation--field',
+                                  {
+                                    'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                      getFieldAnnotationTarget(seg.fields[0]),
+                                    ),
+                                  },
+                                ]"
+                                :style="
+                                  getAnnotationStyle(
+                                    getFieldOidAnnotationText(seg.fields[0]),
+                                    ANNOTATION_KIND_FIELD,
+                                    getFieldAnnotationTarget(seg.fields[0]),
+                                  )
+                                "
+                                @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)"
+                              >
+                                <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(seg.fields[0]) }}</span>
+                                <button
+                                  type="button"
+                                  class="wp-acrf-annotation-reset"
+                                  :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))"
+                                  aria-label="重置字段标注位置"
+                                  @pointerdown.stop
+                                  @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                                >
+                                  R
+                                </button>
+                              </span>
+                              <span
                                 class="row-resizer-handle"
-                                @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
+                                @pointerdown="
+                                  (e) =>
+                                    getRowResizer('unified', gv).onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)
+                                "
                               ></span>
                             </td>
                           </tr>
                           <template v-else-if="seg.type === 'inline_block'">
                             <tr
                               class="row-resize-host"
-                              :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedInlineHeaderRowKey(seg.fields))"
+                              :style="
+                                getRowHeightStyle(
+                                  getRowResizer('unified', gv),
+                                  getUnifiedInlineHeaderRowKey(seg.fields),
+                                )
+                              "
                             >
                               <td
                                 v-for="(ff, idx) in seg.fields"
@@ -2583,8 +2918,47 @@ function openAddForm() {
                               >
                                 {{ getFormFieldDisplayLabel(ff) }}
                                 <span
+                                  v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                  :class="[
+                                    'wp-acrf-annotation',
+                                    'wp-acrf-annotation--field',
+                                    'wp-acrf-annotation--inline-header',
+                                    {
+                                      'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                        getFieldAnnotationTarget(ff),
+                                      ),
+                                    },
+                                  ]"
+                                  :style="
+                                    getAnnotationStyle(
+                                      getFieldOidAnnotationText(ff),
+                                      ANNOTATION_KIND_INLINE_HEADER,
+                                      getFieldAnnotationTarget(ff),
+                                    )
+                                  "
+                                  @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                                >
+                                  <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                  <button
+                                    type="button"
+                                    class="wp-acrf-annotation-reset"
+                                    :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                    aria-label="重置字段标注位置"
+                                    @pointerdown.stop
+                                    @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                  >
+                                    R
+                                  </button>
+                                </span>
+                                <span
                                   class="row-resizer-handle"
-                                  @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
+                                  @pointerdown="
+                                    (e) =>
+                                      getRowResizer('unified', gv).onResizeStart(
+                                        getUnifiedInlineHeaderRowKey(seg.fields),
+                                        e,
+                                      )
+                                  "
                                 ></span>
                               </td>
                             </tr>
@@ -2592,7 +2966,12 @@ function openAddForm() {
                               v-for="(row, ri) in seg.inlineRows"
                               :key="ri"
                               class="row-resize-host"
-                              :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedInlineDataRowKey(seg.fields, ri))"
+                              :style="
+                                getRowHeightStyle(
+                                  getRowResizer('unified', gv),
+                                  getUnifiedInlineDataRowKey(seg.fields, ri),
+                                )
+                              "
                             >
                               <td
                                 v-for="(cell, ci) in row"
@@ -2605,7 +2984,13 @@ function openAddForm() {
                                 <span v-html="cell"></span>
                                 <span
                                   class="row-resizer-handle"
-                                  @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
+                                  @pointerdown="
+                                    (e) =>
+                                      getRowResizer('unified', gv).onResizeStart(
+                                        getUnifiedInlineDataRowKey(seg.fields, ri),
+                                        e,
+                                      )
+                                  "
                                 ></span>
                               </td>
                             </tr>
@@ -2619,7 +3004,8 @@ function openAddForm() {
                           class="resizer-handle"
                           :style="{
                             left:
-                              cumRatio(getResizer('unified', gv.colCount, gi, gv, 'main').colRatios, bi - 1) * 100 + '%',
+                              cumRatio(getResizer('unified', gv.colCount, gi, gv, 'main').colRatios, bi - 1) * 100 +
+                              '%',
                           }"
                           @pointerdown="
                             (e) => getResizer('unified', gv.colCount, gi, gv, 'main').onResizeStart(bi - 1, e)
@@ -2655,6 +3041,38 @@ function openAddForm() {
                             >
                               {{ getFormFieldDisplayLabel(ff) }}
                               <span
+                                v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                :class="[
+                                  'wp-acrf-annotation',
+                                  'wp-acrf-annotation--field',
+                                  {
+                                    'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                      getFieldAnnotationTarget(ff),
+                                    ),
+                                  },
+                                ]"
+                                :style="
+                                  getAnnotationStyle(
+                                    getFieldOidAnnotationText(ff),
+                                    ANNOTATION_KIND_FIELD,
+                                    getFieldAnnotationTarget(ff),
+                                  )
+                                "
+                                @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                              >
+                                <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                <button
+                                  type="button"
+                                  class="wp-acrf-annotation-reset"
+                                  :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                  aria-label="重置字段标注位置"
+                                  @pointerdown.stop
+                                  @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                >
+                                  R
+                                </button>
+                              </span>
+                              <span
                                 class="row-resizer-handle"
                                 @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
                               ></span>
@@ -2672,6 +3090,38 @@ function openAddForm() {
                               :style="getFormFieldLabelPreviewStyle(ff, { structure: true })"
                             >
                               {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                              <span
+                                v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                :class="[
+                                  'wp-acrf-annotation',
+                                  'wp-acrf-annotation--field',
+                                  {
+                                    'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                      getFieldAnnotationTarget(ff),
+                                    ),
+                                  },
+                                ]"
+                                :style="
+                                  getAnnotationStyle(
+                                    getFieldOidAnnotationText(ff),
+                                    ANNOTATION_KIND_FIELD,
+                                    getFieldAnnotationTarget(ff),
+                                  )
+                                "
+                                @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                              >
+                                <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                <button
+                                  type="button"
+                                  class="wp-acrf-annotation-reset"
+                                  :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                  aria-label="重置字段标注位置"
+                                  @pointerdown.stop
+                                  @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                >
+                                  R
+                                </button>
+                              </span>
                               <span
                                 class="row-resizer-handle"
                                 @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
@@ -2692,7 +3142,43 @@ function openAddForm() {
                               ></span>
                             </td>
                             <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                              <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'main'), normalColumnCm(gi, gv, 'main'))"></span>
+                              <span
+                                v-html="
+                                  renderCellHtml(ff, normalFillChars(gi, gv, 'main'), normalColumnCm(gi, gv, 'main'))
+                                "
+                              ></span>
+                              <span
+                                v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                :class="[
+                                  'wp-acrf-annotation',
+                                  'wp-acrf-annotation--field',
+                                  {
+                                    'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                      getFieldAnnotationTarget(ff),
+                                    ),
+                                  },
+                                ]"
+                                :style="
+                                  getAnnotationStyle(
+                                    getFieldOidAnnotationText(ff),
+                                    ANNOTATION_KIND_FIELD,
+                                    getFieldAnnotationTarget(ff),
+                                  )
+                                "
+                                @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                              >
+                                <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                <button
+                                  type="button"
+                                  class="wp-acrf-annotation-reset"
+                                  :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                  aria-label="重置字段标注位置"
+                                  @pointerdown.stop
+                                  @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                >
+                                  R
+                                </button>
+                              </span>
                               <span
                                 class="row-resizer-handle"
                                 @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
@@ -2740,8 +3226,43 @@ function openAddForm() {
                           >
                             {{ getFormFieldDisplayLabel(ff) }}
                             <span
+                              v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                              :class="[
+                                'wp-acrf-annotation',
+                                'wp-acrf-annotation--field',
+                                'wp-acrf-annotation--inline-header',
+                                {
+                                  'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                    getFieldAnnotationTarget(ff),
+                                  ),
+                                },
+                              ]"
+                              :style="
+                                getAnnotationStyle(
+                                  getFieldOidAnnotationText(ff),
+                                  ANNOTATION_KIND_INLINE_HEADER,
+                                  getFieldAnnotationTarget(ff),
+                                )
+                              "
+                              @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                            >
+                              <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                              <button
+                                type="button"
+                                class="wp-acrf-annotation-reset"
+                                :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                aria-label="重置字段标注位置"
+                                @pointerdown.stop
+                                @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                              >
+                                R
+                              </button>
+                            </span>
+                            <span
                               class="row-resizer-handle"
-                              @pointerdown="(e) => getRowResizer('inline', gv).onResizeStart(getInlineHeaderRowKey(gv.fields), e)"
+                              @pointerdown="
+                                (e) => getRowResizer('inline', gv).onResizeStart(getInlineHeaderRowKey(gv.fields), e)
+                              "
                             ></span>
                           </td>
                         </tr>
@@ -2761,7 +3282,9 @@ function openAddForm() {
                             <span v-html="cell"></span>
                             <span
                               class="row-resizer-handle"
-                              @pointerdown="(e) => getRowResizer('inline', gv).onResizeStart(getInlineDataRowKey(gv.fields, ri), e)"
+                              @pointerdown="
+                                (e) => getRowResizer('inline', gv).onResizeStart(getInlineDataRowKey(gv.fields, ri), e)
+                              "
                             ></span>
                           </td>
                         </tr>
@@ -2800,10 +3323,25 @@ function openAddForm() {
       v-model="showDesigner"
       :before-close="handleDesignerBeforeClose"
       :close-on-click-modal="false"
-      :title="'设计：' + (selectedForm?.name || '')"
       fullscreen
       class="designer-dialog"
     >
+      <template #header="{ titleId, titleClass }">
+        <div class="designer-dialog-header">
+          <div class="designer-dialog-header-main">
+            <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">设计：{{ selectedForm?.name || '' }}</span>
+            <el-switch
+              v-if="editMode"
+              v-model="viewMode"
+              inline-prompt
+              active-text="aCRF"
+              inactive-text="eCRF"
+              :active-value="'aCRF'"
+              :inactive-value="'eCRF'"
+            />
+          </div>
+        </div>
+      </template>
       <div class="designer-shell">
         <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
@@ -2819,7 +3357,9 @@ function openAddForm() {
               :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''"
               @click="addField(fd)"
             >
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ fd.label }}</span
+              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{
+                fd.label
+              }}</span
               ><span style="color: var(--color-text-muted); font-size: 11px; flex-shrink: 0">{{ fd.field_type }}</span>
             </button>
           </div>
@@ -2829,7 +3369,8 @@ function openAddForm() {
           <div class="designer-workspace-top">
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header">
-                <el-button size="small" type="primary" aria-label="新建字段" title="新建字段" @click="newField"><el-icon aria-hidden="true"><Plus /></el-icon></el-button
+                <el-button size="small" type="primary" aria-label="新建字段" title="新建字段" @click="newField"
+                  ><el-icon aria-hidden="true"><Plus /></el-icon></el-button
                 ><el-button
                   v-if="hasDraft"
                   size="small"
@@ -2840,7 +3381,12 @@ function openAddForm() {
                   :loading="savingDraft"
                   @click="saveDraftField"
                   ><el-icon aria-hidden="true"><Check /></el-icon></el-button
-                ><el-button size="small" aria-label="添加“以下为log行”提示" title="添加“以下为log行”提示" @click="addLogRow">log</el-button
+                ><el-button
+                  size="small"
+                  aria-label="添加“以下为log行”提示"
+                  title="添加“以下为log行”提示"
+                  @click="addLogRow"
+                  >log</el-button
                 ><el-button
                   size="small"
                   data-test="designer-undo"
@@ -2849,7 +3395,12 @@ function openAddForm() {
                   :disabled="!designerHistory.canUndo.value"
                   :loading="designerHistory.busy.value"
                   @click="handleUndo"
-                  ><el-icon aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" /></svg></el-icon></el-button
+                  ><el-icon aria-hidden="true"
+                    ><svg viewBox="0 0 24 24">
+                      <path
+                        fill="currentColor"
+                        d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"
+                      /></svg></el-icon></el-button
                 ><el-button
                   size="small"
                   data-test="designer-redo"
@@ -2858,7 +3409,12 @@ function openAddForm() {
                   :disabled="!designerHistory.canRedo.value"
                   :loading="designerHistory.busy.value"
                   @click="handleRedo"
-                  ><el-icon aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" /></svg></el-icon></el-button
+                  ><el-icon aria-hidden="true"
+                    ><svg viewBox="0 0 24 24">
+                      <path
+                        fill="currentColor"
+                        d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"
+                      /></svg></el-icon></el-button
                 ><el-button v-if="selectedIds.length" type="danger" size="small" @click="batchDelete"
                   >批量删除({{ selectedIds.length }})</el-button
                 ><span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto"
@@ -2886,13 +3442,20 @@ function openAddForm() {
                   @drop="onDrop($event, idx)"
                   @keydown="handleFieldKeydown($event, ff, idx)"
                 >
-                  <el-checkbox v-if="!isDraftField(ff)" v-model="selectedIds" :label="ff.id" size="small" @click.stop></el-checkbox
+                  <el-checkbox
+                    v-if="!isDraftField(ff)"
+                    v-model="selectedIds"
+                    :label="ff.id"
+                    size="small"
+                    @click.stop
+                  ></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
                     getFormFieldDisplayLabel(ff)
                   }}</span
-                  ><el-tag v-if="isDraftField(ff)" size="small" type="success" effect="plain" style="margin-left: 4px">未保存</el-tag
+                  ><el-tag v-if="isDraftField(ff)" size="small" type="success" effect="plain" style="margin-left: 4px"
+                    >未保存</el-tag
                   ><el-tooltip v-if="canToggleInline(ff) && !isDraftField(ff)" content="横向表格标记"
                     ><el-button
                       size="small"
@@ -2935,6 +3498,43 @@ function openAddForm() {
                     >
                       <div v-if="!selectedForm" class="wp-empty">← 请选择表单</div>
                       <template v-else>
+                        <div class="wp-form-title-row">
+                          <div class="wp-form-title">{{ selectedForm.name }}</div>
+                          <span
+                            v-if="showAcrfAnnotations && getFormDomainAnnotationText(selectedForm)"
+                            :class="[
+                              'wp-acrf-annotation',
+                              'wp-acrf-annotation--form',
+                              {
+                                'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                  getFormAnnotationTarget(selectedForm),
+                                ),
+                              },
+                            ]"
+                            :style="
+                              getAnnotationStyle(
+                                getFormDomainAnnotationText(selectedForm),
+                                ANNOTATION_KIND_FORM,
+                                getFormAnnotationTarget(selectedForm),
+                              )
+                            "
+                            @pointerdown="
+                              (event) => onAnnotationPointerDown(getFormAnnotationTarget(selectedForm), event)
+                            "
+                          >
+                            <span class="wp-acrf-annotation__text">{{ getFormDomainAnnotationText(selectedForm) }}</span>
+                            <button
+                              type="button"
+                              class="wp-acrf-annotation-reset"
+                              :disabled="!hasAnnotationOverrideForTarget(getFormAnnotationTarget(selectedForm))"
+                              aria-label="重置表单 domain 标注位置"
+                              @pointerdown.stop
+                              @click.stop="resetAnnotationPosition(getFormAnnotationTarget(selectedForm))"
+                            >
+                              R
+                            </button>
+                          </span>
+                        </div>
                         <div v-if="!designerPreviewFields.length" class="wp-empty">暂无字段</div>
                         <div class="wp-body">
                           <div class="wp-main">
@@ -2943,19 +3543,22 @@ function openAddForm() {
                                 <table class="unified-table">
                                   <colgroup v-if="getResizer('unified', gv.colCount, gi, gv, 'designer')">
                                     <col
-                                      v-for="(r, ci) in getResizer('unified', gv.colCount, gi, gv, 'designer').colRatios"
+                                      v-for="(r, ci) in getResizer('unified', gv.colCount, gi, gv, 'designer')
+                                        .colRatios"
                                       :key="ci"
                                       :style="{ width: r * 100 + '%' }"
                                     />
                                   </colgroup>
-                                  <template
-                                    v-for="seg in gv.segments"
-                                    :key="seg.fields[0]?.id"
-                                  >
+                                  <template v-for="seg in gv.segments" :key="seg.fields[0]?.id">
                                     <tr
                                       v-if="seg.type === 'regular_field'"
                                       class="row-resize-host"
-                                      :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedRegularRowKey(seg.fields[0]))"
+                                      :style="
+                                        getRowHeightStyle(
+                                          getRowResizer('unified', gv),
+                                          getUnifiedRegularRowKey(seg.fields[0]),
+                                        )
+                                      "
                                       @dblclick="openQuickEdit(seg.fields[0])"
                                     >
                                       <td
@@ -2966,7 +3569,13 @@ function openAddForm() {
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) }}
                                         <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                                          @pointerdown="
+                                            (e) =>
+                                              getRowResizer('unified', gv).onResizeStart(
+                                                getUnifiedRegularRowKey(seg.fields[0]),
+                                                e,
+                                              )
+                                          "
                                         ></span>
                                       </td>
                                       <td
@@ -2976,15 +3585,64 @@ function openAddForm() {
                                       >
                                         <span v-html="renderCellHtml(seg.fields[0])"></span>
                                         <span
+                                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                                          :class="[
+                                            'wp-acrf-annotation',
+                                            'wp-acrf-annotation--field',
+                                            {
+                                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                getFieldAnnotationTarget(seg.fields[0]),
+                                              ),
+                                            },
+                                          ]"
+                                          :style="
+                                            getAnnotationStyle(
+                                              getFieldOidAnnotationText(seg.fields[0]),
+                                              ANNOTATION_KIND_FIELD,
+                                              getFieldAnnotationTarget(seg.fields[0]),
+                                            )
+                                          "
+                                          @pointerdown="
+                                            (event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)
+                                          "
+                                        >
+                                          <span class="wp-acrf-annotation__text">{{
+                                            getFieldOidAnnotationText(seg.fields[0])
+                                          }}</span>
+                                          <button
+                                            type="button"
+                                            class="wp-acrf-annotation-reset"
+                                            :disabled="
+                                              !hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))
+                                            "
+                                            aria-label="重置字段标注位置"
+                                            @pointerdown.stop
+                                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                                          >
+                                            R
+                                          </button>
+                                        </span>
+                                        <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
+                                          @pointerdown="
+                                            (e) =>
+                                              getRowResizer('unified', gv).onResizeStart(
+                                                getUnifiedRegularRowKey(seg.fields[0]),
+                                                e,
+                                              )
+                                          "
                                         ></span>
                                       </td>
                                     </tr>
                                     <tr
                                       v-else-if="seg.type === 'full_row'"
                                       class="row-resize-host"
-                                      :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedFullRowKey(seg.fields[0]))"
+                                      :style="
+                                        getRowHeightStyle(
+                                          getRowResizer('unified', gv),
+                                          getUnifiedFullRowKey(seg.fields[0]),
+                                        )
+                                      "
                                       @dblclick="openQuickEdit(seg.fields[0])"
                                     >
                                       <td
@@ -2998,15 +3656,64 @@ function openAddForm() {
                                       >
                                         {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                                         <span
+                                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                                          :class="[
+                                            'wp-acrf-annotation',
+                                            'wp-acrf-annotation--field',
+                                            {
+                                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                getFieldAnnotationTarget(seg.fields[0]),
+                                              ),
+                                            },
+                                          ]"
+                                          :style="
+                                            getAnnotationStyle(
+                                              getFieldOidAnnotationText(seg.fields[0]),
+                                              ANNOTATION_KIND_FIELD,
+                                              getFieldAnnotationTarget(seg.fields[0]),
+                                            )
+                                          "
+                                          @pointerdown="
+                                            (event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)
+                                          "
+                                        >
+                                          <span class="wp-acrf-annotation__text">{{
+                                            getFieldOidAnnotationText(seg.fields[0])
+                                          }}</span>
+                                          <button
+                                            type="button"
+                                            class="wp-acrf-annotation-reset"
+                                            :disabled="
+                                              !hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))
+                                            "
+                                            aria-label="重置字段标注位置"
+                                            @pointerdown.stop
+                                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                                          >
+                                            R
+                                          </button>
+                                        </span>
+                                        <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
+                                          @pointerdown="
+                                            (e) =>
+                                              getRowResizer('unified', gv).onResizeStart(
+                                                getUnifiedFullRowKey(seg.fields[0]),
+                                                e,
+                                              )
+                                          "
                                         ></span>
                                       </td>
                                     </tr>
                                     <template v-else-if="seg.type === 'inline_block'"
                                       ><tr
                                         class="row-resize-host"
-                                        :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedInlineHeaderRowKey(seg.fields))"
+                                        :style="
+                                          getRowHeightStyle(
+                                            getRowResizer('unified', gv),
+                                            getUnifiedInlineHeaderRowKey(seg.fields),
+                                          )
+                                        "
                                       >
                                         <td
                                           v-for="(ff, idx) in seg.fields"
@@ -3018,8 +3725,51 @@ function openAddForm() {
                                         >
                                           {{ getFormFieldDisplayLabel(ff) }}
                                           <span
+                                            v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                            :class="[
+                                              'wp-acrf-annotation',
+                                              'wp-acrf-annotation--field',
+                                              'wp-acrf-annotation--inline-header',
+                                              {
+                                                'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                  getFieldAnnotationTarget(ff),
+                                                ),
+                                              },
+                                            ]"
+                                            :style="
+                                              getAnnotationStyle(
+                                                getFieldOidAnnotationText(ff),
+                                                ANNOTATION_KIND_INLINE_HEADER,
+                                                getFieldAnnotationTarget(ff),
+                                              )
+                                            "
+                                            @pointerdown="
+                                              (event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)
+                                            "
+                                          >
+                                            <span class="wp-acrf-annotation__text">{{
+                                              getFieldOidAnnotationText(ff)
+                                            }}</span>
+                                            <button
+                                              type="button"
+                                              class="wp-acrf-annotation-reset"
+                                              :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                              aria-label="重置字段标注位置"
+                                              @pointerdown.stop
+                                              @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                            >
+                                              R
+                                            </button>
+                                          </span>
+                                          <span
                                             class="row-resizer-handle"
-                                            @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
+                                            @pointerdown="
+                                              (e) =>
+                                                getRowResizer('unified', gv).onResizeStart(
+                                                  getUnifiedInlineHeaderRowKey(seg.fields),
+                                                  e,
+                                                )
+                                            "
                                           ></span>
                                         </td>
                                       </tr>
@@ -3027,7 +3777,12 @@ function openAddForm() {
                                         v-for="(row, ri) in seg.inlineRows"
                                         :key="ri"
                                         class="row-resize-host"
-                                        :style="getRowHeightStyle(getRowResizer('unified', gv), getUnifiedInlineDataRowKey(seg.fields, ri))"
+                                        :style="
+                                          getRowHeightStyle(
+                                            getRowResizer('unified', gv),
+                                            getUnifiedInlineDataRowKey(seg.fields, ri),
+                                          )
+                                        "
                                       >
                                         <td
                                           v-for="(cell, ci) in row"
@@ -3040,7 +3795,13 @@ function openAddForm() {
                                           <span v-html="cell"></span>
                                           <span
                                             class="row-resizer-handle"
-                                            @pointerdown="(e) => getRowResizer('unified', gv).onResizeStart(getUnifiedInlineDataRowKey(seg.fields, ri), e)"
+                                            @pointerdown="
+                                              (e) =>
+                                                getRowResizer('unified', gv).onResizeStart(
+                                                  getUnifiedInlineDataRowKey(seg.fields, ri),
+                                                  e,
+                                                )
+                                            "
                                           ></span>
                                         </td></tr
                                     ></template>
@@ -3048,8 +3809,8 @@ function openAddForm() {
                                 </table>
                                 <template v-if="getResizer('unified', gv.colCount, gi, gv, 'designer')"
                                   ><div
-                                    v-for="bi in getResizer('unified', gv.colCount, gi, gv, 'designer').colRatios.length -
-                                    1"
+                                    v-for="bi in getResizer('unified', gv.colCount, gi, gv, 'designer').colRatios
+                                      .length - 1"
                                     :key="bi"
                                     class="resizer-handle"
                                     :style="{
@@ -3098,8 +3859,44 @@ function openAddForm() {
                                       >
                                         {{ getFormFieldDisplayLabel(ff) }}
                                         <span
+                                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                          :class="[
+                                            'wp-acrf-annotation',
+                                            'wp-acrf-annotation--field',
+                                            {
+                                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                getFieldAnnotationTarget(ff),
+                                              ),
+                                            },
+                                          ]"
+                                          :style="
+                                            getAnnotationStyle(
+                                              getFieldOidAnnotationText(ff),
+                                              ANNOTATION_KIND_FIELD,
+                                              getFieldAnnotationTarget(ff),
+                                            )
+                                          "
+                                          @pointerdown="
+                                            (event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)
+                                          "
+                                        >
+                                          <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                          <button
+                                            type="button"
+                                            class="wp-acrf-annotation-reset"
+                                            :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                            aria-label="重置字段标注位置"
+                                            @pointerdown.stop
+                                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                          >
+                                            R
+                                          </button>
+                                        </span>
+                                        <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
+                                          @pointerdown="
+                                            (e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)
+                                          "
                                         ></span>
                                       </td>
                                     </tr>
@@ -3116,8 +3913,44 @@ function openAddForm() {
                                       >
                                         {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
                                         <span
+                                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                          :class="[
+                                            'wp-acrf-annotation',
+                                            'wp-acrf-annotation--field',
+                                            {
+                                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                getFieldAnnotationTarget(ff),
+                                              ),
+                                            },
+                                          ]"
+                                          :style="
+                                            getAnnotationStyle(
+                                              getFieldOidAnnotationText(ff),
+                                              ANNOTATION_KIND_FIELD,
+                                              getFieldAnnotationTarget(ff),
+                                            )
+                                          "
+                                          @pointerdown="
+                                            (event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)
+                                          "
+                                        >
+                                          <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                          <button
+                                            type="button"
+                                            class="wp-acrf-annotation-reset"
+                                            :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                            aria-label="重置字段标注位置"
+                                            @pointerdown.stop
+                                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                          >
+                                            R
+                                          </button>
+                                        </span>
+                                        <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
+                                          @pointerdown="
+                                            (e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)
+                                          "
                                         ></span>
                                       </td>
                                     </tr>
@@ -3131,17 +3964,60 @@ function openAddForm() {
                                         {{ getFormFieldDisplayLabel(ff) }}
                                         <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
+                                          @pointerdown="
+                                            (e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)
+                                          "
                                         ></span>
                                       </td>
-                                      <td
-                                        class="wp-ctrl row-resize-anchor"
-                                        :style="getFormFieldPreviewStyle(ff)"
-                                      >
-                                        <span v-html="renderCellHtml(ff, normalFillChars(gi, gv, 'designer'), normalColumnCm(gi, gv, 'designer'))"></span>
+                                      <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
+                                        <span
+                                          v-html="
+                                            renderCellHtml(
+                                              ff,
+                                              normalFillChars(gi, gv, 'designer'),
+                                              normalColumnCm(gi, gv, 'designer'),
+                                            )
+                                          "
+                                        ></span>
+                                        <span
+                                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                          :class="[
+                                            'wp-acrf-annotation',
+                                            'wp-acrf-annotation--field',
+                                            {
+                                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                                getFieldAnnotationTarget(ff),
+                                              ),
+                                            },
+                                          ]"
+                                          :style="
+                                            getAnnotationStyle(
+                                              getFieldOidAnnotationText(ff),
+                                              ANNOTATION_KIND_FIELD,
+                                              getFieldAnnotationTarget(ff),
+                                            )
+                                          "
+                                          @pointerdown="
+                                            (event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)
+                                          "
+                                        >
+                                          <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                          <button
+                                            type="button"
+                                            class="wp-acrf-annotation-reset"
+                                            :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                            aria-label="重置字段标注位置"
+                                            @pointerdown.stop
+                                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                          >
+                                            R
+                                          </button>
+                                        </span>
                                         <span
                                           class="row-resizer-handle"
-                                          @pointerdown="(e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)"
+                                          @pointerdown="
+                                            (e) => getRowResizer('normal', gv).onResizeStart(getNormalRowKey(ff), e)
+                                          "
                                         ></span>
                                       </td></tr
                                   ></template>
@@ -3179,7 +4055,9 @@ function openAddForm() {
                                   </colgroup>
                                   <tr
                                     class="row-resize-host"
-                                    :style="getRowHeightStyle(getRowResizer('inline', gv), getInlineHeaderRowKey(gv.fields))"
+                                    :style="
+                                      getRowHeightStyle(getRowResizer('inline', gv), getInlineHeaderRowKey(gv.fields))
+                                    "
                                   >
                                     <td
                                       v-for="ff in gv.fields"
@@ -3190,8 +4068,49 @@ function openAddForm() {
                                     >
                                       {{ getFormFieldDisplayLabel(ff) }}
                                       <span
+                                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                                        :class="[
+                                          'wp-acrf-annotation',
+                                          'wp-acrf-annotation--field',
+                                          'wp-acrf-annotation--inline-header',
+                                          {
+                                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                              getFieldAnnotationTarget(ff),
+                                            ),
+                                          },
+                                        ]"
+                                        :style="
+                                          getAnnotationStyle(
+                                            getFieldOidAnnotationText(ff),
+                                            ANNOTATION_KIND_INLINE_HEADER,
+                                            getFieldAnnotationTarget(ff),
+                                          )
+                                        "
+                                        @pointerdown="
+                                          (event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)
+                                        "
+                                      >
+                                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                                        <button
+                                          type="button"
+                                          class="wp-acrf-annotation-reset"
+                                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                                          aria-label="重置字段标注位置"
+                                          @pointerdown.stop
+                                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                                        >
+                                          R
+                                        </button>
+                                      </span>
+                                      <span
                                         class="row-resizer-handle"
-                                        @pointerdown="(e) => getRowResizer('inline', gv).onResizeStart(getInlineHeaderRowKey(gv.fields), e)"
+                                        @pointerdown="
+                                          (e) =>
+                                            getRowResizer('inline', gv).onResizeStart(
+                                              getInlineHeaderRowKey(gv.fields),
+                                              e,
+                                            )
+                                        "
                                       ></span>
                                     </td>
                                   </tr>
@@ -3199,7 +4118,9 @@ function openAddForm() {
                                     v-for="(row, ri) in gv.inlineRows"
                                     :key="ri"
                                     class="row-resize-host"
-                                    :style="getRowHeightStyle(getRowResizer('inline', gv), getInlineDataRowKey(gv.fields, ri))"
+                                    :style="
+                                      getRowHeightStyle(getRowResizer('inline', gv), getInlineDataRowKey(gv.fields, ri))
+                                    "
                                   >
                                     <td
                                       v-for="(cell, ci) in row"
@@ -3211,7 +4132,13 @@ function openAddForm() {
                                       <span v-html="cell"></span>
                                       <span
                                         class="row-resizer-handle"
-                                        @pointerdown="(e) => getRowResizer('inline', gv).onResizeStart(getInlineDataRowKey(gv.fields, ri), e)"
+                                        @pointerdown="
+                                          (e) =>
+                                            getRowResizer('inline', gv).onResizeStart(
+                                              getInlineDataRowKey(gv.fields, ri),
+                                              e,
+                                            )
+                                        "
                                       ></span>
                                     </td>
                                   </tr>
@@ -3240,10 +4167,13 @@ function openAddForm() {
                                     "
                                   ></div>
                                   <div
-                                    v-if="getResizer('inline', gv.fields.length, gi, gv, 'designer').snapGuideX !== null"
+                                    v-if="
+                                      getResizer('inline', gv.fields.length, gi, gv, 'designer').snapGuideX !== null
+                                    "
                                     class="snap-guide"
                                     :style="{
-                                      left: getResizer('inline', gv.fields.length, gi, gv, 'designer').snapGuideX + 'px',
+                                      left:
+                                        getResizer('inline', gv.fields.length, gi, gv, 'designer').snapGuideX + 'px',
                                     }"
                                   ></div
                                 ></template>
@@ -3885,6 +4815,26 @@ function openAddForm() {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+.fd-canvas-header-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fd-canvas-form-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fd-canvas-header-count {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
 }
 .fd-canvas-list {
   flex: 1;
@@ -4015,6 +4965,30 @@ function openAddForm() {
   min-height: 0;
   overflow: hidden;
   background: var(--color-bg-body);
+}
+
+.designer-dialog-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-right: 32px;
+  white-space: nowrap;
+}
+
+.designer-dialog-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.designer-dialog-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .designer-library-pane {
@@ -4216,6 +5190,101 @@ function openAddForm() {
 .designer-scaled-word-page.landscape {
   width: 29.7cm;
   min-height: 21cm;
+}
+
+.wp-form-title-row {
+  position: relative;
+  min-height: 0.7cm;
+  margin-bottom: 24px;
+  padding-right: 4.8cm;
+}
+
+.wp-form-title-row .wp-form-title {
+  margin-bottom: 0;
+}
+
+.wp-acrf-annotation {
+  position: absolute;
+  top: var(--acrf-annotation-top);
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--acrf-annotation-width);
+  height: var(--acrf-annotation-height);
+  max-width: min(var(--acrf-annotation-max-width), 100%);
+  padding: var(--acrf-annotation-padding-y) var(--acrf-annotation-padding-x);
+  box-sizing: border-box;
+  border: var(--acrf-annotation-border-width) solid #c00000;
+  border-radius: 2px;
+  background: #fff2f2;
+  color: #c00000;
+  font-family: 'SimSun', serif;
+  font-size: var(--acrf-annotation-font-size);
+  white-space: nowrap;
+  overflow: visible;
+  user-select: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.wp-acrf-annotation__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-acrf-annotation--interactive {
+  cursor: ns-resize;
+}
+
+.wp-acrf-annotation-reset {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #c00000;
+  border-radius: 999px;
+  background: #fff;
+  color: #c00000;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.wp-acrf-annotation:hover .wp-acrf-annotation-reset,
+.wp-acrf-annotation:focus-within .wp-acrf-annotation-reset {
+  opacity: 1;
+}
+
+.wp-acrf-annotation-reset:hover:not(:disabled),
+.wp-acrf-annotation-reset:focus-visible:not(:disabled) {
+  background: #c00000;
+  color: #fff;
+  outline: none;
+}
+
+.wp-acrf-annotation-reset:disabled {
+  cursor: not-allowed;
+}
+
+.wp-acrf-annotation:hover .wp-acrf-annotation-reset:disabled,
+.wp-acrf-annotation:focus-within .wp-acrf-annotation-reset:disabled {
+  opacity: 0.45;
+}
+
+.wp-acrf-annotation--inline-header {
+  z-index: 4;
 }
 
 /* 预览表格列宽拖拽（R5） */

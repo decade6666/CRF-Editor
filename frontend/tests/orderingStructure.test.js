@@ -51,7 +51,10 @@ test('VisitsTab wires visit form drag sorting through useSortableTable', () => {
     /watch\(\[selectedVisit, visitForms\], \(\) => \{\s*nextTick\(\(\) => initVisitFormsSortable\(\)\)\s*\}\)/,
   );
   assert.match(visitsSource, /ref="visitFormsTableRef"/);
-  assert.match(visitsSource, /<el-table[\s\S]*:data="visitForms"[\s\S]*border[\s\S]*highlight-current-row[\s\S]*row-key="id"/);
+  assert.match(
+    visitsSource,
+    /<el-table[\s\S]*:data="visitForms"[\s\S]*border[\s\S]*highlight-current-row[\s\S]*row-key="id"/,
+  );
   assert.doesNotMatch(visitsSource, /<draggable v-else v-model="visitForms"/);
 });
 
@@ -155,7 +158,8 @@ test('FormDesignerTab field reorder invalidates cached form fields in each reord
   assert.match(formsSource, /await loadFormFields\(/);
   assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/);
   // 拖拽与键盘排序都必须记录撤销历史（Finding 2）
-  const reorderRecordCalls = (formsSource.match(/recordReorderHistory\(formId, previousOrder, nextOrder\);/g) || []).length;
+  const reorderRecordCalls = (formsSource.match(/recordReorderHistory\(formId, previousOrder, nextOrder\);/g) || [])
+    .length;
   assert.equal(reorderRecordCalls, 2);
 });
 
@@ -218,8 +222,9 @@ test('FormDesignerTab designer dialog uses center-bottom preview and right-side 
   assert.match(formsSource, /ff\._displayOrder/);
   assert.match(
     formsSource,
-    /<el-dialog[\s\S]*v-model="showDesigner"[\s\S]*:before-close="handleDesignerBeforeClose"[\s\S]*:close-on-click-modal="false"[\s\S]*:title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)"[\s\S]*fullscreen[\s\S]*class="designer-dialog"[\s\S]*>/,
+    /<el-dialog[\s\S]*v-model="showDesigner"[\s\S]*:before-close="handleDesignerBeforeClose"[\s\S]*:close-on-click-modal="false"[\s\S]*fullscreen[\s\S]*class="designer-dialog"[\s\S]*>[\s\S]*<template #header="\{ titleId, titleClass \}">[\s\S]*:id="titleId"[\s\S]*:class="\[titleClass, 'designer-dialog-title'\]"[\s\S]*设计：\{\{ selectedForm\?\.name \|\| '' \}\}[\s\S]*<\/template>/,
   );
+  assert.match(formsSource, /\.designer-dialog-header \{[\s\S]*padding-right: 32px;[\s\S]*\}/);
   assert.match(formsSource, /class="designer-shell"/);
   assert.match(formsSource, /class="designer-workspace"/);
   assert.match(formsSource, /class="designer-workspace-top"/);

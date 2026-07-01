@@ -32,6 +32,7 @@ class Form(Base):
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     design_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    annotation_positions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     paper_orientation: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="auto", default="auto"
     )
