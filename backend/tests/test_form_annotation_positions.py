@@ -17,7 +17,13 @@ from src.models.form import Form
 from src.models.project import Project
 from src.models.user import User
 from src.routers.forms import copy_form, create_form, list_forms, patch_form, update_form
-from src.schemas.form import ANNOTATION_FORM_KEY, FormCreate, FormResponse, FormUpdate
+from src.schemas.form import (
+    ANNOTATION_FORM_KEY,
+    FormCreate,
+    FormResponse,
+    FormUpdate,
+    serialize_annotation_positions,
+)
 from src.services.project_clone_service import ProjectCloneService
 from src.services.project_import_service import ProjectDbImportService
 
@@ -35,7 +41,13 @@ def _seed_owner(session: Session, username: str = "alice") -> tuple[User, Projec
 
 def _create_owned_form(session: Session) -> tuple[User, Project, Form]:
     user, project = _seed_owner(session)
-    form = create_form(project.id, FormCreate(name="Annotation Form"), session, user)
+    form = Form(
+        project_id=project.id,
+        name="Annotation Form",
+        code="ANNOTATION_FORM",
+        order_index=1,
+    )
+    session.add(form)
     session.flush()
     return user, project, form
 
@@ -165,7 +177,9 @@ def test_project_clone_preserves_form_annotation_positions(engine) -> None:
         )
 
     assert cloned_form is not None
-    assert cloned_form.annotation_positions == '{"_form":{"y":18},"AEVAR":{"y":-12}}'
+    assert cloned_form.annotation_positions == serialize_annotation_positions(
+        '{"_form":{"y":18},"AEVAR":{"y":-12}}'
+    )
 
 
 def test_copy_form_rejects_invalid_annotation_positions(engine) -> None:
@@ -207,7 +221,9 @@ def test_project_import_preserves_form_annotation_positions(engine, tmp_path: Pa
         )
 
     assert imported_form is not None
-    assert imported_form.annotation_positions == source_positions
+    assert imported_form.annotation_positions == serialize_annotation_positions(
+        source_positions
+    )
 
 
 def test_project_import_rejects_invalid_form_annotation_positions(engine, tmp_path: Path) -> None:
@@ -285,3 +301,44 @@ def test_migration_adds_annotation_positions_to_legacy_form_table(tmp_path: Path
         ).scalar()
     assert value is None
     engine.dispose()
+
+
+def test_copy_form_canonicalizes_out_of_range_string_storage(engine) -> None:
+    """字符串越界 y 经 copy 落库后必须被 clamp + canonical 重序列化。"""
+    with Session(engine) as session:
+        user, _, form = _create_owned_form(session)
+        form.annotation_positions = '{"_form":{"y":999},"AEVAR":{"y":-999}}'
+        session.flush()
+        copied = copy_form(form.id, session, user)
+        session.flush()
+        stored = session.scalar(select(Form).where(Form.id == copied.id))
+    assert stored.annotation_positions == serialize_annotation_positions(
+        '{"_form":{"y":999},"AEVAR":{"y":-999}}'
+    )
+    assert stored.annotation_positions == '{"AEVAR":{"y":-200},"_form":{"y":200}}'
+
+
+def test_project_clone_canonicalizes_out_of_range_string_storage(engine) -> None:
+    """字符串越界 y 经项目克隆落库后必须被 clamp + canonical 重序列化。"""
+    with Session(engine) as session:
+        user, project, form = _create_owned_form(session)
+        form.annotation_positions = '{"_form":{"y":999},"AEVAR":{"y":-999}}'
+        session.flush()
+        cloned_project = ProjectCloneService.clone(project.id, user.id, session)
+        cloned_form = session.scalar(
+            select(Form).where(Form.project_id == cloned_project.id).order_by(Form.order_index, Form.id)
+        )
+    assert cloned_form is not None
+    assert cloned_form.annotation_positions == '{"AEVAR":{"y":-200},"_form":{"y":200}}'
+
+
+def test_project_import_canonicalizes_out_of_range_string_storage(engine, tmp_path: Path) -> None:
+    """字符串越界 y 经项目 .db 导入落库后必须被 clamp + canonical 重序列化。"""
+    db_path = _build_import_db(tmp_path, '{"_form":{"y":999},"VAR0":{"y":-999}}')
+    with Session(engine) as session:
+        owner, _ = _seed_owner(session, username="import-canonical-owner")
+        session.commit()
+        result = ProjectDbImportService.import_single_project(str(db_path), owner.id, session)
+        imported_form = session.scalar(select(Form).where(Form.project_id == result.project_id))
+    assert imported_form is not None
+    assert imported_form.annotation_positions == '{"VAR0":{"y":-200},"_form":{"y":200}}'

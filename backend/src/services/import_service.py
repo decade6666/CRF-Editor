@@ -20,6 +20,7 @@ from src.models.field_definition import FieldDefinition
 from src.models.codelist import CodeList, CodeListOption
 from src.models.unit import Unit
 from src.utils import generate_code, is_safe_path
+from src.schemas.form import preserve_annotation_positions_storage
 from src.services.order_service import OrderService
 
 
@@ -43,6 +44,7 @@ class TemplateFormSnapshot:
     domain: Optional[str]
     order_index: Optional[int]
     paper_orientation: str
+    annotation_positions: Optional[str] = None
 
 
 class ImportService:
@@ -140,6 +142,26 @@ class ImportService:
                 row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()
             }
             return "paper_orientation" in existing_cols
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _has_template_annotation_positions(db_path: str) -> bool:
+        """检查模板 form 表是否包含 annotation_positions 列。"""
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "form" not in tables:
+                return False
+            existing_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()
+            }
+            return "annotation_positions" in existing_cols
         finally:
             conn.close()
 
@@ -349,12 +371,17 @@ class ImportService:
         db_path = self._resolve_existing_template_path(template_path)
         if not self._has_template_paper_orientation(db_path):
             return "auto"
+        # 只查 paper_orientation 列，避免 mixed-column 旧模板（有 paper_orientation 缺
+        # annotation_positions）下 ORM 整行 SELECT 触发 OperationalError。
         tmpl = self._open_template_session(template_path)
         try:
-            form = tmpl.get(Form, form_id)
-            if form is None:
+            row = tmpl.execute(
+                text('SELECT "paper_orientation" FROM form WHERE id = :form_id'),
+                {"form_id": int(form_id)},
+            ).first()
+            if row is None:
                 return "auto"
-            return getattr(form, "paper_orientation", "auto") or "auto"
+            return getattr(row, "paper_orientation", None) or "auto"
         finally:
             tmpl.close()
 
@@ -458,6 +485,7 @@ class ImportService:
         """
         db_path = self._resolve_existing_template_path(template_path)
         has_paper_orientation = self._has_template_paper_orientation(db_path)
+        has_annotation_positions = self._has_template_annotation_positions(db_path)
         tmpl = self._open_template_session(db_path)
         try:
             return self._do_import(
@@ -467,17 +495,26 @@ class ImportService:
                 form_ids,
                 field_ids,
                 has_template_paper_orientation=has_paper_orientation,
+                has_template_annotation_positions=has_annotation_positions,
             )
         finally:
             tmpl.close()
 
 
     @staticmethod
-    def _build_template_form_snapshot(form: Form, *, has_paper_orientation: bool) -> TemplateFormSnapshot:
-        """构建模板表单快照，兼容旧模板缺少 paper_orientation 列。"""
+    def _build_template_form_snapshot(
+        form: Form,
+        *,
+        has_paper_orientation: bool,
+        has_annotation_positions: bool,
+    ) -> TemplateFormSnapshot:
+        """构建模板表单快照，兼容旧模板缺少 paper_orientation / annotation_positions 列。"""
         paper_orientation = "auto"
         if has_paper_orientation:
             paper_orientation = getattr(form, "paper_orientation", "auto") or "auto"
+        annotation_positions = None
+        if has_annotation_positions:
+            annotation_positions = getattr(form, "annotation_positions", None)
         return TemplateFormSnapshot(
             id=form.id,
             project_id=form.project_id,
@@ -486,6 +523,7 @@ class ImportService:
             domain=form.domain,
             order_index=form.order_index,
             paper_orientation=paper_orientation,
+            annotation_positions=annotation_positions,
         )
 
     @staticmethod
@@ -495,26 +533,39 @@ class ImportService:
         source_project_id: int,
         form_ids: List[int],
         has_paper_orientation: bool,
+        has_annotation_positions: bool,
     ) -> List[TemplateFormSnapshot]:
-        """读取模板表单，并在旧模板场景下回退 paper_orientation。"""
+        """读取模板表单，并在旧模板场景下回退 paper_orientation / annotation_positions。"""
         stmt = (
             select(Form)
             .where(Form.project_id == source_project_id, Form.id.in_(form_ids))
             .order_by(Form.order_index, Form.id)
         )
-        if has_paper_orientation:
+        # 仅当两列都存在时才能走 ORM select(Form)；否则按列是否存在动态构造 raw SQL，
+        # 避免对缺列旧模板触发 OperationalError。
+        if has_paper_orientation and has_annotation_positions:
             return [
-                ImportService._build_template_form_snapshot(form, has_paper_orientation=True)
+                ImportService._build_template_form_snapshot(
+                    form,
+                    has_paper_orientation=True,
+                    has_annotation_positions=True,
+                )
                 for form in tmpl.scalars(stmt).all()
             ]
 
         ids = [int(form_id) for form_id in form_ids]
         if not ids:
             return []
+        select_cols = ["id", "project_id", "name", "code", "domain", "order_index"]
+        if has_paper_orientation:
+            select_cols.append("paper_orientation")
+        if has_annotation_positions:
+            select_cols.append("annotation_positions")
+        col_list = ", ".join(f'"{c}"' for c in select_cols)
         rows = tmpl.execute(
             text(
-                "SELECT id, project_id, name, code, domain, order_index "
-                "FROM form WHERE project_id = :project_id AND id IN :form_ids "
+                f"SELECT {col_list} FROM form "
+                "WHERE project_id = :project_id AND id IN :form_ids "
                 "ORDER BY order_index, id"
             ).bindparams(bindparam("form_ids", expanding=True)),
             {"project_id": source_project_id, "form_ids": ids},
@@ -527,7 +578,8 @@ class ImportService:
                 code=row.code,
                 domain=row.domain,
                 order_index=row.order_index,
-                paper_orientation="auto",
+                paper_orientation=getattr(row, "paper_orientation", None) or "auto",
+                annotation_positions=getattr(row, "annotation_positions", None),
             )
             for row in rows
         ]
@@ -542,6 +594,7 @@ class ImportService:
         field_ids: Optional[List[int]] = None,
         *,
         has_template_paper_orientation: bool,
+        has_template_annotation_positions: bool,
     ) -> dict:
         """實際導入邏輯"""
         s = self.session  # 主庫 session
@@ -592,6 +645,7 @@ class ImportService:
             source_project_id=source_project_id,
             form_ids=form_ids,
             has_paper_orientation=has_template_paper_orientation,
+            has_annotation_positions=has_template_annotation_positions,
         )
         if not src_forms:
             return summary
@@ -677,6 +731,15 @@ class ImportService:
             existing_forms.add(new_name)
 
 
+            try:
+                annotation_positions = preserve_annotation_positions_storage(
+                    sf.annotation_positions
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"模板表单 {sf.name} 的 annotation_positions 数据非法: {exc}"
+                ) from exc
+
             new_form = Form(
                 project_id=target_project_id,
                 name=new_name,
@@ -684,6 +747,7 @@ class ImportService:
                 domain=sf.domain,
                 order_index=max_form_order + form_idx,
                 paper_orientation=sf.paper_orientation,
+                annotation_positions=annotation_positions,
             )
             s.add(new_form)
             s.flush()  # 拿到 new_form.id

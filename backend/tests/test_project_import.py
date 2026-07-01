@@ -183,7 +183,8 @@ def test_import_project_db_preserves_form_annotation_positions(client, engine, t
             select(Form).where(Form.project_id == resp.json()["project_id"])
         )
         assert imported_form is not None
-        assert imported_form.annotation_positions == annotation_positions
+        from src.schemas.form import serialize_annotation_positions as _ser_ap
+    assert imported_form.annotation_positions == _ser_ap(annotation_positions)
 
 
 def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):
