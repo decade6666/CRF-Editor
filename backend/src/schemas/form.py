@@ -85,8 +85,6 @@ def preserve_annotation_positions_storage(value: Any) -> str | None:
     if isinstance(value, str):
         if not value.strip():
             return None
-        parse_annotation_positions(value)
-        return value
     return serialize_annotation_positions(value)
 
 

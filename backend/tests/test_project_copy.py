@@ -159,7 +159,8 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         assert len(source_forms) == len(cloned_forms) == 1
         assert cloned_forms[0].id != source_forms[0].id
         assert cloned_forms[0].domain == "DM"
-        assert cloned_forms[0].annotation_positions == source_forms[0].annotation_positions
+        from src.schemas.form import serialize_annotation_positions as _ser_ap
+        assert cloned_forms[0].annotation_positions == _ser_ap(source_forms[0].annotation_positions)
         assert cloned_forms[0].paper_orientation == "portrait"
 
         cloned_form_fields = session.scalars(select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.order_index)).all()
