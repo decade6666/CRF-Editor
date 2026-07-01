@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from src.config import get_config
 from src.perf import perf_span
+from src.schemas.form import preserve_annotation_positions_storage
 from src.models.codelist import CodeList, CodeListOption
 from src.models.field_definition import FieldDefinition
 from src.models.form import Form
@@ -283,6 +284,15 @@ class ProjectCloneService:
                 id_map["field_definition"][field_definition.id] = new_field_definition.id
 
             for form_idx, form in enumerate(graph.forms, start=1):
+                try:
+                    annotation_positions = preserve_annotation_positions_storage(
+                        form.annotation_positions
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"表单 {form.name} 的 annotation_positions 非法: {exc}"
+                    ) from exc
+
                 new_form = Form(
                     project_id=new_project.id,
                     name=form.name,
@@ -290,6 +300,7 @@ class ProjectCloneService:
                     domain=form.domain,
                     order_index=form_idx,
                     design_notes=form.design_notes,
+                    annotation_positions=annotation_positions,
                     paper_orientation=getattr(form, "paper_orientation", "auto") or "auto",
                 )
                 session.add(new_form)

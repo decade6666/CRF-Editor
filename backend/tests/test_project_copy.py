@@ -64,7 +64,16 @@ def _create_full_project_graph(session: Session, owner_id: int) -> Project:
     session.add_all([fd1, fd2])
     session.flush()
 
-    form = Form(project_id=project.id, name="筛选表", code="FORM001", domain="DM", order_index=1, design_notes="备注", paper_orientation="portrait")
+    form = Form(
+        project_id=project.id,
+        name="筛选表",
+        code="FORM001",
+        domain="DM",
+        order_index=1,
+        design_notes="备注",
+        annotation_positions='{"_form":{"y":18},"WEIGHT":{"y":-12}}',
+        paper_orientation="portrait",
+    )
     session.add(form)
     session.flush()
 
@@ -150,6 +159,8 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         assert len(source_forms) == len(cloned_forms) == 1
         assert cloned_forms[0].id != source_forms[0].id
         assert cloned_forms[0].domain == "DM"
+        from src.schemas.form import serialize_annotation_positions as _ser_ap
+        assert cloned_forms[0].annotation_positions == _ser_ap(source_forms[0].annotation_positions)
         assert cloned_forms[0].paper_orientation == "portrait"
 
         cloned_form_fields = session.scalars(select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.order_index)).all()

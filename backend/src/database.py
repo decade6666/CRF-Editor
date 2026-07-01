@@ -443,6 +443,25 @@ def _migrate_add_design_notes(engine):
 
 
 
+def _migrate_add_form_annotation_positions(engine):
+
+    """给 form 表补上 annotation_positions 列。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("form"):
+
+        return
+
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("form")]
+
+        if "annotation_positions" not in cols:
+
+            conn.execute(text('ALTER TABLE "form" ADD COLUMN annotation_positions TEXT'))
+
+
 def _migrate_add_form_paper_orientation(engine):
 
     """给 form 表补上 paper_orientation 列，默认 'auto'。"""
@@ -1039,6 +1058,8 @@ def init_db():
     _migrate_add_order_index(engine)
 
     _migrate_add_design_notes(engine)
+
+    _migrate_add_form_annotation_positions(engine)
 
     _migrate_add_form_paper_orientation(engine)
 

@@ -401,7 +401,10 @@ test('form switch flushes field autosave and clears stale field state before sel
   assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const sessionId = \+\+formSelectionSession/)
   assert.match(formDesignerSource, /const flushSucceeded = await flushDesignNotesSave\(buildDesignNotesSaveSnapshot\(\{ form: currentForm \}\)\)/)
   assert.match(formDesignerSource, /if \(sessionId !== formSelectionSession\) return/)
-  assert.match(formDesignerSource, /const canLeaveFieldProp = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换表单' \}\)/)
+  assert.match(
+    formDesignerSource,
+    /const canLeaveFieldProp = await resolveFieldPropLeave\(\{[\s\S]*resetOptions: \{ preserveEditor: true \},[\s\S]*actionText: '切换表单',?[\s\S]*\}\)/,
+  )
   assert.match(formDesignerSource, /if \(!canLeaveFieldProp\) \{[\s\S]*formsTableRef\.value\?\.setCurrentRow\(currentForm\)[\s\S]*return/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*resetFieldPropAutoSaveState\(\)[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*selectedForm\.value = nextForm \|\| null/)
 })

@@ -187,6 +187,7 @@ body { font-family: 'Microsoft YaHei', sans-serif; height: 100vh; display: flex;
   max-width: 900px; /* 从 700px 放大 */
   margin: 0 auto;
   padding: 32px 40px;
+  position: relative;
   box-shadow: var(--shadow-preview-page);
   min-height: 400px;
   font-family: 'SimSun', serif;

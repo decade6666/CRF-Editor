@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-24T00:00:00-07:00",
+  "timestamp": "2026-06-30T12:00:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -94,6 +94,7 @@
         "backend/tests/test_config.py",
         "backend/tests/test_docx_import_contract.py",
         "backend/tests/test_docx_screenshot_service.py",
+        "backend/tests/test_export_acrf.py",
         "backend/tests/test_export_column_width_override.py",
         "backend/tests/test_export_paper_orientation.py",
         "backend/tests/test_export_service.py",
@@ -163,6 +164,7 @@
         "frontend/src/components/VisitsTab.vue"
       ],
       "composables": [
+        "frontend/src/composables/acrfAnnotationGeometry.js",
         "frontend/src/composables/exportDownloadState.js",
         "frontend/src/composables/fieldDefinitionVisibility.js",
         "frontend/src/composables/formDesignerPreviewModel.js",
@@ -171,6 +173,7 @@
         "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/searchRanking.js",
         "frontend/src/composables/useApi.js",
+        "frontend/src/composables/useAcrfAnnotationDrag.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
         "frontend/src/composables/useDesignerHistory.js",
@@ -196,10 +199,13 @@
         "frontend/scripts/runBrowserPerfBaseline.mjs"
       ],
       "tests": [
+        "frontend/tests/acrfAnnotationGeometry.test.js",
+        "frontend/tests/acrfAnnotationPersistence.test.js",
         "frontend/tests/adminViewStructure.test.js",
         "frontend/tests/appCollapse.test.js",
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",
+        "frontend/tests/acrfViewToggle.test.js",
         "frontend/tests/browserPerfBaselineScript.test.js",
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
@@ -236,8 +242,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 78,
-        "scanned_files": 78,
+        "estimated_files": 82,
+        "scanned_files": 82,
         "percent": 100
       },
       "gaps": [

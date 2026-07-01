@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import json
 import logging
 
 import math
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import html
 
 from src.perf import perf_span, record_counter
+from src.schemas.form import normalize_annotation_key, parse_annotation_positions
 
 
 
@@ -129,6 +131,11 @@ from src.models import Project
 
 from src.repositories.project_repository import ProjectRepository
 
+from src.schemas.form import (
+    ANNOTATION_FORM_KEY,
+    ANNOTATION_POSITION_MAX_Y,
+    ANNOTATION_POSITION_MIN_Y,
+)
 from src.schemas.project import normalize_screening_number_format
 
 from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, build_field_control_weight, extract_default_lines
@@ -156,6 +163,14 @@ from src.services.width_planning import (
 DEFAULT_LABEL_FONT_PT = 10.5
 
 _LABEL_FONT_SIZE_PT = {"large": 12.0, "small": 9.0}
+ACRF_ANNOTATION_FONT_SIZE_PT = 8.0
+ACRF_ANNOTATION_HEIGHT_CM = 0.7
+ACRF_ANNOTATION_PADDING_X_EMU = 22860
+ACRF_ANNOTATION_PADDING_Y_EMU = 18000
+ACRF_ANNOTATION_BORDER_WIDTH_EMU = 12700
+ACRF_ANNOTATION_BOX_WIDTH_MAX_CM = 4.6
+ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU = -120000
+ACRF_ANNOTATION_EMU_PER_01CM = int(Cm(0.01))
 
 
 def resolve_label_font_pt(form_field) -> float:
@@ -250,6 +265,9 @@ class ExportService:
         # 标题文本 -> 该条目页码占位 w:t 元素列表，供服务器侧写死真实页码
 
         self._toc_pageref_values: Dict[str, list] = {}
+        self._annotation_docpr_counter: int = 0
+        self._column_width_overrides: Dict[Any, Any] = {}
+        self._current_annotation_offsets: Dict[str, int] = {}
 
 
 
@@ -346,6 +364,7 @@ class ExportService:
         output_path: str,
         column_width_overrides: Optional[Dict] = None,
         bake_toc_page_numbers: bool = False,
+        annotated: bool = False,
     ) -> bool:
 
         """导出项目到 Word 文档
@@ -372,6 +391,7 @@ class ExportService:
             self._toc_bookmark_counter = 0
 
             self._toc_pageref_values = {}
+            self._annotation_docpr_counter = 0
 
             # 一次性 eager load 完整关系树，消除导出链路上的 N+1 查询
 
@@ -478,7 +498,7 @@ class ExportService:
 
             # 5. 添加表单内容
 
-            self._add_forms_content(doc, project)
+            self._add_forms_content(doc, project, annotated=annotated)
 
             # 6. 写入 TOC 预渲染条目（依赖 _add_toc_heading 收集结果）
 
@@ -895,7 +915,16 @@ class ExportService:
 
 
 
-    def _add_toc_heading(self, doc: Document, text: str, level: int = 1):
+    def _add_toc_heading(
+        self,
+        doc: Document,
+        text: str,
+        level: int = 1,
+        *,
+        form_domain: str | None = None,
+        annotated: bool = False,
+        annotation_delta_y_01cm: int = 0,
+    ):
 
         """添加标题段落并注册 TOC 条目。
 
@@ -953,7 +982,191 @@ class ExportService:
 
             self._set_run_font(run)
 
+        if annotated and form_domain:
+
+            self._add_oid_annotation_box(
+                heading_para,
+                form_domain,
+                delta_y_01cm=annotation_delta_y_01cm,
+            )
+
         self._toc_entries.append((text, level, bookmark_name))
+
+    def _next_annotation_docpr_id(self) -> int:
+
+        self._annotation_docpr_counter += 1
+
+        return self._annotation_docpr_counter
+
+    def _normalize_annotation_text(self, text: str | None) -> str:
+
+        return " ".join(str(text or "").split())
+
+    def _estimate_annotation_width_cm(self, text: str) -> float:
+
+        weighted_chars = sum(2 if ord(char) > 127 else 1 for char in text)
+
+        return min(
+            ACRF_ANNOTATION_BOX_WIDTH_MAX_CM,
+            max(0.9, 0.45 + weighted_chars * 0.20),
+        )
+
+    def _clamp_annotation_delta_y(self, value: Any) -> int:
+
+        if isinstance(value, bool) or not isinstance(value, int):
+
+            return 0
+
+        return max(ANNOTATION_POSITION_MIN_Y, min(ANNOTATION_POSITION_MAX_Y, value))
+
+    def _annotation_delta_y_to_emu(self, value: int) -> int:
+
+        return self._clamp_annotation_delta_y(value) * ACRF_ANNOTATION_EMU_PER_01CM
+
+    def _load_annotation_offsets(self, raw_value: Any) -> Dict[str, int]:
+
+        try:
+
+            positions = parse_annotation_positions(raw_value)
+
+        except ValueError as exc:
+
+            raise ExportError(
+                f"表单 annotation_positions 数据非法: {exc}",
+                _EXPORT_ERROR_CODES["DATA_INCOMPATIBLE"],
+            ) from exc
+
+        if positions is None:
+
+            return {}
+
+        return {
+            key: self._clamp_annotation_delta_y(position.y)
+            for key, position in positions.items()
+        }
+
+    @staticmethod
+    def _annotation_text_key(value: Any) -> str:
+
+        return normalize_annotation_key(value)
+
+    def _field_annotation_text(self, field_def: Any) -> str:
+
+        return self._annotation_text_key(getattr(field_def, "variable_name", None))
+
+    def _annotation_delta_y_for_key(self, key: str | None) -> int:
+
+        normalized_key = self._annotation_text_key(key)
+        if not normalized_key:
+
+            return 0
+
+        return self._current_annotation_offsets.get(normalized_key, 0)
+
+    def _add_oid_annotation_box(
+        self,
+        anchor_paragraph: Any,
+        text: str,
+        *,
+        delta_y_01cm: int = 0,
+    ) -> None:
+
+        from docx.oxml import parse_xml
+
+
+
+        display_text = self._normalize_annotation_text(text)
+
+        if not display_text:
+
+            return
+
+
+
+        box_width_emu = int(Cm(self._estimate_annotation_width_cm(display_text)))
+
+        box_height_emu = int(Cm(ACRF_ANNOTATION_HEIGHT_CM))
+        pos_offset_emu = (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            + self._annotation_delta_y_to_emu(delta_y_01cm)
+        )
+
+        docpr_id = self._next_annotation_docpr_id()
+
+        escaped_text = html.escape(display_text, quote=True)
+
+        anchor_xml = f"""
+        <w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <wp:anchor xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                   xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                   xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                   xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+                   distT="0" distB="0" distL="0" distR="0" simplePos="0"
+                   relativeHeight="251658240" behindDoc="0" locked="0"
+                   layoutInCell="1" allowOverlap="1">
+            <wp:simplePos x="0" y="0"/>
+            <wp:positionH relativeFrom="column">
+                <wp:align>right</wp:align>
+            </wp:positionH>
+            <wp:positionV relativeFrom="paragraph">
+                <wp:posOffset>{pos_offset_emu}</wp:posOffset>
+            </wp:positionV>
+            <wp:extent cx="{box_width_emu}" cy="{box_height_emu}"/>
+            <wp:effectExtent l="0" t="0" r="0" b="0"/>
+            <wp:wrapNone/>
+            <wp:docPr id="{docpr_id}" name="Annotation {docpr_id}" descr="{escaped_text}"/>
+            <wp:cNvGraphicFramePr/>
+            <a:graphic>
+                <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+                    <wps:wsp>
+                        <wps:cNvSpPr txBox="1"/>
+                        <wps:spPr>
+                            <a:xfrm>
+                                <a:off x="0" y="0"/>
+                                <a:ext cx="{box_width_emu}" cy="{box_height_emu}"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                                <a:avLst/>
+                            </a:prstGeom>
+                            <a:solidFill>
+                                <a:srgbClr val="FFF2F2"/>
+                            </a:solidFill>
+                            <a:ln w="{ACRF_ANNOTATION_BORDER_WIDTH_EMU}">
+                                <a:solidFill>
+                                    <a:srgbClr val="C00000"/>
+                                </a:solidFill>
+                            </a:ln>
+                        </wps:spPr>
+                        <wps:txbx>
+                            <w:txbxContent>
+                                <w:p>
+                                    <w:pPr>
+                                        <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+                                        <w:jc w:val="center"/>
+                                    </w:pPr>
+                                    <w:r>
+                                        <w:rPr>
+                                            <w:rFonts w:ascii="{self.FONT_ASCII}" w:hAnsi="{self.FONT_ASCII}" w:eastAsia="{self.FONT_EAST_ASIA}"/>
+                                            <w:color w:val="C00000"/>
+                                            <w:sz w:val="{int(ACRF_ANNOTATION_FONT_SIZE_PT * 2)}"/>
+                                            <w:szCs w:val="{int(ACRF_ANNOTATION_FONT_SIZE_PT * 2)}"/>
+                                        </w:rPr>
+                                        <w:t>{escaped_text}</w:t>
+                                    </w:r>
+                                </w:p>
+                            </w:txbxContent>
+                        </wps:txbx>
+                        <wps:bodyPr wrap="none" lIns="{ACRF_ANNOTATION_PADDING_X_EMU}" tIns="{ACRF_ANNOTATION_PADDING_Y_EMU}" rIns="{ACRF_ANNOTATION_PADDING_X_EMU}" bIns="{ACRF_ANNOTATION_PADDING_Y_EMU}" anchor="ctr"/>
+                    </wps:wsp>
+                </a:graphicData>
+            </a:graphic>
+        </wp:anchor>
+        </w:drawing>
+        """
+
+        anchor_run = anchor_paragraph.add_run()
+
+        anchor_run._r.append(parse_xml(anchor_xml))
 
 
 
@@ -1526,13 +1739,13 @@ class ExportService:
 
 
 
-    def _add_forms_content(self, doc: Document, project: Project):
+    def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False):
 
         """添加表单内容（支持横向表格渲染与统一横向布局）。"""
 
         if not project.forms:
 
-            self._build_form_table(doc, [], form_id=None)
+            self._build_form_table(doc, [], form_id=None, annotated=annotated)
 
             return
 
@@ -1557,6 +1770,12 @@ class ExportService:
 
 
         for idx, form in enumerate(sorted_forms, start=1):
+            if annotated:
+                self._current_annotation_offsets = self._load_annotation_offsets(
+                    getattr(form, "annotation_positions", None)
+                )
+            else:
+                self._current_annotation_offsets = {}
 
             form_fields = sorted(form.form_fields, key=lambda ff: (ff.order_index, ff.id))
 
@@ -1572,7 +1791,14 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
+                self._add_toc_heading(
+                    doc,
+                    f"{idx}. {form.name}",
+                    level=1,
+                    form_domain=form.domain,
+                    annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                )
 
                 groups = self._group_form_fields(form_fields)
 
@@ -1596,6 +1822,7 @@ class ExportService:
                             True,
                             form_id=form.id,
                             available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                            annotated=annotated,
                         )
 
                     else:
@@ -1605,6 +1832,7 @@ class ExportService:
                             group,
                             form_id=form.id,
                             available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                            annotated=annotated,
                         )
 
                 if not groups:
@@ -1614,6 +1842,7 @@ class ExportService:
                         [],
                         form_id=form.id,
                         available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                        annotated=annotated,
                     )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
@@ -1628,7 +1857,14 @@ class ExportService:
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
+                self._add_toc_heading(
+                    doc,
+                    f"{idx}. {form.name}",
+                    level=1,
+                    form_domain=form.domain,
+                    annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                )
 
                 segments = self._build_unified_segments(form_fields)
 
@@ -1638,6 +1874,7 @@ class ExportService:
                     layout,
                     form_id=form.id,
                     available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
+                    annotated=annotated,
                 )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
@@ -1656,7 +1893,14 @@ class ExportService:
 
                     self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-                self._add_toc_heading(doc, f"{idx}. {form.name}", level=1)
+                self._add_toc_heading(
+                    doc,
+                    f"{idx}. {form.name}",
+                    level=1,
+                    form_domain=form.domain,
+                    annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                )
 
 
 
@@ -1699,6 +1943,7 @@ class ExportService:
                             needs_temporary_landscape,
                             form_id=form.id,
                             available_cm=inline_available_cm,
+                            annotated=annotated,
                         )
 
 
@@ -1720,6 +1965,7 @@ class ExportService:
                             if layout.force_landscape
                             else self.PORTRAIT_CONTENT_WIDTH_CM
                         ),
+                        annotated=annotated,
                     )
 
 
@@ -1734,6 +1980,7 @@ class ExportService:
                             if layout.force_landscape
                             else self.PORTRAIT_CONTENT_WIDTH_CM
                         ),
+                        annotated=annotated,
                     )
 
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
@@ -1749,6 +1996,8 @@ class ExportService:
                     else:
 
                         self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            self._current_annotation_offsets = {}
 
 
 
@@ -2033,6 +2282,7 @@ class ExportService:
         form_id=None,
         *,
         available_cm: float = LANDSCAPE_CONTENT_WIDTH_CM,
+        annotated: bool = False,
     ):
         """创建 unified landscape 表格并按片段顺序渲染。
 
@@ -2107,15 +2357,15 @@ class ExportService:
 
             if segment.type == "regular_field" and segment.fields:
 
-                self._add_unified_regular_row(table, segment.fields[0], layout)
+                self._add_unified_regular_row(table, segment.fields[0], layout, annotated=annotated)
 
             elif segment.type == "full_row" and segment.fields:
 
-                self._add_unified_full_row(table, segment.fields[0], N)
+                self._add_unified_full_row(table, segment.fields[0], N, annotated=annotated)
 
             elif segment.type == "inline_block" and segment.fields:
 
-                self._add_unified_inline_band(table, segment.fields, N)
+                self._add_unified_inline_band(table, segment.fields, N, annotated=annotated)
 
 
 
@@ -2133,7 +2383,14 @@ class ExportService:
 
 
 
-    def _add_unified_regular_row(self, table, form_field, layout: LayoutDecision):
+    def _add_unified_regular_row(
+        self,
+        table,
+        form_field,
+        layout: LayoutDecision,
+        *,
+        annotated: bool = False,
+    ):
 
         """在 unified table 中添加普通字段行。"""
 
@@ -2242,6 +2499,15 @@ class ExportService:
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
+        annotation_text = self._field_annotation_text(field_def)
+        if annotated and annotation_text:
+
+            self._add_oid_annotation_box(
+                right_cell.paragraphs[-1],
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
+
 
 
         if form_field.bg_color:
@@ -2264,7 +2530,7 @@ class ExportService:
 
 
 
-    def _add_unified_full_row(self, table, form_field, N: int):
+    def _add_unified_full_row(self, table, form_field, N: int, *, annotated: bool = False):
 
         """在 unified table 中添加全宽行。"""
 
@@ -2311,6 +2577,15 @@ class ExportService:
 
                 self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
+            annotation_text = self._field_annotation_text(field_def) if field_def else ""
+            if annotated and annotation_text:
+
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
+
             return
 
 
@@ -2341,9 +2616,18 @@ class ExportService:
 
             self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
+
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
-    def _add_unified_inline_band(self, table, block_fields, N: int):
+
+    def _add_unified_inline_band(self, table, block_fields, N: int, *, annotated: bool = False):
 
         """在 unified table 中添加 inline block 的表头和数据行。"""
 
@@ -2369,6 +2653,7 @@ class ExportService:
         for col_idx, label in enumerate(headers):
 
             span = spans[col_idx]
+            field_def = field_defs[col_idx]
 
             cell = header_row.cells[start_col]
 
@@ -2395,6 +2680,15 @@ class ExportService:
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
             self._apply_cell_shading(cell, 'D9D9D9')
+
+            annotation_text = self._field_annotation_text(field_def) if field_def else ""
+            if annotated and annotation_text:
+
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
 
             start_col += span
 
@@ -2551,6 +2845,7 @@ class ExportService:
         form_id=None,
         *,
         available_cm: float = PORTRAIT_CONTENT_WIDTH_CM,
+        annotated: bool = False,
     ):
         """将一组普通字段渲染为单张表格。
 
@@ -2591,15 +2886,15 @@ class ExportService:
 
             if form_field.is_log_row or (field_def and field_def.field_type == "日志行"):
 
-                self._add_log_row(table, row_idx, form_field)
+                self._add_log_row(table, row_idx, form_field, annotated=annotated)
 
             elif field_def and field_def.field_type == "标签":
 
-                self._add_label_row(table, row_idx, form_field)
+                self._add_label_row(table, row_idx, form_field, annotated=annotated)
 
             else:
 
-                self._add_field_row(table, row_idx, form_field, normal_widths)
+                self._add_field_row(table, row_idx, form_field, normal_widths, annotated=annotated)
 
 
 
@@ -2607,7 +2902,7 @@ class ExportService:
 
 
 
-    def _add_log_row(self, table, row_idx: int, form_field):
+    def _add_log_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
 
         """添加日志行。"""
 
@@ -2640,9 +2935,20 @@ class ExportService:
 
             self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
+        field_def = form_field.field_definition
+
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
+
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
-    def _add_label_row(self, table, row_idx: int, form_field):
+
+    def _add_label_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
 
         """添加标签字段行。"""
 
@@ -2673,9 +2979,18 @@ class ExportService:
 
         merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
+
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
-    def _add_field_row(self, table, row_idx: int, form_field, widths):
+
+    def _add_field_row(self, table, row_idx: int, form_field, widths, *, annotated: bool = False):
 
         """添加普通字段行。"""
 
@@ -2784,6 +3099,15 @@ class ExportService:
             WD_ALIGN_VERTICAL.BOTTOM if is_plain_fill_line else WD_ALIGN_VERTICAL.CENTER
         )
 
+        annotation_text = self._field_annotation_text(field_def)
+        if annotated and annotation_text:
+
+            self._add_oid_annotation_box(
+                right_cell.paragraphs[-1],
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
+
 
 
         if form_field.bg_color:
@@ -2814,6 +3138,7 @@ class ExportService:
         form_id=None,
         *,
         available_cm: float | None = None,
+        annotated: bool = False,
     ):
         """添加横向表格（1表头行+N内容行），使用内容驱动的宽度规划
 
@@ -2910,6 +3235,15 @@ class ExportService:
             shading_elm.set(qn('w:fill'), 'D9D9D9')
 
             cell._tc.get_or_add_tcPr().append(shading_elm)
+
+            annotation_text = self._field_annotation_text(field_def)
+            if annotated and annotation_text:
+
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
 
 
 
@@ -3940,7 +4274,7 @@ class ExportService:
 
             cy = extent.get('cy')
 
-            pic_id = docPr.get('id') if docPr is not None else '1'
+            pic_id = str(self._next_annotation_docpr_id())
 
 
 

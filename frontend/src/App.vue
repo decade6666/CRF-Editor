@@ -314,7 +314,7 @@ function collectColumnWidthOverrides(forms) {
   return overrides;
 }
 
-async function exportWord() {
+async function exportWord(annotated = false) {
   if (!selectedProject.value || exportWordLoading.value) return;
   exportWordLoading.value = true;
   try {
@@ -328,7 +328,7 @@ async function exportWord() {
         ...getAuthHeaders(),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ column_width_overrides: columnWidthOverrides }),
+      body: JSON.stringify({ column_width_overrides: columnWidthOverrides, annotated }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -336,7 +336,7 @@ async function exportWord() {
     }
     const blob = await response.blob();
     const contentDisposition = response.headers.get('content-disposition');
-    const fallbackFilename = `${selectedProject.value.name}_CRF.docx`;
+    const fallbackFilename = `${selectedProject.value.name}_${annotated ? 'aCRF' : 'CRF'}.docx`;
     const filename = getDownloadFilename(contentDisposition, fallbackFilename);
     const objectUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -351,6 +351,14 @@ async function exportWord() {
     ElMessage.error('导出失败: ' + e.message);
   } finally {
     exportWordLoading.value = false;
+  }
+}
+
+function onExportCommand(command) {
+  if (command === 'ecrf') {
+    exportWord();
+  } else if (command === 'acrf') {
+    exportWord(true);
   }
 }
 
@@ -912,9 +920,15 @@ function startResize(e) {
       <div class="header-right-group">
         <div class="header-right">
           <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
-          <el-button v-if="selectedProject" type="warning" size="small" :loading="exportWordLoading" @click="exportWord"
-            >导出Word</el-button
-          >
+          <el-dropdown v-if="selectedProject" trigger="hover" :disabled="exportWordLoading" @command="onExportCommand">
+            <el-button type="warning" size="small" :loading="exportWordLoading" aria-label="导出">导出Word</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="ecrf">导出eCRF</el-dropdown-item>
+                <el-dropdown-item command="acrf">导出aCRF</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <SessionTimer />
       </div>

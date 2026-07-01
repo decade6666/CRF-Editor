@@ -32,7 +32,10 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
         "company_logo_path", "data_management_unit", "owner_id",
     }),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
-    "form": frozenset({"id", "project_id", "name", "code", "domain", "order_index", "design_notes", "paper_orientation"}),
+    "form": frozenset({
+        "id", "project_id", "name", "code", "domain", "order_index",
+        "design_notes", "annotation_positions", "paper_orientation",
+    }),
     "visit_form": frozenset({"id", "visit_id", "form_id", "sequence"}),
     "field_definition": frozenset({
         "id", "project_id", "variable_name", "label", "field_type",
@@ -63,6 +66,8 @@ def _patch_legacy_project_schema(file_path: str) -> None:
                 conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
         if 'form' in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
+            if 'annotation_positions' not in cols:
+                conn.execute("ALTER TABLE form ADD COLUMN annotation_positions TEXT")
             if 'paper_orientation' not in cols:
                 conn.execute(
                     "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
