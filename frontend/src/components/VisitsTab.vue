@@ -471,7 +471,7 @@ function mergeFormIntoState(updatedForm) {
     }
   }
   if (formPreviewForm.value?.id === updatedForm.id) {
-    formPreviewForm.value = nextForm
+    formPreviewForm.value = { ...formPreviewForm.value, ...updatedForm }
   }
   return nextForm
 }
