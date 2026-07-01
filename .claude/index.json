@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-29T22:05:00-07:00",
+  "timestamp": "2026-06-30T12:00:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -164,6 +164,7 @@
         "frontend/src/components/VisitsTab.vue"
       ],
       "composables": [
+        "frontend/src/composables/acrfAnnotationGeometry.js",
         "frontend/src/composables/exportDownloadState.js",
         "frontend/src/composables/fieldDefinitionVisibility.js",
         "frontend/src/composables/formDesignerPreviewModel.js",
@@ -172,6 +173,7 @@
         "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/searchRanking.js",
         "frontend/src/composables/useApi.js",
+        "frontend/src/composables/useAcrfAnnotationDrag.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
         "frontend/src/composables/useDesignerHistory.js",
@@ -197,6 +199,8 @@
         "frontend/scripts/runBrowserPerfBaseline.mjs"
       ],
       "tests": [
+        "frontend/tests/acrfAnnotationGeometry.test.js",
+        "frontend/tests/acrfAnnotationPersistence.test.js",
         "frontend/tests/adminViewStructure.test.js",
         "frontend/tests/appCollapse.test.js",
         "frontend/tests/appSettingsShell.test.js",
@@ -238,8 +242,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 78,
-        "scanned_files": 78,
+        "estimated_files": 82,
+        "scanned_files": 82,
         "percent": 100
       },
       "gaps": [

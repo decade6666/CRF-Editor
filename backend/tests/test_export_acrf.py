@@ -18,7 +18,13 @@ from src.models.project import Project
 from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
-from src.services.export_service import ExportService, LayoutDecision, Segment
+from src.services.export_service import (
+    ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU,
+    ACRF_ANNOTATION_EMU_PER_01CM,
+    ExportService,
+    LayoutDecision,
+    Segment,
+)
 from src.services.word_table_parity import extract_docx_form_table_fields
 
 NS = {
@@ -51,6 +57,20 @@ def _annotation_shape_count(docx_path: Path) -> int:
 def _annotation_docpr_ids(docx_path: Path) -> list[str]:
     tree = _document_xml_tree(docx_path)
     return tree.xpath("//wp:docPr/@id", namespaces=NS)
+
+
+def _annotation_offsets_by_text(docx_path: Path) -> dict[str, int]:
+    tree = _document_xml_tree(docx_path)
+    offsets: dict[str, int] = {}
+    for anchor in tree.xpath("//wp:anchor", namespaces=NS):
+        texts = anchor.xpath(".//wps:txbx//w:t/text()", namespaces=NS)
+        if not texts:
+            continue
+        pos_offsets = anchor.xpath("./wp:positionV/wp:posOffset/text()", namespaces=NS)
+        if not pos_offsets:
+            continue
+        offsets["".join(texts)] = int(pos_offsets[0])
+    return offsets
 
 
 def _assert_anchors_wrapped_in_drawing(docx_path: Path) -> None:
@@ -471,5 +491,202 @@ def test_unified_annotation_helpers_only_emit_boxes_for_annotated_output(tmp_pat
         assert _annotation_anchor_count(annotated_path) == len(expected_texts)
         assert _annotation_shape_count(annotated_path) == len(expected_texts)
         _assert_unique_docpr_ids(annotated_path)
+    finally:
+        engine.dispose()
+
+
+def test_acrf_export_applies_annotation_delta_y_offsets(tmp_path: Path) -> None:
+    engine = _make_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with session_factory() as session:
+            project = _create_project(session, name="Offset Project")
+            visit = _create_visit(session, project.id)
+            form = _create_form(
+                session,
+                project.id,
+                name="Offset Form",
+                code="OFFSET_FORM",
+                order_index=1,
+                domain="DM",
+            )
+            form.annotation_positions = (
+                '{"_form":{"y":25},"OFFSET_VAR":{"y":-40},"CLAMP_VAR":{"y":999}}'
+            )
+            offset_field = _create_field_definition(
+                session,
+                project.id,
+                variable_name="OFFSET_VAR",
+                label="Offset Field",
+            )
+            clamp_field = _create_field_definition(
+                session,
+                project.id,
+                variable_name="CLAMP_VAR",
+                label="Clamp Field",
+            )
+            _add_form_field(
+                session,
+                form,
+                order_index=1,
+                field_definition=offset_field,
+            )
+            _add_form_field(
+                session,
+                form,
+                order_index=2,
+                field_definition=clamp_field,
+            )
+            _attach_form_to_visit(session, visit, form, sequence=1)
+            ecrf_path, acrf_path = _export_project_pair(session, project.id, tmp_path)
+
+        offsets = _annotation_offsets_by_text(acrf_path)
+        assert offsets["DM"] == (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            + 25 * ACRF_ANNOTATION_EMU_PER_01CM
+        )
+        assert offsets["OFFSET_VAR"] == (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            - 40 * ACRF_ANNOTATION_EMU_PER_01CM
+        )
+        assert offsets["CLAMP_VAR"] == (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            + 200 * ACRF_ANNOTATION_EMU_PER_01CM
+        )
+        assert extract_docx_form_table_fields(acrf_path) == extract_docx_form_table_fields(ecrf_path)
+    finally:
+        engine.dispose()
+
+
+def test_acrf_export_trims_variable_name_for_annotation_lookup(tmp_path: Path) -> None:
+    engine = _make_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with session_factory() as session:
+            project = _create_project(session, name="Trimmed Offset Project")
+            visit = _create_visit(session, project.id)
+            form = _create_form(
+                session,
+                project.id,
+                name="Trimmed Offset Form",
+                code="TRIMMED_OFFSET_FORM",
+                order_index=1,
+                domain="DM",
+            )
+            form.annotation_positions = '{"OFFSET_VAR":{"y":30}}'
+            offset_field = _create_field_definition(
+                session,
+                project.id,
+                variable_name="  OFFSET_VAR  ",
+                label="Offset Field",
+            )
+            _add_form_field(
+                session,
+                form,
+                order_index=1,
+                field_definition=offset_field,
+            )
+            _attach_form_to_visit(session, visit, form, sequence=1)
+
+            output_path = tmp_path / "trimmed-offset-acrf.docx"
+            ok = ExportService(session).export_project_to_word(
+                project.id,
+                str(output_path),
+                annotated=True,
+            )
+
+            assert ok is True
+
+        offsets = _annotation_offsets_by_text(output_path)
+        assert offsets["OFFSET_VAR"] == (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            + 30 * ACRF_ANNOTATION_EMU_PER_01CM
+        )
+        assert "  OFFSET_VAR  " not in offsets
+    finally:
+        engine.dispose()
+
+
+def test_plain_export_ignores_invalid_annotation_positions(tmp_path: Path) -> None:
+    engine = _make_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with session_factory() as session:
+            project = _create_project(session, name="Plain Invalid Offset Project")
+            visit = _create_visit(session, project.id)
+            form = _create_form(
+                session,
+                project.id,
+                name="Plain Invalid Offset Form",
+                code="PLAIN_INVALID_OFFSET_FORM",
+                order_index=1,
+                domain="DM",
+            )
+            form.annotation_positions = '{"_bad":{"y":1}}'
+            offset_field = _create_field_definition(
+                session,
+                project.id,
+                variable_name="OFFSET_VAR",
+                label="Offset Field",
+            )
+            _add_form_field(
+                session,
+                form,
+                order_index=1,
+                field_definition=offset_field,
+            )
+            _attach_form_to_visit(session, visit, form, sequence=1)
+
+            output_path = tmp_path / "plain-invalid-acrf.docx"
+            ok = ExportService(session).export_project_to_word(
+                project.id,
+                str(output_path),
+                annotated=False,
+            )
+
+            assert ok is True
+
+        _assert_no_annotation_nodes(output_path)
+    finally:
+        engine.dispose()
+
+
+def test_acrf_export_rejects_invalid_annotation_positions(tmp_path: Path) -> None:
+    engine = _make_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with session_factory() as session:
+            project = _create_project(session, name="Invalid Offset Project")
+            visit = _create_visit(session, project.id)
+            form = _create_form(
+                session,
+                project.id,
+                name="Invalid Offset Form",
+                code="INVALID_OFFSET_FORM",
+                order_index=1,
+                domain="DM",
+            )
+            form.annotation_positions = '{"_bad":{"y":1}}'
+            offset_field = _create_field_definition(
+                session,
+                project.id,
+                variable_name="OFFSET_VAR",
+                label="Offset Field",
+            )
+            _add_form_field(
+                session,
+                form,
+                order_index=1,
+                field_definition=offset_field,
+            )
+            _attach_form_to_visit(session, visit, form, sequence=1)
+
+            ok = ExportService(session).export_project_to_word(
+                project.id,
+                str(tmp_path / "invalid-acrf.docx"),
+                annotated=True,
+            )
+
+            assert ok is False
     finally:
         engine.dispose()

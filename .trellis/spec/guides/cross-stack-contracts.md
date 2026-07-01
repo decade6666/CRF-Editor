@@ -302,7 +302,88 @@ return { lines: [ctrl], repeat: true, fallback: ctrl }
 
 ---
 
-### 6. Form Paper Orientation
+### 6. aCRF Annotation Geometry
+
+**Contract ID**: `acrf-annotation-geometry`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **Files** | `backend/src/services/export_service.py`, `backend/src/schemas/form.py` | `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue` |
+| **Purpose** | Persist validated annotation offsets and convert them into Word floating-box `posOffset` values | Render the same aCRF annotation geometry in browser preview and persist vertical drag offsets back to `Form.annotation_positions` |
+
+**Storage schema**:
+
+```json
+{
+  "_form": { "y": -18 },
+  "LBTESTCD": { "y": 25 }
+}
+```
+
+- `annotation_positions` lives on the **Form** record as JSON / JSON-string content.
+- The reserved key `_form` stores the form `domain` annotation offset.
+- Every field annotation key is the field definition `variable_name`.
+- Each value stores a single vertical offset `y`; Phase 1 does **not** persist horizontal movement.
+
+**Units and clamp**:
+
+```python
+# backend/src/schemas/form.py / export_service.py
+offset_y_01cm: int                     # signed integer in 0.01cm units
+ANNOTATION_POSITION_MIN_Y = -200       # -2.00cm
+ANNOTATION_POSITION_MAX_Y = 200        # +2.00cm
+```
+
+```javascript
+// frontend/src/composables/acrfAnnotationGeometry.js
+export const ANNOTATION_POSITION_MIN_Y = -200
+export const ANNOTATION_POSITION_MAX_Y = 200
+export const ACRF_ANNOTATION_EMU_PER_01CM = 3600
+```
+
+- `offset_y` MUST be a finite integer in **0.01cm** units.
+- Backend schema validation and backend export both clamp to `[-200, 200]`.
+- Frontend drag conversion must round to the nearest integer `0.01cm` unit before PATCH.
+
+**Geometry / sign contract**:
+
+```text
+1in = 914400 EMU = 96 CSS px = 72 pt
+1cm = 360000 EMU
+0.01cm = 3600 EMU
+defaultVerticalOffset = -120000 EMU
+posOffset = defaultVerticalOffset + deltaY01cm * 3600
++deltaY means moving the annotation downward
+```
+
+- The export-side `wp:positionV/@posOffset` MUST use `default + Δy`, not `default - Δy`.
+- The preview-side `top` CSS value MUST derive from the same formula after EMU→cm conversion.
+- Frontend drag math uses the CSS absolute-unit identity `96 px = 1in`; do not replace it with device-pixel or zoom-dependent heuristics.
+
+**Shared frontend/backend constants**:
+
+- Visual constants that must evolve together: font size `8pt`, box height `0.7cm`, X padding `22860 EMU`, Y padding `18000 EMU`, border width `12700 EMU`, max width `4.6cm`, default vertical offset `-120000 EMU`.
+- Frontend single source: `frontend/src/composables/acrfAnnotationGeometry.js`
+- Backend single source: `backend/src/services/export_service.py`
+- Validation/storage single source: `backend/src/schemas/form.py`
+
+**Preview / export parity note**:
+
+- Export annotations are floating text boxes (`w:drawing` / `wp:anchor`) and must not enter strict table text.
+- `backend/src/services/word_table_parity.py` extracts only `Table.cell.text`; floating annotation text therefore stays outside strict table-field parity.
+- Any preview JSON extractor used with `backend/scripts/compare_word_table_parity.py` MUST ignore `.wp-acrf-annotation` descendants and compare only the form / row / cell table text model.
+
+**Synchronization Checklist**:
+- [ ] Update `export_service.py` annotation constants and `posOffset` math together
+- [ ] Update `schemas/form.py` validation when changing key semantics or clamp limits
+- [ ] Update `acrfAnnotationGeometry.js` constants, unit conversions, and `resolveAnnotationTopCm`
+- [ ] Keep `FormDesignerTab.vue` and `VisitsTab.vue` on the same `annotation_positions` storage shape and drag gate rules
+- [ ] Run `backend/tests/test_export_acrf.py`, `backend/tests/test_export_service.py`, `backend/tests/test_export_unified.py`, `backend/tests/test_word_table_parity.py`
+- [ ] Run `frontend/tests/acrfAnnotationGeometry.test.js`, `frontend/tests/acrfAnnotationPersistence.test.js`, `frontend/tests/acrfViewToggle.test.js`
+
+---
+
+### 7. Form Paper Orientation
 
 **Contract ID**: `form-paper-orientation`
 

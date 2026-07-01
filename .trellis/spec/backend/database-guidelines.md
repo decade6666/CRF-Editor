@@ -120,6 +120,103 @@ def run_migrations(engine):
 - New table → Define in model, SQLAlchemy creates on startup
 - Dropping columns → Not supported by SQLite; create new table and migrate data
 
+### Scenario: Adding a New `form_field` Column
+
+#### 1. Scope / Trigger
+
+- Trigger: adding, renaming, deleting, or changing the default/enum semantics of any persisted `form_field` column.
+- This requires code-spec depth because `form_field` is not updated in one place: the table can be rebuilt from canonical DDL, external project DBs are schema-validated before import, and both project copy and form copy rebuild `FormField(...)` rows manually.
+
+#### 2. Signatures
+
+```python
+# backend/src/database.py
+_FORM_FIELD_CANONICAL_COLUMNS = (
+    ("id", None),
+    ("form_id", None),
+    # ... every persisted form_field column must appear here
+)
+
+def _rebuild_form_field_table(conn, *, log_message: str) -> None: ...
+def _ensure_form_field_rowid_compatibility(engine) -> None: ...
+
+# backend/src/services/project_import_service.py
+_REQUIRED_COLUMNS["form_field"] = frozenset({...})
+def _patch_legacy_project_schema(file_path: str) -> None: ...
+
+# backend/src/services/project_clone_service.py
+session.add(FormField(...))
+
+# backend/src/routers/forms.py
+@router.post("/forms/{form_id}/copy")
+def copy_form(...): ...
+```
+
+#### 3. Contracts
+
+- **Canonical rebuild contract**: every persisted `form_field` column must exist in both `_FORM_FIELD_CANONICAL_COLUMNS` and the `CREATE TABLE form_field_new` DDL inside `_rebuild_form_field_table()`. If old rows may not have the value, provide an explicit default expression or fail loudly.
+- **Import contract**: `_REQUIRED_COLUMNS["form_field"]` is the accepted external schema for project DB import. If older `.db` files should remain importable, `_patch_legacy_project_schema()` must patch the temporary copy before `_validate_schema()` / ORM loading touches the table.
+- **Project clone contract**: `ProjectCloneService.clone_from_graph()` manually reconstructs `FormField(...)`. A new column is **not** carried automatically by SQLAlchemy — copy it explicitly or intentionally default it.
+- **Form copy contract**: `backend/src/routers/forms.py::copy_form()` also rebuilds `FormField(...)` manually. Same-project duplication must be reviewed whenever a new `form_field` attribute is added.
+- **Host legacy contract**: startup repair paths such as `_rebuild_form_field_table()` and `_ensure_form_field_rowid_compatibility()` must preserve the new column, its constraints, and its data.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| New column missing from `_FORM_FIELD_CANONICAL_COLUMNS` or `form_field_new` DDL | Rebuild / startup heal is incomplete; the new value can be dropped or the rebuild can fail. Treat as a release blocker. |
+| New column missing from `_REQUIRED_COLUMNS["form_field"]` | Import validation no longer reflects the real contract; compatibility becomes implicit instead of explicit. Update the validator together with the schema change. |
+| Legacy `.db` files should still import, but `_patch_legacy_project_schema()` is not updated | Import fails on old files with `form_field 缺少列 ...` or equivalent schema incompatibility. |
+| `ProjectCloneService.clone_from_graph()` not updated | Project copy and project-db import lose the value on cloned `FormField` rows. |
+| `forms.py::copy_form()` not updated | `/api/forms/{form_id}/copy` resets or drops the value during same-project duplication. |
+| New column is non-nullable but no default/backfill exists | Existing DBs, rebuilds, or imports fail once legacy rows are touched. |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: add the column to canonical rebuild DDL, import validator, legacy patch/default path, project clone, and form copy in one change; then assert it survives create → copy → export/import → startup rebuild.
+- **Base**: if the field is intentionally defaulted on legacy inputs, document the exact default (`NULL`, `0`, `'auto'`, etc.) and add a regression test proving the defaulted value after import/rebuild.
+- **Bad**: update only the ORM model / API schema and assume the value will flow automatically. `form_field` currently has multiple hand-written pass-through sites, so partial updates silently lose data.
+
+#### 6. Tests Required
+
+- **Migration / rebuild**: extend the `form_field` rebuild coverage in `backend/tests/test_project_import.py` so the new column survives `_rebuild_form_field_table()` with the expected PK/FK/NOT NULL/default semantics.
+- **Form copy**: add or extend `/api/forms/{form_id}/copy` coverage so the copied form preserves the new `form_field` value.
+- **Project copy**: extend `backend/tests/test_project_copy.py::test_copy_project_clones_full_graph` to assert cloned `FormField` rows preserve the new value.
+- **Project DB import / merge**: add or extend `backend/tests/test_project_import.py` to cover both current-schema round-trip import and the intended legacy behavior (patched default vs fail-closed rejection).
+- **API round-trip**: if the field is user-writable or user-visible, extend `backend/tests/test_fields_router.py` so create / patch / put / list all expose the same value.
+
+**Assertion points**:
+- copied rows keep the exact value unless an intentional default is documented;
+- legacy import either produces the documented default or fails with a targeted incompatibility message;
+- startup rebuild preserves constraints and does not drop data;
+- export/import round-trip does not null out the new column.
+
+#### 7. Wrong vs Correct
+
+**Wrong**
+
+```python
+# Only update the ORM / API layer
+class FormField(Base):
+    annotation_offset_x = mapped_column(Integer, default=0)
+
+# Missing: canonical rebuild, import validator, legacy patch, project copy, form copy
+```
+
+**Correct**
+
+```python
+# Search all manual pass-through sites first
+rg -n "_FORM_FIELD_CANONICAL_COLUMNS|form_field_new|_REQUIRED_COLUMNS|_patch_legacy_project_schema|FormField\(|copy_form" backend/
+
+# Then update the schema change as one unit:
+# 1. canonical rebuild DDL/defaults
+# 2. import validator + legacy patch/default path
+# 3. project clone FormField(...) mapping
+# 4. form copy FormField(...) mapping
+# 5. regression tests for rebuild/copy/import
+```
+
 ---
 
 ## Query Patterns

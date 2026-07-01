@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import json
 import logging
 
 import math
@@ -20,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import html
 
 from src.perf import perf_span, record_counter
+from src.schemas.form import normalize_annotation_key, parse_annotation_positions
 
 
 
@@ -129,6 +131,11 @@ from src.models import Project
 
 from src.repositories.project_repository import ProjectRepository
 
+from src.schemas.form import (
+    ANNOTATION_FORM_KEY,
+    ANNOTATION_POSITION_MAX_Y,
+    ANNOTATION_POSITION_MIN_Y,
+)
 from src.schemas.project import normalize_screening_number_format
 
 from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, build_field_control_weight, extract_default_lines
@@ -156,6 +163,14 @@ from src.services.width_planning import (
 DEFAULT_LABEL_FONT_PT = 10.5
 
 _LABEL_FONT_SIZE_PT = {"large": 12.0, "small": 9.0}
+ACRF_ANNOTATION_FONT_SIZE_PT = 8.0
+ACRF_ANNOTATION_HEIGHT_CM = 0.7
+ACRF_ANNOTATION_PADDING_X_EMU = 22860
+ACRF_ANNOTATION_PADDING_Y_EMU = 18000
+ACRF_ANNOTATION_BORDER_WIDTH_EMU = 12700
+ACRF_ANNOTATION_BOX_WIDTH_MAX_CM = 4.6
+ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU = -120000
+ACRF_ANNOTATION_EMU_PER_01CM = int(Cm(0.01))
 
 
 def resolve_label_font_pt(form_field) -> float:
@@ -227,9 +242,6 @@ class ExportService:
     FORM_TABLE_ROW_HEIGHT_CM = 1
     SINGLE_LINE_HEIGHT_PT = 15.6
     CELL_VPAD_PT = (FORM_TABLE_ROW_HEIGHT_CM * 28.3465 - SINGLE_LINE_HEIGHT_PT) / 2
-    OID_ANNOTATION_HEIGHT_CM = 0.7
-    OID_ANNOTATION_MAX_WIDTH_CM = 4.6
-    OID_ANNOTATION_VERTICAL_OFFSET_EMU = -120000
 
     # 纵向选项之间的段前间距（pt）。跨栈契约：与前端 main.css
     # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
@@ -255,6 +267,7 @@ class ExportService:
         self._toc_pageref_values: Dict[str, list] = {}
         self._annotation_docpr_counter: int = 0
         self._column_width_overrides: Dict[Any, Any] = {}
+        self._current_annotation_offsets: Dict[str, int] = {}
 
 
 
@@ -910,6 +923,7 @@ class ExportService:
         *,
         form_domain: str | None = None,
         annotated: bool = False,
+        annotation_delta_y_01cm: int = 0,
     ):
 
         """添加标题段落并注册 TOC 条目。
@@ -970,7 +984,11 @@ class ExportService:
 
         if annotated and form_domain:
 
-            self._add_oid_annotation_box(heading_para, form_domain)
+            self._add_oid_annotation_box(
+                heading_para,
+                form_domain,
+                delta_y_01cm=annotation_delta_y_01cm,
+            )
 
         self._toc_entries.append((text, level, bookmark_name))
 
@@ -989,11 +1007,69 @@ class ExportService:
         weighted_chars = sum(2 if ord(char) > 127 else 1 for char in text)
 
         return min(
-            self.OID_ANNOTATION_MAX_WIDTH_CM,
+            ACRF_ANNOTATION_BOX_WIDTH_MAX_CM,
             max(0.9, 0.45 + weighted_chars * 0.20),
         )
 
-    def _add_oid_annotation_box(self, anchor_paragraph: Any, text: str) -> None:
+    def _clamp_annotation_delta_y(self, value: Any) -> int:
+
+        if isinstance(value, bool) or not isinstance(value, int):
+
+            return 0
+
+        return max(ANNOTATION_POSITION_MIN_Y, min(ANNOTATION_POSITION_MAX_Y, value))
+
+    def _annotation_delta_y_to_emu(self, value: int) -> int:
+
+        return self._clamp_annotation_delta_y(value) * ACRF_ANNOTATION_EMU_PER_01CM
+
+    def _load_annotation_offsets(self, raw_value: Any) -> Dict[str, int]:
+
+        try:
+
+            positions = parse_annotation_positions(raw_value)
+
+        except ValueError as exc:
+
+            raise ExportError(
+                f"表单 annotation_positions 数据非法: {exc}",
+                _EXPORT_ERROR_CODES["DATA_INCOMPATIBLE"],
+            ) from exc
+
+        if positions is None:
+
+            return {}
+
+        return {
+            key: self._clamp_annotation_delta_y(position.y)
+            for key, position in positions.items()
+        }
+
+    @staticmethod
+    def _annotation_text_key(value: Any) -> str:
+
+        return normalize_annotation_key(value)
+
+    def _field_annotation_text(self, field_def: Any) -> str:
+
+        return self._annotation_text_key(getattr(field_def, "variable_name", None))
+
+    def _annotation_delta_y_for_key(self, key: str | None) -> int:
+
+        normalized_key = self._annotation_text_key(key)
+        if not normalized_key:
+
+            return 0
+
+        return self._current_annotation_offsets.get(normalized_key, 0)
+
+    def _add_oid_annotation_box(
+        self,
+        anchor_paragraph: Any,
+        text: str,
+        *,
+        delta_y_01cm: int = 0,
+    ) -> None:
 
         from docx.oxml import parse_xml
 
@@ -1009,7 +1085,11 @@ class ExportService:
 
         box_width_emu = int(Cm(self._estimate_annotation_width_cm(display_text)))
 
-        box_height_emu = int(Cm(self.OID_ANNOTATION_HEIGHT_CM))
+        box_height_emu = int(Cm(ACRF_ANNOTATION_HEIGHT_CM))
+        pos_offset_emu = (
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
+            + self._annotation_delta_y_to_emu(delta_y_01cm)
+        )
 
         docpr_id = self._next_annotation_docpr_id()
 
@@ -1029,7 +1109,7 @@ class ExportService:
                 <wp:align>right</wp:align>
             </wp:positionH>
             <wp:positionV relativeFrom="paragraph">
-                <wp:posOffset>{self.OID_ANNOTATION_VERTICAL_OFFSET_EMU}</wp:posOffset>
+                <wp:posOffset>{pos_offset_emu}</wp:posOffset>
             </wp:positionV>
             <wp:extent cx="{box_width_emu}" cy="{box_height_emu}"/>
             <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -1051,7 +1131,7 @@ class ExportService:
                             <a:solidFill>
                                 <a:srgbClr val="FFF2F2"/>
                             </a:solidFill>
-                            <a:ln w="12700">
+                            <a:ln w="{ACRF_ANNOTATION_BORDER_WIDTH_EMU}">
                                 <a:solidFill>
                                     <a:srgbClr val="C00000"/>
                                 </a:solidFill>
@@ -1068,15 +1148,15 @@ class ExportService:
                                         <w:rPr>
                                             <w:rFonts w:ascii="{self.FONT_ASCII}" w:hAnsi="{self.FONT_ASCII}" w:eastAsia="{self.FONT_EAST_ASIA}"/>
                                             <w:color w:val="C00000"/>
-                                            <w:sz w:val="16"/>
-                                            <w:szCs w:val="16"/>
+                                            <w:sz w:val="{int(ACRF_ANNOTATION_FONT_SIZE_PT * 2)}"/>
+                                            <w:szCs w:val="{int(ACRF_ANNOTATION_FONT_SIZE_PT * 2)}"/>
                                         </w:rPr>
                                         <w:t>{escaped_text}</w:t>
                                     </w:r>
                                 </w:p>
                             </w:txbxContent>
                         </wps:txbx>
-                        <wps:bodyPr wrap="none" lIns="22860" tIns="18000" rIns="22860" bIns="18000" anchor="ctr"/>
+                        <wps:bodyPr wrap="none" lIns="{ACRF_ANNOTATION_PADDING_X_EMU}" tIns="{ACRF_ANNOTATION_PADDING_Y_EMU}" rIns="{ACRF_ANNOTATION_PADDING_X_EMU}" bIns="{ACRF_ANNOTATION_PADDING_Y_EMU}" anchor="ctr"/>
                     </wps:wsp>
                 </a:graphicData>
             </a:graphic>
@@ -1690,6 +1770,12 @@ class ExportService:
 
 
         for idx, form in enumerate(sorted_forms, start=1):
+            if annotated:
+                self._current_annotation_offsets = self._load_annotation_offsets(
+                    getattr(form, "annotation_positions", None)
+                )
+            else:
+                self._current_annotation_offsets = {}
 
             form_fields = sorted(form.form_fields, key=lambda ff: (ff.order_index, ff.id))
 
@@ -1711,6 +1797,7 @@ class ExportService:
                     level=1,
                     form_domain=form.domain,
                     annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
                 )
 
                 groups = self._group_form_fields(form_fields)
@@ -1776,6 +1863,7 @@ class ExportService:
                     level=1,
                     form_domain=form.domain,
                     annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
                 )
 
                 segments = self._build_unified_segments(form_fields)
@@ -1811,6 +1899,7 @@ class ExportService:
                     level=1,
                     form_domain=form.domain,
                     annotated=annotated,
+                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
                 )
 
 
@@ -1907,6 +1996,8 @@ class ExportService:
                     else:
 
                         self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            self._current_annotation_offsets = {}
 
 
 
@@ -2408,9 +2499,14 @@ class ExportService:
 
         right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-        if annotated and field_def.variable_name:
+        annotation_text = self._field_annotation_text(field_def)
+        if annotated and annotation_text:
 
-            self._add_oid_annotation_box(right_cell.paragraphs[-1], field_def.variable_name)
+            self._add_oid_annotation_box(
+                right_cell.paragraphs[-1],
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
 
@@ -2481,9 +2577,14 @@ class ExportService:
 
                 self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
-            if annotated and field_def and field_def.variable_name:
+            annotation_text = self._field_annotation_text(field_def) if field_def else ""
+            if annotated and annotation_text:
 
-                self._add_oid_annotation_box(para, field_def.variable_name)
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
 
             return
 
@@ -2515,9 +2616,14 @@ class ExportService:
 
             self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
-        if annotated and field_def and field_def.variable_name:
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
 
-            self._add_oid_annotation_box(para, field_def.variable_name)
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
 
@@ -2575,9 +2681,14 @@ class ExportService:
 
             self._apply_cell_shading(cell, 'D9D9D9')
 
-            if annotated and field_def and field_def.variable_name:
+            annotation_text = self._field_annotation_text(field_def) if field_def else ""
+            if annotated and annotation_text:
 
-                self._add_oid_annotation_box(para, field_def.variable_name)
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
 
             start_col += span
 
@@ -2826,9 +2937,14 @@ class ExportService:
 
         field_def = form_field.field_definition
 
-        if annotated and field_def and field_def.variable_name:
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
 
-            self._add_oid_annotation_box(para, field_def.variable_name)
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
 
@@ -2863,9 +2979,14 @@ class ExportService:
 
         merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-        if annotated and field_def and field_def.variable_name:
+        annotation_text = self._field_annotation_text(field_def) if field_def else ""
+        if annotated and annotation_text:
 
-            self._add_oid_annotation_box(para, field_def.variable_name)
+            self._add_oid_annotation_box(
+                para,
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
 
@@ -2978,9 +3099,14 @@ class ExportService:
             WD_ALIGN_VERTICAL.BOTTOM if is_plain_fill_line else WD_ALIGN_VERTICAL.CENTER
         )
 
-        if annotated and field_def.variable_name:
+        annotation_text = self._field_annotation_text(field_def)
+        if annotated and annotation_text:
 
-            self._add_oid_annotation_box(right_cell.paragraphs[-1], field_def.variable_name)
+            self._add_oid_annotation_box(
+                right_cell.paragraphs[-1],
+                annotation_text,
+                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+            )
 
 
 
@@ -3110,9 +3236,14 @@ class ExportService:
 
             cell._tc.get_or_add_tcPr().append(shading_elm)
 
-            if annotated and field_def.variable_name:
+            annotation_text = self._field_annotation_text(field_def)
+            if annotated and annotation_text:
 
-                self._add_oid_annotation_box(para, field_def.variable_name)
+                self._add_oid_annotation_box(
+                    para,
+                    annotation_text,
+                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
+                )
 
 
 
