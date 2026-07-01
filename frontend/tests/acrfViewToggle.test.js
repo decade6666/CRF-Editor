@@ -396,4 +396,10 @@ test('VisitsTab mergeFormIntoState preserves per-collection fields like sequence
     /visitForms\.value = visitForms\.value\.map\(item => item\.id === updatedForm\.id \? nextForm : item\)/,
     'visitForms must not be overwritten by external nextForm',
   );
+  // formPreviewForm 也必须以自身为 base 合并，避免被 allForms 派生的 nextForm 截断字段
+  assert.match(
+    visitsTabSource,
+    /formPreviewForm\.value = \{ \.\.\.formPreviewForm\.value, \.\.\.updatedForm \}/,
+    'formPreviewForm must merge on its own base',
+  );
 });
