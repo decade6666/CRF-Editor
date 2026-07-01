@@ -3328,16 +3328,18 @@ function openAddForm() {
     >
       <template #header="{ titleId, titleClass }">
         <div class="designer-dialog-header">
-          <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">设计：{{ selectedForm?.name || '' }}</span>
-          <el-switch
-            v-if="editMode"
-            v-model="viewMode"
-            inline-prompt
-            active-text="aCRF"
-            inactive-text="eCRF"
-            :active-value="'aCRF'"
-            :inactive-value="'eCRF'"
-          />
+          <div class="designer-dialog-header-main">
+            <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">设计：{{ selectedForm?.name || '' }}</span>
+            <el-switch
+              v-if="editMode"
+              v-model="viewMode"
+              inline-prompt
+              active-text="aCRF"
+              inactive-text="eCRF"
+              :active-value="'aCRF'"
+              :inactive-value="'eCRF'"
+            />
+          </div>
         </div>
       </template>
       <div class="designer-shell">
@@ -4968,14 +4970,21 @@ function openAddForm() {
 .designer-dialog-header {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
   padding-right: 32px;
   white-space: nowrap;
 }
 
+.designer-dialog-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .designer-dialog-title {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
