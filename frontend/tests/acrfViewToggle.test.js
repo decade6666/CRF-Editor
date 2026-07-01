@@ -61,6 +61,12 @@ function extractRuleBody(css, selector) {
   return match ? match[1] : null;
 }
 
+function extractRuleBodyByPattern(css, pattern, description) {
+  const match = css.match(pattern);
+  assert.ok(match, `${description} should exist`);
+  return match[1];
+}
+
 test('viewMode helpers normalize persisted state and annotation text contracts', () => {
   const normalizeStoredViewMode = compileFunction('normalizeStoredViewMode');
   const resolveInitialViewMode = compileFunction('resolveInitialViewMode', { normalizeStoredViewMode });
@@ -313,6 +319,34 @@ test('VisitsTab preview annotation styles stay absolute and draggable without en
   assert.ok(resetRule);
   assert.match(resetRule, /position:\s*absolute/);
   assert.match(resetRule, /border:\s*1px solid #c00000/i);
+});
+
+test('aCRF reset button stays hidden while disabled until hover/focus-within reveals its muted state', () => {
+  for (const [label, source] of [
+    ['FormDesignerTab.vue', formDesignerSource],
+    ['VisitsTab.vue', visitsTabSource],
+  ]) {
+    const disabledRule = extractRuleBodyByPattern(
+      source,
+      /(?:^|\n)\.wp-acrf-annotation-reset:disabled\s*\{([^}]*)\}/m,
+      `${label} disabled reset rule`,
+    );
+    assert.doesNotMatch(disabledRule, /opacity\s*:/, `${label} disabled reset rule should not force opacity`);
+
+    const disabledRevealRule = extractRuleBodyByPattern(
+      source,
+      /(?:^|\n)\.wp-acrf-annotation:hover \.wp-acrf-annotation-reset:disabled,\s*\n\.wp-acrf-annotation:focus-within \.wp-acrf-annotation-reset:disabled\s*\{([^}]*)\}/m,
+      `${label} disabled reveal rule`,
+    );
+    assert.match(disabledRevealRule, /opacity:\s*0\.45/, `${label} disabled reveal rule should dim on hover`);
+
+    const revealRule = extractRuleBodyByPattern(
+      source,
+      /(?:^|\n)\.wp-acrf-annotation:hover \.wp-acrf-annotation-reset,\s*\n\.wp-acrf-annotation:focus-within \.wp-acrf-annotation-reset\s*\{([^}]*)\}/m,
+      `${label} base reveal rule`,
+    );
+    assert.match(revealRule, /opacity:\s*1/, `${label} base reveal rule should keep enabled resets visible`);
+  }
 });
 
 test('canvas and dialog headers keep titles accessible and resilient after adding the switch', () => {
