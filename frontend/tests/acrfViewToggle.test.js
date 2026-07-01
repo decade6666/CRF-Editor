@@ -6,28 +6,30 @@ import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const formDesignerPath = path.resolve(currentDir, '../src/components/FormDesignerTab.vue');
+const visitsTabPath = path.resolve(currentDir, '../src/components/VisitsTab.vue');
 const mainCssPath = path.resolve(currentDir, '../src/styles/main.css');
 
 const formDesignerSource = readFileSync(formDesignerPath, 'utf8');
+const visitsTabSource = readFileSync(visitsTabPath, 'utf8');
 const mainCssSource = readFileSync(mainCssPath, 'utf8');
 
 function countMatches(source, pattern) {
   return [...source.matchAll(pattern)].length;
 }
 
-function extractFunction(name) {
-  const start = formDesignerSource.indexOf(`function ${name}(`);
+function extractFunction(name, source = formDesignerSource) {
+  const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `function ${name} should exist`);
 
-  const argsStart = formDesignerSource.indexOf('(', start);
-  const argsEnd = formDesignerSource.indexOf(')', argsStart);
-  const bodyStart = formDesignerSource.indexOf('{', argsEnd);
+  const argsStart = source.indexOf('(', start);
+  const argsEnd = source.indexOf(')', argsStart);
+  const bodyStart = source.indexOf('{', argsEnd);
   assert.notEqual(bodyStart, -1, `function ${name} should have a body`);
 
   let depth = 0;
   let bodyEnd = -1;
-  for (let index = bodyStart; index < formDesignerSource.length; index += 1) {
-    const char = formDesignerSource[index];
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
     if (char === '{') depth += 1;
     if (char === '}') {
       depth -= 1;
@@ -40,13 +42,13 @@ function extractFunction(name) {
 
   assert.notEqual(bodyEnd, -1, `function ${name} should close its body`);
   return {
-    params: formDesignerSource.slice(argsStart + 1, argsEnd),
-    body: formDesignerSource.slice(bodyStart + 1, bodyEnd),
+    params: source.slice(argsStart + 1, argsEnd),
+    body: source.slice(bodyStart + 1, bodyEnd),
   };
 }
 
-function compileFunction(name, dependencies = {}) {
-  const { params, body } = extractFunction(name);
+function compileFunction(name, dependencies = {}, source = formDesignerSource) {
+  const { params, body } = extractFunction(name, source);
   const dependencyNames = Object.keys(dependencies);
   const dependencyValues = Object.values(dependencies);
   const factory = new Function(...dependencyNames, `return function ${name}(${params}) {${body}}`);
@@ -100,6 +102,10 @@ test('two inline-prompt switches share one localStorage-backed viewMode and only
     formDesignerSource,
     /watch\(\s*editMode,\s*\(enabled\)\s*=>\s*\{[\s\S]*resolveInitialViewMode\(enabled, viewMode\.value\)[\s\S]*\}\s*\);/,
   );
+  assert.match(
+    formDesignerSource,
+    /const annotationFlushSucceeded = await flushAnnotationPositionSave\(\{ cancelActiveDrag: true \}\);[\s\S]*?if \(!annotationFlushSucceeded && currentForm\?\.id\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;[\s\S]*?\}/,
+  );
 
   const switchPattern =
     /<el-switch[\s\S]*?v-model="viewMode"[\s\S]*?inline-prompt[\s\S]*?active-text="aCRF"[\s\S]*?inactive-text="eCRF"[\s\S]*?:active-value="'aCRF'"[\s\S]*?:inactive-value="'eCRF'"[\s\S]*?\/>/g;
@@ -115,27 +121,88 @@ test('two inline-prompt switches share one localStorage-backed viewMode and only
   assert.doesNotMatch(formDesignerSource, /:title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)"/);
 });
 
+test('VisitsTab preview shares the same persisted viewMode and reuses the annotation drag wiring', () => {
+  const normalizeStoredViewMode = compileFunction('normalizeStoredViewMode', {}, visitsTabSource);
+  const resolveInitialViewMode = compileFunction(
+    'resolveInitialViewMode',
+    { normalizeStoredViewMode },
+    visitsTabSource,
+  );
+  const getFieldOidAnnotationText = compileFunction('getFieldOidAnnotationText', {}, visitsTabSource);
+  const getFormDomainAnnotationText = compileFunction('getFormDomainAnnotationText', {}, visitsTabSource);
+
+  assert.equal(normalizeStoredViewMode('aCRF'), 'aCRF');
+  assert.equal(normalizeStoredViewMode('bogus'), 'eCRF');
+  assert.equal(resolveInitialViewMode(false, 'aCRF'), 'eCRF');
+  assert.equal(resolveInitialViewMode(true, 'aCRF'), 'aCRF');
+  assert.equal(getFieldOidAnnotationText({ field_definition: { variable_name: '  LBTESTCD  ' } }), 'LBTESTCD');
+  assert.equal(getFieldOidAnnotationText({ field_definition: {} }), '');
+  assert.equal(getFormDomainAnnotationText({ domain: '  LB ' }), 'LB');
+  assert.equal(getFormDomainAnnotationText({ domain: '' }), '');
+
+  assert.match(visitsTabSource, /const VIEW_MODE_STORAGE_KEY = 'crf_view_mode'/);
+  assert.match(
+    visitsTabSource,
+    /const viewMode = ref\(resolveInitialViewMode\(editMode\.value, readStoredViewMode\(\)\)\)/,
+  );
+  assert.match(
+    visitsTabSource,
+    /watch\(\s*viewMode,\s*\(nextMode\)\s*=>\s*\{[\s\S]*writeStoredViewMode\(normalizedMode\)[\s\S]*\}\s*\)/,
+  );
+  assert.match(
+    visitsTabSource,
+    /watch\(\s*editMode,\s*\(enabled\)\s*=>\s*\{[\s\S]*resolveInitialViewMode\(enabled, viewMode\.value\)[\s\S]*\}\s*\)/,
+  );
+  assert.match(
+    visitsTabSource,
+    /const showAcrfAnnotations = computed\(\(\) => editMode\.value && viewMode\.value === 'aCRF'\)/,
+  );
+  assert.match(visitsTabSource, /const annotationDrag = useAcrfAnnotationDrag\(/);
+  assert.match(visitsTabSource, /getCurrentPositions: \(formId\) => getFormAnnotationPositions\(formId\)/);
+  assert.match(
+    visitsTabSource,
+    /applyOptimisticPositions: \(formId, annotationPositions\) => applyFormAnnotationPositions\(formId, annotationPositions\)/,
+  );
+  assert.match(
+    visitsTabSource,
+    /watch\(\s*\(\)\s*=>\s*props\.projectId,\s*async \(newProjectId, previousProjectId\) => \{[\s\S]*?await flushAnnotationPositionSave\(\{ cancelActiveDrag: true \}\)[\s\S]*?showFormPreview\.value = false[\s\S]*?resetFormPreviewState\(\{ skipAnnotationCleanup: true \}\)[\s\S]*?await load\(\)[\s\S]*?\},\s*\)/,
+  );
+  assert.match(
+    visitsTabSource,
+    /function resetFormPreviewState\(\{ skipAnnotationCleanup = false \} = \{\}\) \{[\s\S]*?if \(!skipAnnotationCleanup\) \{[\s\S]*?annotationDrag\.cancelActiveDrag\(\)[\s\S]*?void flushAnnotationPositionSave\(\)[\s\S]*?\}[\s\S]*?\}/,
+  );
+
+  const switchPattern =
+    /<el-switch[\s\S]*?v-model="viewMode"[\s\S]*?inline-prompt[\s\S]*?active-text="aCRF"[\s\S]*?inactive-text="eCRF"[\s\S]*?:active-value="'aCRF'"[\s\S]*?:inactive-value="'eCRF'"[\s\S]*?\/>/g;
+  assert.equal(countMatches(visitsTabSource, switchPattern), 1);
+  assert.match(
+    visitsTabSource,
+    /<template #header>[\s\S]*?<el-switch[\s\S]*?v-if="editMode"[\s\S]*?v-model="viewMode"/,
+  );
+});
+
 test('aCRF annotations stay inside the two designer word pages and mirror the export anchor strategy', () => {
   assert.match(
     formDesignerSource,
     /const showAcrfAnnotations = computed\(\(\) => editMode\.value && viewMode\.value === 'aCRF'\);/,
   );
   assert.equal(
-    countMatches(formDesignerSource, /class="wp-acrf-annotation wp-acrf-annotation--form"/g),
+    countMatches(formDesignerSource, /'wp-acrf-annotation--form'/g),
     2,
     'domain overlay should appear once per word-page template',
   );
+  assert.equal(countMatches(formDesignerSource, /class="wp-form-title-row"/g), 2);
   assert.match(
     formDesignerSource,
-    /<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?class="wp-acrf-annotation wp-acrf-annotation--field"[\s\S]*?>[\s\S]*?\{\{ getFieldOidAnnotationText\(ff\) \}\}[\s\S]*?<\/span>/,
+    /<div class="wp-form-title-row">[\s\S]*?<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FORM/,
   );
   assert.match(
     formDesignerSource,
-    /class="unified-value row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?class="wp-acrf-annotation wp-acrf-annotation--field"[\s\S]*?>[\s\S]*?\{\{ getFieldOidAnnotationText\(seg\.fields\[0\]\) \}\}[\s\S]*?<\/span>/,
+    /class="unified-value row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FIELD/,
   );
   assert.match(
     formDesignerSource,
-    /class="wp-inline-header row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?class="wp-acrf-annotation wp-acrf-annotation--field"[\s\S]*?>[\s\S]*?\{\{ getFieldOidAnnotationText\(ff\) \}\}[\s\S]*?<\/span>/,
+    /class="wp-inline-header row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
   );
   assert.doesNotMatch(
     formDesignerSource,
@@ -145,28 +212,73 @@ test('aCRF annotations stay inside the two designer word pages and mirror the ex
     formDesignerSource,
     /v-for="\(row, ri\) in seg\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(seg\.fields\[ci\]\)/,
   );
+  assert.match(formDesignerSource, /useAcrfAnnotationDrag/);
 });
 
-test('aCRF annotation styles stay absolute, non-interactive, and out of width-cache geometry', () => {
+test('VisitsTab aCRF annotations stay inside the preview word page and keep the same anchor strategy', () => {
+  assert.equal(
+    countMatches(visitsTabSource, /'wp-acrf-annotation--form'/g),
+    1,
+    'visit preview should render one form-domain overlay per word-page template',
+  );
+  assert.equal(countMatches(visitsTabSource, /class="wp-form-title-row"/g), 1);
+  assert.match(
+    visitsTabSource,
+    /<div class="wp-form-title-row">[\s\S]*?<div class="wp-form-title">\{\{ formPreviewTitle \}\}<\/div>[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FORM/,
+  );
+  assert.match(
+    visitsTabSource,
+    /class="unified-value row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FIELD/,
+  );
+  assert.match(
+    visitsTabSource,
+    /class="wp-inline-header row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
+  );
+  assert.doesNotMatch(
+    visitsTabSource,
+    /v-for="\(row, ri\) in gv\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(gv\.fields\[ci\]\)/,
+  );
+  assert.doesNotMatch(
+    visitsTabSource,
+    /v-for="\(row, ri\) in seg\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(seg\.fields\[ci\]\)/,
+  );
+  assert.match(visitsTabSource, /onAnnotationPointerDown/);
+  assert.match(visitsTabSource, /resetAnnotationPosition/);
+  assert.match(visitsTabSource, /class="wp-acrf-annotation-reset"/);
+});
+
+test('aCRF annotation styles stay absolute, draggable in edit mode, and out of width-cache geometry', () => {
   assert.match(mainCssSource, /\.word-page \{[\s\S]*position: relative;[\s\S]*\}/);
 
   const annotationRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation');
   assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in FormDesignerTab.vue');
   assert.match(annotationRule, /position:\s*absolute/);
-  assert.match(annotationRule, /pointer-events:\s*none/);
-  assert.match(annotationRule, /z-index:\s*1/);
-  assert.match(annotationRule, /height:\s*0\.7cm/);
-  assert.match(annotationRule, /max-width:\s*4\.6cm/);
+  assert.match(annotationRule, /top:\s*var\(--acrf-annotation-top\)/);
+  assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
+  assert.match(annotationRule, /height:\s*var\(--acrf-annotation-height\)/);
+  assert.match(annotationRule, /border:\s*var\(--acrf-annotation-border-width\) solid #c00000/i);
+  assert.match(annotationRule, /background:\s*#fff2f2/i);
+  assert.match(annotationRule, /color:\s*#c00000/i);
   assert.match(annotationRule, /white-space:\s*nowrap/);
-  assert.match(annotationRule, /text-overflow:\s*ellipsis/);
+  assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
 
-  const fieldRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation--field');
-  assert.ok(fieldRule);
-  assert.match(fieldRule, /top:\s*-0\.35cm/);
+  const interactiveRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation--interactive');
+  assert.ok(interactiveRule);
+  assert.match(interactiveRule, /cursor:\s*ns-resize/);
 
-  const formRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation--form');
-  assert.ok(formRule);
-  assert.match(formRule, /top:\s*0\.35cm/);
+  const titleRowRule = extractRuleBody(formDesignerSource, '.wp-form-title-row');
+  assert.ok(titleRowRule);
+  assert.match(titleRowRule, /position:\s*relative/);
+  assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
+
+  const resetRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation-reset');
+  assert.ok(resetRule);
+  assert.match(resetRule, /position:\s*absolute/);
+  assert.match(resetRule, /border:\s*1px solid #c00000/i);
+
+  assert.match(formDesignerSource, /onAnnotationPointerDown/);
+  assert.match(formDesignerSource, /resetAnnotationPosition/);
+  assert.match(formDesignerSource, /class="wp-acrf-annotation-reset"/);
 
   const getResizerSource = extractFunction('getResizer').body;
   const getRowResizerSource = extractFunction('getRowResizer').body;
@@ -174,6 +286,33 @@ test('aCRF annotation styles stay absolute, non-interactive, and out of width-ca
   assert.match(getRowResizerSource, /if \(!rowResizerCache\.has\(tableInstanceId\)\) \{/);
   assert.doesNotMatch(getResizerSource, /viewMode/);
   assert.doesNotMatch(getRowResizerSource, /viewMode/);
+});
+
+test('VisitsTab preview annotation styles stay absolute and draggable without entering table text geometry', () => {
+  const annotationRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation');
+  assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in VisitsTab.vue');
+  assert.match(annotationRule, /position:\s*absolute/);
+  assert.match(annotationRule, /top:\s*var\(--acrf-annotation-top\)/);
+  assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
+  assert.match(annotationRule, /height:\s*var\(--acrf-annotation-height\)/);
+  assert.match(annotationRule, /border:\s*var\(--acrf-annotation-border-width\) solid #c00000/i);
+  assert.match(annotationRule, /background:\s*#fff2f2/i);
+  assert.match(annotationRule, /color:\s*#c00000/i);
+  assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
+
+  const interactiveRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation--interactive');
+  assert.ok(interactiveRule);
+  assert.match(interactiveRule, /cursor:\s*ns-resize/);
+
+  const titleRowRule = extractRuleBody(visitsTabSource, '.wp-form-title-row');
+  assert.ok(titleRowRule);
+  assert.match(titleRowRule, /position:\s*relative/);
+  assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
+
+  const resetRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation-reset');
+  assert.ok(resetRule);
+  assert.match(resetRule, /position:\s*absolute/);
+  assert.match(resetRule, /border:\s*1px solid #c00000/i);
 });
 
 test('canvas and dialog headers keep titles accessible and resilient after adding the switch', () => {

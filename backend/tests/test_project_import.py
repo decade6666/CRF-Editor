@@ -36,6 +36,7 @@ def _create_export_db(
     project_count: int = 1,
     with_children: bool = False,
     project_names: list | None = None,
+    annotation_positions: str | None = None,
 ) -> Path:
     """创建模拟导出的 .db 文件，包含完整 ORM schema。"""
     engine = create_engine(f"sqlite:///{db_path}")
@@ -102,6 +103,7 @@ def _create_export_db(
                         name="表单",
                         code=f"F{i}",
                         order_index=1,
+                        annotation_positions=annotation_positions,
                     )
                     session.add(form)
                     session.flush()
@@ -162,6 +164,26 @@ def test_import_project_db_accepts_authenticated_user(client, engine, tmp_path):
         assert imported is not None
         assert imported.owner_id == bob.id
         assert imported.screening_number_format == "SCR-001"
+
+
+def test_import_project_db_preserves_form_annotation_positions(client, engine, tmp_path):
+    token = login_as(client, "bob")
+    annotation_positions = '{"_form":{"y":18},"VAR0":{"y":-24}}'
+    db_path = _create_export_db(
+        tmp_path / "annotation_export.db",
+        project_count=1,
+        with_children=True,
+        annotation_positions=annotation_positions,
+    )
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
+    assert resp.status_code == 200, resp.text
+
+    with Session(engine) as session:
+        imported_form = session.scalar(
+            select(Form).where(Form.project_id == resp.json()["project_id"])
+        )
+        assert imported_form is not None
+        assert imported_form.annotation_positions == annotation_positions
 
 
 def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):

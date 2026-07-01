@@ -11,14 +11,14 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Project and Access Management**: Create and manage clinical research projects with account-password login, admin user management, project isolation, and a dedicated admin workspace
 - **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
-- **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values; in complete mode it also offers an eCRF / aCRF toggle for previewing field OID and form-domain annotations
+- **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values; in complete mode, both the designer and the visits form preview can switch between eCRF / aCRF views, and the aCRF field OID / form-domain annotations support vertical dragging, persisted positions, and export-matched styling
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page
 - **List Ordering and Ordinal Quick Edit**: Code lists, options, units, fields, visits, visit-form relations, and the form list in the designer all support drag ordering; double-clicking the ordinal cell opens direct target-position input backed by the existing reorder endpoints
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
-- **Export Flows**: Supports Word export (eCRF / aCRF) and database export; Word export includes a short-term rate limit, width-adaptive fill lines and choice trailing underscores, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and aCRF floating OID / domain annotation boxes that do not disturb eCRF table text, plus a strict preview/export table-field parity comparator
+- **Export Flows**: Supports Word export (eCRF / aCRF) and database export; Word export includes a short-term rate limit, width-adaptive fill lines and choice trailing underscores, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and aCRF floating OID / domain annotation boxes that do not disturb eCRF table text; preview and export share the same annotation geometry and red visual style, and a strict preview/export table-field parity comparator is included
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
-- **Form Preview**: Preview form field layout directly from the visits management panel and reuse the Word-preview row-height resize experience
+- **Form Preview**: Preview form field layout directly from the visits management panel, reuse the Word-preview row-height resize experience, and show export-matched persistent annotations in aCRF view
 - **Session Management**: Shows remaining JWT session lifetime in the header, warns near expiry, and supports click-to-refresh
 - **AI and Settings**: Supports AI endpoint configuration, connectivity testing, and import / export related settings
 - **Global Fuzzy Search and Dark Mode**: Built-in search boxes in all five tabs (Projects, Visits, Forms, Fields, Code Lists), ranking exact matches first and partial matches by matched text length, plus light / dark theme switching
@@ -220,7 +220,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 3. **Define Visits**: Add visit nodes and set visit sequences
 4. **Design Forms**: Create CRF forms in the form designer and maintain design notes
 5. **Add Fields**: Select from the field library or create new fields, then configure instance-level display properties
-6. **Associate Forms**: Link forms to the corresponding visit nodes and preview layouts from the visits page
+6. **Associate Forms**: Link forms to the corresponding visit nodes and preview layouts plus eCRF / aCRF annotations from the visits page
 7. **Import Data**: Run template import, project database import, or Word compare-based import when needed
 8. **Export Results**: Export the project as a Word document or database template
 
@@ -256,7 +256,7 @@ node --test tests/*.test.js
 
 In the current repository:
 - `backend/tests/` currently contains 39 `pytest` regression files, including some `hypothesis` property tests
-- `frontend/tests/` currently contains 29 `node:test` source-level regression files, with a homegrown lightweight property-test helper (`testProperty.js`)
+- `frontend/tests/` currently contains 41 frontend regression files (40 `.test.js` files plus `testProperty.js`), covering source-level contracts such as designer / visits aCRF annotation geometry, persistence, and drag wiring
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing

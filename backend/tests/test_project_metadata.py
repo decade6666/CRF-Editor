@@ -139,6 +139,31 @@ def test_project_response_exposes_null_screening_number_format_by_default(client
     assert create_resp.json()['screening_number_format'] is None
 
 
+def test_forms_list_returns_controlled_error_for_invalid_annotation_positions(client, engine):
+    token = login_as(client, 'alice')
+    project_resp = client.post('/api/projects', json=_project_payload('坏标注项目', '1.0'), headers=auth_headers(token))
+    assert project_resp.status_code == 201, project_resp.text
+    project_id = project_resp.json()['id']
+
+    form_resp = client.post(
+        f'/api/projects/{project_id}/forms',
+        json={'name': '表单1', 'code': 'FORM1'},
+        headers=auth_headers(token),
+    )
+    assert form_resp.status_code == 201, form_resp.text
+    form_id = form_resp.json()['id']
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE form SET annotation_positions = :value WHERE id = :form_id"),
+            {'value': '{"_bad":{"y":1}}', 'form_id': form_id},
+        )
+
+    list_resp = client.get(f'/api/projects/{project_id}/forms', headers=auth_headers(token))
+    assert list_resp.status_code == 409, list_resp.text
+    assert 'annotation_positions 数据非法' in list_resp.json()['detail']
+
+
 def test_normalize_screening_number_format_rejects_invalid_utf8_bytes():
     try:
         normalize_screening_number_format(b'\xff')
@@ -164,6 +189,33 @@ def test_legacy_project_db_without_screening_number_format_column_is_patched(tmp
     with engine.connect() as connection:
         cols = {row[1] for row in connection.execute(text('PRAGMA table_info(project)')).fetchall()}
     assert 'screening_number_format' in cols
+    engine.dispose()
+
+
+def test_legacy_project_db_without_form_annotation_positions_column_is_patched(tmp_path: Path):
+    db_path = tmp_path / 'legacy_form_annotations.db'
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        'CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, '
+        'name TEXT NOT NULL, code TEXT, domain TEXT, order_index INTEGER, design_notes TEXT, '
+        "paper_orientation VARCHAR(16) NOT NULL DEFAULT 'auto')"
+    )
+    conn.execute("INSERT INTO form (id, project_id, name) VALUES (1, 1, '旧表单')")
+    conn.commit()
+    conn.close()
+
+    from src.services.project_import_service import _patch_legacy_project_schema
+
+    _patch_legacy_project_schema(str(db_path))
+
+    engine = create_engine(f'sqlite:///{db_path}')
+    with engine.connect() as connection:
+        cols = {row[1] for row in connection.execute(text('PRAGMA table_info(form)')).fetchall()}
+        value = connection.execute(
+            text('SELECT annotation_positions FROM form WHERE id = 1')
+        ).scalar()
+    assert 'annotation_positions' in cols
+    assert value is None
     engine.dispose()
 
 

@@ -326,6 +326,7 @@ def test_authenticated_user_can_export_owned_projects_database(client: TestClien
     [
         ("get", "/api/forms/{form_id}/references", None),
         ("put", "/api/forms/{form_id}", {"name": "Hijacked"}),
+        ("patch", "/api/forms/{form_id}", {"name": "Hijacked"}),
         ("delete", "/api/forms/{form_id}", None),
         ("post", "/api/forms/{form_id}/copy", {}),
         ("get", "/api/forms/{form_id}/fields", None),
@@ -393,6 +394,7 @@ def test_other_user_cannot_access_form_and_field_routes(
     ("method", "url_template", "json_body"),
     [
         ("get", "/api/forms/{form_id}/references", None),
+        ("patch", "/api/forms/{form_id}", {"name": "No Login"}),
         ("get", "/api/forms/{form_id}/fields", None),
         ("patch", "/api/form-fields/{form_field_id}/inline-mark", {"inline_mark": 0}),
     ],

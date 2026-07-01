@@ -1,10 +1,21 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import {
+  ANNOTATION_FORM_KEY,
+  ANNOTATION_KIND_FIELD,
+  ANNOTATION_KIND_FORM,
+  ANNOTATION_KIND_INLINE_HEADER,
+  buildAnnotationStyle,
+  hasAnnotationOverride,
+  normalizeAnnotationPositions,
+  readAnnotationDelta01Cm,
+} from '../composables/acrfAnnotationGeometry'
+import { useAcrfAnnotationDrag } from '../composables/useAcrfAnnotationDrag'
 import {
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
@@ -41,6 +52,46 @@ import { confirmDelete } from '../composables/projectDeleteConfirmation'
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
 const editMode = inject('editMode', ref(false))
+const VIEW_MODE_STORAGE_KEY = 'crf_view_mode'
+
+function normalizeStoredViewMode(value) {
+  return value === 'aCRF' ? 'aCRF' : 'eCRF'
+}
+
+function readStoredViewMode() {
+  if (typeof window === 'undefined' || !window.localStorage) return 'eCRF'
+  try {
+    return normalizeStoredViewMode(window.localStorage.getItem(VIEW_MODE_STORAGE_KEY))
+  } catch {
+    return 'eCRF'
+  }
+}
+
+function writeStoredViewMode(mode) {
+  const normalizedMode = normalizeStoredViewMode(mode)
+  if (typeof window === 'undefined' || !window.localStorage) return normalizedMode
+  try {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, normalizedMode)
+  } catch {
+    /* ignore localStorage errors */
+  }
+  return normalizedMode
+}
+
+function resolveInitialViewMode(isEditModeEnabled, storedValue) {
+  if (!isEditModeEnabled) return 'eCRF'
+  return normalizeStoredViewMode(storedValue)
+}
+
+function getFieldOidAnnotationText(formField) {
+  const value = String(formField?.field_definition?.variable_name ?? '').trim()
+  return value || ''
+}
+
+function getFormDomainAnnotationText(formState) {
+  const value = String(formState?.domain ?? '').trim()
+  return value || ''
+}
 
 const visits = ref([])
 const searchVisit = ref('')
@@ -56,15 +107,19 @@ const showAdd = ref(false)
 const showPreview = ref(false)
 // 表单内容预览弹窗
 const showFormPreview = ref(false)
+const viewMode = ref(resolveInitialViewMode(editMode.value, readStoredViewMode()))
 const formPreviewTitle = ref('')
 const formPreviewDesignNotes = ref('')
 const formPreviewFields = ref([])
 const formPreviewPaperOrientation = ref('auto')
 const formPreviewFormId = ref(null)
+const formPreviewForm = ref(null)
 const formPreviewLoading = ref(false)
 const formPreviewError = ref('')
 let formPreviewRequestSeq = 0
 const previewRowResizerCache = new Map()
+
+writeStoredViewMode(viewMode.value)
 
 // 计算属性：设计备注预览内容
 const hasPreviewNotes = computed(() => Boolean(formPreviewDesignNotes.value.trim()))
@@ -82,12 +137,50 @@ async function load() {
   if (selectedVisit.value) {
     selectedVisit.value = visits.value.find(v => v.id === selectedVisit.value.id) || null
   }
+  if (formPreviewForm.value?.id != null) {
+    const refreshedPreviewForm = allForms.value.find(item => item.id === formPreviewForm.value.id)
+    if (refreshedPreviewForm) {
+      formPreviewForm.value = { ...formPreviewForm.value, ...refreshedPreviewForm }
+      formPreviewTitle.value = refreshedPreviewForm.name || formPreviewTitle.value
+      formPreviewDesignNotes.value = refreshedPreviewForm.design_notes || ''
+      formPreviewPaperOrientation.value = refreshedPreviewForm.paper_orientation || 'auto'
+    }
+  }
   syncVisitForms()
 }
 onMounted(async () => { await load(); nextTick(() => initVisitsSortable()) })
-watch(() => props.projectId, () => { selectedVisit.value = null; load() })
+onBeforeUnmount(() => {
+  void annotationDrag.dispose()
+})
+watch(
+  () => props.projectId,
+  async (newProjectId, previousProjectId) => {
+    if (newProjectId === previousProjectId) return
+    selectedVisit.value = null
+    await flushAnnotationPositionSave({ cancelActiveDrag: true })
+    showFormPreview.value = false
+    resetFormPreviewState({ skipAnnotationCleanup: true })
+    await load()
+  },
+)
 watch(refreshKey, load)
 watch(selectedVisit, syncVisitForms)
+watch(viewMode, (nextMode) => {
+  const normalizedMode = resolveInitialViewMode(editMode.value, nextMode)
+  if (normalizedMode !== nextMode) {
+    viewMode.value = normalizedMode
+    return
+  }
+  writeStoredViewMode(normalizedMode)
+})
+watch(editMode, (enabled) => {
+  const normalizedMode = resolveInitialViewMode(enabled, viewMode.value)
+  if (normalizedMode !== viewMode.value) {
+    viewMode.value = normalizedMode
+    return
+  }
+  writeStoredViewMode(normalizedMode)
+})
 
 // 拖拽排序
 const visitsTableRef = ref(null)
@@ -352,6 +445,130 @@ function resolveNormalColRatios(fields) {
   return [0.5, 0.5]
 }
 
+function mergeFormIntoState(updatedForm) {
+  if (!updatedForm?.id) return null
+  const currentForm =
+    allForms.value.find(item => item.id === updatedForm.id) ||
+    visitForms.value.find(item => item.id === updatedForm.id) ||
+    matrixData.value?.forms?.find(item => item.id === updatedForm.id) ||
+    (formPreviewForm.value?.id === updatedForm.id ? formPreviewForm.value : null) ||
+    {}
+  const nextForm = { ...currentForm, ...updatedForm }
+  if (allForms.value.some(item => item.id === updatedForm.id)) {
+    allForms.value = allForms.value.map(item => item.id === updatedForm.id ? nextForm : item)
+  } else {
+    allForms.value = [...allForms.value, nextForm]
+  }
+  if (visitForms.value.some(item => item.id === updatedForm.id)) {
+    visitForms.value = visitForms.value.map(item => item.id === updatedForm.id ? nextForm : item)
+  }
+  if (matrixData.value?.forms?.some(item => item.id === updatedForm.id)) {
+    matrixData.value = {
+      ...matrixData.value,
+      forms: matrixData.value.forms.map(item => item.id === updatedForm.id ? nextForm : item),
+    }
+  }
+  if (formPreviewForm.value?.id === updatedForm.id) {
+    formPreviewForm.value = nextForm
+  }
+  return nextForm
+}
+
+function getFormStateById(formId = formPreviewFormId.value ?? null) {
+  if (formId == null) return null
+  if (formPreviewForm.value?.id === formId) return formPreviewForm.value
+  return (
+    allForms.value.find(item => item.id === formId) ||
+    visitForms.value.find(item => item.id === formId) ||
+    matrixData.value?.forms?.find(item => item.id === formId) ||
+    null
+  )
+}
+
+function getFormAnnotationPositions(formId = formPreviewFormId.value ?? null) {
+  return normalizeAnnotationPositions(getFormStateById(formId)?.annotation_positions)
+}
+
+function applyFormAnnotationPositions(formId, annotationPositions) {
+  if (formId == null) return
+  const normalized = normalizeAnnotationPositions(annotationPositions)
+  mergeFormIntoState({
+    id: formId,
+    annotation_positions: Object.keys(normalized).length > 0 ? normalized : null,
+  })
+}
+
+const showAcrfAnnotations = computed(() => editMode.value && viewMode.value === 'aCRF')
+
+const annotationDrag = useAcrfAnnotationDrag({
+  apiClient: api,
+  getCurrentPositions: (formId) => getFormAnnotationPositions(formId),
+  applyOptimisticPositions: (formId, annotationPositions) => applyFormAnnotationPositions(formId, annotationPositions),
+  onPersisted: (updatedForm) => {
+    mergeFormIntoState(updatedForm)
+  },
+  onError: (error, snapshot) => {
+    ElMessage.error(`aCRF 标注位置保存失败：${error.message}`)
+    if (snapshot?.projectId != null) {
+      api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`)
+    }
+    if (snapshot?.formId != null) {
+      api.invalidateCache(`/api/forms/${snapshot.formId}/fields`)
+    }
+    void load()
+  },
+})
+
+function getFieldAnnotationTarget(formField) {
+  const key = getFieldOidAnnotationText(formField)
+  if (!key || formPreviewFormId.value == null) return null
+  return {
+    formId: formPreviewFormId.value,
+    projectId: props.projectId,
+    key,
+  }
+}
+
+function getFormAnnotationTarget(formState) {
+  const text = getFormDomainAnnotationText(formState)
+  if (!text || formState?.id == null) return null
+  return {
+    formId: formState.id,
+    projectId: props.projectId,
+    key: ANNOTATION_FORM_KEY,
+  }
+}
+
+function isAnnotationDraggable(target) {
+  return Boolean(showAcrfAnnotations.value && target?.formId != null && target?.key)
+}
+
+function hasAnnotationOverrideForTarget(target) {
+  return Boolean(target?.key && hasAnnotationOverride(getFormAnnotationPositions(target.formId), target.key))
+}
+
+function getAnnotationStyle(text, kind, target) {
+  return buildAnnotationStyle({
+    text,
+    kind,
+    deltaY01cm: readAnnotationDelta01Cm(getFormAnnotationPositions(target?.formId), target?.key),
+  })
+}
+
+function onAnnotationPointerDown(target, event) {
+  if (!isAnnotationDraggable(target)) return
+  annotationDrag.onAnnotationPointerDown(target, event)
+}
+
+function resetAnnotationPosition(target) {
+  if (!target) return
+  annotationDrag.resetAnnotationPosition(target)
+}
+
+async function flushAnnotationPositionSave(options = {}) {
+  return annotationDrag.flushPending(options)
+}
+
 function computeMergeSpans(N, M) {
   if (M <= 0 || M > N) return Array(N).fill(1)
   const base = Math.floor(N / M)
@@ -453,6 +670,7 @@ async function openFormPreview(form) {
   formPreviewDesignNotes.value = form.design_notes || ''
   formPreviewPaperOrientation.value = form.paper_orientation || 'auto'
   formPreviewFormId.value = form.id
+  formPreviewForm.value = { ...form }
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewLoading.value = true
@@ -471,13 +689,20 @@ async function openFormPreview(form) {
   }
 }
 
-function resetFormPreviewState() {
+function resetFormPreviewState({ skipAnnotationCleanup = false } = {}) {
+  if (!skipAnnotationCleanup) {
+    annotationDrag.cancelActiveDrag()
+    void flushAnnotationPositionSave()
+  }
   formPreviewRequestSeq++
+  formPreviewTitle.value = ''
+  formPreviewDesignNotes.value = ''
   formPreviewLoading.value = false
   formPreviewError.value = ''
   formPreviewFields.value = []
   formPreviewPaperOrientation.value = 'auto'
   formPreviewFormId.value = null
+  formPreviewForm.value = null
   previewRowResizerCache.clear()
 }
 
@@ -731,6 +956,15 @@ async function toggleCell(visitId, formId) {
     <template #header>
       <div style="display:flex;align-items:center;gap:12px;padding-right:32px">
         <span style="font-size:16px;font-weight:bold">{{ formPreviewTitle }}</span>
+        <el-switch
+          v-if="editMode"
+          v-model="viewMode"
+          inline-prompt
+          active-text="aCRF"
+          inactive-text="eCRF"
+          :active-value="'aCRF'"
+          :inactive-value="'eCRF'"
+        />
       </div>
     </template>
     <div v-if="formPreviewLoading" style="text-align:center;padding:40px">
@@ -742,7 +976,37 @@ async function toggleCell(visitId, formId) {
     </div>
     <div v-else class="word-preview">
       <div :class="['word-page', { landscape: previewLandscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
-        <div class="wp-form-title">{{ formPreviewTitle }}</div>
+        <div class="wp-form-title-row">
+          <div class="wp-form-title">{{ formPreviewTitle }}</div>
+          <span
+            v-if="showAcrfAnnotations && getFormDomainAnnotationText(formPreviewForm)"
+            :class="[
+              'wp-acrf-annotation',
+              'wp-acrf-annotation--form',
+              { 'wp-acrf-annotation--interactive': isAnnotationDraggable(getFormAnnotationTarget(formPreviewForm)) },
+            ]"
+            :style="
+              getAnnotationStyle(
+                getFormDomainAnnotationText(formPreviewForm),
+                ANNOTATION_KIND_FORM,
+                getFormAnnotationTarget(formPreviewForm),
+              )
+            "
+            @pointerdown="(event) => onAnnotationPointerDown(getFormAnnotationTarget(formPreviewForm), event)"
+          >
+            <span class="wp-acrf-annotation__text">{{ getFormDomainAnnotationText(formPreviewForm) }}</span>
+            <button
+              type="button"
+              class="wp-acrf-annotation-reset"
+              :disabled="!hasAnnotationOverrideForTarget(getFormAnnotationTarget(formPreviewForm))"
+              aria-label="重置表单标注位置"
+              @pointerdown.stop
+              @click.stop="resetAnnotationPosition(getFormAnnotationTarget(formPreviewForm))"
+            >
+              R
+            </button>
+          </span>
+        </div>
         <div :class="['wp-body', { 'wp-body--with-notes': hasPreviewNotes }]">
           <div class="wp-main">
             <template v-for="(gv, gi) in previewGroupsView" :key="gi">
@@ -765,6 +1029,38 @@ async function toggleCell(visitId, formId) {
                     <td class="unified-value row-resize-anchor" :colspan="gv.labelValueSpans.valueSpan" :style="getFormFieldPreviewStyle(seg.fields[0])">
                       <span v-html="renderCellHtml(seg.fields[0])"></span>
                       <span
+                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                        :class="[
+                          'wp-acrf-annotation',
+                          'wp-acrf-annotation--field',
+                          {
+                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                              getFieldAnnotationTarget(seg.fields[0]),
+                            ),
+                          },
+                        ]"
+                        :style="
+                          getAnnotationStyle(
+                            getFieldOidAnnotationText(seg.fields[0]),
+                            ANNOTATION_KIND_FIELD,
+                            getFieldAnnotationTarget(seg.fields[0]),
+                          )
+                        "
+                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)"
+                      >
+                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(seg.fields[0]) }}</span>
+                        <button
+                          type="button"
+                          class="wp-acrf-annotation-reset"
+                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))"
+                          aria-label="重置字段标注位置"
+                          @pointerdown.stop
+                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                        >
+                          R
+                        </button>
+                      </span>
+                      <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedRegularRowKey(seg.fields[0]), e)"
                       ></span>
@@ -784,6 +1080,38 @@ async function toggleCell(visitId, formId) {
                     >
                       {{ getFormFieldDisplayLabel(seg.fields[0]) || '以下为log行' }}
                       <span
+                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(seg.fields[0])"
+                        :class="[
+                          'wp-acrf-annotation',
+                          'wp-acrf-annotation--field',
+                          {
+                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                              getFieldAnnotationTarget(seg.fields[0]),
+                            ),
+                          },
+                        ]"
+                        :style="
+                          getAnnotationStyle(
+                            getFieldOidAnnotationText(seg.fields[0]),
+                            ANNOTATION_KIND_FIELD,
+                            getFieldAnnotationTarget(seg.fields[0]),
+                          )
+                        "
+                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(seg.fields[0]), event)"
+                      >
+                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(seg.fields[0]) }}</span>
+                        <button
+                          type="button"
+                          class="wp-acrf-annotation-reset"
+                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(seg.fields[0]))"
+                          aria-label="重置字段标注位置"
+                          @pointerdown.stop
+                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(seg.fields[0]))"
+                        >
+                          R
+                        </button>
+                      </span>
+                      <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedFullRowKey(seg.fields[0]), e)"
                       ></span>
@@ -799,6 +1127,39 @@ async function toggleCell(visitId, formId) {
                         :style="getFormFieldLabelPreviewStyle(ff)"
                       >
                         {{ getFormFieldDisplayLabel(ff) }}
+                        <span
+                          v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                          :class="[
+                            'wp-acrf-annotation',
+                            'wp-acrf-annotation--field',
+                            'wp-acrf-annotation--inline-header',
+                            {
+                              'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                                getFieldAnnotationTarget(ff),
+                              ),
+                            },
+                          ]"
+                          :style="
+                            getAnnotationStyle(
+                              getFieldOidAnnotationText(ff),
+                              ANNOTATION_KIND_INLINE_HEADER,
+                              getFieldAnnotationTarget(ff),
+                            )
+                          "
+                          @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                        >
+                          <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                          <button
+                            type="button"
+                            class="wp-acrf-annotation-reset"
+                            :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                            aria-label="重置字段标注位置"
+                            @pointerdown.stop
+                            @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                          >
+                            R
+                          </button>
+                        </span>
                         <span
                           class="row-resizer-handle"
                           @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getUnifiedInlineHeaderRowKey(seg.fields), e)"
@@ -839,6 +1200,38 @@ async function toggleCell(visitId, formId) {
                     <td class="wp-structure-label--multiline row-resize-anchor" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">
                       {{ getFormFieldDisplayLabel(ff) }}
                       <span
+                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                        :class="[
+                          'wp-acrf-annotation',
+                          'wp-acrf-annotation--field',
+                          {
+                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                              getFieldAnnotationTarget(ff),
+                            ),
+                          },
+                        ]"
+                        :style="
+                          getAnnotationStyle(
+                            getFieldOidAnnotationText(ff),
+                            ANNOTATION_KIND_FIELD,
+                            getFieldAnnotationTarget(ff),
+                          )
+                        "
+                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                      >
+                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                        <button
+                          type="button"
+                          class="wp-acrf-annotation-reset"
+                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                          aria-label="重置字段标注位置"
+                          @pointerdown.stop
+                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                        >
+                          R
+                        </button>
+                      </span>
+                      <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
                       ></span>
@@ -850,6 +1243,38 @@ async function toggleCell(visitId, formId) {
                   >
                     <td colspan="2" class="row-resize-anchor" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">
                       {{ getFormFieldDisplayLabel(ff) || '以下为log行' }}
+                      <span
+                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                        :class="[
+                          'wp-acrf-annotation',
+                          'wp-acrf-annotation--field',
+                          {
+                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                              getFieldAnnotationTarget(ff),
+                            ),
+                          },
+                        ]"
+                        :style="
+                          getAnnotationStyle(
+                            getFieldOidAnnotationText(ff),
+                            ANNOTATION_KIND_FIELD,
+                            getFieldAnnotationTarget(ff),
+                          )
+                        "
+                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                      >
+                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                        <button
+                          type="button"
+                          class="wp-acrf-annotation-reset"
+                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                          aria-label="重置字段标注位置"
+                          @pointerdown.stop
+                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                        >
+                          R
+                        </button>
+                      </span>
                       <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
@@ -866,6 +1291,38 @@ async function toggleCell(visitId, formId) {
                     </td>
                     <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
                       <span v-html="renderCellHtml(ff, normalFillChars(gv, gi), normalColumnCm(gv, gi))"></span>
+                      <span
+                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                        :class="[
+                          'wp-acrf-annotation',
+                          'wp-acrf-annotation--field',
+                          {
+                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                              getFieldAnnotationTarget(ff),
+                            ),
+                          },
+                        ]"
+                        :style="
+                          getAnnotationStyle(
+                            getFieldOidAnnotationText(ff),
+                            ANNOTATION_KIND_FIELD,
+                            getFieldAnnotationTarget(ff),
+                          )
+                        "
+                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                      >
+                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                        <button
+                          type="button"
+                          class="wp-acrf-annotation-reset"
+                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                          aria-label="重置字段标注位置"
+                          @pointerdown.stop
+                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                        >
+                          R
+                        </button>
+                      </span>
                       <span
                         class="row-resizer-handle"
                         @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getNormalRowKey(ff), e)"
@@ -890,6 +1347,39 @@ async function toggleCell(visitId, formId) {
                     :style="getFormFieldLabelPreviewStyle(ff)"
                   >
                     {{ getFormFieldDisplayLabel(ff) }}
+                    <span
+                      v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+                      :class="[
+                        'wp-acrf-annotation',
+                        'wp-acrf-annotation--field',
+                        'wp-acrf-annotation--inline-header',
+                        {
+                          'wp-acrf-annotation--interactive': isAnnotationDraggable(
+                            getFieldAnnotationTarget(ff),
+                          ),
+                        },
+                      ]"
+                      :style="
+                        getAnnotationStyle(
+                          getFieldOidAnnotationText(ff),
+                          ANNOTATION_KIND_INLINE_HEADER,
+                          getFieldAnnotationTarget(ff),
+                        )
+                      "
+                      @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+                    >
+                      <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+                      <button
+                        type="button"
+                        class="wp-acrf-annotation-reset"
+                        :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+                        aria-label="重置字段标注位置"
+                        @pointerdown.stop
+                        @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+                      >
+                        R
+                      </button>
+                    </span>
                     <span
                       class="row-resizer-handle"
                       @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getInlineHeaderRowKey(gv.fields), e)"
@@ -926,3 +1416,90 @@ async function toggleCell(visitId, formId) {
     </div>
   </el-dialog>
 </template>
+
+<style scoped>
+.wp-form-title-row {
+  position: relative;
+  padding-right: 4.8cm;
+}
+
+.wp-acrf-annotation {
+  position: absolute;
+  top: var(--acrf-annotation-top);
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--acrf-annotation-width);
+  height: var(--acrf-annotation-height);
+  max-width: min(var(--acrf-annotation-max-width), 100%);
+  padding: var(--acrf-annotation-padding-y) var(--acrf-annotation-padding-x);
+  box-sizing: border-box;
+  border: var(--acrf-annotation-border-width) solid #c00000;
+  border-radius: 2px;
+  background: #fff2f2;
+  color: #c00000;
+  font-family: 'SimSun', serif;
+  font-size: var(--acrf-annotation-font-size);
+  white-space: nowrap;
+  overflow: visible;
+  user-select: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.wp-acrf-annotation__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-acrf-annotation--interactive {
+  cursor: ns-resize;
+}
+
+.wp-acrf-annotation-reset {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #c00000;
+  border-radius: 999px;
+  background: #fff;
+  color: #c00000;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.wp-acrf-annotation:hover .wp-acrf-annotation-reset,
+.wp-acrf-annotation:focus-within .wp-acrf-annotation-reset {
+  opacity: 1;
+}
+
+.wp-acrf-annotation-reset:hover:not(:disabled),
+.wp-acrf-annotation-reset:focus-visible:not(:disabled) {
+  background: #c00000;
+  color: #fff;
+  outline: none;
+}
+
+.wp-acrf-annotation-reset:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.wp-acrf-annotation--inline-header {
+  z-index: 4;
+}
+</style>
