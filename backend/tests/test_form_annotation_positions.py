@@ -85,8 +85,11 @@ def _build_import_db(tmp_path: Path, annotation_positions: str | None) -> Path:
 
 
 def test_create_form_annotation_positions_defaults_to_null(engine) -> None:
+    """走 router create_form() 路径：未传 annotation_positions 时默认 None 且响应可序列化。"""
     with Session(engine) as session:
-        user, project, form = _create_owned_form(session)
+        user, project = _seed_owner(session)
+        form = create_form(project.id, FormCreate(name="Annotation Form"), session, user)
+        session.flush()
         payload = _response_payload(form)
 
     assert payload["annotation_positions"] is None

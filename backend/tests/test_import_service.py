@@ -1672,3 +1672,40 @@ def test_get_template_form_paper_orientation_returns_landscape_under_mixed_colum
 
     service = ImportService(session)
     assert service.get_template_form_paper_orientation(str(db_path), form_id) == "landscape"
+
+
+def test_execute_import_route_returns_400_on_invalid_annotation_positions(
+    tmp_path: Path, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """路由级 fail-closed：模板表单 annotation_positions 非法时，execute_import 返回 400 JSON。"""
+    from fastapi import HTTPException
+
+    from src.models.user import User
+    from src.routers.import_template import ImportExecuteRequest, execute_import
+
+    # 构造带非法 annotation_positions 的模板库
+    template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
+        tmp_path, annotation_positions='{"_bad":{"y":1}}'
+    )
+
+    # 鉴权与目标项目
+    user = User(username="route-owner", hashed_password="hash")
+    session.add(user)
+    session.flush()
+    project = Project(name="route-target-project", version="1.0", owner_id=user.id)
+    session.add(project)
+    session.flush()
+
+    fake_cfg = SimpleNamespace(template_path=str(template_path))
+    monkeypatch.setattr("src.routers.import_template.get_config", lambda: fake_cfg)
+
+    payload = ImportExecuteRequest(
+        source_project_id=src_project_id,
+        form_ids=[src_form_id],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        execute_import(project.id, payload, session, user)
+
+    assert exc_info.value.status_code == 400
+    assert "annotation_positions" in str(exc_info.value.detail)
