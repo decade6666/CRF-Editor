@@ -5276,6 +5276,10 @@ function openAddForm() {
 
 .wp-acrf-annotation-reset:disabled {
   cursor: not-allowed;
+}
+
+.wp-acrf-annotation:hover .wp-acrf-annotation-reset:disabled,
+.wp-acrf-annotation:focus-within .wp-acrf-annotation-reset:disabled {
   opacity: 0.45;
 }
 
