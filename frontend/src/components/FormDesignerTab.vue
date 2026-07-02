@@ -4192,7 +4192,14 @@ function openAddForm() {
         <div class="designer-side-pane" :style="{ width: propWidth + 'px' }">
           <div class="designer-editor-card">
             <div class="designer-section-title">属性编辑</div>
-            <div v-if="!selectedFieldId" class="designer-empty-state">← 选择字段</div>
+            <el-empty v-if="!selectedFieldId" class="empty-state" :image-size="56" style="height: 100%">
+              <template #image>
+                <el-icon aria-hidden="true"><EditPen /></el-icon>
+              </template>
+              <template #description>
+                <p>← 选择字段</p>
+              </template>
+            </el-empty>
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
               <el-form :model="editProp" label-width="88px" size="small">
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
