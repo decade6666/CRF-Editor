@@ -173,7 +173,7 @@ async def _call_llm_openai(
     start = time.monotonic()
     try:
         if client is None:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as local_client:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as local_client:
                 resp = await local_client.post(url, json=payload, headers=headers)
         else:
             resp = await client.post(url, json=payload, headers=headers)
@@ -220,7 +220,7 @@ async def _call_llm_anthropic(
     start = time.monotonic()
     try:
         if client is None:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as local_client:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as local_client:
                 resp = await local_client.post(url, json=payload, headers=headers)
         else:
             resp = await client.post(url, json=payload, headers=headers)
