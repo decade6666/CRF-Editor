@@ -239,6 +239,8 @@ async def test_ai(payload: AITestRequest, current_user: User = Depends(require_a
     api_url = payload.ai_api_url if payload.ai_api_url else cfg.api_url
 
     api_key = payload.ai_api_key if payload.ai_api_key else cfg.api_key
+    if payload.ai_api_key and payload.ai_api_key == mask_secret(cfg.api_key):
+        api_key = cfg.api_key
 
     model = payload.ai_model if payload.ai_model else cfg.model
 
@@ -275,4 +277,3 @@ async def test_ai(payload: AITestRequest, current_user: User = Depends(require_a
         api_format=detected_format,
 
     )
-
