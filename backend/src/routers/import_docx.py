@@ -2,7 +2,7 @@
 
 import logging
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 
@@ -28,7 +28,13 @@ from src.models.user import User
 from src.services.docx_import_service import DocxImportService
 from src.perf import perf_span, record_counter, record_payload_size
 
-from src.services.ai_review_service import review_forms, VALID_FIELD_TYPES
+from src.services.ai_review_service import (
+    VALID_FIELD_TYPES,
+    cleanup_old_ai_tasks,
+    get_ai_task,
+    remove_ai_task,
+    start_ai_review,
+)
 
 from src.services.docx_screenshot_service import DocxScreenshotService
 
@@ -118,6 +124,19 @@ class DocxPreviewResponse(BaseModel):
 
     ai_error: Optional[str] = None
 
+    ai_task_id: Optional[str] = None
+
+
+class AIReviewStatusResponse(BaseModel):
+
+    status: str
+
+    progress: Optional[Dict[str, int]] = None
+
+    suggestions: Optional[Dict[int, List[DocxAISuggestion]]] = None
+
+    error: Optional[str] = None
+
 
 
 
@@ -175,6 +194,84 @@ class DocxExecuteResponse(BaseModel):
     imported_form_count: int
 
     detail: List[DocxFormResult]
+
+
+def _get_real_fields(fields_raw: List[dict]) -> List[dict]:
+    return [field for field in fields_raw if field.get("type") != "log_row"]
+
+
+def _build_preview_forms(full_forms: List[dict]) -> List[DocxFormPreview]:
+    preview_forms: List[DocxFormPreview] = []
+    for form_index, form in enumerate(full_forms):
+        real_fields = _get_real_fields(form.get("fields", []))
+        field_previews = [
+            DocxFieldPreview(
+                index=field_index,
+                label=field.get("label", ""),
+                field_type=field.get("field_type", "未知"),
+                options=field.get("options"),
+                integer_digits=field.get("integer_digits"),
+                decimal_digits=field.get("decimal_digits"),
+                default_value=field.get("default_value"),
+                inline_mark=field.get("inline_mark"),
+                date_format=field.get("date_format"),
+                unit_symbol=field.get("unit_symbol"),
+            )
+            for field_index, field in enumerate(real_fields)
+        ]
+        preview_forms.append(
+            DocxFormPreview(
+                index=form_index,
+                name=form["name"],
+                field_count=len(real_fields),
+                fields=field_previews or None,
+                raw_html=form.get("raw_html"),
+            )
+        )
+    return preview_forms
+
+
+def _build_filtered_forms_data(full_forms: List[dict]) -> List[dict]:
+    return [
+        {
+            "name": form["name"],
+            "fields": _get_real_fields(form.get("fields", [])),
+        }
+        for form in full_forms
+    ]
+
+
+def _serialize_ai_suggestions(
+    suggestions: Dict[int, List[dict]],
+) -> Optional[Dict[int, List[DocxAISuggestion]]]:
+    if not suggestions:
+        return None
+    return {
+        form_index: [
+            DocxAISuggestion(
+                index=item["index"],
+                suggested_type=item["suggested_type"],
+                reason=item.get("reason", ""),
+            )
+            for item in items
+        ]
+        for form_index, items in suggestions.items()
+    }
+
+
+def _cleanup_docx_temp(temp_id: str) -> None:
+    DocxImportService.cleanup_temp(temp_id)
+    DocxScreenshotService.cleanup(temp_id)
+    remove_ai_task(temp_id)
+
+
+def _build_ai_review_status_response(task) -> AIReviewStatusResponse:
+    return AIReviewStatusResponse(
+        status=task.status,
+        progress={"completed": task.completed, "total": task.total},
+        suggestions=_serialize_ai_suggestions(task.suggestions),
+        error=task.error,
+    )
 
 
 
@@ -255,7 +352,7 @@ async def preview_docx_import(
 
     except Exception:
 
-        DocxImportService.cleanup_temp(temp_id)
+        _cleanup_docx_temp(temp_id)
 
         logger.exception("Word文档解析失败")
 
@@ -265,28 +362,9 @@ async def preview_docx_import(
 
     if not full_forms:
 
-        DocxImportService.cleanup_temp(temp_id)
+        _cleanup_docx_temp(temp_id)
 
         raise HTTPException(400, "未在文档中识别到任何表单")
-
-
-
-    # AI复核（优雅降级：失败不影响主流程）
-
-    ai_suggestions = {}
-
-    ai_error = None
-
-    try:
-
-        ai_suggestions, ai_error = await review_forms(full_forms)
-
-    except Exception:
-
-        logger.warning("AI复核异常，跳过", exc_info=True)
-
-        ai_error = "AI复核服务异常"
-
 
 
     forms_count = len(full_forms)
@@ -297,105 +375,14 @@ async def preview_docx_import(
     record_counter("forms_count", forms_count)
     record_counter("fields_count", fields_count)
 
-    # 构建预览响应
-
-    preview_forms = []
-
-    for i, f in enumerate(full_forms):
-
-        fields_raw = f.get("fields", [])
-
-        real_fields = [fd for fd in fields_raw if fd.get("type") != "log_row"]
-
-
-
-        field_previews = []
-
-        for fi, fd in enumerate(real_fields):
-
-            field_previews.append(DocxFieldPreview(
-
-                index=fi,
-
-                label=fd.get("label", ""),
-
-                field_type=fd.get("field_type", "未知"),
-
-                options=fd.get("options"),
-
-                integer_digits=fd.get("integer_digits"),
-
-                decimal_digits=fd.get("decimal_digits"),
-
-                default_value=fd.get("default_value"),
-
-                inline_mark=fd.get("inline_mark"),
-
-                date_format=fd.get("date_format"),
-
-                unit_symbol=fd.get("unit_symbol"),
-
-            ))
-
-
-
-        ai_sug = None
-
-        if i in ai_suggestions:
-
-            ai_sug = [
-
-                DocxAISuggestion(
-
-                    index=s["index"],
-
-                    suggested_type=s["suggested_type"],
-
-                    reason=s.get("reason", ""),
-
-                )
-
-                for s in ai_suggestions[i]
-
-            ]
-
-
-
-        preview_forms.append(DocxFormPreview(
-
-            index=i,
-
-            name=f["name"],
-
-            field_count=len(real_fields),
-
-            fields=field_previews if field_previews else None,
-
-            ai_suggestions=ai_sug,
-
-            raw_html=f.get("raw_html"),
-
-        ))
-
-
-
-    # 构建过滤后的表单数据（移除log_row字段）
-
-    filtered_forms_data = []
-
-    for f in full_forms:
-
-        fields_raw = f.get("fields", [])
-
-        real_fields = [fd for fd in fields_raw if fd.get("type") != "log_row"]
-
-        filtered_forms_data.append({
-
-            "name": f["name"],
-
-            "fields": real_fields
-
-        })
+    preview_forms = _build_preview_forms(full_forms)
+    filtered_forms_data = _build_filtered_forms_data(full_forms)
+    ai_task_id = None
+    try:
+        ai_task = await start_ai_review(temp_id, full_forms)
+        ai_task_id = temp_id if ai_task else None
+    except Exception:
+        logger.warning("AI复核后台任务启动失败 temp_id=%s", temp_id, exc_info=True)
 
 
 
@@ -414,11 +401,42 @@ async def preview_docx_import(
 
 
     with perf_span("response_build"):
-        response = DocxPreviewResponse(forms=preview_forms, temp_id=temp_id, ai_error=ai_error)
+        response = DocxPreviewResponse(
+            forms=preview_forms,
+            temp_id=temp_id,
+            ai_error=None,
+            ai_task_id=ai_task_id,
+        )
     return response
 
 
+@router.get(
 
+    "/projects/{project_id}/import-docx/{temp_id}/ai-review/status",
+
+    response_model=AIReviewStatusResponse,
+
+)
+
+async def get_ai_review_status(
+
+    project_id: int,
+
+    temp_id: str,
+
+    session: Session = Depends(get_session),
+
+    current_user: User = Depends(get_current_user),
+
+):
+
+    """查询 AI 复核后台任务状态。"""
+
+    verify_project_owner(project_id, current_user, session)
+    task = get_ai_task(temp_id)
+    if not task:
+        raise HTTPException(404, "AI复核任务不存在或已过期")
+    return _build_ai_review_status_response(task)
 
 
 @router.post(
@@ -527,7 +545,7 @@ def execute_docx_import(
     finally:
 
         with perf_span("cleanup"):
-            DocxImportService.cleanup_temp(payload.temp_id)
+            _cleanup_docx_temp(payload.temp_id)
 
 
 
@@ -841,7 +859,10 @@ async def cleanup_screenshots(days: int = 7, current_user: User = Depends(requir
 
     """
 
+    cleaned_ai_tasks = cleanup_old_ai_tasks()
     result = DocxScreenshotService.cleanup_old_caches(days)
+    if cleaned_ai_tasks:
+        logger.info("手动清理时额外移除 AI 复核任务 count=%d", cleaned_ai_tasks)
 
     return CleanupResponse(
 
