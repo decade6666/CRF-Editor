@@ -1,8 +1,8 @@
-"""Word文档截图服务 - 使用 MS Word COM 接口将 docx 转 PDF 再转图片
+"""Word文档截图服务 - 将 docx 转 PDF 再转图片
 
 策略：
-    1. 调用 docx2pdf（依赖本机 MS Word COM 接口）将 docx 转为 PDF
-    2. 调用 pdf2image（依赖 poppler）将 PDF 按页转为 PNG
+    1. 自动选择 MS Word COM 或 LibreOffice headless 将 docx 转为 PDF
+    2. 调用 PyMuPDF 将 PDF 按页转为 PNG
     3. 任务状态以 temp_id 为 key 缓存在进程内存中
     4. 图片写入 uploads/docx_temp/{temp_id}/pages/ 目录
 """
@@ -10,10 +10,16 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from src.config import DocxScreenshotBackend, get_config
+from src.services.toc_pagination import find_libreoffice
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +29,9 @@ _tasks_lock = threading.Lock()
 
 # 最大并发截图任务数（Word COM 接口并发不稳定）
 _semaphore = threading.Semaphore(2)
+
+_LIBREOFFICE_TIMEOUT_SEC = 120
+_PROCESS_OUTPUT_SNIPPET = 1200
 
 
 @dataclass
@@ -34,6 +43,12 @@ class ScreenshotTask:
     page_count: int = 0
     page_ranges: Dict[str, List[int]] = field(default_factory=dict)  # {表单名: [start, end]}
     field_pages: Dict[str, Dict[int, int]] = field(default_factory=dict)  # {表单名: {字段索引: 页码}}
+
+
+@dataclass(frozen=True)
+class _PdfBackendSelection:
+    backend: DocxScreenshotBackend
+    soffice_path: Optional[str] = None
 
 
 class DocxScreenshotService:
@@ -127,26 +142,59 @@ class DocxScreenshotService:
         try:
             import pythoncom
         except ImportError as exc:
-            raise RuntimeError(
-                "当前环境不支持 Word 截图，请在安装了 MS Word 的 Windows 环境中使用该功能"
-            ) from exc
+            raise RuntimeError("Word 文档渲染后端不可用：缺少 pythoncom/pywin32") from exc
         return pythoncom
+
+    @staticmethod
+    def _is_word_backend_available() -> bool:
+        import importlib.util
+
+        return importlib.util.find_spec("pythoncom") is not None
+
+    @staticmethod
+    def _configured_backend() -> DocxScreenshotBackend:
+        raw_backend = get_config().docx_screenshot.backend
+        return (
+            raw_backend
+            if isinstance(raw_backend, DocxScreenshotBackend)
+            else DocxScreenshotBackend(raw_backend)
+        )
+
+    @classmethod
+    def _select_pdf_backend(cls) -> _PdfBackendSelection:
+        configured = cls._configured_backend()
+        if configured == DocxScreenshotBackend.WORD:
+            if cls._is_word_backend_available():
+                return _PdfBackendSelection(DocxScreenshotBackend.WORD)
+            raise RuntimeError("指定的 Word 文档渲染后端不可用")
+
+        if configured == DocxScreenshotBackend.LIBREOFFICE:
+            soffice = find_libreoffice()
+            if soffice:
+                return _PdfBackendSelection(DocxScreenshotBackend.LIBREOFFICE, soffice)
+            raise RuntimeError("指定的 LibreOffice 文档渲染后端不可用")
+
+        if cls._is_word_backend_available():
+            return _PdfBackendSelection(DocxScreenshotBackend.WORD)
+
+        soffice = find_libreoffice()
+        if soffice:
+            return _PdfBackendSelection(DocxScreenshotBackend.LIBREOFFICE, soffice)
+
+        raise RuntimeError("无可用的文档渲染后端，请安装 LibreOffice 或配置 Word 后端")
 
     @classmethod
     def _run(cls, temp_id: str, docx_path: str, task: ScreenshotTask, forms_data: List[dict]) -> None:
         """实际执行转换逻辑（在后台线程中运行）"""
-        pythoncom = None
         try:
-            # 后台线程必须初始化 COM（docx2pdf 依赖 Word COM 接口）
-            pythoncom = cls._load_pythoncom()
-            pythoncom.CoInitialize()
+            backend = cls._select_pdf_backend()
             with _semaphore:
                 task.status = "running"
                 pages_dir = cls._get_pages_dir(temp_id)
                 pages_dir.mkdir(parents=True, exist_ok=True)
 
-                # 步骤1：docx → pdf（调用 MS Word COM 接口）
-                pdf_path = cls._convert_to_pdf(docx_path, pages_dir)
+                # 步骤1：docx → pdf（后端选择独立，后续 PyMuPDF 逻辑不变）
+                pdf_path = cls._convert_to_pdf(docx_path, pages_dir, backend)
 
                 # 步骤2：pdf → png 列表
                 page_paths = cls._convert_to_images(pdf_path, pages_dir)
@@ -166,36 +214,136 @@ class DocxScreenshotService:
             task.status = "failed"
             task.error = str(exc)
             logger.exception("截图失败 temp_id=%s", temp_id)
-        finally:
-            if pythoncom is not None:
-                pythoncom.CoUninitialize()
 
     # ── docx → pdf ──
 
-    @staticmethod
-    def _convert_to_pdf(docx_path: str, output_dir: Path) -> str:
-        """使用 docx2pdf 将 docx 转为 PDF，返回 PDF 路径"""
-        try:
-            from docx2pdf import convert
-        except ImportError:
-            raise RuntimeError("缺少依赖：请执行 pip install docx2pdf")
+    @classmethod
+    def _convert_to_pdf(
+        cls,
+        docx_path: str,
+        output_dir: Path,
+        backend: Optional[_PdfBackendSelection] = None,
+    ) -> str:
+        """按选中的后端将 docx 转为 PDF，返回 PDF 路径。"""
+        selection = backend or cls._select_pdf_backend()
+        if selection.backend == DocxScreenshotBackend.WORD:
+            return cls._convert_to_pdf_word(docx_path, output_dir)
+        if not selection.soffice_path:
+            raise RuntimeError("指定的 LibreOffice 文档渲染后端不可用")
+        return cls._convert_to_pdf_libreoffice(docx_path, output_dir, selection.soffice_path)
 
+    @classmethod
+    def _convert_to_pdf_word(cls, docx_path: str, output_dir: Path) -> str:
+        """使用 docx2pdf/MS Word COM 将 docx 转为 PDF，返回 PDF 路径。"""
+        pythoncom = cls._load_pythoncom()
+        com_initialized = False
+        try:
+            pythoncom.CoInitialize()
+            com_initialized = True
+            try:
+                from docx2pdf import convert
+            except ImportError as exc:
+                raise RuntimeError("Word 文档渲染后端不可用：缺少 docx2pdf 依赖") from exc
+
+            docx_abs = str(Path(docx_path).resolve())
+            output_abs = str(output_dir.resolve())
+
+            convert(docx_abs, output_abs)
+            pdf_path = cls._find_nonempty_pdf_output(docx_path, output_dir)
+            if pdf_path is None:
+                raise RuntimeError("文档渲染失败：未生成输出 PDF")
+            return str(pdf_path)
+        finally:
+            if com_initialized:
+                pythoncom.CoUninitialize()
+
+    @classmethod
+    def _convert_to_pdf_libreoffice(cls, docx_path: str, output_dir: Path, soffice: str) -> str:
+        """使用 LibreOffice headless 将 docx 转为 PDF，返回 PDF 路径。"""
         docx_abs = str(Path(docx_path).resolve())
         output_abs = str(output_dir.resolve())
+        profile_dir = tempfile.mkdtemp(prefix="crf_docx_lo_")
+        cmd = [
+            soffice,
+            f"-env:UserInstallation={Path(profile_dir).as_uri()}",
+            "--headless",
+            "--norestore",
+            "--nolockcheck",
+            "--convert-to",
+            "pdf:writer_pdf_Export",
+            "--outdir",
+            output_abs,
+            docx_abs,
+        ]
+        result: Optional[subprocess.CompletedProcess] = None
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=_LIBREOFFICE_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logger.error(
+                "LibreOffice 文档渲染超时 timeout=%ss stdout=%s stderr=%s",
+                _LIBREOFFICE_TIMEOUT_SEC,
+                cls._summarize_process_output(exc.stdout),
+                cls._summarize_process_output(exc.stderr),
+            )
+            raise RuntimeError("文档渲染失败：渲染超时") from exc
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.exception("LibreOffice 文档渲染失败：%s", exc)
+            raise RuntimeError("文档渲染失败") from exc
+        finally:
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
-        convert(docx_abs, output_abs)
+        if result.returncode != 0:
+            logger.error(
+                "LibreOffice 文档渲染失败 returncode=%s stdout=%s stderr=%s",
+                result.returncode,
+                cls._summarize_process_output(result.stdout),
+                cls._summarize_process_output(result.stderr),
+            )
+            raise RuntimeError("文档渲染失败")
 
-        # docx2pdf 输出文件名与输入同名（.pdf 后缀）
-        base_name = Path(docx_path).stem + ".pdf"
-        pdf_path = output_dir / base_name
-        if not pdf_path.exists():
-            # 尝试在 output_dir 中找任意 .pdf 文件
-            pdf_files = list(output_dir.glob("*.pdf"))
-            if pdf_files:
-                pdf_path = pdf_files[0]
-            else:
-                raise RuntimeError(f"PDF 转换失败：未在 {output_dir} 找到输出文件")
+        pdf_path = cls._find_nonempty_pdf_output(docx_path, output_dir)
+        if pdf_path is None:
+            logger.error(
+                "LibreOffice 文档渲染失败：未生成非空 PDF stdout=%s stderr=%s",
+                cls._summarize_process_output(result.stdout),
+                cls._summarize_process_output(result.stderr),
+            )
+            raise RuntimeError("文档渲染失败：未生成输出 PDF")
         return str(pdf_path)
+
+    @staticmethod
+    def _summarize_process_output(value) -> str:
+        if value is None:
+            return "<empty>"
+        if isinstance(value, bytes):
+            text = value.decode("utf-8", errors="replace")
+        else:
+            text = str(value)
+        text = text.strip()
+        if not text:
+            return "<empty>"
+        if len(text) > _PROCESS_OUTPUT_SNIPPET:
+            return f"{text[:_PROCESS_OUTPUT_SNIPPET]}..."
+        return text
+
+    @staticmethod
+    def _find_nonempty_pdf_output(docx_path: str, output_dir: Path) -> Optional[Path]:
+        expected = output_dir / (Path(docx_path).stem + ".pdf")
+        candidates = []
+        if expected.exists():
+            candidates.append(expected)
+        candidates.extend(p for p in output_dir.glob("*.pdf") if p != expected)
+        for pdf_path in candidates:
+            try:
+                if pdf_path.is_file() and pdf_path.stat().st_size > 0:
+                    return pdf_path
+            except OSError:
+                logger.warning("检查 PDF 输出失败: %s", pdf_path)
+        return None
 
     # ── pdf → images ──
 

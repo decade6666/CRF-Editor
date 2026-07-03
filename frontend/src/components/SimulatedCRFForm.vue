@@ -177,11 +177,20 @@ const columnFractions = computed(() => {
 
 <style scoped>
 .crf-form-wrap {
+  --crf-paper-bg: #fff;
+  --crf-paper-text: #1a1a1a;
+  --crf-paper-border: #d4d4d4;
+  --crf-paper-hover: #f0f9ff;
+  --crf-paper-structure-bg: #fafafa;
+  --crf-paper-muted: #666;
+  --crf-paper-empty: #909399;
+
   width: 100%;
   font-family: 'SimSun', 'STSong', 'Source Han Serif CN', serif;
   font-size: 13px;
   line-height: 1.6;
-  color: #1a1a1a;
+  color: var(--crf-paper-text);
+  background: var(--crf-paper-bg);
 }
 
 /* 主表格：模拟 CRF 纸质表格；table-layout:fixed 让 <colgroup> 宽度生效 */
@@ -189,11 +198,11 @@ const columnFractions = computed(() => {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  border: 1px solid #d4d4d4;
+  border: 1px solid var(--crf-paper-border);
 }
 
 .crf-table tr {
-  border-bottom: 1px solid #d4d4d4;
+  border-bottom: 1px solid var(--crf-paper-border);
 }
 
 /* 字段行可点击提示 */
@@ -203,7 +212,7 @@ const columnFractions = computed(() => {
 }
 
 .field-row:hover {
-  background-color: #f0f9ff !important;
+  background-color: var(--crf-paper-hover) !important;
 }
 
 /* AI 修改行高亮 */
@@ -217,25 +226,25 @@ const columnFractions = computed(() => {
 /* 日志行（Task 3.2） */
 .crf-log-row {
   padding: 8px 10px;
-  background: #f5f5f5;
+  background: var(--crf-paper-structure-bg);
   text-align: center;
   font-style: italic;
-  color: #666;
+  color: var(--crf-paper-muted);
 }
 
 /* 标签列（宽度由 <colgroup> 决定，不再硬编码） */
 .crf-label-cell {
   padding: 6px 10px;
-  border-right: 1px solid #d4d4d4;
+  border-right: 1px solid var(--crf-paper-border);
   vertical-align: top;
   word-break: break-all;
-  background: #fafafa;
+  background: var(--crf-paper-structure-bg);
 }
 
 /* 标签型字段（跨列）；加粗由内联 label 样式驱动（label_bold） */
 .crf-label-only {
   padding: 6px 10px;
-  background: #fafafa;
+  background: var(--crf-paper-structure-bg);
 }
 
 .ai-badge {
@@ -255,7 +264,7 @@ const columnFractions = computed(() => {
 /* 空状态 */
 .empty-hint {
   text-align: center;
-  color: #909399;
+  color: var(--crf-paper-empty);
   padding: 30px;
   font-size: 13px;
 }

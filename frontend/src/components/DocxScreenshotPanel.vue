@@ -15,14 +15,14 @@
         <div class="spinner"></div>
       </div>
       <div class="status-text">截图生成中，请稍候…</div>
-      <div class="status-sub">正在调用 Word 渲染原始文档</div>
+      <div class="status-sub">正在渲染原始文档</div>
     </div>
 
     <!-- 状态：失败 -->
     <div v-else-if="status === 'failed'" class="status-view status-failed">
       <div class="fail-icon">✕</div>
       <div class="status-text">截图生成失败</div>
-      <div class="status-sub">{{ errorMsg || '请确认已安装 MS Word 并重试' }}</div>
+      <div class="status-sub">{{ errorMsg || '请确认文档渲染环境可用后重试' }}</div>
     </div>
 
     <!-- 状态：完成，展示图片 -->
@@ -31,7 +31,7 @@
         v-for="p in displayPages"
         :key="p"
         :ref="(el) => (pageRefs[p] = el)"
-        :src="pageUrl(p)"
+        :src="pageBlobUrls[p]"
         :class="['page-img', { 'page-highlight': p === highlightPage }]"
         :alt="`第 ${p} 页`"
         loading="lazy"
@@ -47,7 +47,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
-import { api } from '../composables/useApi';
+import { api, getAuthHeaders } from '../composables/useApi';
 
 const props = defineProps({
   tempId: { type: String, default: '' },
@@ -66,6 +66,7 @@ const pageRanges = ref({}); // {表单名: [start, end]}
 const fieldPages = ref({}); // {表单名: {字段索引: 页码}}
 const pageRefs = ref({}); // 页面元素引用
 const highlightPage = ref(null); // 当前高亮的页码
+const pageBlobUrls = ref({}); // {页码: objectURL}；截图需鉴权，<img> 不带 JWT 头，改为带头拉取 blob 后显示
 
 let pollTimer = null;
 let hintTimer = null;
@@ -84,6 +85,11 @@ const displayPages = computed(() => {
   }
   // 未检测到范围 或 范围无效（start > end）→ 显示全部页面
   return Array.from({ length: pageCount.value }, (_, i) => i + 1);
+});
+
+// 当前表单要展示的页码变化时（完成 / 切换表单），带鉴权拉取对应页图片
+watch(displayPages, (pages) => {
+  if (pages && pages.length) loadDisplayPageImages(pages);
 });
 
 watch(
@@ -128,11 +134,13 @@ watch(
 onUnmounted(() => {
   stopPoll();
   clearLocateHint();
+  revokePageBlobUrls();
 });
 
 function reset() {
   stopPoll();
   clearLocateHint();
+  revokePageBlobUrls();
   status.value = 'idle';
   pageCount.value = 0;
   errorMsg.value = '';
@@ -232,6 +240,35 @@ async function poll() {
 
 function pageUrl(page) {
   return `/api/projects/${props.projectId}/import-docx/${encodeURIComponent(props.tempId)}/screenshots/pages/${page}`;
+}
+
+// 截图页端点需要 JWT 鉴权，而 <img src> 请求不携带 Authorization 头，
+// 因此改为用带鉴权头的 fetch 拉取图片 blob，再以 objectURL 显示。
+async function fetchPageBlob(page) {
+  if (pageBlobUrls.value[page]) return; // 已加载则跳过
+  try {
+    const r = await fetch(pageUrl(page), { headers: getAuthHeaders() });
+    if (!r.ok) return;
+    const blob = await r.blob();
+    pageBlobUrls.value = { ...pageBlobUrls.value, [page]: URL.createObjectURL(blob) };
+  } catch {
+    // 单页加载失败忽略，保留占位，不阻塞其它页
+  }
+}
+
+function loadDisplayPageImages(pages) {
+  pages.forEach((p) => fetchPageBlob(p));
+}
+
+function revokePageBlobUrls() {
+  Object.values(pageBlobUrls.value).forEach((u) => {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* noop */
+    }
+  });
+  pageBlobUrls.value = {};
 }
 </script>
 
