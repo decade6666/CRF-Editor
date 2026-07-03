@@ -70,6 +70,7 @@ docx-compare-*.png
 # ==========================================
 assets/logos/*.jpg
 config.yaml
+!.trellis/config.yaml
 /.pytest-tmp/
 backend/.venv-linux/
 backend/.venv-linux.py38-broken/

@@ -4,10 +4,14 @@
 # Current task pointer (each dev works on different task)
 .current-task
 
+# Session/window scoped runtime state
+.runtime/
+
 # Ralph Loop state file
 .ralph-state.json
 
 # Agent runtime files
+.agents/
 .agent-log
 .session-id
 
@@ -22,9 +26,6 @@
 
 # Conflict resolution temp files
 *.new
-
-# Task working files (local state)
-tasks/
 
 # Python cache
 **/__pycache__/
