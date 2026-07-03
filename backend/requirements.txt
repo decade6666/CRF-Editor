@@ -26,5 +26,9 @@ python-docx~=1.0.0
 # 需配合系统安装 LibreOffice（soffice）；未安装时自动回退由 Word 更新域填充页码
 pypdf~=6.0
 
+# Word 导入原始文档截图：将渲染出的 PDF 按页转为 PNG（无需 poppler）
+# docx→PDF 由 MS Word COM（Windows）或 LibreOffice headless（Linux/macOS，需系统安装 soffice）完成
+pymupdf~=1.28
+
 # HTTP Client (AI API calls)
 httpx~=0.27.0

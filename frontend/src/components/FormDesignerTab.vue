@@ -3451,6 +3451,14 @@ function openAddForm() {
                   ></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
+                  ><el-tooltip
+                    v-if="showAcrfAnnotations"
+                    :content="ff.field_definition?.variable_name || '\u2014'"
+                    placement="top"
+                    :show-after="300"
+                    :disabled="!ff.field_definition?.variable_name"
+                  ><span class="ff-var-name">{{ ff.field_definition?.variable_name || '' }}</span
+                  ></el-tooltip
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
                     getFormFieldDisplayLabel(ff)
                   }}</span

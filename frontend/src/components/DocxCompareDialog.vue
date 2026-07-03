@@ -27,7 +27,7 @@
       <!-- 右侧：CRF 表单模拟 -->
       <div class="compare-panel compare-right">
         <div class="panel-header">导入效果</div>
-        <div class="panel-body panel-body-scroll">
+        <div class="panel-body panel-body-scroll preview-paper-canvas">
           <div v-if="showAiReviewState" class="ai-review-card" :class="`ai-review-card--${aiReviewTone}`">
             <div class="ai-review-title">
               <el-icon v-if="isAiReviewActive" class="is-loading"><Loading /></el-icon>
@@ -147,8 +147,28 @@ function getFieldType(index) {
   overflow-y: auto;
 }
 
+.preview-paper-canvas {
+  padding: 16px;
+  background: var(--color-bg-hover);
+}
+
+.preview-paper-canvas :deep(.crf-form-wrap) {
+  min-height: 100%;
+  border: 1px solid color-mix(in srgb, #000 10%, transparent);
+  box-shadow: var(--shadow-preview-page, 0 4px 24px rgba(0, 0, 0, 0.1));
+}
+
+:global(html[data-theme='dark']) .preview-paper-canvas {
+  background: var(--color-bg-body);
+}
+
+:global(html[data-theme='dark']) .preview-paper-canvas :deep(.crf-form-wrap) {
+  border-color: color-mix(in srgb, #fff 16%, transparent);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
+}
+
 .ai-review-card {
-  margin: 12px;
+  margin: 0 0 12px;
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
