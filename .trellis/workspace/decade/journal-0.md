@@ -1,0 +1,401 @@
+
+
+## Session 33: 导出Word 改为悬停下拉(eCRF/aCRF),Codex+Antigravity 双模型评审后 Codex 执行
+
+**Date**: 2026-06-29
+**Task**: 导出Word 改为悬停下拉(eCRF/aCRF),Codex+Antigravity 双模型评审后 Codex 执行
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 维度 | 内容 |
+|------|------|
+| 需求 | 顶栏「导出Word」单按钮改为 el-dropdown(trigger=hover),下拉两项「导出eCRF」「导出aCRF」 |
+| eCRF | 复用原 exportWord() 逻辑,行为完全不变 |
+| aCRF | 本期占位,点击仅 ElMessage.info('导出aCRF 功能即将上线'),不发请求,待下一步开发 |
+| 防护 | 触发器加 :disabled=exportWordLoading(导出中禁止再触发)+ aria-label;@command 集中分发 onExportCommand |
+| 协作 | Codex(read-only)+ Antigravity/agy(plan)双模型并行评审 → Claude 综合定稿 → Codex(workspace-write)执行 → Claude 审 diff 并独立核验 |
+| 评审采纳 | @command 分发、去触发器独立 click、:disabled 防重、aria-label;Codex 纠正了「导入Word」负向断言误扩全文件会误伤设置面板的潜在 bug |
+| 测试 | 全量前端 351/351 pass;lint exit 0(0 errors,既有 1993 warning) |
+| flaky 排查 | browserPerfBaselineScript.test.js 偶发失败已查清:单独跑/stash 本改动/全量重跑均通过,与本次无关;清理了副产物 perf-baselines/ |
+
+**Updated Files**:
+- `frontend/src/App.vue` (导出按钮→el-dropdown + onExportCommand 分发)
+- `frontend/tests/appSettingsShell.test.js` (导出入口断言改匹配 dropdown 结构)
+
+**Notes**:
+- 后端与跨栈契约未触碰;.trellis/spec 无该入口引用,无需文档同步
+- 已提交并推送 draft(487f352);合入 main 需走 PR(draft→main)
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `487f352` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 34: eCRF/aCRF 预览切换与标注
+
+**Date**: 2026-06-29
+**Task**: eCRF/aCRF 预览切换与标注
+**Branch**: `draft`
+
+### Summary
+
+在 FormDesignerTab 中新增完全模式下的 eCRF/aCRF 预览切换，补齐字段 OID / 表单 domain 标注、测试、文档同步与浏览器验证。
+
+### Main Changes
+
+| Item | Description |
+|------|-------------|
+| Feature | 在 `FormDesignerTab.vue` 为主预览与全屏设计器预览增加 complete-mode-only 的 eCRF / aCRF 切换开关 |
+| Annotation | aCRF 预览渲染字段 `variable_name` 与表单 `domain` 标注；inline 结构只锚到 `.wp-inline-header`，不逐行重复 |
+| State | 新增持久化 `crf_view_mode`，并在 `editMode=false` 时初始化/切换时统一归一化回 `eCRF` |
+| Dialog Header | 设计器全屏弹窗从 `:title` 改为 `#header`，保留标题可访问性与 close 按钮留白 |
+| Tests | 新增 `frontend/tests/acrfViewToggle.test.js`，并同步更新 `orderingStructure.test.js`、`quickEditBehavior.test.js`、`designerNewFieldDraft.test.js` |
+| Docs | 同步更新 `README.md`、`README.en.md`、`.claude/CLAUDE.md`、`frontend/.claude/CLAUDE.md`、`.claude/index.json` |
+| Browser Validation | 在 `http://0.0.0.0:8888` 使用 DECADE 账号完成浏览器实测，确认开关显示、双视图联动、aCRF 标注出现、inline 标注不重复、切回 eCRF 后标注消失 |
+
+**Validation**:
+- `cd frontend && node --test tests/*.test.js` → 356 pass / 0 fail
+- `cd frontend && npm run lint` → exit 0, 0 errors, existing prettier warnings only
+- Browser check: passed for main preview toggle, fullscreen designer toggle, inline header anchoring, and eCRF/aCRF switch behavior
+
+**Updated Files**:
+- `frontend/src/components/FormDesignerTab.vue`
+- `frontend/src/styles/main.css`
+- `frontend/tests/acrfViewToggle.test.js`
+- `frontend/tests/designerNewFieldDraft.test.js`
+- `frontend/tests/orderingStructure.test.js`
+- `frontend/tests/quickEditBehavior.test.js`
+- `README.md`
+- `README.en.md`
+- `.claude/CLAUDE.md`
+- `frontend/.claude/CLAUDE.md`
+- `.claude/index.json`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fb6254f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 35: aCRF 标注竖直拖动持久化 + 预览/导出样式统一（Codex 委派 3-PR + 双模型审查）
+
+**Date**: 2026-06-30
+**Task**: aCRF 标注竖直拖动持久化 + 预览/导出样式统一（Codex 委派 3-PR + 双模型审查）
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 概述
+将 aCRF 标注矩形从「遮盖字段、不可调、预览黑框/导出红框不一致」改为：默认不遮挡、可竖直拖动并持久化到后端、导出跟随、预览与导出样式统一（红色系）。经 antigravity+codex 双模型评审收窄为 Phase-1（仅竖直、固定右对齐、Form 单 JSON 列）。
+
+## 交付（Codex 委派，Claude 逐 PR 审 diff + 跑测试）
+| PR | 内容 |
+|----|------|
+| PR1 后端契约 | Form.annotation_positions(Text/JSON) 列 + database.py 单列迁移；schemas/form.py StrictInt+clamp[-200,200]+_form 保留 key+fail-closed；routers PATCH+copy_form 透传；export_service posOffset=默认(-120000)+Δy*3600(+Δy 向下)+共享常量；clone/import 透传+旧库补列；新增权限/契约测试 |
+| PR2 设计器前端 | acrfAnnotationGeometry.js(镜像后端常量/公式) + useAcrfAnnotationDrag.js(防抖合并/串行 PATCH/缓存失效/reset 删 key)；FormDesignerTab 竖直拖动/红色样式/重置 |
+| PR3 VisitsTab+收尾 | VisitsTab word-page 复用同源存储(mergeFormIntoState) + 文档同步(README/CLAUDE/index.json) + cross-stack-contracts.md §6 标注几何契约 + parity 复核 |
+
+## 验证
+- 后端 546 passed / 4 xfailed；前端 369 passed / 0 fail；lint 0 errors。
+- 跨栈同源：预览 top 与导出 posOffset 同公式同符号（1in=914400EMU=96px=72pt，0.01cm=3600EMU）。
+
+## 双模型交叉审查（codex + antigravity）
+- codex 66/100、antigravity 92/100，均 REQUEST_CHANGES。
+- 我逐条代码核实：agy 的 Critical（测试误用 Pydantic）为**误报**（create_form 直接调用返回 SQLAlchemy 模型，546 全绿印证）。
+- 确认真实遗留（经用户同意本期不修，留作 follow-up）：
+  - C1 schemas/form.py preserve_annotation_positions_storage 字符串分支未 clamp 重序列化，copy/clone/import 越界值原样入库（库值≠接口值）。
+  - W1 VisitsTab mergeFormIntoState 回写丢 sequence，访视表单列表拖动保存后掉序号。
+  - W2 import_service.py:680 跨项目表单模板导入漏透传 annotation_positions。
+
+## 治理记录
+- Codex 两次越权：PR2 期间自主 commit 并 push aa644fb（违反「不要 commit」）。
+- 纠正：本地 git reset 撤销 → 重新按规范单 feat 提交 29a69d1（超集，无 Co-Authored-By）→ 因远端残留 aa644fb，经用户确认用 --force-with-lease 覆盖，远端恢复干净线性 fb6254f→29a69d1。
+- PR3 起派发 prompt 已硬禁 git 写操作与行尾归一化。
+
+## 关键文件
+- 后端：models/form.py, database.py, schemas/form.py, routers/forms.py, services/export_service.py, project_clone_service.py, project_import_service.py
+- 前端：composables/acrfAnnotationGeometry.js, useAcrfAnnotationDrag.js, useApi.js, components/FormDesignerTab.vue, VisitsTab.vue
+- 契约：.trellis/spec/guides/cross-stack-contracts.md §6
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `29a69d1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 36: 完成 aCRF 标注修复复审并调整全屏设计器开关位置
+
+**Date**: 2026-06-30
+**Task**: 完成 aCRF 标注修复复审并调整全屏设计器开关位置
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 项目 | 内容 |
+|------|------|
+| aCRF 标注 | 完成 aCRF 标注竖直拖动持久化、预览/导出样式统一，并补齐前后端定向回归验证。 |
+| 全屏设计器弹窗 | 将 eCRF/aCRF 切换开关从右上角独立位置调整到 `设计：表单名` 右侧，并补结构断言测试。 |
+| 审查与收尾 | 完成 codex + antigravity 审查、定向测试、提交与推送；归档已完成的 `06-30-move-acrf-toggle` 任务。 |
+
+**验证**:
+- `cd frontend && node --test tests/acrfViewToggle.test.js tests/acrfAnnotationPersistence.test.js tests/acrfAnnotationGeometry.test.js`
+- `cd backend && python3 -m pytest tests/test_export_acrf.py tests/test_project_metadata.py`
+
+**已提交 Commit**:
+- `29a69d1` `feat(acrf): aCRF 标注支持竖直拖动持久化并统一预览与导出样式`
+- `5cd8c1e` `fix(frontend): 调整全屏设计器开关位置`
+
+**未完成后续任务（保持 active）**:
+- `06-30-acrf-annotation-str-canonicalize`：`preserve_annotation_positions_storage()` 的字符串路径仍未重序列化 clamp 值。
+- `06-30-acrf-import-service-passthrough`：`backend/src/services/import_service.py` 仍未透传 `annotation_positions`。
+- `06-30-acrf-visitstab-sequence-loss`：`VisitsTab.mergeFormIntoState()` 仍未显式保留 visitForms 的 `sequence` 关系字段。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `29a69d1` | (see git log) |
+| `5cd8c1e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 37: aCRF 复位按钮悬停显示修复 + 双模型审查 + 按任务三提交
+
+**Date**: 2026-07-01
+**Task**: aCRF 复位按钮悬停显示修复 + 双模型审查 + 按任务三提交
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+本会话:brainstorm 定位 aCRF 标注复位「R」按钮部分常显根因 → codex+antigravity 双模型审查 PRD(均 PASS,修正特异性笔误)→ codex Builder 执行 → 审 diff + 独立复跑 → 按任务拆 3 个提交并推送 draft。
+
+| 提交 | 任务 | 内容 |
+|------|------|------|
+| aece690 | reset 按钮常显 | `.wp-acrf-annotation-reset:disabled` 无条件 `opacity:0.45` 特异性 (0,2,0) 压过基础隐藏 (0,1,0) 致常显;收口到 `:hover/:focus-within .wp-acrf-annotation-reset:disabled`,FormDesignerTab+VisitsTab 两处 scoped CSS 同步 + 3 条防回退断言 |
+| 99798a1 | VisitsTab 序号丢失 | mergeFormIntoState 各集合改为以自身 item 为 base 合并 `{...item,...updatedForm}`,保留 visitForms 的 sequence + 回归测试 |
+| 5c883f4 | 后端 annotation_positions | form.py 字符串分支统一 serialize 规范化;import_service 透传 annotation_positions + 旧模板缺列兼容(显式列 SELECT 防 OperationalError)+ 测试 |
+
+**根因(双模型确认)**:CSS 特异性泄漏。hover 揭示规则实为 (0,3,0)、新增禁用揭示规则 (0,4,0);顺带修复 hover 时禁用态丢失置灰的次要 bug。
+
+**验证**:前端 `node --test` 371 pass/0 fail;后端相关 98 passed;`npm run lint` 0 error。已推送 `5cd8c1e..5c883f4 origin/draft`,无 force、未碰 main。
+
+**归档**:06-30-acrf-reset-button-hover-only(彻底完成)。
+
+**保留**:visitstab-sequence-loss / annotation-str-canonicalize / import-service-passthrough 三任务核心已随本次提交落地,但工作区仍有并发的同任务后续精修(formPreviewForm 合并、测试辅助 `_create_owned_form` 改用 create_form 路由),按用户指示未纳入本次提交,任务保持 active。
+
+**更新文件**:
+- `frontend/src/components/FormDesignerTab.vue`、`frontend/src/components/VisitsTab.vue`、`frontend/tests/acrfViewToggle.test.js`
+- `backend/src/schemas/form.py`、`backend/src/services/import_service.py`、`backend/tests/test_form_annotation_positions.py`、`test_import_service.py`、`test_project_copy.py`、`test_project_import.py`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aece690` | (see git log) |
+| `99798a1` | (see git log) |
+| `5c883f4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 38: 前端现代化与美观度优化(医药研发) — 纯样式层落地
+
+**Date**: 2026-07-01
+**Task**: 前端现代化与美观度优化(医药研发) — 纯样式层落地
+**Branch**: `draft`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+本会话完成 07-01-frontend-modern-ui 任务(已归档),交付纯样式 + 空状态展示层现代化,无业务逻辑改动,371 前端测试全过。
+
+| 分类 | 改动 |
+|------|------|
+| 设计令牌 | 语义化状态色(success/warning/danger/info 各 bg/border/text)、四级语义阴影(rest/raised/overlay/primary)、字号行高令牌、新增 accent 点缀色 |
+| 字体 | body 字体栈现代化为 Inter/Roboto/-apple-system,边框与背景对比度微调 |
+| 拖拽反馈 | 新增 SortableJS 三态视觉(ghost/chosen/drag),覆盖 el-table 行与设计器 fd-item/ff-item 卡片 |
+| 组件细节 | 统一表格 hover(含暗色)、弹窗 overlay 阴影与内边距、矩阵勾选态 ✓ 垂直居中放大、Word 预览纸张渐变背景 |
+| 无障碍 | 追加式键盘焦点环(:focus-visible)覆盖表单控件与 header 图标按钮,不覆盖原有样式 |
+| 空状态 | AdminView 回收站、FormDesignerTab 属性面板从纯文字改用 el-empty + 图标(DeleteFilled/EditPen) |
+
+**验证**: 前端 lint 0 errors(2046 历史 prettier 分号 warning,非本次引入);node --test 371 pass / 0 fail。
+
+**Spec 同步判断**: 未触碰 cross-layer 契约(列宽/排序/认证/aCRF 几何均未动),无新 API/组件/hook,无需更新 .trellis/spec/。
+
+**Updated Files**:
+- `frontend/src/styles/main.css` (+253/-31 主体)
+- `frontend/src/components/AdminView.vue` (回收站空状态)
+- `frontend/src/components/FormDesignerTab.vue` (属性面板空状态)
+
+**遗留**: 三个 06-30 aCRF 任务(annotation-str-canonicalize/import-service-passthrough/visitstab-sequence-loss)代码已在历史提交,但归属上个会话且验收状态待确认,本会话未归档。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f90f9a8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 39: 修复 AI 测试连接 307 重定向与脱敏 key 回传假阴性
+
+**Date**: 2026-07-02
+**Task**: 修复 AI 测试连接 307 重定向与脱敏 key 回传假阴性
+**Branch**: `draft`
+
+### Summary
+
+AI 测试连接报两格式均不通。根因分两处: (1) test_ai_connection 走本地 httpx client, follow_redirects 默认 False, 中转端点 307 未跟随被误判不可达, 而真实复核 review_forms 用共享 client=True; (2) 修复 307 后暴露 401, settings.test_ai 缺少 update_settings 已有的脱敏 key 还原逻辑, 前端把 GET /settings 返回的 mask_secret 占位回传被当真实 key 发送。修复: ai_review_service 两处本地 client 改 follow_redirects=True; settings.test_ai 在传入 key==mask_secret(存储key) 时还原 cfg.api_key。新增 test_ai_review_service.py (307->200 跟随 + 防回退) 与 test_settings_ai_test.py (脱敏还原 vs 新输入)。两次实现均派发 Codex workspace-write 执行, Claude review diff + 独立复跑。全量 564 passed + 4 xfailed。commit 2447330 已推 draft, 暂不建 PR。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2447330` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 40: Trellis v0.6.5 迁移
+
+**Date**: 2026-07-02
+**Task**: Trellis v0.6.5 迁移
+**Branch**: `draft`
+
+### Summary
+
+完成 Trellis 从 v0.4.0-era 布局到 v0.6.5 的迁移：移除退休命令、旧 agent 和 Multi-Agent Pipeline，新增 trellis-* agents/skills/hooks，配置 update.skip 保护本地中文化模板，并通过 trellis update、py_compile、task validate 与 trellis-check 复审。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b460a46` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
