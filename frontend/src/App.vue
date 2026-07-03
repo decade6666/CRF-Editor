@@ -169,6 +169,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('crf:auth-expired', handleAuthExpired);
+  stopAiReviewPolling();
 });
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
@@ -688,11 +689,93 @@ const importedFormsPreview = ref([]);
 const selectedFormsToImport = ref([]);
 const tempDocxId = ref(null);
 const importWordErrorMessage = ref('');
+const importWordAiTaskId = ref(null);
+const importWordAiReviewStatus = ref('idle');
+const importWordAiReviewError = ref('');
+let aiReviewPollTimer = null;
 // 预览对话框
 const showDocxCompare = ref(false);
 const compareFormData = ref(null);
 // Step 3：导入完成后的表单清单（每项含 form_id / name / field_count）
 const importedResults = ref([]);
+
+watch(showImportWordDialog, (visible) => {
+  if (visible) return;
+  stopAiReviewPolling();
+  importWordAiTaskId.value = null;
+  showDocxCompare.value = false;
+  compareFormData.value = null;
+});
+
+function stopAiReviewPolling() {
+  if (aiReviewPollTimer) {
+    clearTimeout(aiReviewPollTimer);
+    aiReviewPollTimer = null;
+  }
+}
+
+function resetImportWordAiReview() {
+  stopAiReviewPolling();
+  importWordAiTaskId.value = null;
+  importWordAiReviewStatus.value = 'idle';
+  importWordAiReviewError.value = '';
+}
+
+function replaceImportedFormsPreview(forms) {
+  importedFormsPreview.value = forms;
+  if (!compareFormData.value) return;
+  compareFormData.value = forms.find((form) => form.index === compareFormData.value.index) || null;
+}
+
+function mergeAiSuggestions(suggestionsByForm) {
+  const suggestionsMap = new Map(
+    Object.entries(suggestionsByForm || {}).map(([formIndex, suggestions]) => [Number(formIndex), suggestions]),
+  );
+  if (!suggestionsMap.size) return;
+  const nextForms = importedFormsPreview.value.map((form) => {
+    const aiSuggestions = suggestionsMap.get(form.index);
+    if (!aiSuggestions) return form;
+    return { ...form, ai_suggestions: aiSuggestions.map((item) => ({ ...item })) };
+  });
+  replaceImportedFormsPreview(nextForms);
+}
+
+function scheduleAiReviewPoll(taskId) {
+  stopAiReviewPolling();
+  if (!taskId || !showImportWordDialog.value) return;
+  aiReviewPollTimer = setTimeout(() => {
+    pollAiReview(taskId);
+  }, 3000);
+}
+
+async function pollAiReview(taskId) {
+  if (!taskId || !selectedProject.value?.id || !showImportWordDialog.value) return;
+  try {
+    const data = await api.get(`/api/projects/${selectedProject.value.id}/import-docx/${encodeURIComponent(taskId)}/ai-review/status`);
+    if (importWordAiTaskId.value !== taskId || !showImportWordDialog.value) return;
+    importWordAiReviewStatus.value = data.status || 'running';
+    importWordAiReviewError.value = data.error || '';
+    if (data.suggestions) mergeAiSuggestions(data.suggestions);
+    if (data.status === 'done' || data.status === 'failed') {
+      stopAiReviewPolling();
+      return;
+    }
+    scheduleAiReviewPoll(taskId);
+  } catch (error) {
+    if (importWordAiTaskId.value !== taskId || !showImportWordDialog.value) return;
+    stopAiReviewPolling();
+    importWordAiReviewStatus.value = 'failed';
+    importWordAiReviewError.value =
+      error?.status === 404 ? 'AI复核任务已中断，请重新上传文档。' : error?.message || 'AI复核不可用';
+  }
+}
+
+function startAiReviewPolling(taskId) {
+  resetImportWordAiReview();
+  importWordAiTaskId.value = taskId;
+  importWordAiReviewStatus.value = 'pending';
+  scheduleAiReviewPoll(taskId);
+}
 
 function openImportWordDialog() {
   importWordStep.value = 1;
@@ -701,6 +784,7 @@ function openImportWordDialog() {
   selectedFormsToImport.value = [];
   tempDocxId.value = null;
   importWordErrorMessage.value = '';
+  resetImportWordAiReview();
   showDocxCompare.value = false;
   compareFormData.value = null;
   importedResults.value = [];
@@ -713,6 +797,9 @@ function goBackToImportWordStep1() {
   selectedFormsToImport.value = [];
   tempDocxId.value = null;
   importWordErrorMessage.value = '';
+  resetImportWordAiReview();
+  showDocxCompare.value = false;
+  compareFormData.value = null;
 }
 
 function beforeDocxUpload(file) {
@@ -728,11 +815,16 @@ function beforeDocxUpload(file) {
 function handleDocxUploadSuccess(response) {
   importWordLoading.value = false;
   if (response?.forms && response?.temp_id) {
-    importedFormsPreview.value = response.forms;
+    replaceImportedFormsPreview(response.forms);
     selectedFormsToImport.value = [];
     tempDocxId.value = response.temp_id;
     importWordErrorMessage.value = '';
     importWordStep.value = 2;
+    if (response.ai_task_id) {
+      startAiReviewPolling(response.ai_task_id);
+    } else {
+      resetImportWordAiReview();
+    }
   } else {
     importWordErrorMessage.value = '文件解析失败或响应格式不正确。';
     ElMessage.error(importWordErrorMessage.value);
@@ -741,6 +833,7 @@ function handleDocxUploadSuccess(response) {
 
 function handleDocxUploadError(error) {
   importWordLoading.value = false;
+  resetImportWordAiReview();
   importWordErrorMessage.value = '文件上传失败。';
   if (error?.message) {
     try {
@@ -761,6 +854,7 @@ async function executeImportWord() {
     importWordErrorMessage.value = '请选择要导入的表单。';
     return ElMessage.warning(importWordErrorMessage.value);
   }
+  resetImportWordAiReview();
   importWordLoading.value = true;
   importWordErrorMessage.value = '';
   try {
@@ -1157,6 +1251,22 @@ function startResize(e) {
           />
         </div>
         <div v-if="importWordStep === 2">
+          <el-alert
+            v-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
+            type="info"
+            show-icon
+            :closable="false"
+            title="AI 复核进行中，建议会自动补充到表单预览，不影响继续导入。"
+            style="margin-bottom: 12px"
+          />
+          <el-alert
+            v-else-if="importWordAiReviewStatus === 'failed'"
+            type="warning"
+            show-icon
+            :closable="false"
+            :title="importWordAiReviewError || 'AI复核不可用，不影响继续导入。'"
+            style="margin-bottom: 12px"
+          />
           <div class="form-select-header">
             <p class="form-select-prompt">请勾选要导入的表单：</p>
             <el-button
@@ -1193,6 +1303,18 @@ function startResize(e) {
                   <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
                 </el-tooltip>
                 <span class="docx-form-actions">
+                  <el-tag v-if="Array.isArray(f.ai_suggestions) && f.ai_suggestions.length" size="small" type="warning">
+                    AI建议 {{ f.ai_suggestions.length }} 条
+                  </el-tag>
+                  <el-tag
+                    v-else-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
+                    size="small"
+                    type="info"
+                  >
+                    <el-icon class="is-loading" style="margin-right: 4px"><Loading /></el-icon>
+                    AI复核中
+                  </el-tag>
+                  <el-tag v-else-if="importWordAiReviewStatus === 'failed'" size="small" type="info">AI不可用</el-tag>
                   <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览</el-button>
                 </span>
               </div>
@@ -1270,6 +1392,8 @@ function startResize(e) {
       :project-id="selectedProject?.id || 0"
       :all-form-names="importedFormsPreview.map((f) => f.name)"
       :all-forms-data="importedFormsPreview"
+      :ai-review-status="importWordAiReviewStatus"
+      :ai-review-error="importWordAiReviewError"
     />
   </template>
 
