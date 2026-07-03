@@ -69,6 +69,21 @@ const visibleFields = computed(() => {
   return rankFuzzyMatches(visibleDefinitions, searchField.value, (field) => Object.values(field))
 })
 
+// 字段编辑表单仅维护这些属性；order_index / id 等由排序端点独立管理，
+// 不得随属性保存回传，否则会把已改动的序号回退到打开编辑时的旧值。
+const EDITABLE_PROP_KEYS = [
+  'variable_name', 'label', 'field_type',
+  'integer_digits', 'decimal_digits', 'date_format',
+  'codelist_id', 'unit_id',
+]
+function pickEditableProps(source) {
+  const src = source || {}
+  return EDITABLE_PROP_KEYS.reduce((acc, key) => {
+    if (key in src) acc[key] = src[key]
+    return acc
+  }, {})
+}
+
 function resetProp(data) {
   Object.assign(editProp, {
     variable_name: '', label: '', field_type: '文本',
@@ -78,7 +93,7 @@ function resetProp(data) {
 }
 
 function openAdd() { resetProp({ variable_name: genFieldVarName() }); selectedFieldId.value = null; isCreating.value = true }
-function openEdit(f) { resetProp({ ...f }); selectedFieldId.value = f.id; isCreating.value = false }
+function openEdit(f) { resetProp(pickEditableProps(f)); selectedFieldId.value = f.id; isCreating.value = false }
 function clearSelection() { resetProp(); selectedFieldId.value = null; isCreating.value = false }
 
 async function save() {
@@ -91,7 +106,7 @@ async function save() {
       isCreating.value = false; selectedFieldId.value = created.id
       await load()
       const latest = fields.value.find(f => f.id === created.id)
-      if (latest) resetProp({ ...latest })
+      if (latest) resetProp(pickEditableProps(latest))
       ElMessage.success('新增成功')
     } else {
       const refs = await api.get(`/api/field-definitions/${selectedFieldId.value}/references`)
@@ -102,7 +117,7 @@ async function save() {
       await api.put(`/api/projects/${props.projectId}/field-definitions/${selectedFieldId.value}`, { ...editProp })
       await load()
       const latest = fields.value.find(f => f.id === selectedFieldId.value)
-      if (latest) resetProp({ ...latest })
+      if (latest) resetProp(pickEditableProps(latest))
       ElMessage.success('保存成功')
     }
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
@@ -388,7 +403,7 @@ async function quickSaveCodelist() {
         </el-table-column>
         <el-table-column type="selection" width="40" />
         <el-table-column label="序号" width="100">
-          <template #default="{ row }">
+          <template #default="{ row, $index }">
             <el-input-number
               v-if="editingFieldId === row.id"
               ref="fieldOrdinalInputRef"
@@ -410,7 +425,7 @@ async function quickSaveCodelist() {
               @click.stop
               @dblclick.stop="startFieldOrdinalEdit(row)"
             >
-              <span class="ordinal-cell">{{ row.order_index }}</span>
+              <span class="ordinal-cell">{{ $index + 1 }}</span>
             </button>
           </template>
         </el-table-column>
