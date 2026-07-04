@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -295,6 +296,33 @@ def test_is_toc_page_deduplicates_substring_matches() -> None:
     assert DocxScreenshotService.is_toc_page(text, form_names) is False
 
 
+def test_map_forms_via_text_requires_independent_short_form_match() -> None:
+    form_names = ["体重", "身高体重"]
+    page_texts = [
+        "第1页：体重。研究护士在本页单独记录受试者体重变化。",
+        "第2页：身高体重。此页只出现联合表单名称。",
+    ]
+
+    ranges = DocxScreenshotService._map_forms_via_text(
+        form_names,
+        page_texts,
+        total_pages=2,
+        all_form_names=form_names,
+    )
+
+    assert ranges["体重"] == [1, 1]
+    assert ranges["身高体重"] == [2, 2]
+
+    long_name_only = DocxScreenshotService._map_forms_via_text(
+        ["体重"],
+        ["封面页。", page_texts[1]],
+        total_pages=2,
+        all_form_names=form_names,
+    )
+
+    assert "体重" not in long_name_only
+
+
 def test_map_forms_via_outline_uses_true_pages() -> None:
     form_names = ["知情同意", "访视日期", "受试者特征", "病史", "吸烟饮酒史", "用药史"]
     outline = [
@@ -317,6 +345,31 @@ def test_map_forms_via_outline_uses_true_pages() -> None:
     assert ranges["吸烟饮酒史"] == [14, 15]
     assert ranges["用药史"] == [16, 20]
     assert all(start >= 7 for start, _end in ranges.values())
+
+
+def test_map_forms_via_outline_ignores_non_form_subheadings_as_boundaries() -> None:
+    form_names = ["病史", "用药史"]
+    outline = [
+        ("7. 病史", 12),
+        ("7.1. 病史填写说明", 13),
+        ("8. 用药史", 16),
+    ]
+
+    ranges = DocxScreenshotService._map_forms_via_outline(form_names, outline, total_pages=20)
+
+    assert ranges["病史"] == [12, 15]
+    assert ranges["用药史"] == [16, 20]
+
+
+def test_forms_signature_changes_when_field_labels_or_order_change() -> None:
+    base_forms = [{"name": "生命体征", "fields": [{"label": "体重"}, {"label": "脉搏"}]}]
+    changed_label = [{"name": "生命体征", "fields": [{"label": "身高"}, {"label": "脉搏"}]}]
+    changed_order = [{"name": "生命体征", "fields": [{"label": "脉搏"}, {"label": "体重"}]}]
+
+    base_signature = DocxScreenshotService._forms_signature(base_forms)
+
+    assert base_signature != DocxScreenshotService._forms_signature(changed_label)
+    assert base_signature != DocxScreenshotService._forms_signature(changed_order)
 
 
 def test_start_skips_redetect_when_signature_unchanged(
@@ -363,6 +416,91 @@ def test_start_skips_redetect_when_signature_unchanged(
     assert calls["detect_form_pages"] == 1
     assert task.detect_signature == DocxScreenshotService._forms_signature(updated_forms)
     assert task.page_ranges["受试者特征"] == [1, 1]
+
+
+def test_start_refreshes_done_task_when_field_labels_change(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    temp_id = "done-cache-fields"
+    pages_dir = tmp_path / temp_id / "pages"
+    pages_dir.mkdir(parents=True)
+    (pages_dir / "rendered.pdf").write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(DocxScreenshotService, "BASE_DIR", str(tmp_path))
+
+    calls = {"detect_form_pages": 0}
+
+    def _fake_detect_form_pages(_pdf_path: str, form_names: list[str], _total_pages: int) -> dict[str, list[int]]:
+        calls["detect_form_pages"] += 1
+        return {name: [1, 1] for name in form_names}
+
+    monkeypatch.setattr(DocxScreenshotService, "_detect_form_pages", staticmethod(_fake_detect_form_pages))
+    monkeypatch.setattr(DocxScreenshotService, "_detect_field_pages", staticmethod(lambda *_args, **_kwargs: {}))
+
+    original_forms = [{"name": "生命体征", "fields": [{"label": "体重"}]}]
+    updated_forms = [{"name": "生命体征", "fields": [{"label": "身高"}]}]
+    task = ScreenshotTask(
+        status="done",
+        pages=["page-001.png"],
+        page_count=1,
+        detect_signature=DocxScreenshotService._forms_signature(original_forms),
+    )
+    screenshot_module._tasks[temp_id] = task
+
+    reused = DocxScreenshotService.start(temp_id, "/tmp/unused.docx", updated_forms)
+
+    assert reused is task
+    assert calls["detect_form_pages"] == 1
+    assert task.detect_signature == DocxScreenshotService._forms_signature(updated_forms)
+    assert task.page_ranges["生命体征"] == [1, 1]
+
+
+def test_start_refresh_does_not_hold_global_tasks_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    temp_id = "done-cache-lock"
+    pages_dir = tmp_path / temp_id / "pages"
+    pages_dir.mkdir(parents=True)
+    (pages_dir / "rendered.pdf").write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(DocxScreenshotService, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(DocxScreenshotService, "_detect_field_pages", staticmethod(lambda *_args, **_kwargs: {}))
+
+    calls = {"detect_form_pages": 0}
+    original_forms = [{"name": "生命体征", "fields": [{"label": "体重"}]}]
+    updated_forms = [{"name": "生命体征", "fields": [{"label": "身高"}]}]
+    task = ScreenshotTask(
+        status="done",
+        pages=["page-001.png"],
+        page_count=1,
+        detect_signature=DocxScreenshotService._forms_signature(original_forms),
+    )
+    screenshot_module._tasks[temp_id] = task
+
+    def _fake_detect_form_pages(_pdf_path: str, form_names: list[str], _total_pages: int) -> dict[str, list[int]]:
+        calls["detect_form_pages"] += 1
+        assert DocxScreenshotService.get_task(temp_id) is task
+        return {name: [1, 1] for name in form_names}
+
+    monkeypatch.setattr(DocxScreenshotService, "_detect_form_pages", staticmethod(_fake_detect_form_pages))
+
+    result: dict[str, ScreenshotTask] = {}
+    errors: list[Exception] = []
+
+    def _run_refresh() -> None:
+        try:
+            result["task"] = DocxScreenshotService.start(temp_id, "/tmp/unused.docx", updated_forms)
+        except Exception as exc:  # pragma: no cover - failure path assertion
+            errors.append(exc)
+
+    worker = threading.Thread(target=_run_refresh, daemon=True)
+    worker.start()
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert not errors
+    assert result["task"] is task
+    assert calls["detect_form_pages"] == 1
 
 
 @pytest.mark.skipif(
