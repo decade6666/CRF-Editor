@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
@@ -79,8 +80,16 @@ class DocxScreenshotService:
 
     @staticmethod
     def _forms_signature(forms_data: List[dict]) -> str:
-        names = sorted(form.get("name", "") for form in forms_data)
-        return str(tuple(names))
+        form_entries = []
+        for form in forms_data:
+            fields = form.get("fields", []) or []
+            labels = tuple((field or {}).get("label", "") for field in fields)
+            form_entries.append((form.get("name", ""), labels))
+        return str(tuple(sorted(form_entries)))
+
+    @staticmethod
+    def _snapshot_forms_data(forms_data: Optional[List[dict]]) -> List[dict]:
+        return copy.deepcopy(forms_data or [])
 
     # ── 路径工具 ──
 
@@ -109,23 +118,35 @@ class DocxScreenshotService:
         Args:
             forms_data: 表单数据列表，每项包含 name 和 fields
         """
+        forms_snapshot = cls._snapshot_forms_data(forms_data)
+        task: Optional[ScreenshotTask] = None
+        done_task: Optional[ScreenshotTask] = None
+        refresh_forms: Optional[List[dict]] = None
+
         with _tasks_lock:
             existing = _tasks.get(temp_id)
             if existing and existing.status in ("starting", "running"):
                 return existing
             if existing and existing.status == "done":
-                if forms_data:
-                    signature = cls._forms_signature(forms_data)
+                done_task = existing
+                if forms_snapshot:
+                    signature = cls._forms_signature(forms_snapshot)
                     if signature != existing.detect_signature:
-                        cls._refresh_page_ranges(temp_id, existing, forms_data)
-                return existing
-            task = ScreenshotTask(status="starting")
-            _tasks[temp_id] = task
+                        refresh_forms = forms_snapshot
+            else:
+                task = ScreenshotTask(status="starting")
+                _tasks[temp_id] = task
+
+        if done_task:
+            if refresh_forms is not None:
+                cls._refresh_page_ranges(temp_id, done_task, refresh_forms)
+            return done_task
+        assert task is not None
 
         # 后台线程执行完整转换
         t = threading.Thread(
             target=cls._run,
-            args=(temp_id, docx_path, task, forms_data or []),
+            args=(temp_id, docx_path, task, forms_snapshot),
             daemon=True,
         )
         t.start()
@@ -405,6 +426,29 @@ class DocxScreenshotService:
         return result
 
     @classmethod
+    def _form_appears_independently(
+        cls,
+        form_name: str,
+        page_text: str,
+        sibling_form_names: List[str],
+    ) -> bool:
+        normalized_form = cls._normalize_text(form_name)
+        normalized_page = cls._normalize_text(page_text)
+        if not normalized_form or normalized_form not in normalized_page:
+            return False
+
+        longer_siblings = []
+        for sibling in sibling_form_names:
+            normalized_sibling = cls._normalize_text(sibling)
+            if normalized_sibling and normalized_sibling != normalized_form and normalized_form in normalized_sibling:
+                longer_siblings.append(normalized_sibling)
+
+        masked_page = normalized_page
+        for sibling in sorted(set(longer_siblings), key=len, reverse=True):
+            masked_page = masked_page.replace(sibling, "")
+        return normalized_form in masked_page
+
+    @classmethod
     def is_toc_page(cls, text: str, form_names: List[str]) -> bool:
         if not text.strip() or not form_names:
             return False
@@ -473,28 +517,32 @@ class DocxScreenshotService:
             doc.close()
 
     @classmethod
+    def _prepare_outline_entries(cls, outline: List[tuple[str, int]]) -> List[dict]:
+        entries = []
+        for title, page in outline:
+            stripped_title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", title)
+            normalized_title = cls._normalize_text(stripped_title)
+            if not normalized_title or page <= 0:
+                continue
+            entries.append(
+                {
+                    "title": title,
+                    "stripped_title": stripped_title,
+                    "page": page,
+                    "normalized_title": normalized_title,
+                }
+            )
+        return entries
+
+    @classmethod
     def _map_forms_via_outline(
         cls,
         form_names: List[str],
         outline: List[tuple[str, int]],
         total_pages: int,
     ) -> Dict[str, List[int]]:
-        processed_outline = []
-        for title, page in outline:
-            stripped_title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", title)
-            normalized_title = cls._normalize_text(stripped_title)
-            if not normalized_title or page <= 0:
-                continue
-            processed_outline.append(
-                {
-                    "title": title,
-                    "page": page,
-                    "normalized_title": normalized_title,
-                }
-            )
-
+        processed_outline = cls._prepare_outline_entries(outline)
         form_starts: Dict[str, int] = {}
-        boundary_pages = [item["page"] for item in processed_outline]
 
         for form_name in form_names:
             normalized_form = cls._normalize_text(form_name)
@@ -510,7 +558,14 @@ class DocxScreenshotService:
                 continue
 
             contains_matches = [
-                item for item in processed_outline if normalized_form in item["normalized_title"]
+                item
+                for item in processed_outline
+                if normalized_form in item["normalized_title"]
+                and cls._form_appears_independently(
+                    form_name,
+                    str(item["stripped_title"]),
+                    form_names,
+                )
             ]
             if contains_matches:
                 match = sorted(
@@ -519,7 +574,7 @@ class DocxScreenshotService:
                 )[0]
                 form_starts[form_name] = int(match["page"])
 
-        return cls._build_page_ranges(form_starts, boundary_pages, total_pages)
+        return cls._build_page_ranges(form_starts, list(form_starts.values()), total_pages)
 
     @classmethod
     def _map_forms_via_text(
@@ -534,7 +589,10 @@ class DocxScreenshotService:
         for name in targets:
             found = False
             for index, text in enumerate(page_texts, 1):
-                if cls._match_form_in_text(name, text) and not cls.is_toc_page(text, toc_form_names):
+                if (
+                    cls._form_appears_independently(name, text, toc_form_names)
+                    and not cls.is_toc_page(text, toc_form_names)
+                ):
                     form_starts[name] = index
                     logger.info("表单 '%s' 匹配到页码: %d", name, index)
                     found = True
@@ -575,8 +633,7 @@ class DocxScreenshotService:
             name: page_range[0]
             for name, page_range in {**outline_ranges, **text_ranges}.items()
         }
-        boundary_pages = [page for _title, page in outline] + [page_range[0] for page_range in text_ranges.values()]
-        return cls._build_page_ranges(merged_starts, boundary_pages, total_pages)
+        return cls._build_page_ranges(merged_starts, list(merged_starts.values()), total_pages)
 
     @staticmethod
     def _detect_field_pages(
