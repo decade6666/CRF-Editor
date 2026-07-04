@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 40
-- **Last Active**: 2026-07-02
+- **Total Sessions**: 44
+- **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~401 | Active |
+| `journal-0.md` | ~533 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,10 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 44 | 2026-07-04 | docx 截图页码匹配4个边界缺陷修复(派发Codex) | `2968ff5` | `draft` |
+| 43 | 2026-07-03 | Word导入Linux截图支持、暗色模式预览与图片鉴权修复 | `6bdbdf7` | `draft` |
+| 42 | 2026-07-03 | Linux截图支持、暗色模式预览修复、aCRF变量名列 | `6bdbdf7` | `draft` |
+| 41 | 2026-07-02 | Word导入预览AI复核异步化实现 | `d37197b` | `draft` |
 | 40 | 2026-07-02 | Trellis v0.6.5 迁移 | `b460a46` | `draft` |
 | 39 | 2026-07-02 | 修复 AI 测试连接 307 重定向与脱敏 key 回传假阴性 | `2447330` | `draft` |
 | 38 | 2026-07-01 | 前端现代化与美观度优化(医药研发) — 纯样式层落地 | `f90f9a8` | `draft` |
