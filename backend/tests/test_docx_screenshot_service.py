@@ -11,7 +11,7 @@ from docx import Document
 
 from src.config import DocxScreenshotBackend, load_config
 from src.services import docx_screenshot_service as screenshot_module
-from src.services.docx_screenshot_service import DocxScreenshotService
+from src.services.docx_screenshot_service import DocxScreenshotService, ScreenshotTask
 
 
 class _ImmediateThread:
@@ -238,6 +238,131 @@ def test_libreoffice_conversion_without_output_pdf_fails(
             )
 
     assert "未生成非空 PDF" in caplog.text
+
+
+def test_is_toc_page_flags_compact_index() -> None:
+    form_names = [
+        "知情同意",
+        "访视日期",
+        "人口学资料",
+        "受试者特征",
+        "既往史",
+        "合并用药",
+        "生命体征",
+        "体格检查",
+        "实验室检查",
+        "心电图",
+        "不良事件",
+        "合并疾病",
+    ]
+    text = (
+        "表单访视分布图。"
+        + "；".join(form_names)
+        + "。本页仅供快速导航，请按目录跳转填写。"
+        + "说明" * 85
+    )
+
+    assert 200 <= len(text) <= 400
+    assert DocxScreenshotService.is_toc_page(text, form_names) is True
+
+
+def test_is_toc_page_ignores_content_cross_reference() -> None:
+    form_names = [
+        "知情同意",
+        "访视日期",
+        "人口学资料",
+        "受试者特征",
+        "既往史",
+        "合并用药",
+        "生命体征",
+        "体格检查",
+    ]
+    text = (
+        "本页记录受试者筛选过程和研究现场说明。"
+        "研究者需要结合知情同意与访视日期两张表核对来源文件，但本页主要承载筛选描述。"
+        + "受试者描述和现场记录。" * 120
+    )
+
+    assert len(text) > 1200
+    assert DocxScreenshotService.is_toc_page(text, form_names) is False
+
+
+def test_is_toc_page_deduplicates_substring_matches() -> None:
+    form_names = ["体重", "身高体重", "血压", "脉搏"]
+    text = "本页目录提示：身高体重。请见对应章节。"
+
+    assert len(text) < 500
+    assert DocxScreenshotService.is_toc_page(text, form_names) is False
+
+
+def test_map_forms_via_outline_uses_true_pages() -> None:
+    form_names = ["知情同意", "访视日期", "受试者特征", "病史", "吸烟饮酒史", "用药史"]
+    outline = [
+        ("目录", 2),
+        ("表单访视分布图", 4),
+        ("1. 知情同意", 7),
+        ("2. 访视日期", 8),
+        ("4. 受试者特征", 10),
+        ("7. 病史", 12),
+        ("7.1. 吸烟饮酒史", 14),
+        ("8. 用药史", 16),
+    ]
+
+    ranges = DocxScreenshotService._map_forms_via_outline(form_names, outline, total_pages=20)
+
+    assert ranges["知情同意"] == [7, 7]
+    assert ranges["访视日期"] == [8, 9]
+    assert ranges["受试者特征"] == [10, 11]
+    assert ranges["病史"] == [12, 13]
+    assert ranges["吸烟饮酒史"] == [14, 15]
+    assert ranges["用药史"] == [16, 20]
+    assert all(start >= 7 for start, _end in ranges.values())
+
+
+def test_start_skips_redetect_when_signature_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    temp_id = "done-cache"
+    pages_dir = tmp_path / temp_id / "pages"
+    pages_dir.mkdir(parents=True)
+    (pages_dir / "rendered.pdf").write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(DocxScreenshotService, "BASE_DIR", str(tmp_path))
+
+    calls = {"detect_form_pages": 0}
+
+    def _fake_detect_form_pages(_pdf_path: str, form_names: list[str], _total_pages: int) -> dict[str, list[int]]:
+        calls["detect_form_pages"] += 1
+        return {name: [1, 1] for name in form_names}
+
+    monkeypatch.setattr(DocxScreenshotService, "_detect_form_pages", staticmethod(_fake_detect_form_pages))
+    monkeypatch.setattr(DocxScreenshotService, "_detect_field_pages", staticmethod(lambda *_args, **_kwargs: {}))
+
+    forms_data = [
+        {"name": "知情同意", "fields": []},
+        {"name": "访视日期", "fields": []},
+    ]
+    task = ScreenshotTask(
+        status="done",
+        pages=["page-001.png"],
+        page_count=1,
+        detect_signature=DocxScreenshotService._forms_signature(forms_data),
+    )
+    screenshot_module._tasks[temp_id] = task
+
+    reused = DocxScreenshotService.start(temp_id, "/tmp/unused.docx", forms_data)
+
+    assert reused is task
+    assert calls["detect_form_pages"] == 0
+
+    updated_forms = forms_data + [{"name": "受试者特征", "fields": []}]
+
+    refreshed = DocxScreenshotService.start(temp_id, "/tmp/unused.docx", updated_forms)
+
+    assert refreshed is task
+    assert calls["detect_form_pages"] == 1
+    assert task.detect_signature == DocxScreenshotService._forms_signature(updated_forms)
+    assert task.page_ranges["受试者特征"] == [1, 1]
 
 
 @pytest.mark.skipif(

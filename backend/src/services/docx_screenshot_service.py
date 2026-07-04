@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,6 +45,7 @@ class ScreenshotTask:
     page_count: int = 0
     page_ranges: Dict[str, List[int]] = field(default_factory=dict)  # {表单名: [start, end]}
     field_pages: Dict[str, Dict[int, int]] = field(default_factory=dict)  # {表单名: {字段索引: 页码}}
+    detect_signature: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,11 @@ class DocxScreenshotService:
     def remove_task(temp_id: str) -> None:
         with _tasks_lock:
             _tasks.pop(temp_id, None)
+
+    @staticmethod
+    def _forms_signature(forms_data: List[dict]) -> str:
+        names = sorted(form.get("name", "") for form in forms_data)
+        return str(tuple(names))
 
     # ── 路径工具 ──
 
@@ -105,10 +113,11 @@ class DocxScreenshotService:
             existing = _tasks.get(temp_id)
             if existing and existing.status in ("starting", "running"):
                 return existing
-            # 已完成：同步刷新页码范围
             if existing and existing.status == "done":
                 if forms_data:
-                    cls._refresh_page_ranges(temp_id, existing, forms_data)
+                    signature = cls._forms_signature(forms_data)
+                    if signature != existing.detect_signature:
+                        cls._refresh_page_ranges(temp_id, existing, forms_data)
                 return existing
             task = ScreenshotTask(status="starting")
             _tasks[temp_id] = task
@@ -134,6 +143,7 @@ class DocxScreenshotService:
             form_names = [f.get("name", "") for f in forms_data]
             task.page_ranges = cls._detect_form_pages(str(pdf_files[0]), form_names, task.page_count)
             task.field_pages = cls._detect_field_pages(str(pdf_files[0]), forms_data, task.page_ranges)
+            task.detect_signature = cls._forms_signature(forms_data)
         except Exception as exc:
             logger.exception("刷新页码范围失败 temp_id=%s: %s", temp_id, exc)
 
@@ -205,6 +215,7 @@ class DocxScreenshotService:
                     task.page_ranges = cls._detect_form_pages(pdf_path, form_names, len(page_paths))
                     # 步骤4：检测字段级页码
                     task.field_pages = cls._detect_field_pages(pdf_path, forms_data, task.page_ranges)
+                    task.detect_signature = cls._forms_signature(forms_data)
 
                 task.pages = page_paths
                 task.page_count = len(page_paths)
@@ -374,93 +385,198 @@ class DocxScreenshotService:
     # ── 页码范围检测 ──
 
     @staticmethod
-    def _detect_form_pages(pdf_path: str, form_names: List[str], total_pages: int) -> Dict[str, List[int]]:
-        """用 PyMuPDF 提取每页文字，找出各表单标题对应的页码范围（1-based）
+    def _normalize_text(text: str) -> str:
+        text = unicodedata.normalize("NFKC", text)
+        text = re.sub(r"\s+", "", text)
+        return "".join(c for c in text if unicodedata.category(c)[0] not in ("C", "Z"))
 
-        跳过目录页（同时包含多个表单名的页面），取表单名唯一出现的页作为起始页。
-        """
-        import fitz
-        import re
-        import unicodedata
-        doc = fitz.open(pdf_path)
-        page_texts = [doc[i].get_text("text") for i in range(len(doc))]
-        doc.close()
+    @classmethod
+    def _match_form_in_text(cls, form_name: str, page_text: str) -> bool:
+        normalized_form = cls._normalize_text(form_name)
+        normalized_page = cls._normalize_text(page_text)
+        result = bool(normalized_form) and normalized_form in normalized_page
+        if not result:
+            logger.debug(
+                "匹配失败 '%s': repr(form)=%s, repr(page前100)=%s",
+                form_name,
+                repr(normalized_form),
+                repr(normalized_page[:100]),
+            )
+        return result
 
-        form_name_set = set(form_names)
-
-        def normalize_text(text: str) -> str:
-            """标准化文本：NFKC归一化 + 去除控制字符和空格"""
-            # NFKC归一化（兼容性分解后再组合）
-            text = unicodedata.normalize('NFKC', text)
-            # 去除所有空白字符
-            text = re.sub(r'\s+', '', text)
-            # 去除Unicode控制字符（C*类）和格式字符（Cf类）
-            text = ''.join(c for c in text if unicodedata.category(c)[0] not in ('C', 'Z'))
-            return text
-
-        def match_form_in_text(form_name: str, page_text: str) -> bool:
-            """检查表单名是否在页面文本中（宽松匹配，支持带编号的表单名）"""
-            normalized_form = normalize_text(form_name)
-            normalized_page = normalize_text(page_text)
-            result = normalized_form in normalized_page
-            if not result:
-                logger.debug("匹配失败 '%s': repr(form)=%s, repr(page前100)=%s",
-                           form_name, repr(normalized_form), repr(normalized_page[:100]))
-            return result
-
-        def is_toc_page(text: str) -> bool:
-            """判断是否为目录页：同时包含 2 个以上独立表单名(排除子串包含)
-
-            智能判断逻辑：
-            - 非常短的页面(<400字符)直接排除
-            - 包含4+个独立表单名的页面，高置信度判定为目录页
-            - 包含2-3个独立表单名的页面，结合长度判断（>600字符才算目录页）
-            """
-            # 非常短的页面直接判定为非目录页（表单内容页通常<400字符）
-            if len(text) < 400:
-                return False
-
-            matched = [n for n in form_name_set if match_form_in_text(n, text)]
-            # 排除子串:如果表单名A是表单名B的子串,则只保留B
-            independent = []
-            for name in matched:
-                is_substring = any(name != other and name in other for other in matched)
-                if not is_substring:
-                    independent.append(name)
-
-            # 如果独立表单名>=4个，高置信度判定为目录页
-            if len(independent) >= 4:
-                return True
-
-            # 如果独立表单名2-3个，结合页面长度判断（长页面更可能是目录页）
-            if len(independent) >= 2:
-                return len(text) >= 600
-
+    @classmethod
+    def is_toc_page(cls, text: str, form_names: List[str]) -> bool:
+        if not text.strip() or not form_names:
             return False
 
-        # 找每个表单名第一次出现在非目录页的页码
+        matched = [name for name in form_names if cls._match_form_in_text(name, text)]
+        independent: List[str] = []
+        independent_normalized: List[str] = []
+
+        for name in sorted(matched, key=lambda item: len(cls._normalize_text(item)), reverse=True):
+            normalized_name = cls._normalize_text(name)
+            if not normalized_name:
+                continue
+            if any(normalized_name in kept for kept in independent_normalized):
+                continue
+            independent.append(name)
+            independent_normalized.append(normalized_name)
+
+        hit_count = len(independent)
+        total_count = len(form_names)
+        if hit_count >= 5 or (hit_count >= 2 and total_count > 0 and hit_count / total_count >= 0.4):
+            return True
+        if 2 <= hit_count <= 4:
+            return len(text) < 500
+        return False
+
+    @classmethod
+    def _build_page_ranges(
+        cls,
+        form_starts: Dict[str, int],
+        boundary_pages: List[int],
+        total_pages: int,
+    ) -> Dict[str, List[int]]:
+        sorted_forms = sorted(form_starts.items(), key=lambda item: (item[1], item[0]))
+        sorted_boundaries = sorted({page for page in boundary_pages if page > 0})
+        ranges: Dict[str, List[int]] = {}
+
+        for name, start in sorted_forms:
+            next_boundary = next((page for page in sorted_boundaries if page > start), None)
+            end = next_boundary - 1 if next_boundary is not None else total_pages
+            end = max(end, start)
+            ranges[name] = [start, end]
+            logger.info("表单 '%s' 页码范围: %d-%d", name, start, end)
+
+        return ranges
+
+    @staticmethod
+    def _read_pdf_outline(pdf_path: str) -> List[tuple[str, int]]:
+        try:
+            import fitz
+        except ImportError:
+            return []
+
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as exc:
+            logger.warning("读取 PDF 大纲失败 pdf=%s: %s", pdf_path, exc)
+            return []
+
+        try:
+            toc = doc.get_toc(simple=True) or []
+            return [(str(title), int(page)) for _level, title, page in toc if title and int(page) > 0]
+        except Exception as exc:
+            logger.warning("解析 PDF 大纲失败 pdf=%s: %s", pdf_path, exc)
+            return []
+        finally:
+            doc.close()
+
+    @classmethod
+    def _map_forms_via_outline(
+        cls,
+        form_names: List[str],
+        outline: List[tuple[str, int]],
+        total_pages: int,
+    ) -> Dict[str, List[int]]:
+        processed_outline = []
+        for title, page in outline:
+            stripped_title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", title)
+            normalized_title = cls._normalize_text(stripped_title)
+            if not normalized_title or page <= 0:
+                continue
+            processed_outline.append(
+                {
+                    "title": title,
+                    "page": page,
+                    "normalized_title": normalized_title,
+                }
+            )
+
         form_starts: Dict[str, int] = {}
-        for name in form_names:
+        boundary_pages = [item["page"] for item in processed_outline]
+
+        for form_name in form_names:
+            normalized_form = cls._normalize_text(form_name)
+            if not normalized_form:
+                continue
+
+            exact_matches = [
+                item for item in processed_outline if item["normalized_title"] == normalized_form
+            ]
+            if exact_matches:
+                match = min(exact_matches, key=lambda item: item["page"])
+                form_starts[form_name] = int(match["page"])
+                continue
+
+            contains_matches = [
+                item for item in processed_outline if normalized_form in item["normalized_title"]
+            ]
+            if contains_matches:
+                match = sorted(
+                    contains_matches,
+                    key=lambda item: (-len(item["normalized_title"]), item["page"]),
+                )[0]
+                form_starts[form_name] = int(match["page"])
+
+        return cls._build_page_ranges(form_starts, boundary_pages, total_pages)
+
+    @classmethod
+    def _map_forms_via_text(
+        cls,
+        targets: List[str],
+        page_texts: List[str],
+        total_pages: int,
+        all_form_names: Optional[List[str]] = None,
+    ) -> Dict[str, List[int]]:
+        toc_form_names = all_form_names or targets
+        form_starts: Dict[str, int] = {}
+        for name in targets:
             found = False
-            for i, text in enumerate(page_texts):
-                if match_form_in_text(name, text) and not is_toc_page(text):
-                    form_starts[name] = i + 1  # 1-based
-                    logger.info("表单 '%s' 匹配到页码: %d", name, i + 1)
+            for index, text in enumerate(page_texts, 1):
+                if cls._match_form_in_text(name, text) and not cls.is_toc_page(text, toc_form_names):
+                    form_starts[name] = index
+                    logger.info("表单 '%s' 匹配到页码: %d", name, index)
                     found = True
                     break
             if not found:
                 logger.warning("表单 '%s' 未在PDF中找到匹配页码", name)
 
-        # 按起始页排序，计算结束页（兜底：end 不小于 start）
-        sorted_forms = sorted(form_starts.items(), key=lambda x: x[1])
-        ranges: Dict[str, List[int]] = {}
-        for idx, (name, start) in enumerate(sorted_forms):
-            end = sorted_forms[idx + 1][1] - 1 if idx + 1 < len(sorted_forms) else total_pages
-            end = max(end, start)  # 防止 start > end 的无效范围
-            ranges[name] = [start, end]
-            logger.info("表单 '%s' 页码范围: %d-%d", name, start, end)
+        return cls._build_page_ranges(form_starts, list(form_starts.values()), total_pages)
 
-        return ranges
+    @classmethod
+    def _detect_form_pages(cls, pdf_path: str, form_names: List[str], total_pages: int) -> Dict[str, List[int]]:
+        """优先使用 PDF 大纲定位表单页码，未命中时回退到文本匹配。"""
+        if not form_names:
+            return {}
+
+        outline = cls._read_pdf_outline(pdf_path)
+        outline_ranges = cls._map_forms_via_outline(form_names, outline, total_pages) if outline else {}
+        unresolved = [name for name in form_names if name not in outline_ranges]
+
+        text_ranges: Dict[str, List[int]] = {}
+        if unresolved or not outline_ranges:
+            import fitz
+
+            doc = fitz.open(pdf_path)
+            try:
+                page_texts = [doc[i].get_text("text") for i in range(len(doc))]
+            finally:
+                doc.close()
+            targets = unresolved if unresolved else form_names
+            text_ranges = cls._map_forms_via_text(
+                targets,
+                page_texts,
+                total_pages,
+                all_form_names=form_names,
+            )
+
+        merged_starts = {
+            name: page_range[0]
+            for name, page_range in {**outline_ranges, **text_ranges}.items()
+        }
+        boundary_pages = [page for _title, page in outline] + [page_range[0] for page_range in text_ranges.values()]
+        return cls._build_page_ranges(merged_starts, boundary_pages, total_pages)
 
     @staticmethod
     def _detect_field_pages(
@@ -479,19 +595,9 @@ class DocxScreenshotService:
             {表单名: {字段索引: 页码}}
         """
         import fitz
-        import re
-        import unicodedata
-
         doc = fitz.open(pdf_path)
         page_texts = [doc[i].get_text("text") for i in range(len(doc))]
         doc.close()
-
-        def normalize_text(text: str) -> str:
-            """标准化文本：NFKC归一化 + 去除控制字符和空格"""
-            text = unicodedata.normalize('NFKC', text)
-            text = re.sub(r'\s+', '', text)
-            text = ''.join(c for c in text if unicodedata.category(c)[0] not in ('C', 'Z'))
-            return text
 
         field_pages: Dict[str, Dict[int, int]] = {}
 
@@ -511,7 +617,7 @@ class DocxScreenshotService:
                 if not label or len(label) < 2:
                     continue
 
-                normalized_label = normalize_text(label)
+                normalized_label = DocxScreenshotService._normalize_text(label)
 
                 # 在表单页码范围内搜索字段label
                 for page_num in range(start_page - 1, end_page):
@@ -519,7 +625,7 @@ class DocxScreenshotService:
                         break
 
                     page_text = page_texts[page_num]
-                    normalized_page = normalize_text(page_text)
+                    normalized_page = DocxScreenshotService._normalize_text(page_text)
 
                     if normalized_label in normalized_page:
                         field_map[field_idx] = page_num + 1  # 1-based
