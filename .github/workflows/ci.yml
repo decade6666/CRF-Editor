@@ -16,8 +16,6 @@ jobs:
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
-    env:
-      CRF_AUTH_SECRET_KEY: ci-test-secret-key
 
     steps:
       - name: Checkout
@@ -31,6 +29,20 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-dev.txt
+
+      - name: Set up test config
+        working-directory: backend
+        run: |
+          cat > config.yaml <<'YAML'
+          database:
+            path: ./ci-test.db
+          storage:
+            upload_path: ./uploads
+          auth:
+            secret_key: ci-test-secret-key-with-at-least-32-bytes
+          admin:
+            bootstrap_password: ci-bootstrap-password-123
+          YAML
 
       - name: Install backend dependencies
         working-directory: backend
