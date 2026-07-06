@@ -49,6 +49,43 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Initialize test database file
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          from sqlalchemy import select
+          from sqlalchemy.orm import Session
+
+          from src.database import get_engine, init_db
+          from src.models.project import Project
+          from src.models.user import User
+          from src.services.auth_service import hash_password
+
+          init_db()
+          with Session(get_engine()) as session:
+              owner = session.get(User, 1)
+              if owner is None:
+                  owner = User(
+                      id=1,
+                      username="ci-export-owner",
+                      hashed_password=hash_password("ci-export-pass-123"),
+                      is_admin=False,
+                  )
+                  session.add(owner)
+                  session.flush()
+              existing_project_id = session.scalar(
+                  select(Project.id).where(Project.owner_id == owner.id)
+              )
+              if existing_project_id is None:
+                  session.add(Project(
+                      name="CI 导出测试项目",
+                      version="1.0",
+                      owner_id=owner.id,
+                      order_index=1,
+                  ))
+              session.commit()
+          PY
+
       - name: Run backend tests
         working-directory: backend
         run: python -m pytest
