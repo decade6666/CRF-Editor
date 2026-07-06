@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-06-30
+> Last updated: 2026-07-05
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -24,14 +24,15 @@
 - `frontend/src/composables/useRowResize.js`: Word preview row height dragging, stable row keys, and local persistence.
 - `frontend/src/composables/useSessionTimer.js`: JWT `exp` display, near-expiration reminders, and click-to-renew by reusing `/api/auth/me`.
 - `frontend/src/composables/formDesignerPreviewModel.js`: derived view-model cache for form designer / template preview, avoiding repeated recalculation for templates.
+- `frontend/src/composables/docxAiSuggestionOverrides.js`: pure Word-import AI suggestion acceptance helpers for three-level selection state, suggestion reconciliation after polling, and execute `ai_overrides` payload construction.
 - `frontend/vite.config.js`: development server, `/api` proxy, and build chunking configuration.
 
 ## Core Directories
 - `src/components/` (13 Vue components): page components for projects, dictionaries, units, fields, form design, visits, login, admin, session countdown, import preview, simulated CRF rendering, and more.
-- `src/composables/` (21 JS modules): shared logic for API, aCRF annotation geometry/persistence, drag ordering, ordinal quick edit, ranked fuzzy search, field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
+- `src/composables/` (22 JS modules): shared logic for API, aCRF annotation geometry/persistence, Word-import AI suggestion acceptance/reconciliation/payload building, drag ordering, ordinal quick edit, ranked fuzzy search, field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (41 files: 40 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (44 files: 43 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
@@ -42,7 +43,7 @@
 - `components/FieldsTab.vue`: field library maintenance; the choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync, and the main list supports ordinal quick edit.
 - `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, complete-mode eCRF / aCRF preview switching with field OID / form-domain annotation overlays, shared vertical annotation dragging/persistence, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), and ordinal quick edit for the left-side form list.
 - `components/TemplatePreviewDialog.vue`: template import preview.
-- `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application.
+- `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application; AI review suggestions expose per-suggestion / per-form accept controls (default off), and the right "import effect" panel renders `SimulatedCRFForm` in `view-mode="ai"` with only the accepted suggestion subset so accepted field types preview live.
 - `components/DocxScreenshotPanel.vue`: Word import screenshot display.
 - `components/SimulatedCRFForm.vue`: simulated CRF rendering.
 - `App.vue` first fetches `/api/auth/me` after login, then decides whether to enter the admin workbench or regular-user main workbench; it also manages project copy, database import/export, the Word export dropdown (`导出eCRF` / `导出aCRF`), export rate limiting, settings dialog, AI connectivity test, dark mode switching, and regular-user password change.
@@ -127,11 +128,12 @@
 |------|------|
 | Entry | `src/main.js`, `src/App.vue` |
 | Components | `src/components/AdminView.vue`, `src/components/LoginView.vue`, `src/components/SessionTimer.vue`, `src/components/ProjectInfoTab.vue`, `src/components/CodelistsTab.vue`, `src/components/UnitsTab.vue`, `src/components/FieldsTab.vue`, `src/components/FormDesignerTab.vue`, `src/components/VisitsTab.vue`, `src/components/SimulatedCRFForm.vue`, `src/components/TemplatePreviewDialog.vue`, `src/components/DocxCompareDialog.vue`, `src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`, `src/composables/acrfAnnotationGeometry.js`, `src/composables/useAcrfAnnotationDrag.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/useOrdinalQuickEdit.js`, `src/composables/fieldDefinitionVisibility.js`, `src/composables/projectDeleteConfirmation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
+| Composables | `src/composables/useApi.js`, `src/composables/acrfAnnotationGeometry.js`, `src/composables/useAcrfAnnotationDrag.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/useOrdinalQuickEdit.js`, `src/composables/fieldDefinitionVisibility.js`, `src/composables/projectDeleteConfirmation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/docxAiSuggestionOverrides.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
 | Styles | `src/styles/main.css` |
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-07-05` (task `07-05-docx-ai-suggestion-accept`): Word import AI suggestion acceptance switch. `DocxCompareDialog.vue` adds per-suggestion "接受" checkboxes and a per-form 全接受/全取消 checkbox (with indeterminate), and renders `SimulatedCRFForm` in `view-mode="ai"` fed only the accepted suggestion subset so the "导入效果" panel previews accepted field types live (default off). `App.vue` owns the single source of truth `acceptedAiOverrides` (`{formIndex:{fieldIndex:suggestedType}}`), resets it at the four import lifecycle anchors, reconciles it after each AI poll via `reconcileAcceptedOverrides`, adds a Step-2 全部表单 全接受/全取消 control, and appends `ai_overrides` to the execute payload only when non-empty. New pure helper `composables/docxAiSuggestionOverrides.js` (`reconcileAcceptedOverrides` / `buildAiOverridesPayload` / three-level derivations + frontend `VALID_FIELD_TYPES` synced with backend). Backend index contract aligned so AI suggestion index and execute overrides both key on the log_row-filtered real field order. Test directory +1 (`docxAiSuggestionAcceptance.test.js`; `docxBimodalPreview.test.js` extended); full frontend suite 385 passed.
 - `2026-06-30`: `VisitsTab.vue` preview dialog now shares `crf_view_mode` with `FormDesignerTab.vue`, renders the same red aCRF field/domain overlays inside the visit preview `.word-page`, and reuses `acrfAnnotationGeometry.js` + `useAcrfAnnotationDrag.js` to persist vertical drag offsets to `Form.annotation_positions` with the same PATCH/cache-invalidation path. Documentation sync catches frontend composables 19→21 and the test directory at 41 files (40 `.test.js` + `testProperty.js`).
 - `2026-06-29`: `FormDesignerTab.vue` now adds a complete-mode-only eCRF / aCRF preview toggle in both the canvas header and the fullscreen designer `#header`, sharing a persisted local `crf_view_mode` that normalizes back to `eCRF` whenever `editMode` is false. The same PR family adds `acrfAnnotationGeometry.js` and `useAcrfAnnotationDrag.js` so designer-side aCRF overlays mirror the backend inline-header anchoring contract, use shared red annotation geometry, and persist vertical drag offsets; the frontend test directory grows to 41 files (40 `.test.js` + `testProperty.js`) with `acrfAnnotationGeometry.test.js`, `acrfAnnotationPersistence.test.js`, and `acrfViewToggle.test.js`.
 - `2026-06-29`: `App.vue` now wires the Word export dropdown to real eCRF / aCRF downloads. `导出aCRF` reuses the existing export path with `annotated: true`, falls back to `_aCRF.docx`, and the source-level shell test now locks the annotated request body / filename branching so the dropdown no longer regresses back to a toast-only placeholder.

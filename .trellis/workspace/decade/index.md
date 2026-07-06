@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 44
-- **Last Active**: 2026-07-04
+- **Total Sessions**: 45
+- **Last Active**: 2026-07-06
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~533 | Active |
+| `journal-0.md` | ~566 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 45 | 2026-07-06 | aCRF标签字段隐藏变量名 | `504301b` | `draft` |
 | 44 | 2026-07-04 | docx 截图页码匹配4个边界缺陷修复(派发Codex) | `2968ff5` | `draft` |
 | 43 | 2026-07-03 | Word导入Linux截图支持、暗色模式预览与图片鉴权修复 | `6bdbdf7` | `draft` |
 | 42 | 2026-07-03 | Linux截图支持、暗色模式预览修复、aCRF变量名列 | `6bdbdf7` | `draft` |

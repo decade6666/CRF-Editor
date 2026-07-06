@@ -38,10 +38,33 @@
               {{ props.aiReviewError || 'AI复核不可用，不影响继续导入。' }}
             </p>
             <p v-else class="ai-review-text">AI 已返回 {{ suggestions.length }} 条建议，请在导入前确认。</p>
+            <div class="ai-review-actions">
+              <el-checkbox
+                :model-value="formAccepted"
+                :indeterminate="formIndeterminate"
+                :disabled="suggestions.length === 0"
+                @change="toggleForm"
+              >
+                本表单全接受
+              </el-checkbox>
+              <el-button
+                link
+                size="small"
+                :disabled="suggestions.length === 0 || props.acceptedSuggestions.length === 0"
+                @click="clearFormAcceptance"
+              >
+                本表单全取消
+              </el-button>
+            </div>
             <ul v-if="suggestions.length" class="ai-suggestion-list">
               <li v-for="item in suggestions" :key="`${item.index}-${item.suggested_type}`" class="ai-suggestion-item">
                 <div class="ai-suggestion-head">
-                  <span class="ai-suggestion-label">{{ getFieldLabel(item.index) }}</span>
+                  <div class="ai-suggestion-main">
+                    <el-checkbox :model-value="isSuggestionAccepted(item)" @change="toggleSuggestion(item, $event)">
+                      接受
+                    </el-checkbox>
+                    <span class="ai-suggestion-label">{{ getFieldLabel(item.index) }}</span>
+                  </div>
                   <span class="ai-suggestion-type">{{ getFieldType(item.index) }} → {{ item.suggested_type }}</span>
                 </div>
                 <p class="ai-suggestion-reason">{{ item.reason || 'AI 建议调整字段类型。' }}</p>
@@ -50,7 +73,8 @@
           </div>
           <SimulatedCRFForm
             :fields="formData.fields || []"
-            view-mode="direct"
+            :ai-suggestions="acceptedSuggestions"
+            view-mode="ai"
             :paper-orientation="formData.paper_orientation || 'auto'"
             @field-click="handleFieldClick"
           />
@@ -81,32 +105,73 @@ const props = defineProps({
   allFormsData: { type: Array, default: () => [] }, // 所有表单的完整数据
   aiReviewStatus: { type: String, default: 'idle' },
   aiReviewError: { type: String, default: '' },
+  acceptedSuggestions: { type: Array, default: () => [] },
 });
 
-defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'toggle-suggestion', 'toggle-form']);
 
 const dialogWidth = 'min(92vw, 1200px)';
 const highlightedField = ref(null);
 const suggestions = computed(() => props.formData?.ai_suggestions || []);
+const acceptedSuggestionMap = computed(() => {
+  const map = {};
+  for (const suggestion of props.acceptedSuggestions || []) {
+    map[`${suggestion.index}:${suggestion.suggested_type}`] = true;
+  }
+  return map;
+});
 const isAiReviewActive = computed(() => props.aiReviewStatus === 'pending' || props.aiReviewStatus === 'running');
-const showAiReviewState = computed(() => isAiReviewActive.value || props.aiReviewStatus === 'failed' || suggestions.value.length > 0);
+const showAiReviewState = computed(
+  () => isAiReviewActive.value || props.aiReviewStatus === 'failed' || suggestions.value.length > 0,
+);
 const aiReviewTone = computed(() => {
   if (isAiReviewActive.value) return 'loading';
   if (props.aiReviewStatus === 'failed') return 'failed';
   return 'done';
 });
+const formAccepted = computed(
+  () => suggestions.value.length > 0 && props.acceptedSuggestions.length === suggestions.value.length,
+);
+const formIndeterminate = computed(
+  () => props.acceptedSuggestions.length > 0 && props.acceptedSuggestions.length < suggestions.value.length,
+);
 
 // 处理字段点击
 function handleFieldClick(field) {
   highlightedField.value = field;
 }
 
+function toggleForm(accepted) {
+  emit('toggle-form', { formIndex: props.formData?.index, accepted });
+}
+
+function clearFormAcceptance() {
+  emit('toggle-form', { formIndex: props.formData?.index, accepted: false });
+}
+
+function isSuggestionAccepted(suggestion) {
+  return !!acceptedSuggestionMap.value[`${suggestion.index}:${suggestion.suggested_type}`];
+}
+
+function toggleSuggestion(suggestion, accepted) {
+  emit('toggle-suggestion', {
+    formIndex: props.formData?.index,
+    fieldIndex: suggestion.index,
+    suggestedType: suggestion.suggested_type,
+    accepted,
+  });
+}
+
+function getField(index) {
+  return props.formData?.fields?.find((field) => field.index === index) || null;
+}
+
 function getFieldLabel(index) {
-  return props.formData?.fields?.[index]?.label || `字段 ${index + 1}`;
+  return getField(index)?.label || `字段 ${index + 1}`;
 }
 
 function getFieldType(index) {
-  return props.formData?.fields?.[index]?.field_type || '未知';
+  return getField(index)?.field_type || '未知';
 }
 </script>
 
@@ -200,6 +265,14 @@ function getFieldType(index) {
   line-height: 1.5;
 }
 
+.ai-review-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .ai-suggestion-list {
   margin: 12px 0 0;
   padding: 0;
@@ -221,6 +294,13 @@ function getFieldType(index) {
   justify-content: space-between;
   gap: 12px;
   font-size: 13px;
+}
+
+.ai-suggestion-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .ai-suggestion-label {

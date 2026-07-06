@@ -28,6 +28,13 @@ import {
 } from '@element-plus/icons-vue';
 import draggable from 'vuedraggable';
 import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi';
+import {
+  buildAiOverridesPayload,
+  getAcceptedSuggestionsForForm,
+  isAllAccepted,
+  isAllIndeterminate,
+  reconcileAcceptedOverrides,
+} from './composables/docxAiSuggestionOverrides';
 import { getDownloadFilename } from './composables/exportDownloadState';
 import { createLazyTabState } from './composables/useLazyTabs';
 import { clearPerfEvents, markPerfEnd, markPerfStart, recordPerfEvent } from './composables/usePerfBaseline';
@@ -698,6 +705,26 @@ const showDocxCompare = ref(false);
 const compareFormData = ref(null);
 // Step 3：导入完成后的表单清单（每项含 form_id / name / field_count）
 const importedResults = ref([]);
+const acceptedAiOverrides = ref({});
+
+function getFormAiSuggestions(form) {
+  return Array.isArray(form?.ai_suggestions) ? form.ai_suggestions : [];
+}
+
+function resetAcceptedAiOverrides() {
+  acceptedAiOverrides.value = {};
+}
+
+const hasAnyAiSuggestions = computed(() =>
+  importedFormsPreview.value.some((form) => getFormAiSuggestions(form).length > 0),
+);
+const allAiSuggestionsAccepted = computed(() => isAllAccepted(importedFormsPreview.value, acceptedAiOverrides.value));
+const allAiSuggestionsIndeterminate = computed(() =>
+  isAllIndeterminate(importedFormsPreview.value, acceptedAiOverrides.value),
+);
+const compareFormAcceptedSuggestions = computed(() =>
+  getAcceptedSuggestionsForForm(compareFormData.value, acceptedAiOverrides.value),
+);
 
 watch(showImportWordDialog, (visible) => {
   if (visible) return;
@@ -705,6 +732,7 @@ watch(showImportWordDialog, (visible) => {
   importWordAiTaskId.value = null;
   showDocxCompare.value = false;
   compareFormData.value = null;
+  resetAcceptedAiOverrides();
 });
 
 function stopAiReviewPolling() {
@@ -738,6 +766,73 @@ function mergeAiSuggestions(suggestionsByForm) {
     return { ...form, ai_suggestions: aiSuggestions.map((item) => ({ ...item })) };
   });
   replaceImportedFormsPreview(nextForms);
+  acceptedAiOverrides.value = reconcileAcceptedOverrides(nextForms, acceptedAiOverrides.value);
+}
+
+function toggleAiSuggestionAcceptance({ formIndex, fieldIndex, suggestedType, accepted }) {
+  if (formIndex == null || fieldIndex == null || !suggestedType) return;
+
+  const nextAccepted = { ...acceptedAiOverrides.value };
+  const formAccepted = { ...(nextAccepted[formIndex] || {}) };
+
+  if (accepted) {
+    formAccepted[fieldIndex] = suggestedType;
+    nextAccepted[formIndex] = formAccepted;
+  } else {
+    delete formAccepted[fieldIndex];
+    if (Object.keys(formAccepted).length) {
+      nextAccepted[formIndex] = formAccepted;
+    } else {
+      delete nextAccepted[formIndex];
+    }
+  }
+
+  acceptedAiOverrides.value = nextAccepted;
+}
+
+function toggleAiSuggestionsForForm({ formIndex, accepted }) {
+  const form = importedFormsPreview.value.find((item) => item.index === formIndex);
+  if (!form) return;
+
+  const suggestions = getFormAiSuggestions(form);
+  const nextAccepted = { ...acceptedAiOverrides.value };
+  if (!accepted || !suggestions.length) {
+    delete nextAccepted[formIndex];
+    acceptedAiOverrides.value = nextAccepted;
+    return;
+  }
+
+  const formAccepted = {};
+  for (const suggestion of suggestions) {
+    formAccepted[suggestion.index] = suggestion.suggested_type;
+  }
+  nextAccepted[formIndex] = formAccepted;
+  acceptedAiOverrides.value = nextAccepted;
+}
+
+function toggleAiSuggestionsForAll(accepted) {
+  if (!accepted) {
+    resetAcceptedAiOverrides();
+    return;
+  }
+
+  const nextAccepted = {};
+  for (const form of importedFormsPreview.value) {
+    const suggestions = getFormAiSuggestions(form);
+    if (!suggestions.length) continue;
+
+    const formAccepted = {};
+    for (const suggestion of suggestions) {
+      formAccepted[suggestion.index] = suggestion.suggested_type;
+    }
+    nextAccepted[form.index] = formAccepted;
+  }
+
+  acceptedAiOverrides.value = nextAccepted;
+}
+
+function clearAllAiSuggestions() {
+  resetAcceptedAiOverrides();
 }
 
 function scheduleAiReviewPoll(taskId) {
@@ -751,7 +846,9 @@ function scheduleAiReviewPoll(taskId) {
 async function pollAiReview(taskId) {
   if (!taskId || !selectedProject.value?.id || !showImportWordDialog.value) return;
   try {
-    const data = await api.get(`/api/projects/${selectedProject.value.id}/import-docx/${encodeURIComponent(taskId)}/ai-review/status`);
+    const data = await api.get(
+      `/api/projects/${selectedProject.value.id}/import-docx/${encodeURIComponent(taskId)}/ai-review/status`,
+    );
     if (importWordAiTaskId.value !== taskId || !showImportWordDialog.value) return;
     importWordAiReviewStatus.value = data.status || 'running';
     importWordAiReviewError.value = data.error || '';
@@ -788,6 +885,7 @@ function openImportWordDialog() {
   showDocxCompare.value = false;
   compareFormData.value = null;
   importedResults.value = [];
+  resetAcceptedAiOverrides();
   showImportWordDialog.value = true;
 }
 
@@ -800,6 +898,7 @@ function goBackToImportWordStep1() {
   resetImportWordAiReview();
   showDocxCompare.value = false;
   compareFormData.value = null;
+  resetAcceptedAiOverrides();
 }
 
 function beforeDocxUpload(file) {
@@ -815,6 +914,7 @@ function beforeDocxUpload(file) {
 function handleDocxUploadSuccess(response) {
   importWordLoading.value = false;
   if (response?.forms && response?.temp_id) {
+    resetAcceptedAiOverrides();
     replaceImportedFormsPreview(response.forms);
     selectedFormsToImport.value = [];
     tempDocxId.value = response.temp_id;
@@ -862,6 +962,14 @@ async function executeImportWord() {
       temp_id: tempDocxId.value,
       form_indices: selectedFormsToImport.value,
     };
+    const aiOverrides = buildAiOverridesPayload({
+      forms: importedFormsPreview.value,
+      accepted: acceptedAiOverrides.value,
+      selectedFormIndices: selectedFormsToImport.value,
+    });
+    if (aiOverrides.length) {
+      payload.ai_overrides = aiOverrides;
+    }
     const data = await api.post(`/api/projects/${selectedProject.value.id}/import-docx/execute`, payload);
     ElMessage.success(`导入成功：${data.imported_form_count}个表单`);
     importedResults.value = Array.isArray(data.detail) ? data.detail : [];
@@ -1036,6 +1144,7 @@ function startResize(e) {
         :class="{ collapsed: isCollapsed }"
         :style="{ width: isCollapsed ? '0px' : sidebarWidth + 'px' }"
       >
+        <!-- eslint-disable-next-line vue/attributes-order -->
         <div class="sidebar-content" v-show="!isCollapsed">
           <div class="sidebar-header">
             <span>项目列表</span>
@@ -1115,12 +1224,14 @@ function startResize(e) {
           </div>
         </div>
         <template v-else>
+          <!-- eslint-disable vue/attributes-order -->
           <el-tabs
             class="main-content-tabs"
             v-model="activeTab"
             style="height: 100%; display: flex; flex-direction: column"
             @tab-change="onMainTabChange"
           >
+            <!-- eslint-enable vue/attributes-order -->
             <el-tab-pane label="项目信息" name="info">
               <div class="content-inner"><ProjectInfoTab :project="selectedProject" @updated="onProjectUpdated" /></div>
             </el-tab-pane>
@@ -1268,7 +1379,28 @@ function startResize(e) {
             style="margin-bottom: 12px"
           />
           <div class="form-select-header">
-            <p class="form-select-prompt">请勾选要导入的表单：</p>
+            <div class="form-select-meta">
+              <p class="form-select-prompt">请勾选要导入的表单：</p>
+              <div class="docx-ai-global-actions">
+                <span class="docx-ai-global-label">全部表单：</span>
+                <el-checkbox
+                  :model-value="allAiSuggestionsAccepted"
+                  :indeterminate="allAiSuggestionsIndeterminate"
+                  :disabled="!hasAnyAiSuggestions"
+                  @change="toggleAiSuggestionsForAll"
+                >
+                  全接受
+                </el-checkbox>
+                <el-button
+                  link
+                  size="small"
+                  :disabled="!allAiSuggestionsAccepted && !allAiSuggestionsIndeterminate"
+                  @click="clearAllAiSuggestions"
+                >
+                  全取消
+                </el-button>
+              </div>
+            </div>
             <el-button
               size="small"
               :disabled="importedFormsPreview.length === 0"
@@ -1394,6 +1526,9 @@ function startResize(e) {
       :all-forms-data="importedFormsPreview"
       :ai-review-status="importWordAiReviewStatus"
       :ai-review-error="importWordAiReviewError"
+      :accepted-suggestions="compareFormAcceptedSuggestions"
+      @toggle-suggestion="toggleAiSuggestionAcceptance"
+      @toggle-form="toggleAiSuggestionsForForm"
     />
   </template>
 
@@ -1548,6 +1683,37 @@ function startResize(e) {
   min-height: 100vh;
   color: var(--color-text-secondary);
   background: var(--el-bg-color-page, #f5f7fa);
+}
+
+.form-select-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.form-select-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.form-select-prompt {
+  margin: 0;
+}
+
+.docx-ai-global-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.docx-ai-global-label {
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 
 /* 导入Word弹窗 - 表单项布局 */

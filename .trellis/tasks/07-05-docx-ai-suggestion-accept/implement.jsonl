@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "接受状态独立 ref、provide/inject 与轮询覆盖规避的状态管理约定"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Dialog v-model + Per-Object Key Reset 契约、单向数据流与 Element Plus 用法"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "AI建议 index 在预览/复核/落库三层的边界一致性"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "后端 index 对齐改动的 ValueError→HTTPException 与中文 detail 约定"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "additive-only 响应、分层与 log_row 索引改动的测试要求"}
