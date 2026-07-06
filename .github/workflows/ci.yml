@@ -34,9 +34,9 @@ jobs:
         run: |
           cat > config.yaml <<'YAML'
           database:
-            path: ./backend/ci-test.db
+            path: ./crf_editor.db
           storage:
-            upload_path: ./backend/uploads
+            upload_path: ./uploads
           auth:
             secret_key: ci-test-secret-key-with-at-least-32-bytes
           admin:
