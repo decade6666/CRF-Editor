@@ -84,6 +84,7 @@ function resolveInitialViewMode(isEditModeEnabled, storedValue) {
 }
 
 function getFieldOidAnnotationText(formField) {
+  if (formField?.field_definition?.field_type === '标签') return ''
   const value = String(formField?.field_definition?.variable_name ?? '').trim()
   return value || ''
 }

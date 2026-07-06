@@ -436,6 +436,22 @@ def _make_engine():
     return engine
 
 
+def test_field_annotation_text_hides_label_variable_names_and_keeps_other_fields() -> None:
+    engine = _make_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with session_factory() as session:
+            export_service = ExportService(session)
+
+            label_field = FieldDefinition(field_type="标签", variable_name="LEGACY_LABEL")
+            regular_field = FieldDefinition(field_type="文本", variable_name="  LBTESTCD  ")
+
+            assert export_service._field_annotation_text(label_field) == ""
+            assert export_service._field_annotation_text(regular_field) == "LBTESTCD"
+    finally:
+        engine.dispose()
+
+
 def test_acrf_export_adds_expected_annotation_boxes_and_preserves_form_tables(tmp_path: Path) -> None:
     engine = _make_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -448,14 +464,13 @@ def test_acrf_export_adds_expected_annotation_boxes_and_preserves_form_tables(tm
         expected_texts = [
             "LB",
             "LEGACY_REG",
-            "LEGACY_LABEL",
             "LEGACY_V_SINGLE",
             "LEGACY_V_MULTI",
             "INLINE_ONE",
             "INLINE_TWO",
             "INLINE_THREE",
         ]
-        _assert_annotation_counts(acrf_texts, expected_texts, absent=["Standalone log row"])
+        _assert_annotation_counts(acrf_texts, expected_texts, absent=["Standalone log row", "LEGACY_LABEL"])
         assert _annotation_anchor_count(acrf_path) == len(expected_texts)
         assert _annotation_shape_count(acrf_path) == len(expected_texts)
         _assert_anchors_wrapped_in_drawing(acrf_path)
@@ -480,14 +495,13 @@ def test_unified_annotation_helpers_only_emit_boxes_for_annotated_output(tmp_pat
         expected_texts = [
             "QS",
             "UNI_REGULAR",
-            "UNI_LABEL",
             "UNI_INLINE_1",
             "UNI_INLINE_2",
             "UNI_INLINE_3",
             "UNI_INLINE_4",
             "UNI_INLINE_5",
         ]
-        _assert_annotation_counts(annotated_texts, expected_texts, absent=["Unified log row"])
+        _assert_annotation_counts(annotated_texts, expected_texts, absent=["Unified log row", "UNI_LABEL"])
         assert _annotation_anchor_count(annotated_path) == len(expected_texts)
         assert _annotation_shape_count(annotated_path) == len(expected_texts)
         _assert_unique_docpr_ids(annotated_path)
