@@ -1,0 +1,63 @@
+## 审查结论
+**PASS（可直接实施）**
+**理由**：PRD 提出的修复方案（引入特异性为 `(0,4,0)` 的限定禁用规则）在技术上完全正确，能完美解决常显 Bug 并保留置灰反馈。仅需修正 PRD 文档中关于原有 hover 规则特异性计算的一处笔误，并建议在回归测试中补充对启用态 hover 规则的锁定。
+
+---
+
+## 源码事实核实说明
+1. **[FormDesignerTab.vue](file:///root/github/CRF-Editor/frontend/src/components/FormDesignerTab.vue#L5241-L5280)**：已核实。基础态 `opacity: 0`，hover/focus-within 态 `opacity: 1`，`:disabled` 态有无条件 `opacity: 0.45`（导致了常显）。
+2. **[VisitsTab.vue](file:///root/github/CRF-Editor/frontend/src/components/VisitsTab.vue#L1461-L1500)**：已核实。CSS 内容及行结构与 `FormDesignerTab.vue` 完全一致。
+3. **按钮模板绑定**：已核实。两处组件的 reset 按钮均通过 `:disabled="!hasAnnotationOverrideForTarget(...)"` 来控制禁用态，逻辑与 PRD 描述的“未拖动过即禁用，拖动过即启用”相符。
+
+---
+
+## 逐条审查列表
+
+### 1. 根因是否成立
+* **结论**：**成立（但 PRD 存在特异性计算笔误）**。
+* **级别**：`Warning` (文档笔误，不影响修复方案)
+* **位置**：[prd.md#L20-L27](file:///root/github/CRF-Editor/.trellis/tasks/06-30-acrf-reset-button-hover-only/prd.md#L20-L27)
+* **分析**：
+  * PRD 判定非 hover 时，由于 `.wp-acrf-annotation-reset:disabled` 特异性 `(0,2,0)` 大于基础隐藏规则 `(0,1,0)`，导致按钮常显为 `0.45` 这一链条完全正确。
+  * **笔误修正**：PRD 表格中将 `.wp-acrf-annotation:hover .wp-acrf-annotation-reset` 的特异性算作 `(0,2,0)`。实际上，该选择器包含 **2 个类选择器** (`.wp-acrf-annotation`, `.wp-acrf-annotation-reset`) 和 **1 个伪类选择器** (`:hover`)，因此其特异性应为 **`(0,3,0)`**。
+  * **补充事实**：正因为原有 hover 规则的实际特异性是 `(0,3,0)`，在原有代码下，hover 时禁用态按钮的 `opacity` 会被从 `0.45` 覆盖为 `1`。这导致了另一个未被 PRD 提及的体验 Bug：**在 hover 时，禁用态按钮看起来和启用态完全一样，丢失了置灰反馈**。新方案修正后，能同时解决“常显”与“hover 丢失置灰”两个问题。
+
+### 2. 修复方案是否正确且最小
+* **结论**：**正确且为最小/最稳妥写法**。
+* **级别**：`Info`
+* **位置**：[prd.md#L37-L56](file:///root/github/CRF-Editor/.trellis/tasks/06-30-acrf-reset-button-hover-only/prd.md#L37-L56)
+* **分析**：
+  * **非 hover 状态**：由于禁用了无条件 `:disabled` 规则中的 `opacity` 属性，禁用态按钮不再匹配任何 `opacity` 规则，最终回退到基础规则的 `opacity: 0`，实现完美隐藏。
+  * **hover 状态**：
+    * **启用态**：匹配 `.wp-acrf-annotation:hover .wp-acrf-annotation-reset`，特异性 `(0,3,0)`，`opacity: 1` 成立。
+    * **禁用态**：匹配 `.wp-acrf-annotation:hover .wp-acrf-annotation-reset:disabled`，其包含 2 个类选择器和 2 个伪类选择器，特异性为 **`(0,4,0)`**，胜过启用态规则的 `(0,3,0)`，因此 `opacity: 0.45` 完美成立。
+  * **等价写法验证**：如果直接使用简写 `.wp-acrf-annotation-reset:disabled { opacity: 0; }`，虽然能在非 hover 时隐藏，但 hover 时由于它的特异性 `(0,2,0)` 低于 hover 启用规则的 `(0,3,0)`，禁用按钮在 hover 时仍然会以 `opacity: 1` 强行显示，这会破坏置灰的反馈设计。因此 PRD 方案是最合理的最小改动。
+
+### 3. 遗漏项与 Out of Scope 评估
+* **结论**：**无遗漏。Out of Scope 划分非常合理**。
+* **级别**：`Info`
+* **位置**：[prd.md#L71-L75](file:///root/github/CRF-Editor/.trellis/tasks/06-30-acrf-reset-button-hover-only/prd.md#L71-L75)
+* **分析**：
+  * `:focus-within` 点击复位后由于焦点保留导致按钮短暂驻留，是因为浏览器仍保持了 focus。若要在 JS 中强行在 click 时调用 `.blur()` 消除该交互，会引入额外的逻辑复杂度，并可能**破坏键盘无障碍可访问性**（Accessibility）。
+  * 该驻留是短暂的（点击其他区域或移开即可消失），将其划分为 Out of Scope 符合本次 Bug 修复的最小化高内聚原则。
+
+### 4. 架构建议
+* **结论**：**强烈推荐保持两处同步修改，不建议在本次修复中将其抽离至全局**。
+* **级别**：`Warning` (防止过度重构引入新风险)
+* **分析**：
+  1. **样式隔离破坏**：[FormDesignerTab.vue](file:///root/github/CRF-Editor/frontend/src/components/FormDesignerTab.vue) 与 [VisitsTab.vue](file:///root/github/CRF-Editor/frontend/src/components/VisitsTab.vue) 均使用了 `<style scoped>`。若将标注复位按钮的局部样式剥离至全局 [main.css](file:///root/github/CRF-Editor/frontend/src/styles/main.css)，这会导致 aCRF 标注组件（`.wp-acrf-annotation`）的样式分散，部分在 scoped 内部，部分在全局，严重增加后续排查与维护的心智负担。
+  2. **正确的重构路径**：这两个组件本就属于巨石组件，两处 CSS 同步重复是组件未拆分的历史债务。最正确的手段是把整个 aCRF 标注框提取为独立子组件（如 `AcrfAnnotation.vue`），并在其中管理局部的 HTML 与 CSS，而不是在修复一个 opacity bug 时打乱现有的 scoped 组织架构。
+
+### 5. 测试策略
+* **结论**：**断言设计正确，但建议额外补充对启用态 hover 行为的回归锁定**。
+* **级别**：`Warning` (测试策略补充)
+* **位置**：[prd.md#L57-L64](file:///root/github/CRF-Editor/.trellis/tasks/06-30-acrf-reset-button-hover-only/prd.md#L57-L64) 和 [acrfViewToggle.test.js](file:///root/github/CRF-Editor/frontend/tests/acrfViewToggle.test.js)
+* **建议**：
+  * PRD 建议的断言（锁定基础态 `opacity: 0`、限制禁用置灰在 hover/focus 范围）方向完全正确。
+  * **建议补充**：在测试用例中增加对“启用态在 hover/focus-within 揭示时，其 `opacity` 规则为 `1`”的断言。这样可以防止在修改样式或优化特异性时，误删或误改了原有的启用态揭示规则，造成启用态也无法显示的更严重回退。
+  * 具体的回归测试断言设计建议如下：
+    ```javascript
+    // 验证原有启用态 hover 揭示规则依然存在且为 1
+    const hoverRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation:hover .wp-acrf-annotation-reset');
+    assert.match(hoverRule, /opacity:\s*1/);
+    ```

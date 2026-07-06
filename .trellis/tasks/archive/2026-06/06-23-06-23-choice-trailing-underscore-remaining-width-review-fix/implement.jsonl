@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend export and width-planning quality constraints"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend renderer quality constraints"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "VisitsTab preview component conventions"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "useCRFRenderer composable conventions"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Backend/frontend width contract must stay synchronized"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating width calculation logic"}

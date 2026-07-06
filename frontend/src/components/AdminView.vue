@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DeleteFilled } from '@element-plus/icons-vue'
 import { api } from '../composables/useApi'
 import { confirmFinalProjectDelete } from '../composables/projectDeleteConfirmation'
 
@@ -402,7 +403,14 @@ onMounted(() => {
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="recycleBinProjects.length === 0" class="empty-tip">回收站空空如也</div>
+      <el-empty v-if="recycleBinProjects.length === 0" class="empty-state" :image-size="52">
+        <template #image>
+          <el-icon aria-hidden="true"><DeleteFilled /></el-icon>
+        </template>
+        <template #description>
+          <p>回收站空空如也</p>
+        </template>
+      </el-empty>
     </el-dialog>
   </div>
 </template>

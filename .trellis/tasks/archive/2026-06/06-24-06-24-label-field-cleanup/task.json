@@ -1,0 +1,53 @@
+{
+  "id": "06-24-label-field-cleanup",
+  "name": "06-24-label-field-cleanup",
+  "title": "feat: 标签字段库隐藏 + 删除时后端自动清理孤儿定义",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-24",
+  "completedAt": "2026-06-25",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": "b51ea62",
+  "pr_url": "https://github.com/decade6666/CRF-Editor/pull/33",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Review 2026-06-24: 无阻塞性问题。低风险观察：FormDesignerTab 的 recreateFieldFromSnapshot 仅凭 404 进入字段定义重建，但当前二次失败回滚逻辑已 fail-safe。Open questions: 1) 是否单独清理历史孤儿标签定义；2) 是否为 FieldsTab 去除标签创建入口补充 UI 引导。",
+  "meta": {}
+}

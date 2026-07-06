@@ -1,0 +1,56 @@
+# CRF 编辑器配置示例
+# ---------------------------------------------------------------------------
+# 用法：复制本文件为项目根目录下的 config.yaml 后按需修改。
+#   cp config.yaml.example config.yaml
+# 说明：
+#   - 所有区块均可选；未填写的字段使用下方注释标注的默认值。
+#   - 相对路径以本文件所在目录（项目根目录）为基准解析，绝对路径原样使用。
+#   - 生产部署请优先用根目录 .env.example 中的 CRF_* 环境变量覆盖敏感项，
+#     同名 CRF_* 环境变量的优先级高于本文件对应字段。
+# ---------------------------------------------------------------------------
+
+# 应用元信息（非 Pydantic 校验字段，仅界面展示，update_config 时原样保留）
+app:
+  title: CRF编辑器                     # 应用标题，默认 CRF编辑器
+
+# 数据库
+database:
+  path: ./database/crf_editor.db       # SQLite 文件路径，默认 ./crf_editor.db
+
+# 文件存储
+storage:
+  upload_path: ./uploads               # 上传目录（Logo 等），默认 ./uploads
+
+# 服务监听
+server:
+  host: 0.0.0.0                        # 监听地址，默认 0.0.0.0
+  port: 8888                           # 监听端口，默认 8888
+
+# 模板库
+template:
+  # 模板库 .db 路径；必须位于白名单目录内且后缀为 .db，默认空（不启用）
+  template_path: ./database/通用表单_template.db
+
+# AI 辅助（导入建议 / 连通性测试）
+ai:
+  enabled: false                       # 是否启用 AI，默认 false
+  api_url: https://api.example.com/v1  # 接口地址，默认空
+  api_key: sk-xxx                      # 接口密钥，默认空（请勿提交真实密钥）
+  model: deepseek-chat                 # 模型名，默认空
+  api_format: openai                   # 接口格式 openai / anthropic，留空则测试连接时自动探测
+  timeout: 30                          # 请求超时（秒），默认 30
+
+# 保留管理员
+admin:
+  username: admin                      # 保留管理员用户名，默认 admin
+  # 首次 production 空库启动时用于创建 / 修复保留管理员；
+  # 生产环境建议改用 CRF_ADMIN_BOOTSTRAP_PASSWORD 注入，默认空
+  bootstrap_password: change-this-before-production
+
+# 认证
+auth:
+  # JWT 签名密钥；仅供开发使用。生产环境必须通过 CRF_AUTH_SECRET_KEY 提供，
+  # 此处的值在生产模式下不再作为兜底，默认空
+  secret_key: change-this-dev-only-secret
+  algorithm: HS256                     # JWT 算法，默认 HS256
+  access_token_expire_minutes: 60      # 令牌有效期（分钟），取值 1-60，默认 30

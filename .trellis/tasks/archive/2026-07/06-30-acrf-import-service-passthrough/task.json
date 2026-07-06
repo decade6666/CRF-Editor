@@ -1,0 +1,53 @@
+{
+  "id": "acrf-import-service-passthrough",
+  "name": "acrf-import-service-passthrough",
+  "title": "补 import_service 跨项目表单模板导入透传 annotation_positions",
+  "description": "审查发现(antigravity Warning): backend/src/services/import_service.py:680 跨项目表单模板导入构造 Form(...) 时漏透传 annotation_positions(区别于已覆盖的整库 project_import_service), 导致模板导入后标注位置丢回默认(不崩, nullable). 修复: Form(...) 补 annotation_positions=sf.annotation_positions; 补导入保留标注位置的测试. 关联提交 29a69d1.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P3",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-30",
+  "completedAt": "2026-07-01",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

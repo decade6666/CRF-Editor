@@ -3451,6 +3451,14 @@ function openAddForm() {
                   ></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
+                  ><el-tooltip
+                    v-if="showAcrfAnnotations"
+                    :content="ff.field_definition?.variable_name || '\u2014'"
+                    placement="top"
+                    :show-after="300"
+                    :disabled="!ff.field_definition?.variable_name"
+                  ><span class="ff-var-name">{{ ff.field_definition?.variable_name || '' }}</span
+                  ></el-tooltip
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
                     getFormFieldDisplayLabel(ff)
                   }}</span
@@ -4192,7 +4200,14 @@ function openAddForm() {
         <div class="designer-side-pane" :style="{ width: propWidth + 'px' }">
           <div class="designer-editor-card">
             <div class="designer-section-title">属性编辑</div>
-            <div v-if="!selectedFieldId" class="designer-empty-state">← 选择字段</div>
+            <el-empty v-if="!selectedFieldId" class="empty-state" :image-size="56" style="height: 100%">
+              <template #image>
+                <el-icon aria-hidden="true"><EditPen /></el-icon>
+              </template>
+              <template #description>
+                <p>← 选择字段</p>
+              </template>
+            </el-empty>
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
               <el-form :model="editProp" label-width="88px" size="small">
                 <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>

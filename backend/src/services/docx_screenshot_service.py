@@ -1,19 +1,28 @@
-"""Word文档截图服务 - 使用 MS Word COM 接口将 docx 转 PDF 再转图片
+"""Word文档截图服务 - 将 docx 转 PDF 再转图片
 
 策略：
-    1. 调用 docx2pdf（依赖本机 MS Word COM 接口）将 docx 转为 PDF
-    2. 调用 pdf2image（依赖 poppler）将 PDF 按页转为 PNG
+    1. 自动选择 MS Word COM 或 LibreOffice headless 将 docx 转为 PDF
+    2. 调用 PyMuPDF 将 PDF 按页转为 PNG
     3. 任务状态以 temp_id 为 key 缓存在进程内存中
     4. 图片写入 uploads/docx_temp/{temp_id}/pages/ 目录
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
+import re
+import shutil
+import subprocess
+import tempfile
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from src.config import DocxScreenshotBackend, get_config
+from src.services.toc_pagination import find_libreoffice
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +32,9 @@ _tasks_lock = threading.Lock()
 
 # 最大并发截图任务数（Word COM 接口并发不稳定）
 _semaphore = threading.Semaphore(2)
+
+_LIBREOFFICE_TIMEOUT_SEC = 120
+_PROCESS_OUTPUT_SNIPPET = 1200
 
 
 @dataclass
@@ -34,6 +46,13 @@ class ScreenshotTask:
     page_count: int = 0
     page_ranges: Dict[str, List[int]] = field(default_factory=dict)  # {表单名: [start, end]}
     field_pages: Dict[str, Dict[int, int]] = field(default_factory=dict)  # {表单名: {字段索引: 页码}}
+    detect_signature: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _PdfBackendSelection:
+    backend: DocxScreenshotBackend
+    soffice_path: Optional[str] = None
 
 
 class DocxScreenshotService:
@@ -58,6 +77,19 @@ class DocxScreenshotService:
     def remove_task(temp_id: str) -> None:
         with _tasks_lock:
             _tasks.pop(temp_id, None)
+
+    @staticmethod
+    def _forms_signature(forms_data: List[dict]) -> str:
+        form_entries = []
+        for form in forms_data:
+            fields = form.get("fields", []) or []
+            labels = tuple((field or {}).get("label", "") for field in fields)
+            form_entries.append((form.get("name", ""), labels))
+        return str(tuple(sorted(form_entries)))
+
+    @staticmethod
+    def _snapshot_forms_data(forms_data: Optional[List[dict]]) -> List[dict]:
+        return copy.deepcopy(forms_data or [])
 
     # ── 路径工具 ──
 
@@ -86,22 +118,35 @@ class DocxScreenshotService:
         Args:
             forms_data: 表单数据列表，每项包含 name 和 fields
         """
+        forms_snapshot = cls._snapshot_forms_data(forms_data)
+        task: Optional[ScreenshotTask] = None
+        done_task: Optional[ScreenshotTask] = None
+        refresh_forms: Optional[List[dict]] = None
+
         with _tasks_lock:
             existing = _tasks.get(temp_id)
             if existing and existing.status in ("starting", "running"):
                 return existing
-            # 已完成：同步刷新页码范围
             if existing and existing.status == "done":
-                if forms_data:
-                    cls._refresh_page_ranges(temp_id, existing, forms_data)
-                return existing
-            task = ScreenshotTask(status="starting")
-            _tasks[temp_id] = task
+                done_task = existing
+                if forms_snapshot:
+                    signature = cls._forms_signature(forms_snapshot)
+                    if signature != existing.detect_signature:
+                        refresh_forms = forms_snapshot
+            else:
+                task = ScreenshotTask(status="starting")
+                _tasks[temp_id] = task
+
+        if done_task:
+            if refresh_forms is not None:
+                cls._refresh_page_ranges(temp_id, done_task, refresh_forms)
+            return done_task
+        assert task is not None
 
         # 后台线程执行完整转换
         t = threading.Thread(
             target=cls._run,
-            args=(temp_id, docx_path, task, forms_data or []),
+            args=(temp_id, docx_path, task, forms_snapshot),
             daemon=True,
         )
         t.start()
@@ -119,6 +164,7 @@ class DocxScreenshotService:
             form_names = [f.get("name", "") for f in forms_data]
             task.page_ranges = cls._detect_form_pages(str(pdf_files[0]), form_names, task.page_count)
             task.field_pages = cls._detect_field_pages(str(pdf_files[0]), forms_data, task.page_ranges)
+            task.detect_signature = cls._forms_signature(forms_data)
         except Exception as exc:
             logger.exception("刷新页码范围失败 temp_id=%s: %s", temp_id, exc)
 
@@ -127,26 +173,59 @@ class DocxScreenshotService:
         try:
             import pythoncom
         except ImportError as exc:
-            raise RuntimeError(
-                "当前环境不支持 Word 截图，请在安装了 MS Word 的 Windows 环境中使用该功能"
-            ) from exc
+            raise RuntimeError("Word 文档渲染后端不可用：缺少 pythoncom/pywin32") from exc
         return pythoncom
+
+    @staticmethod
+    def _is_word_backend_available() -> bool:
+        import importlib.util
+
+        return importlib.util.find_spec("pythoncom") is not None
+
+    @staticmethod
+    def _configured_backend() -> DocxScreenshotBackend:
+        raw_backend = get_config().docx_screenshot.backend
+        return (
+            raw_backend
+            if isinstance(raw_backend, DocxScreenshotBackend)
+            else DocxScreenshotBackend(raw_backend)
+        )
+
+    @classmethod
+    def _select_pdf_backend(cls) -> _PdfBackendSelection:
+        configured = cls._configured_backend()
+        if configured == DocxScreenshotBackend.WORD:
+            if cls._is_word_backend_available():
+                return _PdfBackendSelection(DocxScreenshotBackend.WORD)
+            raise RuntimeError("指定的 Word 文档渲染后端不可用")
+
+        if configured == DocxScreenshotBackend.LIBREOFFICE:
+            soffice = find_libreoffice()
+            if soffice:
+                return _PdfBackendSelection(DocxScreenshotBackend.LIBREOFFICE, soffice)
+            raise RuntimeError("指定的 LibreOffice 文档渲染后端不可用")
+
+        if cls._is_word_backend_available():
+            return _PdfBackendSelection(DocxScreenshotBackend.WORD)
+
+        soffice = find_libreoffice()
+        if soffice:
+            return _PdfBackendSelection(DocxScreenshotBackend.LIBREOFFICE, soffice)
+
+        raise RuntimeError("无可用的文档渲染后端，请安装 LibreOffice 或配置 Word 后端")
 
     @classmethod
     def _run(cls, temp_id: str, docx_path: str, task: ScreenshotTask, forms_data: List[dict]) -> None:
         """实际执行转换逻辑（在后台线程中运行）"""
-        pythoncom = None
         try:
-            # 后台线程必须初始化 COM（docx2pdf 依赖 Word COM 接口）
-            pythoncom = cls._load_pythoncom()
-            pythoncom.CoInitialize()
+            backend = cls._select_pdf_backend()
             with _semaphore:
                 task.status = "running"
                 pages_dir = cls._get_pages_dir(temp_id)
                 pages_dir.mkdir(parents=True, exist_ok=True)
 
-                # 步骤1：docx → pdf（调用 MS Word COM 接口）
-                pdf_path = cls._convert_to_pdf(docx_path, pages_dir)
+                # 步骤1：docx → pdf（后端选择独立，后续 PyMuPDF 逻辑不变）
+                pdf_path = cls._convert_to_pdf(docx_path, pages_dir, backend)
 
                 # 步骤2：pdf → png 列表
                 page_paths = cls._convert_to_images(pdf_path, pages_dir)
@@ -157,6 +236,7 @@ class DocxScreenshotService:
                     task.page_ranges = cls._detect_form_pages(pdf_path, form_names, len(page_paths))
                     # 步骤4：检测字段级页码
                     task.field_pages = cls._detect_field_pages(pdf_path, forms_data, task.page_ranges)
+                    task.detect_signature = cls._forms_signature(forms_data)
 
                 task.pages = page_paths
                 task.page_count = len(page_paths)
@@ -166,36 +246,136 @@ class DocxScreenshotService:
             task.status = "failed"
             task.error = str(exc)
             logger.exception("截图失败 temp_id=%s", temp_id)
-        finally:
-            if pythoncom is not None:
-                pythoncom.CoUninitialize()
 
     # ── docx → pdf ──
 
-    @staticmethod
-    def _convert_to_pdf(docx_path: str, output_dir: Path) -> str:
-        """使用 docx2pdf 将 docx 转为 PDF，返回 PDF 路径"""
-        try:
-            from docx2pdf import convert
-        except ImportError:
-            raise RuntimeError("缺少依赖：请执行 pip install docx2pdf")
+    @classmethod
+    def _convert_to_pdf(
+        cls,
+        docx_path: str,
+        output_dir: Path,
+        backend: Optional[_PdfBackendSelection] = None,
+    ) -> str:
+        """按选中的后端将 docx 转为 PDF，返回 PDF 路径。"""
+        selection = backend or cls._select_pdf_backend()
+        if selection.backend == DocxScreenshotBackend.WORD:
+            return cls._convert_to_pdf_word(docx_path, output_dir)
+        if not selection.soffice_path:
+            raise RuntimeError("指定的 LibreOffice 文档渲染后端不可用")
+        return cls._convert_to_pdf_libreoffice(docx_path, output_dir, selection.soffice_path)
 
+    @classmethod
+    def _convert_to_pdf_word(cls, docx_path: str, output_dir: Path) -> str:
+        """使用 docx2pdf/MS Word COM 将 docx 转为 PDF，返回 PDF 路径。"""
+        pythoncom = cls._load_pythoncom()
+        com_initialized = False
+        try:
+            pythoncom.CoInitialize()
+            com_initialized = True
+            try:
+                from docx2pdf import convert
+            except ImportError as exc:
+                raise RuntimeError("Word 文档渲染后端不可用：缺少 docx2pdf 依赖") from exc
+
+            docx_abs = str(Path(docx_path).resolve())
+            output_abs = str(output_dir.resolve())
+
+            convert(docx_abs, output_abs)
+            pdf_path = cls._find_nonempty_pdf_output(docx_path, output_dir)
+            if pdf_path is None:
+                raise RuntimeError("文档渲染失败：未生成输出 PDF")
+            return str(pdf_path)
+        finally:
+            if com_initialized:
+                pythoncom.CoUninitialize()
+
+    @classmethod
+    def _convert_to_pdf_libreoffice(cls, docx_path: str, output_dir: Path, soffice: str) -> str:
+        """使用 LibreOffice headless 将 docx 转为 PDF，返回 PDF 路径。"""
         docx_abs = str(Path(docx_path).resolve())
         output_abs = str(output_dir.resolve())
+        profile_dir = tempfile.mkdtemp(prefix="crf_docx_lo_")
+        cmd = [
+            soffice,
+            f"-env:UserInstallation={Path(profile_dir).as_uri()}",
+            "--headless",
+            "--norestore",
+            "--nolockcheck",
+            "--convert-to",
+            "pdf:writer_pdf_Export",
+            "--outdir",
+            output_abs,
+            docx_abs,
+        ]
+        result: Optional[subprocess.CompletedProcess] = None
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=_LIBREOFFICE_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logger.error(
+                "LibreOffice 文档渲染超时 timeout=%ss stdout=%s stderr=%s",
+                _LIBREOFFICE_TIMEOUT_SEC,
+                cls._summarize_process_output(exc.stdout),
+                cls._summarize_process_output(exc.stderr),
+            )
+            raise RuntimeError("文档渲染失败：渲染超时") from exc
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.exception("LibreOffice 文档渲染失败：%s", exc)
+            raise RuntimeError("文档渲染失败") from exc
+        finally:
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
-        convert(docx_abs, output_abs)
+        if result.returncode != 0:
+            logger.error(
+                "LibreOffice 文档渲染失败 returncode=%s stdout=%s stderr=%s",
+                result.returncode,
+                cls._summarize_process_output(result.stdout),
+                cls._summarize_process_output(result.stderr),
+            )
+            raise RuntimeError("文档渲染失败")
 
-        # docx2pdf 输出文件名与输入同名（.pdf 后缀）
-        base_name = Path(docx_path).stem + ".pdf"
-        pdf_path = output_dir / base_name
-        if not pdf_path.exists():
-            # 尝试在 output_dir 中找任意 .pdf 文件
-            pdf_files = list(output_dir.glob("*.pdf"))
-            if pdf_files:
-                pdf_path = pdf_files[0]
-            else:
-                raise RuntimeError(f"PDF 转换失败：未在 {output_dir} 找到输出文件")
+        pdf_path = cls._find_nonempty_pdf_output(docx_path, output_dir)
+        if pdf_path is None:
+            logger.error(
+                "LibreOffice 文档渲染失败：未生成非空 PDF stdout=%s stderr=%s",
+                cls._summarize_process_output(result.stdout),
+                cls._summarize_process_output(result.stderr),
+            )
+            raise RuntimeError("文档渲染失败：未生成输出 PDF")
         return str(pdf_path)
+
+    @staticmethod
+    def _summarize_process_output(value) -> str:
+        if value is None:
+            return "<empty>"
+        if isinstance(value, bytes):
+            text = value.decode("utf-8", errors="replace")
+        else:
+            text = str(value)
+        text = text.strip()
+        if not text:
+            return "<empty>"
+        if len(text) > _PROCESS_OUTPUT_SNIPPET:
+            return f"{text[:_PROCESS_OUTPUT_SNIPPET]}..."
+        return text
+
+    @staticmethod
+    def _find_nonempty_pdf_output(docx_path: str, output_dir: Path) -> Optional[Path]:
+        expected = output_dir / (Path(docx_path).stem + ".pdf")
+        candidates = []
+        if expected.exists():
+            candidates.append(expected)
+        candidates.extend(p for p in output_dir.glob("*.pdf") if p != expected)
+        for pdf_path in candidates:
+            try:
+                if pdf_path.is_file() and pdf_path.stat().st_size > 0:
+                    return pdf_path
+            except OSError:
+                logger.warning("检查 PDF 输出失败: %s", pdf_path)
+        return None
 
     # ── pdf → images ──
 
@@ -226,93 +406,234 @@ class DocxScreenshotService:
     # ── 页码范围检测 ──
 
     @staticmethod
-    def _detect_form_pages(pdf_path: str, form_names: List[str], total_pages: int) -> Dict[str, List[int]]:
-        """用 PyMuPDF 提取每页文字，找出各表单标题对应的页码范围（1-based）
+    def _normalize_text(text: str) -> str:
+        text = unicodedata.normalize("NFKC", text)
+        text = re.sub(r"\s+", "", text)
+        return "".join(c for c in text if unicodedata.category(c)[0] not in ("C", "Z"))
 
-        跳过目录页（同时包含多个表单名的页面），取表单名唯一出现的页作为起始页。
-        """
-        import fitz
-        import re
-        import unicodedata
-        doc = fitz.open(pdf_path)
-        page_texts = [doc[i].get_text("text") for i in range(len(doc))]
-        doc.close()
+    @classmethod
+    def _match_form_in_text(cls, form_name: str, page_text: str) -> bool:
+        normalized_form = cls._normalize_text(form_name)
+        normalized_page = cls._normalize_text(page_text)
+        result = bool(normalized_form) and normalized_form in normalized_page
+        if not result:
+            logger.debug(
+                "匹配失败 '%s': repr(form)=%s, repr(page前100)=%s",
+                form_name,
+                repr(normalized_form),
+                repr(normalized_page[:100]),
+            )
+        return result
 
-        form_name_set = set(form_names)
-
-        def normalize_text(text: str) -> str:
-            """标准化文本：NFKC归一化 + 去除控制字符和空格"""
-            # NFKC归一化（兼容性分解后再组合）
-            text = unicodedata.normalize('NFKC', text)
-            # 去除所有空白字符
-            text = re.sub(r'\s+', '', text)
-            # 去除Unicode控制字符（C*类）和格式字符（Cf类）
-            text = ''.join(c for c in text if unicodedata.category(c)[0] not in ('C', 'Z'))
-            return text
-
-        def match_form_in_text(form_name: str, page_text: str) -> bool:
-            """检查表单名是否在页面文本中（宽松匹配，支持带编号的表单名）"""
-            normalized_form = normalize_text(form_name)
-            normalized_page = normalize_text(page_text)
-            result = normalized_form in normalized_page
-            if not result:
-                logger.debug("匹配失败 '%s': repr(form)=%s, repr(page前100)=%s",
-                           form_name, repr(normalized_form), repr(normalized_page[:100]))
-            return result
-
-        def is_toc_page(text: str) -> bool:
-            """判断是否为目录页：同时包含 2 个以上独立表单名(排除子串包含)
-
-            智能判断逻辑：
-            - 非常短的页面(<400字符)直接排除
-            - 包含4+个独立表单名的页面，高置信度判定为目录页
-            - 包含2-3个独立表单名的页面，结合长度判断（>600字符才算目录页）
-            """
-            # 非常短的页面直接判定为非目录页（表单内容页通常<400字符）
-            if len(text) < 400:
-                return False
-
-            matched = [n for n in form_name_set if match_form_in_text(n, text)]
-            # 排除子串:如果表单名A是表单名B的子串,则只保留B
-            independent = []
-            for name in matched:
-                is_substring = any(name != other and name in other for other in matched)
-                if not is_substring:
-                    independent.append(name)
-
-            # 如果独立表单名>=4个，高置信度判定为目录页
-            if len(independent) >= 4:
-                return True
-
-            # 如果独立表单名2-3个，结合页面长度判断（长页面更可能是目录页）
-            if len(independent) >= 2:
-                return len(text) >= 600
-
+    @classmethod
+    def _form_appears_independently(
+        cls,
+        form_name: str,
+        page_text: str,
+        sibling_form_names: List[str],
+    ) -> bool:
+        normalized_form = cls._normalize_text(form_name)
+        normalized_page = cls._normalize_text(page_text)
+        if not normalized_form or normalized_form not in normalized_page:
             return False
 
-        # 找每个表单名第一次出现在非目录页的页码
+        longer_siblings = []
+        for sibling in sibling_form_names:
+            normalized_sibling = cls._normalize_text(sibling)
+            if normalized_sibling and normalized_sibling != normalized_form and normalized_form in normalized_sibling:
+                longer_siblings.append(normalized_sibling)
+
+        masked_page = normalized_page
+        for sibling in sorted(set(longer_siblings), key=len, reverse=True):
+            masked_page = masked_page.replace(sibling, "")
+        return normalized_form in masked_page
+
+    @classmethod
+    def is_toc_page(cls, text: str, form_names: List[str]) -> bool:
+        if not text.strip() or not form_names:
+            return False
+
+        matched = [name for name in form_names if cls._match_form_in_text(name, text)]
+        independent: List[str] = []
+        independent_normalized: List[str] = []
+
+        for name in sorted(matched, key=lambda item: len(cls._normalize_text(item)), reverse=True):
+            normalized_name = cls._normalize_text(name)
+            if not normalized_name:
+                continue
+            if any(normalized_name in kept for kept in independent_normalized):
+                continue
+            independent.append(name)
+            independent_normalized.append(normalized_name)
+
+        hit_count = len(independent)
+        total_count = len(form_names)
+        if hit_count >= 5 or (hit_count >= 2 and total_count > 0 and hit_count / total_count >= 0.4):
+            return True
+        if 2 <= hit_count <= 4:
+            return len(text) < 500
+        return False
+
+    @classmethod
+    def _build_page_ranges(
+        cls,
+        form_starts: Dict[str, int],
+        boundary_pages: List[int],
+        total_pages: int,
+    ) -> Dict[str, List[int]]:
+        sorted_forms = sorted(form_starts.items(), key=lambda item: (item[1], item[0]))
+        sorted_boundaries = sorted({page for page in boundary_pages if page > 0})
+        ranges: Dict[str, List[int]] = {}
+
+        for name, start in sorted_forms:
+            next_boundary = next((page for page in sorted_boundaries if page > start), None)
+            end = next_boundary - 1 if next_boundary is not None else total_pages
+            end = max(end, start)
+            ranges[name] = [start, end]
+            logger.info("表单 '%s' 页码范围: %d-%d", name, start, end)
+
+        return ranges
+
+    @staticmethod
+    def _read_pdf_outline(pdf_path: str) -> List[tuple[str, int]]:
+        try:
+            import fitz
+        except ImportError:
+            return []
+
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as exc:
+            logger.warning("读取 PDF 大纲失败 pdf=%s: %s", pdf_path, exc)
+            return []
+
+        try:
+            toc = doc.get_toc(simple=True) or []
+            return [(str(title), int(page)) for _level, title, page in toc if title and int(page) > 0]
+        except Exception as exc:
+            logger.warning("解析 PDF 大纲失败 pdf=%s: %s", pdf_path, exc)
+            return []
+        finally:
+            doc.close()
+
+    @classmethod
+    def _prepare_outline_entries(cls, outline: List[tuple[str, int]]) -> List[dict]:
+        entries = []
+        for title, page in outline:
+            stripped_title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", title)
+            normalized_title = cls._normalize_text(stripped_title)
+            if not normalized_title or page <= 0:
+                continue
+            entries.append(
+                {
+                    "title": title,
+                    "stripped_title": stripped_title,
+                    "page": page,
+                    "normalized_title": normalized_title,
+                }
+            )
+        return entries
+
+    @classmethod
+    def _map_forms_via_outline(
+        cls,
+        form_names: List[str],
+        outline: List[tuple[str, int]],
+        total_pages: int,
+    ) -> Dict[str, List[int]]:
+        processed_outline = cls._prepare_outline_entries(outline)
         form_starts: Dict[str, int] = {}
-        for name in form_names:
+
+        for form_name in form_names:
+            normalized_form = cls._normalize_text(form_name)
+            if not normalized_form:
+                continue
+
+            exact_matches = [
+                item for item in processed_outline if item["normalized_title"] == normalized_form
+            ]
+            if exact_matches:
+                match = min(exact_matches, key=lambda item: item["page"])
+                form_starts[form_name] = int(match["page"])
+                continue
+
+            contains_matches = [
+                item
+                for item in processed_outline
+                if normalized_form in item["normalized_title"]
+                and cls._form_appears_independently(
+                    form_name,
+                    str(item["stripped_title"]),
+                    form_names,
+                )
+            ]
+            if contains_matches:
+                match = sorted(
+                    contains_matches,
+                    key=lambda item: (-len(item["normalized_title"]), item["page"]),
+                )[0]
+                form_starts[form_name] = int(match["page"])
+
+        return cls._build_page_ranges(form_starts, list(form_starts.values()), total_pages)
+
+    @classmethod
+    def _map_forms_via_text(
+        cls,
+        targets: List[str],
+        page_texts: List[str],
+        total_pages: int,
+        all_form_names: Optional[List[str]] = None,
+    ) -> Dict[str, List[int]]:
+        toc_form_names = all_form_names or targets
+        form_starts: Dict[str, int] = {}
+        for name in targets:
             found = False
-            for i, text in enumerate(page_texts):
-                if match_form_in_text(name, text) and not is_toc_page(text):
-                    form_starts[name] = i + 1  # 1-based
-                    logger.info("表单 '%s' 匹配到页码: %d", name, i + 1)
+            for index, text in enumerate(page_texts, 1):
+                if (
+                    cls._form_appears_independently(name, text, toc_form_names)
+                    and not cls.is_toc_page(text, toc_form_names)
+                ):
+                    form_starts[name] = index
+                    logger.info("表单 '%s' 匹配到页码: %d", name, index)
                     found = True
                     break
             if not found:
                 logger.warning("表单 '%s' 未在PDF中找到匹配页码", name)
 
-        # 按起始页排序，计算结束页（兜底：end 不小于 start）
-        sorted_forms = sorted(form_starts.items(), key=lambda x: x[1])
-        ranges: Dict[str, List[int]] = {}
-        for idx, (name, start) in enumerate(sorted_forms):
-            end = sorted_forms[idx + 1][1] - 1 if idx + 1 < len(sorted_forms) else total_pages
-            end = max(end, start)  # 防止 start > end 的无效范围
-            ranges[name] = [start, end]
-            logger.info("表单 '%s' 页码范围: %d-%d", name, start, end)
+        return cls._build_page_ranges(form_starts, list(form_starts.values()), total_pages)
 
-        return ranges
+    @classmethod
+    def _detect_form_pages(cls, pdf_path: str, form_names: List[str], total_pages: int) -> Dict[str, List[int]]:
+        """优先使用 PDF 大纲定位表单页码，未命中时回退到文本匹配。"""
+        if not form_names:
+            return {}
+
+        outline = cls._read_pdf_outline(pdf_path)
+        outline_ranges = cls._map_forms_via_outline(form_names, outline, total_pages) if outline else {}
+        unresolved = [name for name in form_names if name not in outline_ranges]
+
+        text_ranges: Dict[str, List[int]] = {}
+        if unresolved or not outline_ranges:
+            import fitz
+
+            doc = fitz.open(pdf_path)
+            try:
+                page_texts = [doc[i].get_text("text") for i in range(len(doc))]
+            finally:
+                doc.close()
+            targets = unresolved if unresolved else form_names
+            text_ranges = cls._map_forms_via_text(
+                targets,
+                page_texts,
+                total_pages,
+                all_form_names=form_names,
+            )
+
+        merged_starts = {
+            name: page_range[0]
+            for name, page_range in {**outline_ranges, **text_ranges}.items()
+        }
+        return cls._build_page_ranges(merged_starts, list(merged_starts.values()), total_pages)
 
     @staticmethod
     def _detect_field_pages(
@@ -331,19 +652,9 @@ class DocxScreenshotService:
             {表单名: {字段索引: 页码}}
         """
         import fitz
-        import re
-        import unicodedata
-
         doc = fitz.open(pdf_path)
         page_texts = [doc[i].get_text("text") for i in range(len(doc))]
         doc.close()
-
-        def normalize_text(text: str) -> str:
-            """标准化文本：NFKC归一化 + 去除控制字符和空格"""
-            text = unicodedata.normalize('NFKC', text)
-            text = re.sub(r'\s+', '', text)
-            text = ''.join(c for c in text if unicodedata.category(c)[0] not in ('C', 'Z'))
-            return text
 
         field_pages: Dict[str, Dict[int, int]] = {}
 
@@ -363,7 +674,7 @@ class DocxScreenshotService:
                 if not label or len(label) < 2:
                     continue
 
-                normalized_label = normalize_text(label)
+                normalized_label = DocxScreenshotService._normalize_text(label)
 
                 # 在表单页码范围内搜索字段label
                 for page_num in range(start_page - 1, end_page):
@@ -371,7 +682,7 @@ class DocxScreenshotService:
                         break
 
                     page_text = page_texts[page_num]
-                    normalized_page = normalize_text(page_text)
+                    normalized_page = DocxScreenshotService._normalize_text(page_text)
 
                     if normalized_label in normalized_page:
                         field_map[field_idx] = page_num + 1  # 1-based
