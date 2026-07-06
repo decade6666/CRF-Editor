@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "node:test、禁用 console.log、Element Plus、lint/format 检查基线"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "复核 DocxCompareDialog v-model 契约与单向数据流是否被破坏"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "复核后端 index 对齐是否符合分层、additive-only 与测试覆盖要求"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核预览接受效果与落库结果的三层 index 一致性"}

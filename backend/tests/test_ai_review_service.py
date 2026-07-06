@@ -200,6 +200,69 @@ def test_start_ai_review_creates_background_task(monkeypatch: pytest.MonkeyPatch
     asyncio.run(scenario())
 
 
+def test_review_forms_uses_real_field_indexes_when_log_rows_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts: list[str] = []
+    forms = [
+        {
+            "name": "表单A",
+            "fields": [
+                {"label": "字段A", "field_type": "文本"},
+                {"type": "log_row"},
+                {"label": "字段B", "field_type": "单选", "options": ["是", "否"]},
+            ],
+        }
+    ]
+
+    async def fake_call_llm(_api_url, _api_key, _model, user_prompt, _timeout, **_kwargs):
+        prompts.append(user_prompt)
+        return json.dumps([
+            {"index": 1, "ok": False, "suggested_type": "日期", "reason": "真实字段序号应重排"},
+        ])
+
+    monkeypatch.setattr(ai_review_service, "get_config", _mock_ai_config)
+    monkeypatch.setattr(ai_review_service, "_call_llm", fake_call_llm)
+
+    suggestions, error = asyncio.run(ai_review_service.review_forms(forms))
+
+    assert error is None
+    assert suggestions == {
+        0: [{"index": 1, "ok": False, "suggested_type": "日期", "reason": "真实字段序号应重排"}],
+    }
+    assert len(prompts) == 1
+    assert '  0. 标签="字段A"' in prompts[0]
+    assert '  1. 标签="字段B"' in prompts[0]
+    assert '  2. 标签="字段B"' not in prompts[0]
+
+
+def test_review_forms_rejects_negative_and_string_indexes(monkeypatch: pytest.MonkeyPatch) -> None:
+    forms = [
+        {
+            "name": "表单A",
+            "fields": [
+                {"label": "字段A", "field_type": "文本"},
+                {"label": "字段B", "field_type": "单选", "options": ["是", "否"]},
+            ],
+        }
+    ]
+
+    async def fake_call_llm(_api_url, _api_key, _model, _user_prompt, _timeout, **_kwargs):
+        return json.dumps([
+            {"index": -1, "ok": False, "suggested_type": "日期", "reason": "负索引非法"},
+            {"index": "1", "ok": False, "suggested_type": "日期", "reason": "字符串索引非法"},
+            {"index": 1, "ok": False, "suggested_type": "日期", "reason": "仅该条应保留"},
+        ])
+
+    monkeypatch.setattr(ai_review_service, "get_config", _mock_ai_config)
+    monkeypatch.setattr(ai_review_service, "_call_llm", fake_call_llm)
+
+    suggestions, error = asyncio.run(ai_review_service.review_forms(forms))
+
+    assert error is None
+    assert suggestions == {
+        0: [{"index": 1, "ok": False, "suggested_type": "日期", "reason": "仅该条应保留"}],
+    }
+
+
 def test_ai_review_status_endpoint_returns_progressive_results(engine) -> None:
     user_id, project_id = _create_owned_project(engine)
     temp_id = "progressive-ai-status"

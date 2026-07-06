@@ -1495,10 +1495,11 @@ class DocxImportService:
         field_count = 0
 
         order_index = 0
+        real_index = 0
 
 
 
-        for fi, field_info in enumerate(form_data["fields"]):
+        for field_info in form_data["fields"]:
 
             order_index += 1
 
@@ -1522,19 +1523,22 @@ class DocxImportService:
 
                 continue
 
+            current_real_index = real_index
+            real_index += 1
+
 
 
             # 应用 AI 建议覆盖：替换字段类型并清理不一致的配置
 
-            if field_overrides and fi in field_overrides:
+            if field_overrides and current_real_index in field_overrides:
 
-                override_type = field_overrides[fi]
+                override_type = field_overrides[current_real_index]
 
                 logger.info(
 
                     "AI覆盖: 表单=%s 字段#%d '%s' -> %s",
 
-                    form_name, fi, field_info.get("field_type"), override_type,
+                    form_name, current_real_index, field_info.get("field_type"), override_type,
 
                 )
 
@@ -1568,7 +1572,11 @@ class DocxImportService:
 
                     "创建字段定义失败: 表单=%s 字段#%d label='%s' type=%s, 错误: %s",
 
-                    form_name, fi, field_info.get("label"), field_info.get("field_type"), str(e)
+                    form_name,
+                    current_real_index,
+                    field_info.get("label"),
+                    field_info.get("field_type"),
+                    str(e),
 
                 )
 

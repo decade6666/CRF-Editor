@@ -15,7 +15,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page
 - **List Ordering and Ordinal Quick Edit**: Code lists, options, units, fields, visits, visit-form relations, and the form list in the designer all support drag ordering; double-clicking the ordinal cell opens direct target-position input backed by the existing reorder endpoints
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
-- **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel
+- **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel; Word import AI review suggestions can be accepted selectively at three levels (per suggestion / per form / all, default off), and the "import effect" preview reflects accepted field types in real time
 - **Export Flows**: Supports Word export (eCRF / aCRF) and database export; Word export includes a short-term rate limit, width-adaptive fill lines and choice trailing underscores, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and aCRF floating OID / domain annotation boxes that do not disturb eCRF table text; preview and export share the same annotation geometry and red visual style, and a strict preview/export table-field parity comparator is included
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
 - **Form Preview**: Preview form field layout directly from the visits management panel, reuse the Word-preview row-height resize experience, and show export-matched persistent annotations in aCRF view
@@ -274,8 +274,8 @@ node --test tests/*.test.js
 ```
 
 In the current repository:
-- `backend/tests/` currently contains 39 `pytest` regression files, including some `hypothesis` property tests
-- `frontend/tests/` currently contains 41 frontend regression files (40 `.test.js` files plus `testProperty.js`), covering source-level contracts such as designer / visits aCRF annotation geometry, persistence, and drag wiring
+- `backend/tests/` currently contains 46 Python test files (44 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 44 frontend test files (43 `.test.js` files plus `testProperty.js`), covering source-level contracts such as designer / visits aCRF annotation geometry, persistence, and drag wiring
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing
