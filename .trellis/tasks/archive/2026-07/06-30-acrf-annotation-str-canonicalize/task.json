@@ -1,0 +1,53 @@
+{
+  "id": "acrf-annotation-str-canonicalize",
+  "name": "acrf-annotation-str-canonicalize",
+  "title": "修复 annotation_positions 字符串路径未 clamp 重序列化(copy/clone/import 越界值原样入库)",
+  "description": "审查发现(codex Critical): backend/src/schemas/form.py:82 preserve_annotation_positions_storage 的字符串分支 parse 后 return value 未重序列化, 导致 copy_form/项目克隆/项目导入把越界如 {\"_form\":{\"y\":999}} 原样存库, 仅读取/导出时 clamp, 造成库值(999)与接口/导出值(200)不一致, 违反后端 CLAUDE.md 声明的跨入口统一校验契约. 修复: 字符串分支改 return serialize_annotation_positions(value); 补越界串经 copy/clone/import 被规范化为 ±200 的回归测试. 关联提交 29a69d1.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-30",
+  "completedAt": "2026-07-01",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

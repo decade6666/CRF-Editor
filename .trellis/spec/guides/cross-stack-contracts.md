@@ -192,6 +192,80 @@ POST /api/forms/{form_id}/fields/reorder
 - Frontend: `frontend/tests/docxBimodalPreview.test.js`
 - Browser/manual: open Word import preview and confirm the dialog contains both `原始文档截图` and `导入效果`
 
+#### 1. Scope / Trigger
+- Trigger: any change to `backend/src/services/docx_screenshot_service.py`, `/screenshots/start|status|pages` route behavior, form-page detection, field-page evidence mapping, or screenshot-panel polling/cache semantics.
+- Trigger: any bug fix where compact index / TOC pages are misclassified as content pages, or repeated panel opens recompute `page_ranges` without form-name changes.
+
+#### 2. Signatures
+```python
+class ScreenshotStartRequest(BaseModel):
+    form_names: List[str] = []
+    forms_data: Optional[List[dict]] = None  # full parsed forms including field list
+
+class ScreenshotStartResponse(BaseModel):
+    status: str
+
+class ScreenshotStatusResponse(BaseModel):
+    status: str  # idle | starting | running | done | failed
+    page_count: int = 0
+    error: Optional[str] = None
+    page_ranges: dict = {}   # {form_name: [start_page, end_page]}
+    field_pages: dict = {}   # {form_name: {field_index: page}}
+```
+- `POST /projects/{project_id}/import-docx/{temp_id}/screenshots/start`
+- `GET /projects/{project_id}/import-docx/{temp_id}/screenshots/status`
+- `GET /projects/{project_id}/import-docx/{temp_id}/screenshots/pages/{page}`
+
+#### 3. Contracts
+- Form-page detection MUST prefer the LibreOffice-rendered PDF outline (`doc.get_toc()`), strip numeric heading prefixes like `1.` / `7.1.` before matching form names, and only fall back to text matching for unresolved forms.
+- TOC/index-page detection MUST be driven by independent matched-form count and/or ratio over the full form-name set; it MUST NOT short-circuit on "short page text" alone.
+- `page_ranges` caching is process-local and keyed by the sorted form-name signature. Reopening the screenshot panel with the same signature MUST reuse the last ranges/field-pages instead of rerunning detection.
+- `field_pages[currentFormName][field.index]` remains the primary frontend evidence locator; `page_ranges[currentFormName]` is the form-level fallback/navigation context.
+- Unsupported runtime or render failure still reports `status=failed` with a Chinese user-visible error; the page-detection/cache changes do not weaken this fail-fast contract.
+
+#### 4. Validation & Error Matrix
+| Condition | Expected behavior |
+|---|---|
+| PDF outline contains matching form headings | Use outline page as authoritative `start_page` |
+| Outline exists but some forms do not match after prefix stripping | Only unresolved forms fall back to text matching |
+| Compact index page contains many form names but short text | Must still be classified as TOC/index and skipped as content |
+| Reopen screenshot panel with identical sorted form-name signature | `start()` returns cached task and MUST NOT rerun page detection |
+| Reopen screenshot panel with changed sorted form-name signature | `start()` refreshes `page_ranges` / `field_pages` once |
+| No screenshot backend / render failure | Status transitions to `failed` with Chinese error message |
+| Field has no concrete page mapping | Frontend shows `未定位到原文页` and MUST NOT force-jump |
+
+#### 5. Good / Base / Bad Cases
+- **Good**: outline has `1. 知情同意 -> p7`, `2. 访视日期 -> p8`; `page_ranges` starts at 7/8 even if pages 4-6 are compact index pages.
+- **Base**: outline is empty, but text pages still locate forms by first non-index occurrence using the ratio-based TOC heuristic.
+- **Bad**: a rule like `if len(text) < 400: return False` causes pages with 11-14 matched form names to be treated as content and collapses early forms onto pages 4-6.
+
+#### 6. Tests Required
+- Backend pure-function tests MUST cover:
+  - compact index page -> `is_toc_page == True`
+  - long content page with only 2 cross references -> `is_toc_page == False`
+  - substring collision (`体重` vs `身高体重`) -> short name not counted independently
+  - outline mapping -> true start pages come from outline, not first text hit
+  - signature cache reuse -> unchanged signature skips redetection; changed signature refreshes once
+- Backend integration test SHOULD be LibreOffice-gated on the real fixture `image/标准eCRF.docx`, asserting no form starts on pages 2-6 and `知情同意` resolves to the real content page.
+- Frontend contract tests MUST keep polling/jump semantics unchanged (`frontend/tests/docxBimodalPreview.test.js`).
+
+#### 7. Wrong vs Correct
+**Wrong**
+```python
+if len(text) < 400:
+    return False
+```
+Short compact index pages become false negatives, so many forms map to index pages.
+
+**Correct**
+```python
+if hit_count >= 5 or (hit_count >= 2 and total_count > 0 and hit_count / total_count >= 0.4):
+    return True
+if 2 <= hit_count <= 4:
+    return len(text) < 500
+```
+Decide TOC/index status from independent matched-form density, using length only as a gray-zone tiebreaker.
+
 ---
 
 ### 5. Word Preview / Export Strict Table-Field Parity

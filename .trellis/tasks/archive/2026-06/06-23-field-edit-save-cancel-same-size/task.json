@@ -1,0 +1,56 @@
+{
+  "id": "field-edit-save-cancel-same-size",
+  "name": "field-edit-save-cancel-same-size",
+  "title": "brainstorm: 字段编辑窗口按钮尺寸统一",
+  "description": "",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-23",
+  "completedAt": "2026-06-24",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": "8763a58",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/components/FieldsTab.vue",
+    "frontend/tests/fieldsTabEditorFooterButtons.test.js"
+  ],
+  "notes": "Completed: FieldsTab right-side field editor cancel/save buttons are equal width; focused tests passed; user confirmed browser test passed. Commit: 8763a58.",
+  "meta": {}
+}

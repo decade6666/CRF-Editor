@@ -1,0 +1,38 @@
+{
+  "id": "import-template-preview-no-trigger",
+  "name": "import-template-preview-no-trigger",
+  "title": "fix: 导入模板预览按钮首次点击无反应",
+  "description": "修复 TemplatePreviewDialog 在 v-if 懒挂载时错过已为 true 的 modelValue 初始值，导致首次预览不触发字段加载的问题。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "bugfix",
+  "package": "frontend",
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-25",
+  "completedAt": "2026-06-25",
+  "branch": "draft",
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [],
+  "commit": "3bd5804c5dc41c17690c17d000d3305a304ef10d",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/components/TemplatePreviewDialog.vue",
+    "frontend/tests/appTabLazyLoad.test.js",
+    ".trellis/spec/frontend/component-guidelines.md"
+  ],
+  "notes": "代码修复已在 3bd5804 提交；审查后将源码锁定测试替换为 Vite SSR 真实组件行为测试，并在前端组件规范中沉淀 lazy-mounted v-model dialog 契约。浏览器验收已尝试，但当前本地模板库不兼容，POST /api/projects/2/import-template 返回 400：form_field 缺少 label_bold, label_font_size，无法进入预览按钮场景。",
+  "meta": {
+    "validation": {
+      "node_test_target": "passed",
+      "browser_attempt": "blocked_by_incompatible_template_library",
+      "blocked_request": "POST http://0.0.0.0:8888/api/projects/2/import-template [400]"
+    }
+  }
+}

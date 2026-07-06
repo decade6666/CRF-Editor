@@ -115,7 +115,7 @@ def _create_owned_project(engine) -> int:
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.save_temp_file", lambda content, filename: ("temp-1", Path("/tmp/fake.docx"))),
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.parse_full", lambda _path: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}]),
                 monkeypatch.setattr("src.routers.import_docx.DocxScreenshotService.start", lambda **_kwargs: None),
-                monkeypatch.setattr("src.routers.import_docx.review_forms", _review_forms),
+                monkeypatch.setattr("src.routers.import_docx.start_ai_review", _fake_start_ai_review),
             ),
         ),
         (
@@ -169,5 +169,5 @@ def test_docx_import_rate_limits_return_429_in_production(client, engine, monkey
     assert int(blocked.headers["retry-after"]) >= 1
 
 
-async def _review_forms(_forms):
-    return {}, None
+async def _fake_start_ai_review(_temp_id, _forms):
+    return None

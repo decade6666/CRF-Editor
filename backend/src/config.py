@@ -5,11 +5,12 @@ import logging
 import os
 import tempfile
 import threading
+from enum import Enum
 from pathlib import Path
 from functools import lru_cache
 
 import yaml
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ _ENV_OVERRIDE_MAP = {
     "CRF_AUTH_SECRET_KEY": ("auth", "secret_key"),
     "CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES": ("auth", "access_token_expire_minutes"),
     "CRF_ADMIN_BOOTSTRAP_PASSWORD": ("admin", "bootstrap_password"),
+    "CRF_DOCX_SCREENSHOT_BACKEND": ("docx_screenshot", "backend"),
 }
 
 # 配置文件迁移至项目根目录，统一配置入口
@@ -138,6 +140,21 @@ class AdminConfig(BaseModel):
     bootstrap_password: str = ""
 
 
+class DocxScreenshotBackend(str, Enum):
+    AUTO = "auto"
+    WORD = "word"
+    LIBREOFFICE = "libreoffice"
+
+
+class DocxScreenshotConfig(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    backend: DocxScreenshotBackend = Field(
+        default=DocxScreenshotBackend.AUTO,
+        validate_default=True,
+    )
+
+
 class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     storage: StorageConfig = StorageConfig()
@@ -146,6 +163,7 @@ class AppConfig(BaseModel):
     ai: AIConfig = AIConfig()
     auth: AuthConfig = AuthConfig()
     admin: AdminConfig = AdminConfig()
+    docx_screenshot: DocxScreenshotConfig = DocxScreenshotConfig()
 
     @property
     def db_path(self) -> str:
@@ -194,7 +212,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
     写入后自动清除 get_config 缓存，确保下次读取拿到最新值。
     """
     config_file = path or CONFIG_FILE
-    data = config.model_dump()
+    data = config.model_dump(mode="json")
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
     get_config.cache_clear()

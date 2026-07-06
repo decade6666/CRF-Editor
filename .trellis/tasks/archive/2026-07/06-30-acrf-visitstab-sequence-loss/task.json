@@ -1,0 +1,53 @@
+{
+  "id": "acrf-visitstab-sequence-loss",
+  "name": "acrf-visitstab-sequence-loss",
+  "title": "修复 VisitsTab aCRF 拖动保存丢 sequence(访视表单列表掉序号)",
+  "description": "审查发现(codex Warning): frontend/src/components/VisitsTab.vue mergeFormIntoState 的 currentForm 优先取 allForms(表单对象不含 sequence, sequence 属 visit_form 关系), 再用单一 nextForm 回写 visitForms, 导致右侧访视表单列表在 aCRF 标注拖动保存后丢失 sequence/序号. 修复: 回写各集合时以该集合自身对象为 base 或对 visitForms 保留原 sequence; 补前端测试断言 VisitsTab 持久化后右侧列表序号不丢失. 关联提交 29a69d1.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-30",
+  "completedAt": "2026-07-01",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

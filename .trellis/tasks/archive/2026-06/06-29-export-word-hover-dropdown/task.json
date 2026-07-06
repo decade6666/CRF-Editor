@@ -1,0 +1,53 @@
+{
+  "id": "export-word-hover-dropdown",
+  "name": "export-word-hover-dropdown",
+  "title": "导出Word 悬停下拉:eCRF/aCRF",
+  "description": "",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-06-29",
+  "completedAt": "2026-06-29",
+  "branch": "draft",
+  "base_branch": "draft",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": "487f352",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
