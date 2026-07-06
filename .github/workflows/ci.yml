@@ -31,13 +31,12 @@ jobs:
             backend/requirements-dev.txt
 
       - name: Set up test config
-        working-directory: backend
         run: |
           cat > config.yaml <<'YAML'
           database:
-            path: ./ci-test.db
+            path: ./backend/ci-test.db
           storage:
-            upload_path: ./uploads
+            upload_path: ./backend/uploads
           auth:
             secret_key: ci-test-secret-key-with-at-least-32-bytes
           admin:
