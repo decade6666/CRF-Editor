@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-07-05
+> Last updated: 2026-07-06
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
