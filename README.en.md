@@ -28,13 +28,21 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 ### Technology Stack
 
+**Backend**
+
 - **Backend Framework**: FastAPI + Uvicorn
 - **Database**: SQLAlchemy ORM + SQLite
 - **Data Validation**: Pydantic v2
 - **Configuration**: PyYAML
 - **Document Export**: python-docx
 - **Testing Framework**: pytest + hypothesis
-- **Frontend Testing**: node:test + a lightweight property-test helper (testProperty.js)
+
+**Frontend**
+
+- **Framework**: Vue 3 + Vite
+- **Component Library**: Element Plus
+- **Drag Ordering**: vuedraggable + sortablejs
+- **Testing Framework**: node:test + a lightweight property-test helper (testProperty.js)
 - **Optional Runtime**: LibreOffice for server-side Word table-of-contents page-number precomputation; missing LibreOffice keeps non-empty fallback page numbers and Word field correction
 
 ### Project Structure
