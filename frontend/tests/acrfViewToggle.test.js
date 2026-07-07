@@ -84,7 +84,7 @@ test('viewMode helpers normalize persisted state and annotation text contracts',
 
   assert.equal(
     getFieldOidAnnotationText({ field_definition: { field_type: '标签', variable_name: 'LEGACY_LABEL' } }),
-    'LEGACY_LABEL',
+    '',
   );
   assert.equal(getFieldOidAnnotationText({ field_definition: { variable_name: '  LBTESTCD  ' } }), 'LBTESTCD');
   assert.equal(getFieldOidAnnotationText({ field_definition: {} }), '');
@@ -141,6 +141,10 @@ test('VisitsTab preview shares the same persisted viewMode and reuses the annota
   assert.equal(normalizeStoredViewMode('bogus'), 'eCRF');
   assert.equal(resolveInitialViewMode(false, 'aCRF'), 'eCRF');
   assert.equal(resolveInitialViewMode(true, 'aCRF'), 'aCRF');
+  assert.equal(
+    getFieldOidAnnotationText({ field_definition: { field_type: '标签', variable_name: 'LEGACY_LABEL' } }),
+    '',
+  );
   assert.equal(getFieldOidAnnotationText({ field_definition: { variable_name: '  LBTESTCD  ' } }), 'LBTESTCD');
   assert.equal(getFieldOidAnnotationText({ field_definition: {} }), '');
   assert.equal(getFormDomainAnnotationText({ domain: '  LB ' }), 'LB');
@@ -251,6 +255,18 @@ test('VisitsTab aCRF annotations stay inside the preview word page and keep the 
   assert.match(visitsTabSource, /onAnnotationPointerDown/);
   assert.match(visitsTabSource, /resetAnnotationPosition/);
   assert.match(visitsTabSource, /class="wp-acrf-annotation-reset"/);
+});
+
+test('designer field list hides label-field tooltip but keeps the variable-name slot in aCRF mode', () => {
+  assert.match(
+    formDesignerSource,
+    /<template v-if="showAcrfAnnotations"[\s\S]*?<el-tooltip\s+v-if="ff\.field_definition\?\.field_type !== '标签'"[\s\S]*?<span class="ff-var-name">\{\{ ff\.field_definition\?\.variable_name \|\| '' \}\}<\/span/,
+  );
+  assert.match(formDesignerSource, /<span v-else class="ff-var-name" aria-hidden="true"><\/span><\/template/);
+  assert.doesNotMatch(
+    formDesignerSource,
+    /<el-tooltip\s+v-if="showAcrfAnnotations && ff\.field_definition\?\.field_type !== '标签'"/,
+  );
 });
 
 test('aCRF annotation styles stay absolute, draggable in edit mode, and out of width-cache geometry', () => {

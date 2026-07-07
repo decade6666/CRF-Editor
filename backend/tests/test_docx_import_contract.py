@@ -8,13 +8,18 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
+from src.models.field_definition import FieldDefinition
+from src.models.form import Form
+from src.models.form_field import FormField
 from src.models.project import Project
 from src.models.user import User
 from src.routers import import_docx
 from src.services.ai_review_service import AIReviewTask
+from src.services.docx_import_service import DocxImportService
 
 
 def _create_owned_project(engine) -> tuple[int, int]:
@@ -162,3 +167,63 @@ def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -
     assert response.ai_task_id == "tmp-preview-1"
     assert len(response.forms) == 1
     assert response.forms[0].name == "表单A"
+
+
+def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(engine, monkeypatch) -> None:
+    _user_id, project_id = _create_owned_project(engine)
+    parsed_forms = [
+        {
+            "name": "表单A",
+            "fields": [
+                {"label": "字段A", "field_type": "文本"},
+                {"type": "log_row"},
+                {
+                    "label": "字段B",
+                    "field_type": "文本",
+                    "integer_digits": 2,
+                    "decimal_digits": 1,
+                },
+            ],
+        }
+    ]
+
+    with Session(engine) as session:
+        service = DocxImportService(session)
+        monkeypatch.setattr(service, "parse_full", lambda _path: parsed_forms)
+
+        summary = service.import_forms(
+            project_id,
+            "/tmp/fake.docx",
+            [0],
+            ai_overrides=[
+                {
+                    "form_index": 0,
+                    "overrides": [{"index": 1, "field_type": "日期"}],
+                }
+            ],
+        )
+
+        imported_form_id = summary["detail"][0]["form_id"]
+        imported_form = session.get(Form, imported_form_id)
+        assert imported_form is not None
+
+        defs = session.scalars(
+            select(FieldDefinition)
+            .where(FieldDefinition.project_id == project_id)
+            .order_by(FieldDefinition.id)
+        ).all()
+        defs_by_label = {field_def.label: field_def for field_def in defs}
+
+        assert summary["imported_form_count"] == 1
+        assert summary["detail"][0]["field_count"] == 2
+        assert defs_by_label["字段A"].field_type == "文本"
+        assert defs_by_label["字段B"].field_type == "日期"
+        assert defs_by_label["字段B"].integer_digits is None
+        assert defs_by_label["字段B"].decimal_digits is None
+
+        form_fields = session.scalars(
+            select(FormField)
+            .where(FormField.form_id == imported_form_id)
+            .order_by(FormField.order_index)
+        ).all()
+        assert [field.is_log_row for field in form_fields] == [0, 1, 0]

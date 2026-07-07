@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-06-30
+> Last updated: 2026-07-06
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -16,16 +16,16 @@
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (12)"];
-    B --> B2["src/services (14)"];
+    B --> B2["src/services (15)"];
     B --> B3["src/models (10)"];
     B --> B4["src/schemas (6)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (39)"];
+    B --> B6["tests (46)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (21)"];
+    C --> C2["src/composables (22)"];
     C --> C3["src/styles"];
-    C --> C4["tests (41)"];
+    C --> C4["tests (44)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,8 +35,8 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (39 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (41 files, including 40 `.test.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (46 files) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (44 files, including 43 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
@@ -44,7 +44,7 @@ graph TD
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
-- Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel
+- Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel, and default-off AI review suggestions that can be accepted per suggestion / per form / globally before import
 - Form designer real-time preview, field instance quick edit, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
@@ -126,6 +126,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-07-05` (task `07-05-docx-ai-suggestion-accept`): Word 导入预览 now supports default-off AI suggestion acceptance at three levels (per suggestion / per form / all forms), with the right-side `SimulatedCRFForm` preview rendering only the accepted suggestion subset in real time and the execute payload appending `ai_overrides` only when non-empty. The backend AI suggestion index contract is now aligned to the log_row-filtered real field order in both `ai_review_service.py` and `docx_import_service.py`, preventing preview/import mismatches when log rows exist. Documentation sync also refreshes the root/backend module counts and index entries for the current backend service/test inventory.
 - `2026-07-04`: Word 导入截图证据页码匹配修复。`backend/src/services/docx_screenshot_service.py` now uses PDF-outline-first form page detection (`doc.get_toc()`) with text fallback instead of relying solely on first non-TOC text hits, and the TOC/index-page heuristic now uses matched-form density/ratio plus substring dedup so compact index pages in `image/标准eCRF.docx` no longer collapse early forms onto pages 4-6. Reopening the screenshot panel also stops recomputing page ranges when the sorted form-name signature is unchanged (`ScreenshotTask.detect_signature`). Added backend regressions for compact-index detection, non-TOC content protection, substring collisions, outline mapping, signature-based cache reuse, plus a LibreOffice-gated real-document assertion; backend suite verified at `583 passed, 4 xfailed`.
 - `2026-06-30`: `annotation_positions` persistence contract gap closed. `schemas/form.py::preserve_annotation_positions_storage` string branch now goes through `serialize_annotation_positions` so copy/clone/project `.db` import/template import canonicalize (clamp + key-sort) on write instead of storing raw out-of-range values. `import_service.py` template import now passes through `annotation_positions` via `preserve_annotation_positions_storage` with mixed-column legacy read-only compatibility (column probe + raw SQL single-column fallback for both `_load_template_forms` and `get_template_form_paper_orientation`, mirroring `paper_orientation`). `routers/import_template.py` converts service `ValueError` into 400 JSON. `VisitsTab.vue::mergeFormIntoState` now merges each collection (`allForms`/`visitForms`/`matrixData.forms`/`formPreviewForm`) on its own item base so aCRF drag-save no longer drops `visitForms.sequence`. Added backend regressions (out-of-range canonicalization on copy/clone/project-import, template import preservation/rejection/legacy-fallback, mixed-column preview tolerance, route-level fail-closed JSON) and a frontend contract test for per-collection base-merge; `test_form_annotation_positions.py` helper fixed to seed ORM `Form` directly (was misusing router `FormResponse`, masking 3 red tests).
 - `2026-06-30`: VisitsTab Word preview now shares the persisted `crf_view_mode` with `FormDesignerTab.vue`, renders the same red aCRF field/domain annotations in the preview dialog, and reuses `frontend/src/composables/acrfAnnotationGeometry.js` + `frontend/src/composables/useAcrfAnnotationDrag.js` for vertical drag persistence to `Form.annotation_positions`. Documentation sync also catches frontend composables 19→21 and the frontend test directory at 41 files (40 `.test.js` + `testProperty.js`).
@@ -134,5 +135,3 @@ cd frontend && node --test tests/*.test.js
 - `2026-06-24`: Ordered-list ordinal quick edit. Added shared frontend composable `frontend/src/composables/useOrdinalQuickEdit.js` and wired double-click ordinal input for codelists, codelist options, units, fields, visits, visit-form relations, and the left-side form list in `FormDesignerTab.vue`, all reusing existing reorder endpoints with filter-disabled semantics and restore-on-failure behavior. Frontend composables 16→19, frontend test directory 33→38 (37 `.test.js` + `testProperty.js`; added `useOrdinalQuickEdit.test.js` and `ordinalQuickEditWiring.test.js`, plus expanded ordering structure coverage).
 - `2026-06-23`: Field library inline codelist editing. `frontend/src/components/FieldsTab.vue` adds 新增字典 / 编辑字典 inline entries on the choice-field option row (parity with the form designer), reusing existing codelist `create` / `snapshot` / `references` endpoints with impact confirmation, cache invalidation, and global `refreshKey` sync; implemented standalone in FieldsTab without touching `FormDesignerTab.vue` (backend unchanged). Frontend test directory 32→33 (32 `.test.js` + `testProperty.js`; added `fieldsTabCodelistQuickEdit.test.js`).
 - `2026-06-23`: Frontend search ranking refresh. Frontend composables 15→16 (added `searchRanking.js` for exact-first fuzzy search ranking), frontend test directory 30→32 (31 `.test.js` + `testProperty.js`; added helper and wiring regressions for ranked fuzzy search). Synced README feature text, frontend module context, and code-spec guidance for reusable search ordering.
-- `2026-06-18`: Documentation sync refresh. Backend services 13→14 (added and indexed `toc_pagination.py` for optional LibreOffice table-of-contents page number pre-calculation), frontend composables 14→15 (completed the count for `useDesignerHistory.js`), frontend test directory 26→30 (29 `.test.js` + `testProperty.js`; added regressions for designer undo/redo, new field drafts, full-edit-mode identifier show/hide, and header styling). Synced README environment requirements, clarifying that Word export does not strictly depend on Windows; only the Word import source screenshot evidence panel requires Windows + MS Word.
-- `2026-06-14`: Documentation sync refresh. Backend services 12→13 (added `word_table_parity.py`), backend tests 37→39 (currently including batch-delete isolation, Docx screenshot failure semantics, performance FK indexes, Word table parity, and other new regressions), scripts 3→4 (added `compare_word_table_parity.py`). Frontend components 12→13 (added `SessionTimer.vue`), composables 11→14 (added `useSessionTimer.js`, `useRowResize.js`, `formDesignerPreviewModel.js`), frontend test directory 22→26 (25 `.test.js` + `testProperty.js`; added regressions related to session countdown, row height dragging, preview view model, and the Docx two-column evidence panel).

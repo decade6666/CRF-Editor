@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-30T12:00:00-07:00",
+  "timestamp": "2026-07-06T20:02:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -40,6 +40,7 @@
         "backend/src/services/docx_import_service.py",
         "backend/src/services/docx_screenshot_service.py",
         "backend/src/services/export_service.py",
+        "backend/src/services/field_cleanup_service.py",
         "backend/src/services/field_rendering.py",
         "backend/src/services/import_service.py",
         "backend/src/services/order_service.py",
@@ -87,6 +88,7 @@
         "backend/tests/conftest.py",
         "backend/tests/helpers.py",
         "backend/tests/test_admin_project_ops.py",
+        "backend/tests/test_ai_review_service.py",
         "backend/tests/test_app_security.py",
         "backend/tests/test_auth.py",
         "backend/tests/test_batch_delete_isolation.py",
@@ -101,6 +103,8 @@
         "backend/tests/test_export_unified.py",
         "backend/tests/test_export_validation.py",
         "backend/tests/test_fields_router.py",
+        "backend/tests/test_fill_line_width.py",
+        "backend/tests/test_form_annotation_positions.py",
         "backend/tests/test_form_design_notes.py",
         "backend/tests/test_form_paper_orientation.py",
         "backend/tests/test_import_service.py",
@@ -120,6 +124,7 @@
         "backend/tests/test_project_import.py",
         "backend/tests/test_project_metadata.py",
         "backend/tests/test_rate_limit.py",
+        "backend/tests/test_settings_ai_test.py",
         "backend/tests/test_subresource_isolation.py",
         "backend/tests/test_user_admin.py",
         "backend/tests/test_utils.py",
@@ -128,8 +133,8 @@
         "backend/tests/test_word_table_parity.py"
       ],
       "coverage": {
-        "estimated_files": 100,
-        "scanned_files": 100,
+        "estimated_files": 106,
+        "scanned_files": 106,
         "percent": 100
       },
       "gaps": [
@@ -165,6 +170,7 @@
       ],
       "composables": [
         "frontend/src/composables/acrfAnnotationGeometry.js",
+        "frontend/src/composables/docxAiSuggestionOverrides.js",
         "frontend/src/composables/exportDownloadState.js",
         "frontend/src/composables/fieldDefinitionVisibility.js",
         "frontend/src/composables/formDesignerPreviewModel.js",
@@ -172,8 +178,8 @@
         "frontend/src/composables/formFieldPresentation.js",
         "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/searchRanking.js",
-        "frontend/src/composables/useApi.js",
         "frontend/src/composables/useAcrfAnnotationDrag.js",
+        "frontend/src/composables/useApi.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
         "frontend/src/composables/useDesignerHistory.js",
@@ -201,22 +207,25 @@
       "tests": [
         "frontend/tests/acrfAnnotationGeometry.test.js",
         "frontend/tests/acrfAnnotationPersistence.test.js",
+        "frontend/tests/acrfViewToggle.test.js",
         "frontend/tests/adminViewStructure.test.js",
         "frontend/tests/appCollapse.test.js",
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",
-        "frontend/tests/acrfViewToggle.test.js",
         "frontend/tests/browserPerfBaselineScript.test.js",
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
         "frontend/tests/designerHistory.test.js",
         "frontend/tests/designerNewFieldDraft.test.js",
+        "frontend/tests/docxAiSuggestionAcceptance.test.js",
         "frontend/tests/docxBimodalPreview.test.js",
+        "frontend/tests/docxImportDarkModeContract.test.js",
         "frontend/tests/editModeHiddenIdentifiers.test.js",
         "frontend/tests/exportDownloadState.test.js",
         "frontend/tests/fieldsTabCodelistQuickEdit.test.js",
         "frontend/tests/fieldsTabEditorFooterButtons.test.js",
+        "frontend/tests/fieldsTabOrdinalConsistency.test.js",
         "frontend/tests/formDesignerPreviewModel.test.js",
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
         "frontend/tests/formFieldPresentation.test.js",
@@ -242,8 +251,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 82,
-        "scanned_files": 82,
+        "estimated_files": 87,
+        "scanned_files": 87,
         "percent": 100
       },
       "gaps": [
@@ -270,8 +279,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 179,
-    "scanned_files": 179,
+    "estimated_total_files": 194,
+    "scanned_files": 194,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

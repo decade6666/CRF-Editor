@@ -126,12 +126,14 @@ def _safe_api_host(api_url: str) -> str:
         return api_url
 
 
+def _get_real_fields(fields: List[dict]) -> List[dict]:
+    return [field for field in fields if field.get("type") != "log_row"]
+
+
 def _build_user_prompt(form_name: str, fields: List[dict]) -> str:
     """构建用户prompt，描述表单字段供AI复核"""
     lines = [f"表单名称：{form_name}", "字段列表："]
-    for i, f in enumerate(fields):
-        if f.get("type") == "log_row":
-            continue
+    for i, f in enumerate(_get_real_fields(fields)):
         ft = f.get("field_type", "未知")
         label = f.get("label", "")
         extra = ""
@@ -290,13 +292,16 @@ def _resolve_max_concurrency(cfg) -> int:
     return max(max_concurrency, 1)
 
 
+def _is_valid_field_index(index: object, fields: List[dict]) -> bool:
+    return isinstance(index, int) and 0 <= index < len(fields)
+
+
 def _extract_valid_diffs(fields: List[dict], parsed: List[dict]) -> List[dict]:
     return [
         item for item in parsed
         if not item.get("ok", True)
         and item.get("suggested_type") in VALID_FIELD_TYPES
-        and item.get("index") is not None
-        and item.get("index") < len(fields)
+        and _is_valid_field_index(item.get("index"), fields)
         and item.get("suggested_type") != fields[item["index"]].get("field_type")
     ]
 
@@ -310,10 +315,11 @@ async def _review_form_in_background(
     client: httpx.AsyncClient,
 ) -> Tuple[int, List[dict]]:
     fields = form.get("fields", [])
-    if not fields:
+    real_fields = _get_real_fields(fields)
+    if not real_fields:
         return form_index, []
     try:
-        prompt = _build_user_prompt(form["name"], fields)
+        prompt = _build_user_prompt(form["name"], real_fields)
         async with sem:
             text = await _call_llm(
                 cfg.api_url,
@@ -326,7 +332,7 @@ async def _review_form_in_background(
             )
         if not text:
             return form_index, []
-        return form_index, _extract_valid_diffs(fields, _parse_ai_response(text))
+        return form_index, _extract_valid_diffs(real_fields, _parse_ai_response(text))
     except Exception as exc:
         logger.warning(
             "AI复核表单失败 form_index=%d form_name=%s error=%s",
@@ -440,9 +446,10 @@ async def review_forms(
         """处理单个表单的AI复核"""
         try:
             fields = form.get("fields", [])
-            if not fields:
+            real_fields = _get_real_fields(fields)
+            if not real_fields:
                 return None
-            prompt = _build_user_prompt(form["name"], fields)
+            prompt = _build_user_prompt(form["name"], real_fields)
             async with sem:
                 text = await _call_llm(
                     cfg.api_url, cfg.api_key, cfg.model, prompt, cfg.timeout,
@@ -455,9 +462,8 @@ async def review_forms(
                 s for s in parsed
                 if not s.get("ok", True)
                 and s.get("suggested_type") in VALID_FIELD_TYPES
-                and s.get("index") is not None
-                and s.get("index") < len(fields)
-                and s.get("suggested_type") != fields[s["index"]].get("field_type")
+                and _is_valid_field_index(s.get("index"), real_fields)
+                and s.get("suggested_type") != real_fields[s["index"]].get("field_type")
             ]
             if diffs:
                 return fi, diffs

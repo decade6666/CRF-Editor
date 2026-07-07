@@ -1051,6 +1051,8 @@ class ExportService:
         return normalize_annotation_key(value)
 
     def _field_annotation_text(self, field_def: Any) -> str:
+        if getattr(field_def, "field_type", None) == "标签":
+            return ""
 
         return self._annotation_text_key(getattr(field_def, "variable_name", None))
 
