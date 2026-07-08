@@ -2,7 +2,7 @@
 
 import logging
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 
@@ -62,7 +62,7 @@ class DocxFieldPreview(BaseModel):
 
     field_type: str
 
-    options: Optional[List[str]] = None
+    options: Optional[List[Dict[str, Any] | str]] = None
 
     # 数值型精度（补全，用于 SimulatedCRFForm 正确渲染格子数）
 

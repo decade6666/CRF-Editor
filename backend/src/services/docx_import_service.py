@@ -16,7 +16,7 @@ import logging
 
 from pathlib import Path
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 
@@ -44,6 +44,76 @@ from src.services.order_service import OrderService
 
 
 logger = logging.getLogger(__name__)
+
+
+NOTE_SKIP_PREFIXES = ("注：", "注:", "周岁", "赛美斯", "太美", "方案版本号")
+
+
+def _is_placeholder_text(text: str, *, strip_choice_markers: bool = False) -> bool:
+    candidate = text
+    if strip_choice_markers:
+        candidate = candidate.replace("○", "").replace("□", "")
+    return bool(candidate) and bool(re.fullmatch(r"[_＿\s]+", candidate))
+
+
+def _choice_option_decode(option: Any) -> str:
+    if isinstance(option, str):
+        return option.strip()
+    if isinstance(option, dict):
+        return str(option.get("decode", "") or "").strip()
+    return str(option or "").strip()
+
+
+def _infer_trailing_underscore(option_text: str) -> int:
+    stripped = option_text.strip()
+    if not stripped:
+        return 0
+    if re.search(r"[_＿]+$", stripped):
+        return 1
+    if any(keyword in stripped for keyword in ("请描述", "请说明", "请解释", "请注明", "其他")):
+        return 1
+    return 0
+
+
+def _build_choice_options(text: str, marker: str) -> List[dict]:
+    options: List[dict] = []
+    for option_text in re.split(re.escape(marker), text):
+        raw = option_text.strip()
+        if not raw:
+            continue
+        trailing = _infer_trailing_underscore(raw)
+        decode = raw.rstrip("_＿") if trailing else raw
+        if not decode.strip():
+            continue
+        options.append({"decode": decode, "trailing_underscore": trailing})
+    return options
+
+
+def _choice_layout(has_vertical_layout: bool) -> tuple[str, str]:
+    """按 Word 单元格实际换行判定横/纵向，返回 (单选类型, 多选类型)。"""
+    if has_vertical_layout:
+        return "单选（纵向）", "多选（纵向）"
+    return "单选", "多选"
+
+
+def _normalize_choice_metadata(option: Any) -> Optional[tuple[str, int]]:
+    decode = _choice_option_decode(option)
+    if not decode:
+        return None
+    if isinstance(option, dict):
+        trailing = int(option.get("trailing_underscore", 0) or 0)
+    else:
+        trailing = 0
+    return decode, trailing
+
+
+def _normalize_binary_choice_order(label: str, options: List[dict]) -> List[dict]:
+    decodes = [_choice_option_decode(option) for option in options]
+    if "是否" in label and decodes == ["否", "是"]:
+        return [options[1], options[0]]
+    if "有无" in label and decodes == ["无", "有"]:
+        return [options[1], options[0]]
+    return options
 
 
 
@@ -382,7 +452,7 @@ def _table_to_html(table) -> str:
 def _detect_field_type(value_text: str) -> Tuple[str, dict]:
     """根据单元格内容格式推断字段类型和配置参数
 
-    检测顺序：日期时间 → 日期 → 时间 → 纵向单/多选 → 单选(有选项) → 多选(有选项) → 小数数值 → 整数数值 → 标签(纯文本) → 文本(空)
+    检测顺序：日期时间/日期 → 时间 → 单/多选 → 小数数值 → 整数数值 → 标签/文本
     """
     text = value_text.strip()
     if not text:
@@ -396,6 +466,8 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
 
     if has_date and has_time:
         colon_count = text.count(":") + text.count("：")
+        if has_vertical_layout:
+            return "日期", {"date_format": "YYYY-MM-DD"}
         if colon_count >= 2:
             return "日期时间", {"date_format": "yyyy-MM-dd HH:mm:ss"}
         return "日期时间", {"date_format": "yyyy-MM-dd HH:mm"}
@@ -411,27 +483,21 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
             return "时间", {"date_format": "HH:mm:ss"}
         return "时间", {"date_format": "HH:mm"}
 
-    if has_vertical_layout and "○" in text:
-        options = [o.strip() for o in re.split(r"○", text) if o.strip()]
-        if options:
-            return "单选（纵向）", {"options": options}
-
-    if has_vertical_layout and "□" in text:
-        options = [o.strip() for o in re.split(r"□", text) if o.strip()]
-        if options:
-            return "多选（纵向）", {"options": options}
-
-    # 单选: ○选项1  ○选项2（选项为空时不判定为单选）
     if "○" in text:
-        options = [o.strip() for o in re.split(r"○", text) if o.strip()]
+        options = _build_choice_options(text, "○")
         if options:
-            return "单选", {"options": options}
+            single_type, _ = _choice_layout(has_vertical_layout)
+            return single_type, {"options": options}
+        if _is_placeholder_text(text, strip_choice_markers=True):
+            return "文本", {}
 
-    # 多选: □选项1  □选项2（选项为空时不判定为多选）
     if "□" in text:
-        options = [o.strip() for o in re.split(r"□", text) if o.strip()]
+        options = _build_choice_options(text, "□")
         if options:
-            return "多选", {"options": options}
+            _, multi_type = _choice_layout(has_vertical_layout)
+            return multi_type, {"options": options}
+        if _is_placeholder_text(text, strip_choice_markers=True):
+            return "文本", {}
 
     # 带小数的数值: |__|__|.|__|
     if "." in text and "|" in text:
@@ -448,8 +514,11 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
         digits = text.count("__")
         return "数值", {"integer_digits": min(max(digits, 1), 20), "decimal_digits": 0}
 
+    # 纯下划线/全角下划线空白占位（"______" 等）视为文本输入框
+    if _is_placeholder_text(text):
+        return "文本", {}
+
     # 标签: 纯文本无输入控件标记（无|__|、○、□）
-    # 只有○/□但无选项文本的也会落到这里
     return "标签", {}
 def _extract_unit_from_text(text: str) -> Optional[str]:
 
@@ -523,9 +592,7 @@ def _is_form_title(element) -> Optional[str]:
 
         return None
 
-    skip_prefixes = ("注：", "注:", "周岁", "赛美斯", "太美", "方案版本号")
-
-    if any(text.startswith(p) for p in skip_prefixes):
+    if any(text.startswith(prefix) for prefix in NOTE_SKIP_PREFIXES):
 
         return None
 
@@ -556,6 +623,16 @@ def _is_form_title(element) -> Optional[str]:
 
 
     return None
+
+
+def _should_skip_note_paragraph(text: str) -> bool:
+    if not text:
+        return True
+    if any(text.startswith(prefix) for prefix in NOTE_SKIP_PREFIXES[1:]):
+        return True
+    if len(text) <= 3 and text.endswith(("：", ":")):
+        return True
+    return False
 
 
 
@@ -630,6 +707,8 @@ def _parse_simple_table(table) -> List[dict]:
 
 
         field_type, config = _detect_field_type(value)
+        if config.get("options"):
+            config["options"] = _normalize_binary_choice_order(label, config["options"])
 
         field_info = {"label": label, "field_type": field_type, **config}
 
@@ -705,21 +784,19 @@ def _parse_horizontal_table(table) -> List[dict]:
 
         # 合并单元格可能导致重复，去重取前两个不同的文本
 
-        seen = []
-
-        for c in cells:
-
-            t = c.text.strip()
-
-            if t and t not in seen:
-
-                seen.append(t)
+        seen = list(dict.fromkeys(
+            c.text.strip()
+            for c in cells
+            if c.text.strip()
+        ))
 
         if len(seen) >= 2:
 
             label, value = seen[0], seen[1]
 
             ft, cfg = _detect_field_type(value)
+            if cfg.get("options"):
+                cfg["options"] = _normalize_binary_choice_order(label, cfg["options"])
 
             fields.append({"label": label, "field_type": ft, **cfg})
 
@@ -775,9 +852,9 @@ def _parse_horizontal_table(table) -> List[dict]:
 
 
 
-    def _collect_select_options(col_idx: int) -> List[str]:
+    def _collect_select_options(col_idx: int) -> Tuple[List[dict], str, bool]:
 
-        """从数据行中提取○选项（取首个含○的单元格）"""
+        """从数据行中提取选择项，返回 (options, marker, has_vertical)；marker 为 '○' 或 '□'。"""
 
         for ri in range(header_idx + 1, len(table.rows)):
 
@@ -790,21 +867,23 @@ def _parse_horizontal_table(table) -> List[dict]:
             val = row.cells[col_idx].text.strip()
 
             if "○" in val:
+                return _build_choice_options(val, "○"), "○", ("\n" in val or "\r" in val)
+            if "□" in val:
+                return _build_choice_options(val, "□"), "□", ("\n" in val or "\r" in val)
 
-                return [o.strip() for o in re.split(r"○", val) if o.strip()]
-
-        return []
+        return [], "○", False
 
 
 
-    def _select_field_type(header_label: str) -> str:
+    def _select_field_type(header_label: str, options: List[dict], marker: str, has_vertical: bool) -> str:
 
-        """根据列头关键词决定单选子类型"""
+        """根据实际选项布局（换行信号）和 marker 决定单选/多选子类型。"""
 
+        if options:
+            single, multi = _choice_layout(has_vertical)
+            return single if marker == "○" else multi
         if any(kw in header_label for kw in ("临床意义", "异常")):
-
             return "单选（纵向）"
-
         return "单选"
 
 
@@ -901,9 +980,10 @@ def _parse_horizontal_table(table) -> List[dict]:
 
         if role == "select":
 
-            options = _collect_select_options(ci)
+            options, marker, has_vertical = _collect_select_options(ci)
+            options = _normalize_binary_choice_order(header_label, options)
 
-            ft = _select_field_type(header_label)
+            ft = _select_field_type(header_label, options, marker, has_vertical)
 
             field_info: dict = {"label": header_label, "field_type": ft, "inline_mark": True}
 
@@ -1217,7 +1297,7 @@ class DocxImportService:
 
         """遍历文档body元素，将表单标题与后续表格配对"""
 
-        body = doc.element.body
+        body_children = list(doc.element.body)
 
         forms = []
 
@@ -1229,77 +1309,91 @@ class DocxImportService:
 
         skip_tables = 2  # 跳过封面信息表和访视分布图
 
-
-
-        for child in body:
-
+        child_index = 0
+        while child_index < len(body_children):
+            child = body_children[child_index]
             tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
 
-
-
             if tag == "p":
-
                 title = _is_form_title(child)
-
                 if title:
-
                     current_title = title
+                child_index += 1
+                continue
 
+            if tag != "tbl":
+                child_index += 1
+                continue
 
-
-            elif tag == "tbl":
-
-                if table_idx < skip_tables:
-
-                    table_idx += 1
-
-                    continue
-
-
-
-                real_idx = table_idx
-
+            if table_idx < skip_tables:
                 table_idx += 1
+                child_index += 1
+                continue
 
+            real_idx = table_idx
+            table_idx += 1
+            if real_idx >= len(tables):
+                child_index += 1
+                continue
 
+            table = tables[real_idx]
+            form_name = current_title or f"未命名表单_{real_idx}"
 
-                if real_idx >= len(tables):
+            if _is_horizontal_table(table):
+                fields = _parse_horizontal_table(table)
+            else:
+                fields = _parse_simple_table(table)
 
+            next_index = child_index + 1
+            note_fields: List[dict] = []
+            note_block_started = False
+            while next_index < len(body_children):
+                next_child = body_children[next_index]
+                next_tag = (
+                    next_child.tag.split("}")[-1]
+                    if "}" in next_child.tag
+                    else next_child.tag
+                )
+                if next_tag == "tbl":
+                    break
+                if next_tag != "p":
+                    next_index += 1
                     continue
 
+                title = _is_form_title(next_child)
+                if title:
+                    break
 
+                paragraph_text = _get_paragraph_text(next_child)
+                if not paragraph_text:
+                    next_index += 1
+                    continue
 
-                table = tables[real_idx]
+                if paragraph_text.startswith(("注：", "注:")):
+                    note_block_started = True
+                    note_fields.append({"label": paragraph_text, "field_type": "标签"})
+                    next_index += 1
+                    continue
 
-                form_name = current_title or f"未命名表单_{real_idx}"
+                if note_block_started and not _should_skip_note_paragraph(paragraph_text):
+                    note_fields.append({"label": paragraph_text, "field_type": "标签"})
 
+                next_index += 1
 
+            if note_block_started and len(note_fields) == 1 and note_fields[0]["label"] in ("注：", "注:"):
+                note_fields = []
 
-                # 根据表格类型选择解析策略
+            if note_fields:
+                fields.extend(note_fields)
 
-                if _is_horizontal_table(table):
-
-                    fields = _parse_horizontal_table(table)
-
-                else:
-
-                    fields = _parse_simple_table(table)
-
-
-
-                if fields:
-
-                    forms.append({
-
-                        "name": form_name,
-
-                        "fields": fields,
-
-                        "raw_html": _table_to_html(table),
-
-                    })
-
-                current_title = None
+            if fields:
+                forms.append({
+                    "name": form_name,
+                    "fields": fields,
+                    "raw_html": _table_to_html(table),
+                })
+            current_title = None
+            child_index = next_index
 
 
 
@@ -1692,9 +1786,14 @@ class DocxImportService:
 
         if field_type in ("单选", "多选", "单选（纵向）", "多选（纵向）") and options:
 
-            normalized_options = [str(opt_text or "").strip() for opt_text in options]
-
-            normalized_options = [opt_text for opt_text in normalized_options if opt_text]
+            normalized_options = [
+                metadata
+                for metadata in (
+                    _normalize_choice_metadata(option)
+                    for option in options
+                )
+                if metadata is not None
+            ]
 
             if normalized_options:
 
@@ -1726,7 +1825,7 @@ class DocxImportService:
                         s.flush()
                     codelist_id = new_cl.id
                     existing_codelists[cl_name] = codelist_id
-                    for i, opt_text in enumerate(normalized_options, start=1):
+                    for i, (opt_text, trailing_underscore) in enumerate(normalized_options, start=1):
 
                         s.add(CodeListOption(
 
@@ -1736,7 +1835,7 @@ class DocxImportService:
 
                             decode=opt_text,
 
-                            trailing_underscore=0,
+                            trailing_underscore=trailing_underscore,
 
                             order_index=i,
 
