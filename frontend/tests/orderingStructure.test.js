@@ -251,9 +251,11 @@ test('FormDesignerTab designer dialog uses center-bottom preview and right-side 
   );
   assert.match(formsSource, /\.fd-library \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(formsSource, /\.fd-library-list \{[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/);
-  assert.match(formsSource, /\.designer-workspace \{[\s\S]*grid-template-rows: minmax\(0, 2fr\) minmax\(260px, 1fr\);/);
-  assert.match(formsSource, /\.designer-workspace-bottom \{[\s\S]*display: flex;[\s\S]*overflow: hidden;/);
-  assert.match(formsSource, /\.designer-side-pane \{[\s\S]*grid-template-rows: minmax\(0, 1fr\) minmax\(180px, 1fr\);/);
+  assert.match(formsSource, /\.designer-workspace \{[\s\S]*row-gap: 0;/);
+  assert.match(formsSource, /gridTemplateRows: workspaceRows/);
+  assert.match(formsSource, /\.designer-workspace-bottom \{[\s\S]*display: flex;[\s\S]*overflow: hidden;[\s\S]*min-height: 200px;/);
+  assert.match(formsSource, /\.designer-side-pane \{[\s\S]*row-gap: 0;/);
+  assert.match(formsSource, /gridTemplateRows: sideRows/);
   assert.match(formsSource, /width: 56px; margin-left: 2px/);
   assert.match(formsSource, /\.ff-item \{/);
   assert.match(formsSource, /display: flex;/);
