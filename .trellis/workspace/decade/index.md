@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 46
-- **Last Active**: 2026-07-07
+- **Total Sessions**: 47
+- **Last Active**: 2026-07-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~599 | Active |
+| `journal-0.md` | ~632 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 47 | 2026-07-10 | 表单设计弹窗界面调整（可拖拽分栏+aCRF两行布局） | `82a265d` | `draft` |
 | 46 | 2026-07-07 | docx导入规则深度优化：横纵向按Word换行判定+AI复核提示词增强 | `5c9ab22` | `draft` |
 | 45 | 2026-07-06 | aCRF标签字段隐藏变量名 | `504301b` | `draft` |
 | 44 | 2026-07-04 | docx 截图页码匹配4个边界缺陷修复(派发Codex) | `2968ff5` | `draft` |
