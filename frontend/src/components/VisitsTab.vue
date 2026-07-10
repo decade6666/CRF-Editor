@@ -1444,6 +1444,7 @@ async function toggleCell(visitId, formId) {
   color: #c00000;
   font-family: 'SimSun', serif;
   font-size: var(--acrf-annotation-font-size);
+  font-weight: normal;
   white-space: nowrap;
   overflow: visible;
   user-select: none;
