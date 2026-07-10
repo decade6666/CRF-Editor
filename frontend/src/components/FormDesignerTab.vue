@@ -22,6 +22,7 @@ import {
   isVisibleInFieldLibrary,
 } from '../composables/fieldDefinitionVisibility';
 import { useColumnResize } from '../composables/useColumnResize';
+import { usePaneSplit } from '../composables/usePaneSplit';
 import { useDesignerHistory } from '../composables/useDesignerHistory';
 import {
   buildTableInstanceId,
@@ -1319,6 +1320,15 @@ function startLibResize(e) {
 
 const previewPaneWidth = 460;
 const propWidth = computed(() => previewPaneWidth);
+
+// 纵向可拖拽分栏比例（全局持久化，不 scope 到 formId）
+const { ratio: sideRatio, startResize: startSideResize } = usePaneSplit('crf:designer:side-split', 0.7); // 属性:备注 = 7:3
+const { ratio: workspaceRatio, startResize: startWorkspaceResize } = usePaneSplit(
+  'crf:designer:workspace-split',
+  0.5,
+); // 字段列表:预览 = 5:5
+const sideRows = computed(() => `${sideRatio.value}fr 6px ${1 - sideRatio.value}fr`);
+const workspaceRows = computed(() => `${workspaceRatio.value}fr 6px ${1 - workspaceRatio.value}fr`);
 
 const formDesignNotes = ref('');
 let notesTimer = null;
@@ -3355,18 +3365,40 @@ function openAddForm() {
               :key="fd.id"
               type="button"
               class="fd-item"
+              :class="{ 'fd-item--acrf': showAcrfAnnotations }"
               :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''"
               @click="addField(fd)"
             >
-              <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{
-                fd.label
-              }}</span
-              ><span style="color: var(--color-text-muted); font-size: 11px; flex-shrink: 0">{{ fd.field_type }}</span>
+              <template v-if="showAcrfAnnotations">
+                <div class="fd-item-content">
+                  <div class="fd-item-lines">
+                    <el-tooltip
+                      :content="fd.variable_name || '—'"
+                      placement="top"
+                      :show-after="300"
+                      :disabled="!fd.variable_name"
+                      ><span class="fd-item-oid">{{ fd.variable_name || '—' }}</span></el-tooltip
+                    >
+                    <el-tooltip :content="fd.label" placement="bottom" :show-after="300" :disabled="!fd.label"
+                      ><span class="fd-item-label">{{ fd.label }}</span></el-tooltip
+                    >
+                  </div>
+                  <span class="fd-item-type">{{ fd.field_type }}</span>
+                </div>
+              </template>
+              <template v-else>
+                <el-tooltip :content="fd.label" placement="top" :show-after="300" :disabled="!fd.label"
+                  ><span
+                    style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+                    >{{ fd.label }}</span
+                  ></el-tooltip
+                ><span style="color: var(--color-text-muted); font-size: 11px; flex-shrink: 0">{{ fd.field_type }}</span>
+              </template>
             </button>
           </div>
         </div>
         <button type="button" class="fd-panel-resizer" aria-label="调整字段库宽度" @mousedown="startLibResize"></button>
-        <div class="designer-workspace">
+        <div class="designer-workspace" :style="{ gridTemplateRows: workspaceRows }">
           <div class="designer-workspace-top">
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header">
@@ -3446,10 +3478,10 @@ function openAddForm() {
                   <el-checkbox
                     v-if="!isDraftField(ff)"
                     v-model="selectedIds"
-                    :label="ff.id"
+                    :value="ff.id"
                     size="small"
                     @click.stop
-                  ></el-checkbox
+                    ><span></span></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
                   ><template v-if="showAcrfAnnotations"
@@ -3480,6 +3512,12 @@ function openAddForm() {
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            class="pane-v-resizer"
+            aria-label="调整字段列表与预览高度"
+            @mousedown="startWorkspaceResize"
+          ></button>
           <div class="designer-workspace-bottom">
             <div class="designer-preview-pane">
               <div class="designer-section-title">
@@ -4199,7 +4237,7 @@ function openAddForm() {
             </div>
           </div>
         </div>
-        <div class="designer-side-pane" :style="{ width: propWidth + 'px' }">
+        <div class="designer-side-pane" :style="{ width: propWidth + 'px', gridTemplateRows: sideRows }">
           <div class="designer-editor-card">
             <div class="designer-section-title">属性编辑</div>
             <el-empty v-if="!selectedFieldId" class="empty-state" :image-size="56" style="height: 100%">
@@ -4307,14 +4345,14 @@ function openAddForm() {
             </div>
             <div v-else class="designer-editor-scroll">
               <el-form :model="editProp" label-width="88px" size="small">
+                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
+                  ><el-input v-model="editProp.variable_name"
+                /></el-form-item>
                 <el-form-item label="字段标签"
                   ><el-input
                     v-model="editProp.label"
                     :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
                     :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
-                /></el-form-item>
-                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
-                  ><el-input v-model="editProp.variable_name"
                 /></el-form-item>
                 <el-form-item label="字段类型">
                   <el-select v-model="editProp.field_type" style="width: 100%">
@@ -4531,6 +4569,12 @@ function openAddForm() {
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            class="pane-v-resizer"
+            aria-label="调整属性编辑与设计备注高度"
+            @mousedown="startSideResize"
+          ></button>
           <div class="designer-notes-card">
             <div class="designer-section-title">设计备注</div>
             <div class="designer-notes-editor">
@@ -4905,13 +4949,51 @@ function openAddForm() {
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   font-size: 12px;
   box-sizing: border-box;
+  text-align: left;
 }
 .fd-item:hover {
   background: var(--color-bg-hover);
+}
+.fd-item--acrf {
+  padding: 4px 10px;
+}
+.fd-item-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 6px;
+}
+.fd-item-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fd-item-oid {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.fd-item-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.fd-item-type {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--color-text-muted);
+  font-size: 11px;
 }
 .fd-panel-resizer {
   width: 4px;
@@ -5027,8 +5109,8 @@ function openAddForm() {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 2fr) minmax(260px, 1fr);
-  gap: 8px;
+  /* grid-template-rows 由 workspaceRows 计算并经 inline :style 注入（可拖拽分栏） */
+  row-gap: 0;
   padding: 8px;
 }
 
@@ -5040,6 +5122,7 @@ function openAddForm() {
 .designer-workspace-bottom {
   display: flex;
   overflow: hidden;
+  min-height: 200px;
 }
 
 .designer-workspace-top {
@@ -5063,8 +5146,8 @@ function openAddForm() {
   max-width: 460px;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(180px, 1fr);
-  gap: 8px;
+  /* grid-template-rows 由 sideRows 计算并经 inline :style 注入（可拖拽分栏） */
+  row-gap: 0;
   padding: 8px;
   border-left: 1px solid var(--color-border);
   background: var(--color-bg-hover);
@@ -5088,6 +5171,22 @@ function openAddForm() {
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+}
+
+.designer-notes-card {
+  min-height: 120px;
+}
+
+.pane-v-resizer {
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.pane-v-resizer:hover {
+  background: var(--color-primary-subtle);
 }
 
 .designer-section-title {
