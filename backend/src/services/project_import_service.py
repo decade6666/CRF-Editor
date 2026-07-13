@@ -73,6 +73,17 @@ def _patch_legacy_project_schema(file_path: str) -> None:
                     "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
                     "NOT NULL DEFAULT 'auto'"
                 )
+        if 'field_definition' in tables:
+            cols = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(field_definition)"
+                ).fetchall()
+            }
+            if 'checkbox_label' not in cols:
+                conn.execute(
+                    'ALTER TABLE field_definition ADD COLUMN checkbox_label VARCHAR(255)'
+                )
         if 'form_field' in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(form_field)").fetchall()}
             if 'label_bold' not in cols:

@@ -71,6 +71,7 @@ def create_field_definition(
     field_type: str = "文本",
     unit_id: int | None = None,
     codelist_id: int | None = None,
+    checkbox_label: str | None = None,
 ) -> FieldDefinition:
     field_definition = FieldDefinition(
         project_id=project_id,
@@ -79,6 +80,7 @@ def create_field_definition(
         field_type=field_type,
         unit_id=unit_id,
         codelist_id=codelist_id,
+        checkbox_label=checkbox_label,
     )
     session.add(field_definition)
     session.flush()
@@ -154,6 +156,8 @@ def build_template_db(
     codelist_name: str = "性别",
     option_metadata: list[tuple[str | None, str, int]] | None = None,
     paper_orientation: str = "auto",
+    field_type: str | None = None,
+    checkbox_label: str | None = None,
 ) -> tuple[Path, int]:
     db_path = tmp_path / ("template_with_unit.db" if with_unit else "template_without_unit.db")
     engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
@@ -192,9 +196,10 @@ def build_template_db(
             project.id,
             variable_name="TEMP_FIELD",
             label="模板字段",
-            field_type="单选" if with_trailing_underscore else "文本",
+            field_type=field_type or ("单选" if with_trailing_underscore else "文本"),
             unit_id=unit_id,
             codelist_id=codelist_id,
+            checkbox_label=checkbox_label,
         )
         create_form_field(
             template_session,
@@ -276,6 +281,124 @@ def test_get_template_form_fields_returns_structured_option_metadata(
         {"code": "1", "decode": "男", "trailing_underscore": 1},
         {"code": "2", "decode": "女", "trailing_underscore": 0},
     ]
+
+
+
+def test_template_preview_and_import_preserve_checkbox_label(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=False,
+        field_type="复选",
+        checkbox_label="受试者已确认",
+    )
+    service = ImportService(session)
+
+    preview_fields = service.get_template_form_fields(str(template_path), form_id)
+    assert len(preview_fields) == 1
+    assert preview_fields[0]["field_type"] == "复选"
+    assert preview_fields[0]["checkbox_label"] == "受试者已确认"
+    assert preview_fields[0]["options"] is None
+    assert preview_fields[0]["field_definition"]["checkbox_label"] == "受试者已确认"
+
+    target_project = create_project(session, name="复选导入目标")
+    summary = service.import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(FieldDefinition).filter(
+        FieldDefinition.project_id == target_project.id,
+        FieldDefinition.variable_name == "TEMP_FIELD",
+    ).one()
+    assert imported.field_type == "复选"
+    assert imported.checkbox_label == "受试者已确认"
+    assert imported.codelist_id is None
+
+
+
+def test_template_preview_and_import_discard_stale_checkbox_codelist(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=False,
+        with_trailing_underscore=True,
+        field_type="复选",
+        checkbox_label="受试者已确认",
+    )
+    with sqlite3.connect(str(template_path)) as template_db:
+        codelist_id = template_db.execute("SELECT id FROM codelist").fetchone()[0]
+        template_db.execute(
+            "UPDATE field_definition SET codelist_id = ? WHERE field_type = '复选'",
+            (codelist_id,),
+        )
+
+    service = ImportService(session)
+    preview_fields = service.get_template_form_fields(str(template_path), form_id)
+    assert preview_fields[0]["options"] is None
+
+    target_project = create_project(session, name="脏复选导入目标")
+    summary = service.import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    assert summary["merged_codelists"] == 0
+    assert session.query(CodeList).filter(CodeList.project_id == target_project.id).count() == 0
+    imported = session.query(FieldDefinition).filter(
+        FieldDefinition.project_id == target_project.id,
+        FieldDefinition.variable_name == "TEMP_FIELD",
+    ).one()
+    assert imported.codelist_id is None
+
+
+
+def test_template_preview_and_import_default_checkbox_label_when_legacy_column_is_missing(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False)
+    with sqlite3.connect(str(template_path)) as legacy:
+        legacy.execute("ALTER TABLE field_definition DROP COLUMN checkbox_label")
+
+    service = ImportService(session)
+    preview_fields = service.get_template_form_fields(str(template_path), form_id)
+    assert preview_fields[0]["checkbox_label"] is None
+    assert preview_fields[0]["field_definition"]["checkbox_label"] is None
+
+    target_project = create_project(session, name="旧模板导入目标")
+    summary = service.import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    assert summary["imported_form_count"] == 1
+    imported = session.query(FieldDefinition).filter(
+        FieldDefinition.project_id == target_project.id,
+        FieldDefinition.variable_name == "TEMP_FIELD",
+    ).one()
+    assert imported.checkbox_label is None
+
+    with sqlite3.connect(str(template_path)) as legacy:
+        source_columns = {
+            row[1]
+            for row in legacy.execute("PRAGMA table_info(field_definition)").fetchall()
+        }
+    assert "checkbox_label" not in source_columns
 
 
 

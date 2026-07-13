@@ -520,6 +520,7 @@ function stubFromDict(data) {
     field_definition = {
       field_type: fdRaw.field_type,
       label: fdRaw.label,
+      checkbox_label: fdRaw.checkbox_label ?? null,
       options: fdRaw.options || null,
     }
   }

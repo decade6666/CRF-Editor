@@ -49,6 +49,19 @@ const choiceField = (label, options, extras = {}) => ({
   ...extras,
 })
 
+const checkboxField = (label, checkboxLabel = null, extras = {}) => ({
+  label_override: null,
+  is_log_row: 0,
+  inline_mark: extras.inline_mark ?? 0,
+  default_value: null,
+  field_definition: {
+    field_type: '复选',
+    label,
+    checkbox_label: checkboxLabel,
+    options: null,
+  },
+})
+
 const structuralLabelField = (label) => ({
   label_override: null,
   is_log_row: 0,
@@ -116,6 +129,18 @@ const cases = [
     kind: 'normal',
     description: '扩展 B 汉字 𠮷 → 权重 = 2 并保留',
     fields: [rareCjkField()],
+  },
+  {
+    name: 'normal_checkbox_label_fallback',
+    kind: 'normal',
+    description: '复选默认文本回退字段标签并保留控件最小宽度',
+    fields: [checkboxField('已')],
+  },
+  {
+    name: 'normal_checkbox_custom_text',
+    kind: 'normal',
+    description: '复选控件按 □ + 自定义文本权重参与两列分配',
+    fields: [checkboxField('确认状态', '已阅读并确认受试者知情同意书')],
   },
 
   // ── inline ──

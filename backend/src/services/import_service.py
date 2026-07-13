@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional, TypedDict
 
 
@@ -166,6 +167,47 @@ class ImportService:
             conn.close()
 
     @staticmethod
+    def _has_template_field_definition_checkbox_label(db_path: str) -> bool:
+        """检查模板 field_definition 表是否包含复选文本列。"""
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(field_definition)").fetchall()
+            }
+            return "checkbox_label" in columns
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _load_template_field_definitions(
+        tmpl: Session,
+        field_definition_ids: List[int],
+        *,
+        has_checkbox_label: bool,
+    ) -> List[FieldDefinition | SimpleNamespace]:
+        if not field_definition_ids:
+            return []
+        if has_checkbox_label:
+            return list(tmpl.scalars(
+                select(FieldDefinition).where(FieldDefinition.id.in_(field_definition_ids))
+            ).all())
+
+        columns = (
+            "id", "project_id", "variable_name", "label", "field_type",
+            "integer_digits", "decimal_digits", "date_format", "codelist_id",
+            "unit_id", "is_multi_record", "table_type", "order_index",
+        )
+        column_list = ", ".join(f'"{column}"' for column in columns)
+        rows = tmpl.execute(
+            text(f"SELECT {column_list} FROM field_definition WHERE id IN :field_ids").bindparams(
+                bindparam("field_ids", expanding=True)
+            ),
+            {"field_ids": field_definition_ids},
+        ).all()
+        return [SimpleNamespace(**dict(row._mapping), checkbox_label=None) for row in rows]
+
+    @staticmethod
     def _open_template_session(template_path: str) -> Session:
         """打开模板库只读 Session
 
@@ -229,7 +271,9 @@ class ImportService:
 
     def get_template_form_fields(self, template_path: str, form_id: int) -> List[dict]:
         """读取模板表单的字段详情，返回与 SimulatedCRFForm 兼容的字段列表"""
-        tmpl = self._open_template_session(template_path)
+        db_path = self._resolve_existing_template_path(template_path)
+        has_checkbox_label = self._has_template_field_definition_checkbox_label(db_path)
+        tmpl = self._open_template_session(db_path)
         try:
             # 获取排序后的表单字段列表（兼容性由 _check_template_compatibility 保障）
             form_fields = list(tmpl.scalars(
@@ -244,22 +288,24 @@ class ImportService:
                 ff.field_definition_id for ff in form_fields
                 if ff.field_definition_id is not None
             ]
-            field_def_map: Dict[int, FieldDefinition] = {}
+            field_def_map: Dict[int, FieldDefinition | SimpleNamespace] = {}
             codelist_options_map: Dict[int, List[OptionMetadata]] = {}
             unit_map: Dict[int, str] = {}
 
 
             if fd_ids:
-                for fd in tmpl.scalars(
-                    select(FieldDefinition).where(FieldDefinition.id.in_(fd_ids))
-                ).all():
+                for fd in self._load_template_field_definitions(
+                    tmpl,
+                    fd_ids,
+                    has_checkbox_label=has_checkbox_label,
+                ):
                     field_def_map[fd.id] = fd
 
 
                 # 收集所有 codelist_id 并一次性查询选项
                 codelist_ids = {
                     fd.codelist_id for fd in field_def_map.values()
-                    if fd.codelist_id is not None
+                    if fd.field_type != "复选" and fd.codelist_id is not None
                 }
                 if codelist_ids:
                     for opt in tmpl.scalars(
@@ -321,7 +367,11 @@ class ImportService:
 
                 # 标签行或其他类型字段
                 label = ff.label_override or fd.label
-                options = codelist_options_map.get(fd.codelist_id) if fd.codelist_id else None
+                options = (
+                    codelist_options_map.get(fd.codelist_id)
+                    if fd.field_type != "复选" and fd.codelist_id
+                    else None
+                )
 
                 # 构建嵌套 field_definition（Task 3.1）
                 field_def_preview = {
@@ -330,6 +380,7 @@ class ImportService:
                     "variable_name": fd.variable_name,
                     "label": fd.label,
                     "field_type": fd.field_type,
+                    "checkbox_label": fd.checkbox_label,
                     "integer_digits": fd.integer_digits,
                     "decimal_digits": fd.decimal_digits,
                     "date_format": fd.date_format,
@@ -343,6 +394,7 @@ class ImportService:
                     "index": idx,
                     "label": label,
                     "field_type": fd.field_type,
+                    "checkbox_label": fd.checkbox_label,
                     "options": options,
                     "integer_digits": fd.integer_digits,
                     "decimal_digits": fd.decimal_digits,
@@ -486,6 +538,7 @@ class ImportService:
         db_path = self._resolve_existing_template_path(template_path)
         has_paper_orientation = self._has_template_paper_orientation(db_path)
         has_annotation_positions = self._has_template_annotation_positions(db_path)
+        has_checkbox_label = self._has_template_field_definition_checkbox_label(db_path)
         tmpl = self._open_template_session(db_path)
         try:
             return self._do_import(
@@ -496,6 +549,7 @@ class ImportService:
                 field_ids,
                 has_template_paper_orientation=has_paper_orientation,
                 has_template_annotation_positions=has_annotation_positions,
+                has_template_checkbox_label=has_checkbox_label,
             )
         finally:
             tmpl.close()
@@ -595,6 +649,7 @@ class ImportService:
         *,
         has_template_paper_orientation: bool,
         has_template_annotation_positions: bool,
+        has_template_checkbox_label: bool,
     ) -> dict:
         """實際導入邏輯"""
         s = self.session  # 主庫 session
@@ -677,17 +732,17 @@ class ImportService:
 
 
         # 读取源字段定义
-        src_field_defs: Dict[int, FieldDefinition] = {}
+        src_field_defs: Dict[int, FieldDefinition | SimpleNamespace] = {}
         needed_codelist_ids: set = set()
         needed_unit_ids: set = set()
         if needed_field_def_ids:
-            for fd in tmpl.scalars(
-                select(FieldDefinition).where(
-                    FieldDefinition.id.in_(needed_field_def_ids)
-                )
-            ).all():
+            for fd in self._load_template_field_definitions(
+                tmpl,
+                list(needed_field_def_ids),
+                has_checkbox_label=has_template_checkbox_label,
+            ):
                 src_field_defs[fd.id] = fd
-                if fd.codelist_id is not None:
+                if fd.field_type != "复选" and fd.codelist_id is not None:
                     needed_codelist_ids.add(fd.codelist_id)
                 if fd.unit_id is not None:
                     needed_unit_ids.add(fd.unit_id)
@@ -894,7 +949,7 @@ class ImportService:
     def _create_field_defs(
         s: Session,
         target_project_id: int,
-        src_field_defs: Dict[int, FieldDefinition],
+        src_field_defs: Dict[int, FieldDefinition | SimpleNamespace],
         existing_vars: set,
         unit_id_map: Dict[int, int],
         codelist_id_map: Dict[int, int],
@@ -922,7 +977,7 @@ class ImportService:
 
             # 映射 codelist_id / unit_id
             new_cl_id = None
-            if src_fd.codelist_id is not None:
+            if src_fd.field_type != "复选" and src_fd.codelist_id is not None:
                 new_cl_id = codelist_id_map.get(src_fd.codelist_id)
             new_unit_id = None
             if src_fd.unit_id is not None:
@@ -934,6 +989,7 @@ class ImportService:
                 variable_name=var_name,
                 label=src_fd.label,
                 field_type=src_fd.field_type,
+                checkbox_label=src_fd.checkbox_label,
                 integer_digits=src_fd.integer_digits,
                 decimal_digits=src_fd.decimal_digits,
                 date_format=src_fd.date_format,

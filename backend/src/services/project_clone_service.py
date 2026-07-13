@@ -262,12 +262,16 @@ class ProjectCloneService:
                     variable_name=field_definition.variable_name,
                     label=field_definition.label,
                     field_type=field_definition.field_type,
+                    checkbox_label=field_definition.checkbox_label,
                     integer_digits=field_definition.integer_digits,
                     decimal_digits=field_definition.decimal_digits,
                     date_format=field_definition.date_format,
                     codelist_id=(
                         id_map["codelist"].get(field_definition.codelist_id)
-                        if field_definition.codelist_id
+                        if (
+                            field_definition.field_type != "复选"
+                            and field_definition.codelist_id
+                        )
                         else None
                     ),
                     unit_id=(

@@ -138,7 +138,13 @@ from src.schemas.form import (
 )
 from src.schemas.project import normalize_screening_number_format
 
-from src.services.field_rendering import build_inline_table_model, build_inline_column_demands, build_field_control_weight, extract_default_lines
+from src.services.field_rendering import (
+    build_field_control_weight,
+    build_inline_column_demands,
+    build_inline_table_model,
+    extract_default_lines,
+    resolve_checkbox_label,
+)
 
 from src.services.width_planning import (
 
@@ -3363,6 +3369,8 @@ class ExportService:
         """
 
         field_type = field_def.field_type or ""
+        if field_type == "复选":
+            return f"□{resolve_checkbox_label(field_def)}"
 
         fill_line = "_" * fill_line_chars if fill_line_chars else "________________"
 

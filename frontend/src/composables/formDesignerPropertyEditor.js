@@ -15,6 +15,7 @@ export function syncFieldTypeSpecificProps(editProp, newType, dateFormatOptions,
 
   if (!isChoiceField(newType)) next.codelist_id = null
   if (!UNIT_FIELD_TYPES.includes(newType)) next.unit_id = null
+  if (newType !== '复选') next.checkbox_label = null
 
   if (newType !== '数值') {
     next.integer_digits = null

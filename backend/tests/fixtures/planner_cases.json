@@ -122,6 +122,52 @@
       ]
     },
     {
+      "name": "normal_checkbox_label_fallback",
+      "kind": "normal",
+      "description": "复选默认文本回退字段标签并保留控件最小宽度",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "复选",
+            "label": "已",
+            "checkbox_label": null,
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "name": "normal_checkbox_custom_text",
+      "kind": "normal",
+      "description": "复选控件按 □ + 自定义文本权重参与两列分配",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "复选",
+            "label": "确认状态",
+            "checkbox_label": "已阅读并确认受试者知情同意书",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.21621621621621623,
+        0.7837837837837838
+      ]
+    },
+    {
       "name": "inline_choice_trailing_underscore",
       "kind": "inline",
       "description": "单选 + trailing_underscore → atom 权重含 FILL_LINE_WEIGHT",
