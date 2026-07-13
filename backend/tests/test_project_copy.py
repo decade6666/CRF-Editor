@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as
@@ -61,7 +61,15 @@ def _create_full_project_graph(session: Session, owner_id: int) -> Project:
         codelist_id=codelist.id,
         order_index=2,
     )
-    session.add_all([fd1, fd2])
+    fd3 = FieldDefinition(
+        project_id=project.id,
+        variable_name="SIGNED",
+        label="已签署",
+        field_type="复选",
+        checkbox_label="受试者已签署",
+        order_index=3,
+    )
+    session.add_all([fd1, fd2, fd3])
     session.flush()
 
     form = Form(
@@ -149,10 +157,14 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
 
         source_defs = session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == source_project.id).order_by(FieldDefinition.order_index)).all()
         cloned_defs = session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == cloned_project.id).order_by(FieldDefinition.order_index)).all()
-        assert len(source_defs) == len(cloned_defs) == 2
+        assert len(source_defs) == len(cloned_defs) == 3
         assert all(a.id != b.id for a, b in zip(source_defs, cloned_defs))
         assert cloned_defs[0].unit_id == cloned_units[0].id
         assert cloned_defs[1].codelist_id == cloned_codelists[0].id
+        cloned_checkbox = next(field for field in cloned_defs if field.variable_name == "SIGNED")
+        assert cloned_checkbox.field_type == "复选"
+        assert cloned_checkbox.checkbox_label == "受试者已签署"
+        assert cloned_checkbox.codelist_id is None
 
         source_forms = session.scalars(select(Form).where(Form.project_id == source_project.id)).all()
         cloned_forms = session.scalars(select(Form).where(Form.project_id == cloned_project.id)).all()
@@ -179,6 +191,58 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
 
         assert (tmp_path / "logos" / source_project.company_logo_path).read_bytes() == b"source-logo"
         assert (tmp_path / "logos" / cloned_project.company_logo_path).read_bytes() == b"source-logo"
+
+
+def test_copy_project_discards_stale_checkbox_codelist(client, engine, tmp_path: Path):
+    token = login_as(client, "alice")
+
+    with Session(engine) as session:
+        with session.begin():
+            user = session.scalar(select(User).where(User.username == "alice"))
+            assert user is not None
+            project = _create_full_project_graph(session, user.id)
+            codelist_id = session.scalar(
+                select(CodeList.id).where(CodeList.project_id == project.id)
+            )
+            assert codelist_id is not None
+            session.execute(
+                text(
+                    "UPDATE field_definition SET codelist_id = :codelist_id "
+                    "WHERE project_id = :project_id AND field_type = '复选'"
+                ),
+                {"codelist_id": codelist_id, "project_id": project.id},
+            )
+
+    from src.config import AppConfig, AuthConfig, StorageConfig
+
+    test_config = AppConfig(
+        auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+        storage=StorageConfig(upload_path=str(tmp_path)),
+    )
+    with patch("src.services.project_clone_service.get_config", return_value=test_config), \
+         patch("src.routers.projects.get_config", return_value=test_config):
+        response = client.post("/api/projects/1/copy", headers=auth_headers(token))
+
+    assert response.status_code == 201, response.text
+    with Session(engine) as session:
+        source, clone = session.scalars(select(Project).order_by(Project.id)).all()
+        source_checkbox = session.scalar(
+            select(FieldDefinition).where(
+                FieldDefinition.project_id == source.id,
+                FieldDefinition.field_type == "复选",
+            )
+        )
+        clone_checkbox = session.scalar(
+            select(FieldDefinition).where(
+                FieldDefinition.project_id == clone.id,
+                FieldDefinition.field_type == "复选",
+            )
+        )
+        assert source_checkbox is not None
+        assert clone_checkbox is not None
+        assert source_checkbox.codelist_id is not None
+        assert clone_checkbox.codelist_id is None
+
 
 
 def test_copy_project_forbidden_for_other_user(client, engine):

@@ -90,6 +90,7 @@ test('field definition payload keeps cleared unit as null', () => {
     integer_digits: null,
     decimal_digits: null,
     date_format: null,
+    checkbox_label: undefined,
     codelist_id: null,
     unit_id: undefined,
   })
@@ -100,13 +101,16 @@ test('field definition payload keeps cleared unit as null', () => {
     integer_digits: null,
     decimal_digits: null,
     date_format: null,
+    checkbox_label: '已确认',
     codelist_id: null,
     unit_id: 12,
   })
 
   assert.equal(Object.hasOwn(clearedPayload, 'unit_id'), true)
   assert.equal(clearedPayload.unit_id, null)
+  assert.equal(clearedPayload.checkbox_label, null)
   assert.equal(selectedPayload.unit_id, 12)
+  assert.equal(selectedPayload.checkbox_label, '已确认')
 })
 
 test('normalizeHexColorInput accepts 3 or 6 digit hex values', () => {

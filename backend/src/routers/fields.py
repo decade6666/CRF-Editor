@@ -523,13 +523,19 @@ def copy_field_definition(fd_id: int, session: Session = Depends(get_session), c
 
         field_type=src.field_type,
 
+        checkbox_label=src.checkbox_label,
+
         integer_digits=src.integer_digits,
 
         decimal_digits=src.decimal_digits,
 
         date_format=src.date_format,
 
-        codelist_id=src.codelist_id,
+        codelist_id=(
+
+            None if src.field_type == "复选" else src.codelist_id
+
+        ),
 
         unit_id=src.unit_id,
 

@@ -7,6 +7,7 @@ import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
+import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -21,9 +22,9 @@ const isCreating = ref(false)
 const editProp = reactive({
   variable_name: '', label: '', field_type: '文本',
   integer_digits: null, decimal_digits: null, date_format: null,
-  codelist_id: null, unit_id: null,
+  checkbox_label: null, codelist_id: null, unit_id: null,
 })
-const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）']
+const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '复选']
 
 const DATE_FORMAT_OPTIONS = {
   '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
@@ -33,12 +34,7 @@ const DATE_FORMAT_OPTIONS = {
 const DEFAULT_DATE_FORMATS = { '日期': 'yyyy-MM-dd', '日期时间': 'yyyy-MM-dd HH:mm', '时间': 'HH:mm' }
 
 watch(() => editProp.field_type, (newType) => {
-  if (['日期', '日期时间', '时间'].includes(newType)) {
-    const opts = DATE_FORMAT_OPTIONS[newType] || []
-    if (!opts.includes(editProp.date_format)) editProp.date_format = DEFAULT_DATE_FORMATS[newType]
-  } else {
-    editProp.date_format = null
-  }
+  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))
 })
 
 async function load() {
@@ -74,7 +70,7 @@ const visibleFields = computed(() => {
 const EDITABLE_PROP_KEYS = [
   'variable_name', 'label', 'field_type',
   'integer_digits', 'decimal_digits', 'date_format',
-  'codelist_id', 'unit_id',
+  'checkbox_label', 'codelist_id', 'unit_id',
 ]
 function pickEditableProps(source) {
   const src = source || {}
@@ -88,7 +84,7 @@ function resetProp(data) {
   Object.assign(editProp, {
     variable_name: '', label: '', field_type: '文本',
     integer_digits: null, decimal_digits: null, date_format: null,
-    codelist_id: null, unit_id: null,
+    checkbox_label: null, codelist_id: null, unit_id: null,
   }, data || {})
 }
 
@@ -472,6 +468,7 @@ async function quickSaveCodelist() {
               <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
             </el-select>
           </el-form-item>
+          <el-form-item v-if="editProp.field_type === '复选'" label="复选文本"><el-input v-model="editProp.checkbox_label" :placeholder="editProp.label" /></el-form-item>
           <el-form-item v-if="['单选','多选','单选（纵向）','多选（纵向）'].includes(editProp.field_type)" label="选项">
             <div style="display:flex;align-items:center;gap:4px;width:100%">
               <el-select v-model="editProp.codelist_id" clearable filterable style="flex:1;min-width:0" placeholder="请选择">

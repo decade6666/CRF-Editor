@@ -8,10 +8,13 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
+from src.models.codelist import CodeList
 from src.models.field_definition import FieldDefinition
 from src.models.form import Form
 from src.models.form_field import FormField
@@ -127,6 +130,56 @@ def test_execute_docx_import_detail_contains_required_fields(engine, monkeypatch
         assert detail.form_id > 0
 
 
+def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> None:
+    user_id, project_id = _create_owned_project(engine)
+
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.get_temp_path",
+        lambda _temp_id: Path("/tmp/fake.docx"),
+    )
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.cleanup_temp",
+        lambda _temp_id: None,
+    )
+
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.import_forms",
+        lambda *_args, **_kwargs: {
+            "imported_form_count": 1,
+            "detail": [{"name": "表单A", "field_count": 1, "form_id": 101}],
+        },
+    )
+    monkeypatch.setattr(
+        "src.routers.import_docx.limit_import_action", lambda *_args, **_kwargs: None,
+    )
+
+    with Session(engine) as session:
+        current_user = session.get(User, user_id)
+        assert current_user is not None
+        with pytest.raises(HTTPException) as exc:
+            import_docx.execute_docx_import(
+                project_id=project_id,
+                request=Request({"type": "http", "method": "POST", "path": "/execute"}),
+                payload=import_docx.DocxExecuteRequest(
+                    temp_id="tmp-checkbox",
+                    form_indices=[0],
+                    ai_overrides=[
+                        import_docx.DocxFormOverride(
+                            form_index=0,
+                            overrides=[
+                                import_docx.DocxAIFieldOverride(index=0, field_type="复选")
+                            ],
+                        )
+                    ],
+                ),
+                session=session,
+                current_user=current_user,
+            )
+
+    assert exc.value.status_code == 400
+    assert "不支持的字段类型" in exc.value.detail
+
+
 def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -> None:
     """import-docx/preview 返回的响应必须包含可选 ai_task_id 字段。"""
     user_id, project_id = _create_owned_project(engine)
@@ -179,9 +232,8 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
                 {"type": "log_row"},
                 {
                     "label": "字段B",
-                    "field_type": "文本",
-                    "integer_digits": 2,
-                    "decimal_digits": 1,
+                    "field_type": "单选",
+                    "options": ["是", "否"],
                 },
             ],
         }
@@ -198,7 +250,7 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
             ai_overrides=[
                 {
                     "form_index": 0,
-                    "overrides": [{"index": 1, "field_type": "日期"}],
+                    "overrides": [{"index": 1, "field_type": "文本"}],
                 }
             ],
         )
@@ -217,9 +269,11 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
         assert summary["imported_form_count"] == 1
         assert summary["detail"][0]["field_count"] == 2
         assert defs_by_label["字段A"].field_type == "文本"
-        assert defs_by_label["字段B"].field_type == "日期"
-        assert defs_by_label["字段B"].integer_digits is None
-        assert defs_by_label["字段B"].decimal_digits is None
+        assert defs_by_label["字段B"].field_type == "文本"
+        assert defs_by_label["字段B"].codelist_id is None
+        assert session.scalar(
+            select(CodeList).where(CodeList.project_id == project_id)
+        ) is None
 
         form_fields = session.scalars(
             select(FormField)

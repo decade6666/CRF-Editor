@@ -172,6 +172,22 @@ def _migrate_add_trailing_underscore(engine):
 
 
 
+def _migrate_add_field_definition_checkbox_label(engine):
+    """给 field_definition 表补上复选文本列。"""
+    insp = inspect(engine)
+    if not insp.has_table("field_definition"):
+        return
+
+    with engine.begin() as conn:
+        columns = {column["name"] for column in insp.get_columns("field_definition")}
+        if "checkbox_label" not in columns:
+            conn.execute(text(
+                'ALTER TABLE "field_definition" ADD COLUMN checkbox_label VARCHAR(255)'
+            ))
+
+
+
+
 def _migrate_add_order_index(engine):
 
     """给相关表补上 order_index 列并回填数据"""
@@ -1054,6 +1070,8 @@ def init_db():
     _migrate_add_code_columns(engine)
 
     _migrate_add_trailing_underscore(engine)
+
+    _migrate_add_field_definition_checkbox_label(engine)
 
     _migrate_add_order_index(engine)
 

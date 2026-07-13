@@ -10,9 +10,9 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 
 - **Project and Access Management**: Create and manage clinical research projects with account-password login, admin user management, project isolation, and a dedicated admin workspace
 - **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
-- **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, checkbox, etc.), drag sorting, and design notes
+- **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, multi-select, single checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values; in complete mode, both the designer and the visits form preview can switch between eCRF / aCRF views, and the aCRF field OID / form-domain annotations support vertical dragging, persisted positions, and export-matched styling
-- **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page
+- **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page; a single checkbox is codelist-free, can define checkbox text (falling back to its field label when empty), and renders as `field label | □checkbox text` in previews and Word exports
 - **List Ordering and Ordinal Quick Edit**: Code lists, options, units, fields, visits, visit-form relations, and the form list in the designer all support drag ordering; double-clicking the ordinal cell opens direct target-position input backed by the existing reorder endpoints
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel; Word import AI review suggestions can be accepted selectively at three levels (per suggestion / per form / all, default off), and the "import effect" preview reflects accepted field types in real time
@@ -282,8 +282,8 @@ node --test tests/*.test.js
 ```
 
 In the current repository:
-- `backend/tests/` currently contains 46 Python test files (44 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 44 frontend test files (43 `.test.js` files plus `testProperty.js`), covering source-level contracts such as designer / visits aCRF annotation geometry, persistence, and drag wiring
+- `backend/tests/` currently contains 47 Python test files (45 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 46 frontend test files (45 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, and the checkbox field type
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing

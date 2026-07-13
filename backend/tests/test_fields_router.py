@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from helpers import auth_headers, login_as
@@ -22,6 +22,7 @@ from src.models.form import Form
 from src.models.field_definition import FieldDefinition
 from src.models.form_field import FormField
 from src.models.codelist import CodeList, CodeListOption
+from src.database import _migrate_add_field_definition_checkbox_label
 
 
 @pytest.fixture
@@ -270,6 +271,160 @@ def test_update_field_definition_clear_unit_is_idempotent_and_visible_in_form_re
     assert field_definition["id"] == field_definition_id
     assert field_definition["unit_id"] is None
     assert field_definition["unit"] is None
+
+
+def test_checkbox_label_migration_is_idempotent(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy_fields.db"
+    migration_engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    with migration_engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE field_definition ("
+            "id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, label VARCHAR(255) NOT NULL)"
+        ))
+
+    _migrate_add_field_definition_checkbox_label(migration_engine)
+    _migrate_add_field_definition_checkbox_label(migration_engine)
+
+    columns = {
+        column["name"]: column
+        for column in inspect(migration_engine).get_columns("field_definition")
+    }
+    assert columns["checkbox_label"]["nullable"] is True
+    migration_engine.dispose()
+
+
+def test_checkbox_model_clears_codelist_regardless_constructor_assignment_order() -> None:
+    checkbox = FieldDefinition(
+        project_id=1,
+        variable_name="SIGNED",
+        label="已签署",
+        codelist_id=999,
+        field_type="复选",
+    )
+
+    assert checkbox.codelist_id is None
+
+
+def test_checkbox_field_definition_persists_without_codelist(
+    client: TestClient,
+    project_id: int,
+    form_id: int,
+    codelist_id: int,
+    auth_token: str,
+) -> None:
+    create_resp = client.post(
+        f"/api/projects/{project_id}/field-definitions",
+        json={
+            "variable_name": "SIGNED",
+            "label": "已签署",
+            "field_type": "复选",
+            "checkbox_label": "本人已签署",
+            "codelist_id": codelist_id,
+        },
+        headers=auth_headers(auth_token),
+    )
+
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["field_type"] == "复选"
+    assert created["checkbox_label"] == "本人已签署"
+    assert created["codelist_id"] is None
+    assert created["codelist"] is None
+
+    choice_resp = client.post(
+        f"/api/projects/{project_id}/field-definitions",
+        json={
+            "variable_name": "CONSENT",
+            "label": "知情同意",
+            "field_type": "单选",
+            "codelist_id": codelist_id,
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert choice_resp.status_code == 201, choice_resp.text
+
+    update_resp = client.put(
+        f"/api/projects/{project_id}/field-definitions/{choice_resp.json()['id']}",
+        json={"field_type": "复选", "checkbox_label": None},
+        headers=auth_headers(auth_token),
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    updated = update_resp.json()
+    assert updated["checkbox_label"] is None
+    assert updated["codelist_id"] is None
+
+    reassign_resp = client.put(
+        f"/api/projects/{project_id}/field-definitions/{choice_resp.json()['id']}",
+        json={"codelist_id": codelist_id},
+        headers=auth_headers(auth_token),
+    )
+    assert reassign_resp.status_code == 200, reassign_resp.text
+    assert reassign_resp.json()["codelist_id"] is None
+
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": choice_resp.json()["id"]},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+
+    form_fields_resp = client.get(
+        f"/api/forms/{form_id}/fields",
+        headers=auth_headers(auth_token),
+    )
+    assert form_fields_resp.status_code == 200, form_fields_resp.text
+    definition = form_fields_resp.json()[0]["field_definition"]
+    assert definition["checkbox_label"] is None
+    assert definition["codelist_id"] is None
+
+def test_copy_checkbox_field_definition_preserves_custom_text(
+    client: TestClient,
+    project_id: int,
+    auth_token: str,
+) -> None:
+    create_resp = client.post(
+        f"/api/projects/{project_id}/field-definitions",
+        json={
+            "variable_name": "SIGNED",
+            "label": "已签署",
+            "field_type": "复选",
+            "checkbox_label": "受试者本人已签署",
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert create_resp.status_code == 201, create_resp.text
+
+    copy_resp = client.post(
+        f"/api/field-definitions/{create_resp.json()['id']}/copy",
+        headers=auth_headers(auth_token),
+    )
+
+    assert copy_resp.status_code == 201, copy_resp.text
+    copied = copy_resp.json()
+    assert copied["variable_name"] == "SIGNED_copy"
+    assert copied["field_type"] == "复选"
+    assert copied["checkbox_label"] == "受试者本人已签署"
+    assert copied["codelist_id"] is None
+
+
+def test_checkbox_field_definition_rejects_label_over_255_characters(
+    client: TestClient,
+    project_id: int,
+    auth_token: str,
+) -> None:
+    response = client.post(
+        f"/api/projects/{project_id}/field-definitions",
+        json={
+            "variable_name": "SIGNED_LONG",
+            "label": "已签署",
+            "field_type": "复选",
+            "checkbox_label": "x" * 256,
+        },
+        headers=auth_headers(auth_token),
+    )
+
+    assert response.status_code == 422
+
 
 
 def test_patch_inline_mark_preserves_default_value_when_disabling(

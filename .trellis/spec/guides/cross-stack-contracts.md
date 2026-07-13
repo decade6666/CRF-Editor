@@ -510,6 +510,94 @@ const landscapeMode = resolveLandscape(form.paper_orientation, autoFallbackFlag)
 
 ---
 
+### 8. Checkbox Field Type
+
+**Contract ID**: `checkbox-field-type`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **Files** | `models/field_definition.py`, `schemas/field.py`, `services/field_rendering.py`, `services/export_service.py`, clone/import services | `useCRFRenderer.js`, `formDesignerPropertyEditor.js`, field/designer/preview components |
+| **Purpose** | Persist and export a codelist-free single checkbox control | Edit and render the same virtual single checkbox control |
+
+#### 1. Scope / Trigger
+
+- Trigger: changing `field_type="复选"`, `checkbox_label`, checkbox rendering, default-value eligibility, codelist behavior, or its shared planner case.
+- The type is a virtual single option with internal OID `1`; it is not a `CodeList` / `CodeListOption` feature and does not create option-level aCRF annotations.
+
+#### 2. Signatures
+
+```python
+# Backend persistence / rendering
+field_type: str = "复选"
+checkbox_label: Optional[str]  # VARCHAR(255), nullable
+resolve_checkbox_label(field_def) -> str
+is_default_value_supported(form_field) -> bool
+# export: "□" + resolve_checkbox_label(field_def)
+```
+
+```javascript
+// Frontend rendering / layout
+renderCtrl({ field_type: '复选', label, checkbox_label }) // `□${checkbox_label || label || ''}`
+isChoiceField('复选') // false
+isDefaultValueSupported('复选', inlineMark) // false
+computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FILL_LINE_WEIGHT)
+```
+
+#### 3. Contracts
+
+- `checkbox_label || label || ''` is the sole text fallback on both stacks. An empty string is equivalent to no custom text; `label_override` never replaces checkbox control text.
+- `codelist_id` is always `null`; the type MUST stay outside `isChoiceField()` and choice/default-value UI, validation, option loading, and codelist merge paths.
+- A checkbox renders as a normal two-column field (`label | □text`), including preview and eCRF Word export. aCRF remains field-variable annotation only.
+- Default values are forbidden even when `inline_mark` is true. The inline shortcut must not override the checkbox exclusion, or preview/export and planner text drift.
+- Both planners use the marker-plus-resolved-text choice-atom weight and retain `FILL_LINE_WEIGHT` as the minimum. Add/change shared cases only in `frontend/scripts/generatePlannerFixtures.mjs`, then regenerate `backend/tests/fixtures/planner_cases.json`.
+- `复选` is created only in the field library / form designer, never by DOCX import. It MUST stay out of `ai_review_service.VALID_FIELD_TYPES` (9 non-checkbox types), which both filters AI suggestions and validates `ai_overrides` at `routers/import_docx.py`; the frontend `docxAiSuggestionOverrides.js` `VALID_FIELD_TYPES` MUST stay byte-aligned with that list (locked by `frontend/tests/docxAiSuggestionAcceptance.test.js`). A `复选` override therefore fails closed with `400 不支持的字段类型`.
+- Type-switch cleanup is enforced on BOTH stacks, not only the editor: the model `@validates("field_type")` clears `codelist_id` when switching to `复选` and clears `checkbox_label` when switching away, mirroring frontend `syncFieldTypeSpecificProps`. A partial `PUT` that changes only `field_type` must not leave stale type-specific data server-side.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| `checkbox_label` is `null` or `""` | Render `□` plus field-definition `label`; no stored label copy is required. |
+| Custom `checkbox_label` is present | Render `□` plus the custom text on preview/export; use that text for planner weight. |
+| Create/update/clone/import receives a codelist ID | Persist/remap `None`; do not create, merge, or display codelist options. |
+| Checkbox has `default_value`, including an inline field | Ignore it; default-value editor/renderer/weight must remain unavailable. |
+| Short checkbox text | Planner demand is at least `FILL_LINE_WEIGHT` on both stacks. |
+| Preview/export data adapter omits `label` or `checkbox_label` | Contract violation: fallback text or width becomes incorrect; pass both fields to the renderer. |
+| DOCX import `ai_overrides` sends `field_type="复选"` | Fail closed with `400 不支持的字段类型`; `复选` is not a DOCX-admissible type on either stack. |
+| `PUT /field-definitions/{id}` switches `复选` → other type | Model validator clears `checkbox_label` server-side even when the payload omits it. |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: `{field_type: '复选', label: '已签署', checkbox_label: '本人已确认'}` renders `□本人已确认`, has null codelist, and uses that atom's shared planner weight.
+- **Base**: `{field_type: '复选', label: '已签署', checkbox_label: null}` renders `□已签署` and uses the same fallback for export and width planning.
+- **Bad**: add `复选` to `isChoiceField()` or let `inline_mark` make its default value usable; this routes a virtual control into dictionary/default-value behavior and causes preview/export drift.
+
+#### 6. Tests Required
+
+- Backend: field-definition API rejects/clears a codelist for `复选`, enforces nullable/max-255 `checkbox_label`, and preserves it through copy/import.
+- Backend: `test_docx_import_contract.py` asserts a `复选` `ai_overrides` is rejected with `400`, and that legal overrides still map to the real field index after a log row.
+- Backend: `test_width_planning.py` asserts fallback/custom choice-atom weight and ignores inline default text; export tests assert literal `□` plus resolved text and no option OID annotation.
+- Frontend: `frontend/tests/checkboxFieldType.test.js` asserts rendering/HTML escaping, `isChoiceField === false`, default-value exclusion with `inlineMark=true`, type-switch cleanup, preview adapters, and the fixture generator case.
+- Shared planner: regenerate with `node frontend/scripts/generatePlannerFixtures.mjs`; run `backend/tests/test_width_planning.py` and `frontend/tests/columnWidthPlanning.test.js`.
+
+#### 7. Wrong vs Correct
+
+**Wrong**
+
+```javascript
+if (inlineMark) return true // makes every inline type default-value capable
+if (isChoiceField(fieldType)) return renderChoice(field)
+```
+
+**Correct**
+
+```javascript
+if (fieldType === '复选') return false // before the inline default-value shortcut
+if (fieldType === '复选') return `□${checkboxLabel || label || ''}`
+```
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code

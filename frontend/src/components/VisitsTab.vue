@@ -329,6 +329,8 @@ function toRendererField(fd) {
   if (!fd) return null
   return {
     field_type: fd.field_type,
+    label: fd.label,
+    checkbox_label: fd.checkbox_label,
     options: fd.codelist?.options || [],
     unit_symbol: fd.unit?.symbol,
     integer_digits: fd.integer_digits,

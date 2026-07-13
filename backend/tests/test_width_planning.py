@@ -109,6 +109,52 @@ class TestChoiceAtomWeight:
         assert with_trailing - without_trailing == 6  # FILL_LINE_WEIGHT
 
 
+@pytest.mark.parametrize(
+    ("checkbox_label", "expected_label"),
+    [
+        (None, "已签署"),
+        ("本人已确认", "本人已确认"),
+    ],
+)
+def test_checkbox_control_weight_uses_marker_and_resolved_label(
+    checkbox_label: str | None,
+    expected_label: str,
+) -> None:
+    field_definition = SimpleNamespace(
+        field_type="复选",
+        label="已签署",
+        checkbox_label=checkbox_label,
+    )
+    form_field = SimpleNamespace(
+        field_definition=field_definition,
+        inline_mark=0,
+        default_value=None,
+    )
+
+    assert build_field_control_weight(form_field) == compute_choice_atom_weight(
+        expected_label,
+        False,
+    )
+
+
+def test_checkbox_inline_default_value_is_ignored_by_control_weight() -> None:
+    field_definition = SimpleNamespace(
+        field_type="复选",
+        label="已签署",
+        checkbox_label=None,
+    )
+    form_field = SimpleNamespace(
+        field_definition=field_definition,
+        inline_mark=1,
+        default_value="这段默认值不应影响复选控件宽度",
+    )
+
+    assert build_field_control_weight(form_field) == compute_choice_atom_weight(
+        "已签署",
+        False,
+    )
+
+
 class TestBuildColumnDemands:
     """列需求构建测试"""
 
@@ -432,6 +478,7 @@ def _stub_from_dict(data: dict):
         field_definition = SimpleNamespace(
             field_type=fd_raw.get("field_type"),
             label=fd_raw.get("label"),
+            checkbox_label=fd_raw.get("checkbox_label"),
             codelist=codelist,
             options=None,  # 后端走 codelist.options 路径
             date_format=fd_raw.get("date_format"),

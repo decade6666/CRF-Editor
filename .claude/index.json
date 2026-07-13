@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-06T20:02:00-07:00",
+  "timestamp": "2026-07-12T22:01:49-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -95,6 +95,7 @@
         "backend/tests/test_codelists_router.py",
         "backend/tests/test_config.py",
         "backend/tests/test_docx_import_contract.py",
+        "backend/tests/test_docx_import_rules.py",
         "backend/tests/test_docx_screenshot_service.py",
         "backend/tests/test_export_acrf.py",
         "backend/tests/test_export_column_width_override.py",
@@ -133,8 +134,8 @@
         "backend/tests/test_word_table_parity.py"
       ],
       "coverage": {
-        "estimated_files": 106,
-        "scanned_files": 106,
+        "estimated_files": 107,
+        "scanned_files": 107,
         "percent": 100
       },
       "gaps": [
@@ -186,6 +187,7 @@
         "frontend/src/composables/useLazyTabs.js",
         "frontend/src/composables/useOrderableList.js",
         "frontend/src/composables/useOrdinalQuickEdit.js",
+        "frontend/src/composables/usePaneSplit.js",
         "frontend/src/composables/usePerfBaseline.js",
         "frontend/src/composables/useRowResize.js",
         "frontend/src/composables/useSessionTimer.js",
@@ -213,6 +215,7 @@
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",
         "frontend/tests/browserPerfBaselineScript.test.js",
+        "frontend/tests/checkboxFieldType.test.js",
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
@@ -232,6 +235,7 @@
         "frontend/tests/importRenameFeedback.test.js",
         "frontend/tests/orderingStructure.test.js",
         "frontend/tests/ordinalQuickEditWiring.test.js",
+        "frontend/tests/paneSplit.test.js",
         "frontend/tests/perfBaselineHelpers.test.js",
         "frontend/tests/portDefaults.test.js",
         "frontend/tests/projectDeleteConfirmation.test.js",
@@ -251,8 +255,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 87,
-        "scanned_files": 87,
+        "estimated_files": 89,
+        "scanned_files": 89,
         "percent": 100
       },
       "gaps": [
@@ -279,8 +283,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 194,
-    "scanned_files": 194,
+    "estimated_total_files": 197,
+    "scanned_files": 197,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

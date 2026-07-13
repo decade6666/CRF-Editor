@@ -165,10 +165,29 @@ export function computeFieldControlWeight(ff) {
   const fieldType = fd ? fd.field_type : ff.field_type
   const rawOptions = fd ? (fd.options || fd.codelist?.options || []) : (ff.options || [])
   const defaultValue = ff.default_value
+  const rendererField = fd
+    ? {
+        field_type: fieldType,
+        label: fd.label,
+        checkbox_label: fd.checkbox_label,
+        options: rawOptions,
+        unit_symbol: fd.unit_symbol || fd.unit?.symbol || ff.unit_symbol,
+        integer_digits: fd.integer_digits,
+        decimal_digits: fd.decimal_digits,
+        date_format: fd.date_format,
+      }
+    : ff
 
   if (defaultValue && isDefaultValueSupported(fieldType, Boolean(ff.inline_mark))) {
     const lines = normalizeDefaultValue(defaultValue).split('\n')
     return Math.max(...lines.map(line => computeTextWeight(line)), FILL_LINE_WEIGHT)
+  }
+
+  if (fieldType === '复选') {
+    return Math.max(
+      computeChoiceAtomWeight(resolveCheckboxText(rendererField), false),
+      FILL_LINE_WEIGHT,
+    )
   }
 
   if (isChoiceField(fieldType)) {
@@ -180,16 +199,6 @@ export function computeFieldControlWeight(ff) {
     )
   }
 
-  const rendererField = fd
-    ? {
-        field_type: fieldType,
-        options: rawOptions,
-        unit_symbol: fd.unit_symbol || fd.unit?.symbol || ff.unit_symbol,
-        integer_digits: fd.integer_digits,
-        decimal_digits: fd.decimal_digits,
-        date_format: fd.date_format,
-      }
-    : ff
   return computeControlPlaceholderWeight(fieldType, rendererField)
 }
 
@@ -381,6 +390,10 @@ function buildFillLineHtml(length = 20, minLength = 4) {
   return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
 }
 
+function resolveCheckboxText(field) {
+  return field?.checkbox_label || field?.label || ''
+}
+
 function getChoiceSymbol(fieldType) {
   return fieldType.includes('单选') ? '○' : '□'
 }
@@ -415,6 +428,7 @@ export function isChoiceField(fieldType) {
 }
 
 export function isDefaultValueSupported(fieldType, inlineMark = false) {
+  if (fieldType === '复选') return false
   if (inlineMark) return true
   return ['文本', '数值'].includes(fieldType)
 }
@@ -584,6 +598,7 @@ export function renderCtrl(field, fillLineChars = null, columnCm = null) {
   if (field.field_type === '日期') return renderDateFmt(field.date_format || 'yyyy-MM-dd')
   if (field.field_type === '日期时间') return renderDateFmt(field.date_format || 'yyyy-MM-dd HH:mm')
   if (field.field_type === '时间') return renderDateFmt(field.date_format || 'HH:mm')
+  if (field.field_type === '复选') return '□' + resolveCheckboxText(field)
   if (field.field_type === '单选') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('  ')
   if (field.field_type === '多选') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('  ')
   if (field.field_type === '单选（纵向）') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('\n')

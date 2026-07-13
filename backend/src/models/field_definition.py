@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, List, Optional
 from datetime import datetime
 
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint, DateTime
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.sql import func
 
 from . import Base
@@ -34,6 +34,7 @@ class FieldDefinition(Base):
     variable_name: Mapped[str] = mapped_column(String(100), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     field_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    checkbox_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # 数值类型配置
     integer_digits: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -58,6 +59,28 @@ class FieldDefinition(Base):
 
     # 序号
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    @validates("field_type")
+    def clear_checkbox_codelist_on_type_change(
+        self,
+        _key: str,
+        field_type: str,
+    ) -> str:
+        if field_type == "复选":
+            self.codelist_id = None
+        else:
+            self.checkbox_label = None
+        return field_type
+
+    @validates("codelist_id")
+    def clear_checkbox_codelist(
+        self,
+        _key: str,
+        codelist_id: Optional[int],
+    ) -> Optional[int]:
+        if getattr(self, "field_type", None) == "复选":
+            return None
+        return codelist_id
 
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(

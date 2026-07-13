@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-07-06
+> Last updated: 2026-07-12
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -23,9 +23,9 @@ graph TD
     B --> B6["tests (46)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (22)"];
+    C --> C2["src/composables (23)"];
     C --> C3["src/styles"];
-    C --> C4["tests (44)"];
+    C --> C4["tests (46)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,12 +35,12 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (46 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (44 files, including 43 `.test.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (47 files) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (46 files, including 45 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
-- Management of projects, visits, forms, fields, units, and option dictionaries
+- Management of projects, visits, forms, fields, units, and option dictionaries; the codelist-free single checkbox field (`复选`) has an optional field-definition `checkbox_label` and falls back to the field label when empty
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
@@ -92,6 +92,7 @@ cd frontend && node --test tests/*.test.js
 ## Cross-Stack Contracts
 - Column width planning: the backend `backend/src/services/width_planning.py` and the frontend `frontend/src/composables/useCRFRenderer.js` must evolve in sync. Shared constants `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, `FILL_LINE_MIN_CHARS=6`, `FILL_LINE_MAX_CHARS=80`, `FILL_LINE_EPSILON=1e-9`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters from being squeezed by long neighbors to the point they cannot fit on a single line), `AVAILABLE_CM=14.66`. The adaptive underscore count is used directly for whole-cell text fill-lines; choice trailing underscores use the same width-derived count after subtracting the marker + label footprint so the atom stays within the column. Changing either side requires syncing the other and regenerating fixtures via `frontend/scripts/generatePlannerFixtures.mjs`.
 - Column width fixtures: `backend/tests/fixtures/planner_cases.json` is output from the generator as a single source of truth, and is used simultaneously by the backend `backend/tests/test_width_planning.py` and the frontend `frontend/tests/columnWidthPlanning.test.js`.
+- Checkbox field contract: `复选` is a single codelist-free checkbox with conceptual option OID `1`, which is never persisted or shown in the dictionary library. Its optional field-definition `checkbox_label` falls back to `label`; normal rendering is `label | □checkbox text`. Keep `backend/src/models/field_definition.py`, `backend/src/database.py`, `backend/src/schemas/field.py`, `backend/src/services/field_rendering.py`, `backend/src/services/export_service.py`, `backend/src/services/import_service.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `frontend/src/components/FieldsTab.vue`, `frontend/src/components/FormDesignerTab.vue`, and `frontend/src/composables/useCRFRenderer.js` aligned. It is not DOCX auto-detected and creates no aCRF option-level OID annotation.
 - Ordering contract: the backend `backend/src/services/order_service.py` and the frontend `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` need to keep consistent interface semantics.
 - Authentication contract: the backend `backend/src/routers/auth.py`, `backend/src/services/auth_service.py` and the frontend `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/AdminView.vue` need to be checked in sync.
 - Form orientation contract: the backend `backend/src/models/form.py`, `backend/src/schemas/form.py`, `backend/src/database.py`, `backend/src/routers/forms.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/export_service.py` need to be synced with the frontend `frontend/src/components/FormDesignerTab.vue`; when `paper_orientation` changes, validate `test_form_paper_orientation.py`, `test_export_paper_orientation.py`, `test_project_copy.py` and the frontend source-level tests in sync.
@@ -126,6 +127,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-07-12` (task `07-12-checkbox-field-type`): Added the codelist-free single checkbox field type (`复选`) across the backend, field library, form designer, previews, and Word export. `checkbox_label` is optional at field-definition level and falls back to the field label; normal layout renders `label | □checkbox text`. Project copy, project `.db` import, and template import preserve the type, label, and null `codelist_id`; shared width planning and preview/export parity include the checkbox text. DOCX import does not infer the type, and aCRF adds no option-level OID annotation. Documentation inventory now reflects the current 47 backend and 46 frontend test files.
 - `2026-07-05` (task `07-05-docx-ai-suggestion-accept`): Word 导入预览 now supports default-off AI suggestion acceptance at three levels (per suggestion / per form / all forms), with the right-side `SimulatedCRFForm` preview rendering only the accepted suggestion subset in real time and the execute payload appending `ai_overrides` only when non-empty. The backend AI suggestion index contract is now aligned to the log_row-filtered real field order in both `ai_review_service.py` and `docx_import_service.py`, preventing preview/import mismatches when log rows exist. Documentation sync also refreshes the root/backend module counts and index entries for the current backend service/test inventory.
 - `2026-07-04`: Word 导入截图证据页码匹配修复。`backend/src/services/docx_screenshot_service.py` now uses PDF-outline-first form page detection (`doc.get_toc()`) with text fallback instead of relying solely on first non-TOC text hits, and the TOC/index-page heuristic now uses matched-form density/ratio plus substring dedup so compact index pages in `image/标准eCRF.docx` no longer collapse early forms onto pages 4-6. Reopening the screenshot panel also stops recomputing page ranges when the sorted form-name signature is unchanged (`ScreenshotTask.detect_signature`). Added backend regressions for compact-index detection, non-TOC content protection, substring collisions, outline mapping, signature-based cache reuse, plus a LibreOffice-gated real-document assertion; backend suite verified at `583 passed, 4 xfailed`.
 - `2026-06-30`: `annotation_positions` persistence contract gap closed. `schemas/form.py::preserve_annotation_positions_storage` string branch now goes through `serialize_annotation_positions` so copy/clone/project `.db` import/template import canonicalize (clamp + key-sort) on write instead of storing raw out-of-range values. `import_service.py` template import now passes through `annotation_positions` via `preserve_annotation_positions_storage` with mixed-column legacy read-only compatibility (column probe + raw SQL single-column fallback for both `_load_template_forms` and `get_template_form_paper_orientation`, mirroring `paper_orientation`). `routers/import_template.py` converts service `ValueError` into 400 JSON. `VisitsTab.vue::mergeFormIntoState` now merges each collection (`allForms`/`visitForms`/`matrixData.forms`/`formPreviewForm`) on its own item base so aCRF drag-save no longer drops `visitForms.sequence`. Added backend regressions (out-of-range canonicalization on copy/clone/project-import, template import preservation/rejection/legacy-fallback, mixed-column preview tolerance, route-level fail-closed JSON) and a frontend contract test for per-collection base-merge; `test_form_annotation_positions.py` helper fixed to seed ORM `Form` directly (was misusing router `FormResponse`, masking 3 red tests).
