@@ -354,6 +354,68 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
     assert rendered == "________________"
 
 
+@pytest.mark.parametrize(
+    ("checkbox_label", "expected_control"),
+    [
+        (None, "□已签署"),
+        ("", "□已签署"),
+        ("本人已确认", "□本人已确认"),
+    ],
+)
+def test_export_checkbox_field_uses_custom_or_fallback_label(
+    session: Session,
+    tmp_path: Path,
+    checkbox_label: str | None,
+    expected_control: str,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="确认表", order_index=1)
+    checkbox = create_field_definition(
+        session,
+        project.id,
+        variable_name="SIGNED",
+        label="已签署",
+        field_type="复选",
+    )
+    checkbox.checkbox_label = checkbox_label
+    create_form_field(session, form.id, checkbox.id, order_index=1)
+
+    doc = export_document(session, project.id, tmp_path)
+
+    assert doc.tables[2].cell(0, 0).text == "已签署"
+    assert doc.tables[2].cell(0, 1).text == expected_control
+
+
+def test_export_inline_checkbox_ignores_default_value(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    project = create_project(session)
+    form = create_form(session, project.id, name="确认表", order_index=1)
+    checkbox = create_field_definition(
+        session,
+        project.id,
+        variable_name="SIGNED",
+        label="已签署",
+        field_type="复选",
+    )
+    form_field = create_form_field(
+        session,
+        form.id,
+        checkbox.id,
+        order_index=1,
+        default_value="不应渲染",
+    )
+    form_field.inline_mark = 1
+    session.flush()
+
+    doc = export_document(session, project.id, tmp_path)
+    inline_table = doc.tables[-1]
+
+    assert inline_table.cell(1, 0).text == "□已签署"
+    assert "不应渲染" not in inline_table.cell(1, 0).text
+
+
 def test_export_project_sorts_form_headings_by_order_index_then_id(
     session: Session,
     tmp_path: Path,

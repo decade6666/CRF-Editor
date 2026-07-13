@@ -22,14 +22,22 @@ CONTROL_PLACEHOLDER_WEIGHTS = {
 NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
 
 
+def resolve_checkbox_label(field_def: object) -> str:
+    """返回复选控件的自定义文本，空值时动态回退字段标签。"""
+    return getattr(field_def, "checkbox_label", None) or getattr(field_def, "label", None) or ""
+
+
 def is_default_value_supported(form_field) -> bool:
     """判断字段是否允许按当前上下文使用 default_value。"""
     field_def = getattr(form_field, "field_definition", None)
     if not field_def:
         return False
+    field_type = getattr(field_def, "field_type", None)
+    if field_type == "复选":
+        return False
     if bool(getattr(form_field, "inline_mark", 0)):
         return True
-    return getattr(field_def, "field_type", None) in NON_INLINE_DEFAULT_VALUE_FIELD_TYPES
+    return field_type in NON_INLINE_DEFAULT_VALUE_FIELD_TYPES
 
 
 def extract_default_lines(form_field) -> List[str]:
@@ -128,6 +136,12 @@ def build_field_control_weight(form_field) -> float:
         )
 
     field_type = getattr(field_def, "field_type", None)
+    if field_type == "复选":
+        return max(
+            compute_choice_atom_weight(resolve_checkbox_label(field_def), False),
+            FILL_LINE_WEIGHT,
+        )
+
     if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
         option_data = _get_option_data_for_width(field_def)
         if not option_data:

@@ -120,6 +120,78 @@ def run_migrations(engine):
 - New table → Define in model, SQLAlchemy creates on startup
 - Dropping columns → Not supported by SQLite; create new table and migrate data
 
+### Scenario: Adding Nullable `FieldDefinition.checkbox_label`
+
+#### 1. Scope / Trigger
+
+- Trigger: adding or changing `FieldDefinition.checkbox_label`, the nullable persisted text for `field_type="复选"`.
+- This is a migration/import contract: local databases migrate in place; project DB imports may patch their working copy; template-library reads must remain read-only.
+
+#### 2. Signatures
+
+```python
+# backend/src/models/field_definition.py
+checkbox_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+# backend/src/database.py
+_migrate_add_field_definition_checkbox_label(engine) -> None
+# Adds: field_definition.checkbox_label VARCHAR(255) NULL
+
+# backend/src/services/import_service.py
+_has_template_field_definition_checkbox_label(db_path: str) -> bool
+_load_template_field_definitions(..., has_checkbox_label: bool) -> list[FieldDefinition | SimpleNamespace]
+```
+
+#### 3. Contracts
+
+- The local startup migration is idempotent: probe `field_definition` first, then add nullable `VARCHAR(255)` only when absent; no backfill is required.
+- Project DB import compatibility patches its import working copy before schema validation/ORM loading, so a legacy source missing the column imports with `checkbox_label=None`.
+- Template preview/import probes `PRAGMA table_info(field_definition)`. If the column is absent, it selects only legacy columns and supplies `SimpleNamespace.checkbox_label=None` in memory; it MUST NOT run `ALTER TABLE` on the external template.
+- Current clone, project import, and template import must explicitly copy `checkbox_label`; for `field_type="复选"`, codelist remapping remains `None`.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| Local `field_definition` lacks `checkbox_label` | Startup adds nullable `VARCHAR(255)` exactly once. |
+| Legacy project DB lacks the column | Compatibility patch makes the importable working copy nullable-compatible; imported value is `None`. |
+| Legacy external template lacks the column | Preview/import returns or persists `None`; source schema remains unchanged. |
+| Current source contains custom text | Clone/project/template paths preserve the exact text. |
+| `复选` source carries stale `codelist_id` | Destination field definition keeps `codelist_id=None`; no codelist is merged solely for it. |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: a current template with `checkbox_label="受试者已确认"` previews and imports the same value; a legacy template produces `None` without any source-file write.
+- **Base**: `checkbox_label=None` is valid persisted data and the renderer later falls back to `label`.
+- **Bad**: execute `ALTER TABLE` against a template file, or ORM-select a missing column and let legacy preview/import fail with `OperationalError`.
+
+#### 6. Tests Required
+
+- Migration test: legacy local `field_definition` gains one nullable `checkbox_label` column and preserves existing rows.
+- Project import test: current and missing-column sources preserve custom text or produce `None`, respectively.
+- Template test: `backend/tests/test_import_service.py::test_template_preview_and_import_preserve_checkbox_label` asserts preview/import fidelity and `codelist_id is None`.
+- Template legacy test: `test_template_preview_and_import_default_checkbox_label_when_legacy_column_is_missing` asserts `None` fallback and verifies the external source still lacks the column.
+- Clone test: `backend/tests/test_project_copy.py::test_copy_project_clones_full_graph` asserts custom text and null codelist are retained.
+
+#### 7. Wrong vs Correct
+
+**Wrong**
+
+```python
+# Missing-column template: mutate caller-owned input to satisfy the ORM.
+conn.execute("ALTER TABLE field_definition ADD COLUMN checkbox_label VARCHAR(255)")
+```
+
+**Correct**
+
+```python
+has_checkbox_label = _has_template_field_definition_checkbox_label(db_path)
+source_defs = _load_template_field_definitions(
+    tmpl, field_definition_ids, has_checkbox_label=has_checkbox_label,
+)
+# Legacy fallback supplies checkbox_label=None in memory; template stays immutable.
+```
+
 ### Scenario: Adding a New `form_field` Column
 
 #### 1. Scope / Trigger

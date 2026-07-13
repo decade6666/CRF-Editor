@@ -187,6 +187,48 @@ def test_import_project_db_preserves_form_annotation_positions(client, engine, t
     assert imported_form.annotation_positions == _ser_ap(annotation_positions)
 
 
+def test_import_project_db_preserves_checkbox_definition_and_source_file(
+    client,
+    engine,
+    tmp_path: Path,
+) -> None:
+    token = login_as(client, "bob")
+    db_path = _create_export_db(
+        tmp_path / "checkbox_export.db",
+        project_count=1,
+        with_children=True,
+    )
+    source_engine = create_engine(f"sqlite:///{db_path}")
+    with Session(source_engine) as source_session:
+        checkbox = source_session.scalar(select(FieldDefinition))
+        assert checkbox is not None
+        checkbox.field_type = "复选"
+        checkbox.checkbox_label = "本人已签署知情同意"
+        checkbox.codelist_id = None
+        source_session.commit()
+    source_engine.dispose()
+
+    response = _upload_db(client, "/api/projects/import/project-db", db_path, token)
+    assert response.status_code == 200, response.text
+
+    with sqlite3.connect(db_path) as source_db:
+        source_row = source_db.execute(
+            "SELECT field_type, checkbox_label, codelist_id FROM field_definition"
+        ).fetchone()
+    assert source_row == ("复选", "本人已签署知情同意", None)
+
+    with Session(engine) as session:
+        imported = session.scalar(
+            select(FieldDefinition).where(
+                FieldDefinition.project_id == response.json()["project_id"]
+            )
+        )
+    assert imported is not None
+    assert imported.field_type == "复选"
+    assert imported.checkbox_label == "本人已签署知情同意"
+    assert imported.codelist_id is None
+
+
 def test_merge_database_accepts_authenticated_user(client, engine, tmp_path):
     """普通登录用户也可整库合并导入，owner 需重绑到当前用户。"""
     token = login_as(client, "bob")

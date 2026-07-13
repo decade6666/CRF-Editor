@@ -1,9 +1,11 @@
 import sqlite3
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as
+from src.models.field_definition import FieldDefinition
 from src.database import _migrate_add_project_screening_number_format
 from src.schemas.project import normalize_screening_number_format
 
@@ -219,7 +221,11 @@ def test_legacy_project_db_without_form_annotation_positions_column_is_patched(t
     engine.dispose()
 
 
-def test_legacy_imported_screening_number_format_is_normalized_via_endpoint(client, tmp_path: Path):
+def test_legacy_imported_screening_number_format_is_normalized_via_endpoint(
+    client,
+    engine,
+    tmp_path: Path,
+):
     token = login_as(client, 'admin')
     db_path = tmp_path / 'legacy_import.db'
     conn = sqlite3.connect(db_path)
@@ -271,3 +277,19 @@ def test_legacy_imported_screening_number_format_is_normalized_via_endpoint(clie
     project_resp = client.get(f"/api/projects/{body['project_id']}", headers=auth_headers(token))
     assert project_resp.status_code == 200, project_resp.text
     assert project_resp.json()['screening_number_format'] is None
+
+    with sqlite3.connect(db_path) as source_conn:
+        source_columns = {
+            row[1]
+            for row in source_conn.execute('PRAGMA table_info(field_definition)')
+        }
+    assert 'checkbox_label' not in source_columns
+
+    with Session(engine) as session:
+        imported_field = session.scalar(
+            select(FieldDefinition).where(
+                FieldDefinition.project_id == body['project_id']
+            )
+        )
+    assert imported_field is not None
+    assert imported_field.checkbox_label is None

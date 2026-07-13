@@ -1,9 +1,10 @@
 from typing import Optional, List, Literal
 from typing_extensions import Annotated
 from datetime import datetime
-from pydantic import BaseModel, StringConstraints, field_validator
+from pydantic import BaseModel, StringConstraints, field_validator, model_validator
 
 LabelBold = Literal[0, 1]
+CheckboxLabel = Optional[Annotated[str, StringConstraints(max_length=255)]]
 
 
 class UnitSimple(BaseModel):
@@ -31,6 +32,7 @@ class FieldDefinitionCreate(BaseModel):
     variable_name: str
     label: str
     field_type: str
+    checkbox_label: CheckboxLabel = None
     integer_digits: Optional[int] = None
     decimal_digits: Optional[int] = None
     date_format: Optional[str] = None
@@ -40,11 +42,19 @@ class FieldDefinitionCreate(BaseModel):
     table_type: str = "固定行"
     order_index: Optional[int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def clear_checkbox_codelist(cls, values: object) -> object:
+        if isinstance(values, dict) and values.get("field_type") == "复选":
+            return {**values, "codelist_id": None}
+        return values
+
 
 class FieldDefinitionUpdate(BaseModel):
     variable_name: Optional[str] = None
     label: Optional[str] = None
     field_type: Optional[str] = None
+    checkbox_label: CheckboxLabel = None
     integer_digits: Optional[int] = None
     decimal_digits: Optional[int] = None
     date_format: Optional[str] = None
@@ -54,6 +64,13 @@ class FieldDefinitionUpdate(BaseModel):
     table_type: Optional[str] = None
     order_index: Optional[int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def clear_checkbox_codelist(cls, values: object) -> object:
+        if isinstance(values, dict) and values.get("field_type") == "复选":
+            return {**values, "codelist_id": None}
+        return values
+
 
 class FieldDefinitionResponse(BaseModel):
     id: int
@@ -61,6 +78,7 @@ class FieldDefinitionResponse(BaseModel):
     variable_name: str
     label: str
     field_type: str
+    checkbox_label: CheckboxLabel = None
     integer_digits: Optional[int] = None
     decimal_digits: Optional[int] = None
     date_format: Optional[str] = None

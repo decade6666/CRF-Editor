@@ -542,6 +542,7 @@ function snapshotFieldPropState(ff) {
       integer_digits: fd.integer_digits ?? null,
       decimal_digits: fd.decimal_digits ?? null,
       date_format: fd.date_format ?? null,
+      checkbox_label: fd.checkbox_label ?? null,
       codelist_id: fd.codelist_id ?? null,
       unit_id: fd.unit_id ?? null,
     },
@@ -837,6 +838,8 @@ function renderCtrl(fd, fillLineChars = null) {
   if (!fd) return '________________';
   const field = {
     field_type: fd.field_type,
+    label: fd.label,
+    checkbox_label: fd.checkbox_label,
     options: fd.codelist?.options || [],
     unit_symbol: fd.unit?.symbol,
     integer_digits: fd.integer_digits,
@@ -850,6 +853,8 @@ function getPreviewField(ff) {
   if (!ff?.field_definition) return null;
   return {
     field_type: ff.field_definition.field_type,
+    label: ff.field_definition.label,
+    checkbox_label: ff.field_definition.checkbox_label,
     options: ff.field_definition.codelist?.options || [],
     unit_symbol: ff.field_definition.unit?.symbol,
     integer_digits: ff.field_definition.integer_digits,
@@ -1049,6 +1054,9 @@ function applyPreviewSnapshot(baseField, snapshot) {
       integer_digits: fieldType === '数值' ? (snapshot.integer_digits ?? fieldDefinition.integer_digits) : null,
       decimal_digits: fieldType === '数值' ? (snapshot.decimal_digits ?? fieldDefinition.decimal_digits) : null,
       date_format: supportsDateFormat ? (snapshot.date_format ?? fieldDefinition.date_format) : null,
+      checkbox_label: fieldType === '复选'
+        ? (snapshot.checkbox_label ?? fieldDefinition.checkbox_label ?? null)
+        : null,
       codelist_id: codelistId,
       unit_id: unitId,
       codelist: codelistId ? resolveCodelist(codelistId) : null,
@@ -1553,6 +1561,7 @@ const editProp = reactive({
   integer_digits: null,
   decimal_digits: null,
   date_format: null,
+  checkbox_label: null,
   codelist_id: null,
   unit_id: null,
   default_value: '',
@@ -1581,6 +1590,7 @@ const designerFieldTypes = [
   '多选',
   '单选（纵向）',
   '多选（纵向）',
+  '复选',
   '标签',
 ];
 const BG_COLOR_OPTIONS = [
@@ -1655,6 +1665,7 @@ function buildFieldPropSnapshot(fieldId = selectedFieldId.value) {
     integer_digits: editProp.integer_digits,
     decimal_digits: editProp.decimal_digits,
     date_format: editProp.date_format,
+    checkbox_label: editProp.checkbox_label,
     codelist_id: editProp.codelist_id,
     unit_id: editProp.unit_id,
     default_value: editProp.default_value,
@@ -1765,6 +1776,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
       integer_digits: null,
       decimal_digits: null,
       date_format: null,
+      checkbox_label: null,
       codelist_id: null,
       unit_id: null,
       default_value: '',
@@ -1920,6 +1932,7 @@ function selectField(ff) {
       integer_digits: null,
       decimal_digits: null,
       date_format: null,
+      checkbox_label: null,
       codelist_id: null,
       unit_id: null,
       default_value: '',
@@ -1949,6 +1962,7 @@ function selectField(ff) {
     integer_digits: fd.integer_digits,
     decimal_digits: fd.decimal_digits,
     date_format: fd.date_format,
+    checkbox_label: fd.checkbox_label ?? null,
     codelist_id: fd.codelist_id,
     unit_id: fd.unit_id ?? null,
     default_value: ff.default_value || '',
@@ -1994,6 +2008,7 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
       integer_digits: snapshot.integer_digits,
       decimal_digits: snapshot.decimal_digits,
       date_format: snapshot.date_format,
+      checkbox_label: snapshot.checkbox_label ?? null,
       codelist_id: snapshot.codelist_id,
       unit_id: snapshot.unit_id ?? null,
     });
@@ -2055,6 +2070,7 @@ function applyEditorToDraft() {
       integer_digits: editProp.integer_digits,
       decimal_digits: editProp.decimal_digits,
       date_format: editProp.date_format,
+      checkbox_label: editProp.checkbox_label ?? null,
       codelist_id: editProp.codelist_id,
       unit_id: editProp.unit_id ?? null,
     },
@@ -2120,6 +2136,7 @@ async function newField() {
       integer_digits: null,
       decimal_digits: null,
       date_format: null,
+      checkbox_label: null,
       codelist_id: null,
       unit_id: null,
     },
@@ -2144,7 +2161,10 @@ async function saveDraftField() {
   }
   savingDraft.value = true;
   try {
-    const definitionPayload = buildFieldDefinitionCreatePayload(fd);
+    const definitionPayload = {
+      ...buildFieldDefinitionCreatePayload(fd),
+      checkbox_label: fd.checkbox_label ?? null,
+    };
     const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
     const instancePayload = {
       default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : '',
@@ -4358,6 +4378,9 @@ function openAddForm() {
                   <el-select v-model="editProp.field_type" style="width: 100%">
                     <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
                   </el-select>
+                </el-form-item>
+                <el-form-item v-if="editProp.field_type === '复选'" label="复选文本">
+                  <el-input v-model="editProp.checkbox_label" :placeholder="editProp.label" />
                 </el-form-item>
                 <template v-if="editProp.field_type === '数值'">
                   <el-form-item label="整数位数"

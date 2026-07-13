@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-07-06
+> Last updated: 2026-07-12
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -16,7 +16,7 @@
 - `frontend/src/composables/useApi.js`: unified requests, error parsing, 401 invalidation handling, GET cache, and automatic invalidation.
 - `frontend/src/composables/acrfAnnotationGeometry.js`: shared aCRF annotation geometry constants and unit conversion helpers, mirroring backend export constants and the `posOffset = default + Δy` contract.
 - `frontend/src/composables/useAcrfAnnotationDrag.js`: shared aCRF annotation vertical-drag and persisted PATCH queue for both `FormDesignerTab.vue` and `VisitsTab.vue`.
-- `frontend/src/composables/useCRFRenderer.js`: unified field rendering, HTML preview, and content-driven column width planning.
+- `frontend/src/composables/useCRFRenderer.js`: unified field rendering, HTML preview, content-driven column width planning, and the codelist-free checkbox (`复选`) control text fallback.
 - `frontend/src/composables/formFieldPresentation.js`: presentation-layer rules for field instance display attributes, colors, default values, and related behavior.
 - `frontend/src/composables/searchRanking.js`: shared pure helper for user-facing fuzzy search ordering; empty keywords keep source order, exact matches rank first, partial matches rank by shortest matching candidate text length, and equal ranks stay stable.
 - `frontend/src/composables/useOrdinalQuickEdit.js`: shared list ordinal quick-edit helper; double-clicking a visible ordinal cell opens direct target-position input, keeps filter-disabled semantics aligned with drag sorting, and reuses existing reorder endpoints with the common restore-on-failure message.
@@ -29,10 +29,10 @@
 
 ## Core Directories
 - `src/components/` (13 Vue components): page components for projects, dictionaries, units, fields, form design, visits, login, admin, session countdown, import preview, simulated CRF rendering, and more.
-- `src/composables/` (22 JS modules): shared logic for API, aCRF annotation geometry/persistence, Word-import AI suggestion acceptance/reconciliation/payload building, drag ordering, ordinal quick edit, ranked fuzzy search, field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, lazy tab loading, performance baseline, and more.
+- `src/composables/` (23 JS modules): shared logic for API, aCRF annotation geometry/persistence, Word-import AI suggestion acceptance/reconciliation/payload building, drag ordering, ordinal quick edit, ranked fuzzy search, field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, pane splitting, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (44 files: 43 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (46 files: 45 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
@@ -40,8 +40,8 @@
 - `components/AdminView.vue`: standalone admin workbench, responsible for user list, password status display, creating users, password reset, batch project operations, and recycle bin.
 - `components/ProjectInfoTab.vue`: project information, metadata, and Logo operations.
 - `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, left/right Element Plus ordering tables, visit / visit-form ordinal quick edit, and shared eCRF / aCRF preview annotations with vertical drag persistence.
-- `components/FieldsTab.vue`: field library maintenance; the choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync, and the main list supports ordinal quick edit.
-- `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, complete-mode eCRF / aCRF preview switching with field OID / form-domain annotation overlays, shared vertical annotation dragging/persistence, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), and ordinal quick edit for the left-side form list.
+- `components/FieldsTab.vue`: field library maintenance; supports the codelist-free single checkbox type (`复选`) with optional checkbox text that falls back to the field label. The choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync, and the main list supports ordinal quick edit.
+- `components/FormDesignerTab.vue`: form design, field instance editing, real-time preview, complete-mode eCRF / aCRF preview switching with field OID / form-domain annotation overlays, shared vertical annotation dragging/persistence, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), ordinal quick edit for the left-side form list, and checkbox type/text editing.
 - `components/TemplatePreviewDialog.vue`: template import preview.
 - `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application; AI review suggestions expose per-suggestion / per-form accept controls (default off), and the right "import effect" panel renders `SimulatedCRFForm` in `view-mode="ai"` with only the accepted suggestion subset so accepted field types preview live.
 - `components/DocxScreenshotPanel.vue`: Word import screenshot display.
@@ -60,6 +60,7 @@
 - API requests must go uniformly through `useApi.js`.
 - Field preview and HTML rendering must uniformly reuse `useCRFRenderer.js`.
 - Field display rules should preferably reuse `formFieldPresentation.js` to avoid repeating presentation-layer concatenation logic in components.
+- The checkbox field (`复选`) remains outside `isChoiceField()` and codelist flows: pass `label` and optional `checkbox_label` through every renderer adapter, render `□checkbox_label` with field-label fallback, and clear its type-specific text when switching to another field type. It uses the regular `label | control` layout and creates no aCRF option-level OID annotation.
 - Ordering interactions should preferably reuse `useOrderableList.js`, `useSortableTable.js`, and `useOrdinalQuickEdit.js`; drag sorting and direct ordinal jumps must keep filter-disabled behavior and the shared `排序保存失败，已恢复` recovery semantics aligned.
 - User-facing fuzzy search boxes should reuse `searchRanking.js`; components pass the base ordered list and candidate text extractor, and must preserve legacy concatenated candidates where previous behavior matched combined fields such as unit `code + symbol` or option `code + decode`.
 - `FormDesignerTab.vue` design note display has moved from the right-side aside to the canvas header / designer-section-title summary + tooltip path; only VisitsTab still keeps the original aside style.
@@ -80,6 +81,7 @@
 - Row height localStorage key: `crf:designer:row-heights:<form_id>:<table_instance_id>`; the designer and visit preview share read/write semantics.
 - If reading cached column widths fails (non-array / element out of bounds / sum not equal to 1), fall back to content-driven defaults.
 - Cross-stack fixture: `backend/tests/fixtures/planner_cases.json` is loaded by both frontend `columnWidthPlanning.test.js` and backend `test_width_planning.py`; the **single authoritative generator** is `frontend/scripts/generatePlannerFixtures.mjs`, and adding/modifying cases must update and rerun the generator.
+- For the codelist-free checkbox type (`复选`), `useCRFRenderer.js` resolves `checkbox_label || label || ''`, renders `□` plus that text, and uses the same control text in width planning so browser previews remain aligned with Word export.
 - `.wp-form-title` must keep `text-align: left` to align with Word export `add_heading(level=1)` default left alignment; this is locked by `frontend/tests/wordPageGeometry.test.js`, and changing it back to `center` or introducing `margin: 0 auto` that causes block centering is forbidden.
 
 ## Authentication and Admin Interaction
@@ -120,6 +122,7 @@
 - `acrfViewToggle.test.js`: complete-mode-only eCRF / aCRF toggle wiring, persisted `viewMode` normalization, designer + VisitsTab field/domain annotation placement, draggable overlay CSS, and the fullscreen designer `#header` accessibility / spacing contract.
 - `editModeHiddenIdentifiers.test.js`: show/hide, order, and no-hard-hidden-style contracts for dictionary, unit, field, form, and visit OID / variable-name controls under brief / full editing modes.
 - `tableHeaderStyle.test.js`: Element Plus table header and fixed column header theme fill, plus handwritten list header centering contract.
+- `checkboxFieldType.test.js`: single-checkbox field renderer fallback, width-planning, field-library/designer wiring, codelist exclusion, and aCRF/DOCX scope contracts.
 - `testProperty.js`: property testing utility library (seeded random generator, `forAll` runner), providing lightweight infrastructure for contract and property tests as an alternative to fast-check.
 
 
@@ -128,11 +131,12 @@
 |------|------|
 | Entry | `src/main.js`, `src/App.vue` |
 | Components | `src/components/AdminView.vue`, `src/components/LoginView.vue`, `src/components/SessionTimer.vue`, `src/components/ProjectInfoTab.vue`, `src/components/CodelistsTab.vue`, `src/components/UnitsTab.vue`, `src/components/FieldsTab.vue`, `src/components/FormDesignerTab.vue`, `src/components/VisitsTab.vue`, `src/components/SimulatedCRFForm.vue`, `src/components/TemplatePreviewDialog.vue`, `src/components/DocxCompareDialog.vue`, `src/components/DocxScreenshotPanel.vue` |
-| Composables | `src/composables/useApi.js`, `src/composables/acrfAnnotationGeometry.js`, `src/composables/useAcrfAnnotationDrag.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/useOrdinalQuickEdit.js`, `src/composables/fieldDefinitionVisibility.js`, `src/composables/projectDeleteConfirmation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/docxAiSuggestionOverrides.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePerfBaseline.js` |
+| Composables | `src/composables/useApi.js`, `src/composables/acrfAnnotationGeometry.js`, `src/composables/useAcrfAnnotationDrag.js`, `src/composables/useCRFRenderer.js`, `src/composables/formFieldPresentation.js`, `src/composables/searchRanking.js`, `src/composables/useOrdinalQuickEdit.js`, `src/composables/fieldDefinitionVisibility.js`, `src/composables/projectDeleteConfirmation.js`, `src/composables/formDesignerPreviewModel.js`, `src/composables/docxAiSuggestionOverrides.js`, `src/composables/useColumnResize.js`, `src/composables/useRowResize.js`, `src/composables/useSessionTimer.js`, `src/composables/useDesignerHistory.js`, `src/composables/useOrderableList.js`, `src/composables/useSortableTable.js`, `src/composables/formDesignerPropertyEditor.js`, `src/composables/exportDownloadState.js`, `src/composables/visitPreviewLandscape.js`, `src/composables/useLazyTabs.js`, `src/composables/usePaneSplit.js`, `src/composables/usePerfBaseline.js` |
 | Styles | `src/styles/main.css` |
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-07-12` (task `07-12-checkbox-field-type`): Added the codelist-free single checkbox field type (`复选`) to FieldsTab, FormDesignerTab, the shared renderer, and property-editor payloads. The optional field-definition `checkbox_label` falls back to the field label; normal preview output is `label | □checkbox text`, and the rendered control participates in the shared planner/preview-export parity contract. The type is not a DOCX import inference target and adds no aCRF option-level OID annotation. Added `checkboxFieldType.test.js` and extended renderer/property-editor/planner contracts.
 - `2026-07-05` (task `07-05-docx-ai-suggestion-accept`): Word import AI suggestion acceptance switch. `DocxCompareDialog.vue` adds per-suggestion "接受" checkboxes and a per-form 全接受/全取消 checkbox (with indeterminate), and renders `SimulatedCRFForm` in `view-mode="ai"` fed only the accepted suggestion subset so the "导入效果" panel previews accepted field types live (default off). `App.vue` owns the single source of truth `acceptedAiOverrides` (`{formIndex:{fieldIndex:suggestedType}}`), resets it at the four import lifecycle anchors, reconciles it after each AI poll via `reconcileAcceptedOverrides`, adds a Step-2 全部表单 全接受/全取消 control, and appends `ai_overrides` to the execute payload only when non-empty. New pure helper `composables/docxAiSuggestionOverrides.js` (`reconcileAcceptedOverrides` / `buildAiOverridesPayload` / three-level derivations + frontend `VALID_FIELD_TYPES` synced with backend). Backend index contract aligned so AI suggestion index and execute overrides both key on the log_row-filtered real field order. Test directory +1 (`docxAiSuggestionAcceptance.test.js`; `docxBimodalPreview.test.js` extended); full frontend suite 385 passed.
 - `2026-06-30`: `VisitsTab.vue` preview dialog now shares `crf_view_mode` with `FormDesignerTab.vue`, renders the same red aCRF field/domain overlays inside the visit preview `.word-page`, and reuses `acrfAnnotationGeometry.js` + `useAcrfAnnotationDrag.js` to persist vertical drag offsets to `Form.annotation_positions` with the same PATCH/cache-invalidation path. Documentation sync catches frontend composables 19→21 and the test directory at 41 files (40 `.test.js` + `testProperty.js`).
 - `2026-06-29`: `FormDesignerTab.vue` now adds a complete-mode-only eCRF / aCRF preview toggle in both the canvas header and the fullscreen designer `#header`, sharing a persisted local `crf_view_mode` that normalizes back to `eCRF` whenever `editMode` is false. The same PR family adds `acrfAnnotationGeometry.js` and `useAcrfAnnotationDrag.js` so designer-side aCRF overlays mirror the backend inline-header anchoring contract, use shared red annotation geometry, and persist vertical drag offsets; the frontend test directory grows to 41 files (40 `.test.js` + `testProperty.js`) with `acrfAnnotationGeometry.test.js`, `acrfAnnotationPersistence.test.js`, and `acrfViewToggle.test.js`.
