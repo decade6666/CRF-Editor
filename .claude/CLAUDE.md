@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-13
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -25,7 +25,7 @@ graph TD
     C --> C1["src/components (13)"];
     C --> C2["src/composables (23)"];
     C --> C3["src/styles"];
-    C --> C4["tests (46)"];
+    C --> C4["tests (47)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,7 +36,7 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (47 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (46 files, including 45 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (47 files, including 46 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
@@ -45,7 +45,7 @@ graph TD
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel, and default-off AI review suggestions that can be accepted per suggestion / per form / globally before import
-- Form designer real-time preview, field instance quick edit, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
+- Form designer real-time preview, field instance quick edit/copy with no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
@@ -127,6 +127,7 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-07-13` (task `07-13-designer-field-copy`): The form designer now copies persisted field instances directly below their source. Regular fields copy the complete definition through the existing backend endpoint and create a full instance duplicate; log rows duplicate only the instance. A draft guard, row-level double-click lock, orphan-definition cleanup, selection refresh, and robust undo/redo are included. Redo recreates/reuses the original copied-definition snapshot (including `checkbox_label`) rather than invoking copy again, preventing `_copyN` OID drift. Added frontend regression coverage; the frontend test inventory is now 47 files (46 `.test.js` + `testProperty.js`).
 - `2026-07-12` (task `07-12-checkbox-field-type`): Added the codelist-free single checkbox field type (`复选`) across the backend, field library, form designer, previews, and Word export. `checkbox_label` is optional at field-definition level and falls back to the field label; normal layout renders `label | □checkbox text`. Project copy, project `.db` import, and template import preserve the type, label, and null `codelist_id`; shared width planning and preview/export parity include the checkbox text. DOCX import does not infer the type, and aCRF adds no option-level OID annotation. Documentation inventory now reflects the current 47 backend and 46 frontend test files.
 - `2026-07-05` (task `07-05-docx-ai-suggestion-accept`): Word 导入预览 now supports default-off AI suggestion acceptance at three levels (per suggestion / per form / all forms), with the right-side `SimulatedCRFForm` preview rendering only the accepted suggestion subset in real time and the execute payload appending `ai_overrides` only when non-empty. The backend AI suggestion index contract is now aligned to the log_row-filtered real field order in both `ai_review_service.py` and `docx_import_service.py`, preventing preview/import mismatches when log rows exist. Documentation sync also refreshes the root/backend module counts and index entries for the current backend service/test inventory.
 - `2026-07-04`: Word 导入截图证据页码匹配修复。`backend/src/services/docx_screenshot_service.py` now uses PDF-outline-first form page detection (`doc.get_toc()`) with text fallback instead of relying solely on first non-TOC text hits, and the TOC/index-page heuristic now uses matched-form density/ratio plus substring dedup so compact index pages in `image/标准eCRF.docx` no longer collapse early forms onto pages 4-6. Reopening the screenshot panel also stops recomputing page ranges when the sorted form-name signature is unchanged (`ScreenshotTask.detect_signature`). Added backend regressions for compact-index detection, non-TOC content protection, substring collisions, outline mapping, signature-based cache reuse, plus a LibreOffice-gated real-document assertion; backend suite verified at `583 passed, 4 xfailed`.

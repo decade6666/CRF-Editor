@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-12T22:01:49-07:00",
+  "timestamp": "2026-07-13T01:53:24-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -219,6 +219,7 @@
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/designerFieldCopy.test.js",
         "frontend/tests/designerHistory.test.js",
         "frontend/tests/designerNewFieldDraft.test.js",
         "frontend/tests/docxAiSuggestionAcceptance.test.js",
@@ -255,8 +256,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 89,
-        "scanned_files": 89,
+        "estimated_files": 90,
+        "scanned_files": 90,
         "percent": 100
       },
       "gaps": [
@@ -283,8 +284,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 197,
-    "scanned_files": 197,
+    "estimated_total_files": 198,
+    "scanned_files": 198,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

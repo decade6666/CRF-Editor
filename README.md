@@ -283,7 +283,7 @@ node --test tests/*.test.js
 
 当前仓库中：
 - `backend/tests/` 当前包含 47 个 Python 测试文件（45 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
-- `frontend/tests/` 当前包含 46 个前端测试文件（45 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线，以及复选字段类型契约
+- `frontend/tests/` 当前包含 47 个前端测试文件（46 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制，以及复选字段类型契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
 ## 参与贡献
