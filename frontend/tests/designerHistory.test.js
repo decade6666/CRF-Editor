@@ -258,7 +258,7 @@ test('stale A to B to A command context is rejected by the monotonic selection s
   assert.deepEqual(recorded, [])
 })
 
-test('all async history commands capture context and both reorder paths pass it to the shared recorder', () => {
+test('all async history commands capture context and both reorder paths pass it to the shared reorder helper', () => {
   for (const name of [
     'addField',
     'copyFormField',
@@ -274,8 +274,11 @@ test('all async history commands capture context and both reorder paths pass it 
 
   const reorderBody = functionBody('recordReorderHistory')
   assert.match(reorderBody, /recordDesignerHistory\(historyContext,/)
-  assert.match(functionBody('onDrop'), /recordReorderHistory\(historyContext, previousOrder, nextOrder\)/)
-  assert.match(functionBody('handleFieldKeydown'), /recordReorderHistory\(historyContext, previousOrder, nextOrder\)/)
+  const persistBody = functionBody('persistFieldReorder')
+  assert.match(persistBody, /recordReorderHistory\(historyContext, previousOrder, nextOrder\)/)
+  assert.match(persistBody, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*formFields\.value = previousFields/)
+  assert.match(functionBody('onDrop'), /persistFieldReorder\(historyContext, previousFields, normalizeFormFieldOrder\(arr\)\)/)
+  assert.match(functionBody('handleFieldKeydown'), /persistFieldReorder\(historyContext, previousFields, normalizeFormFieldOrder\(arr\)\)/)
 })
 
 test('history-producing command functions reject new work while replay is busy', () => {
@@ -292,8 +295,10 @@ test('history-producing command functions reject new work while replay is busy',
     assert.match(functionBody(name), /designerHistory\.busy\.value/, `${name} should guard replay busy state`)
   }
   assert.match(functionBody('removeField'), /if \(designerHistory\.busy\.value && !isDraftField\(ff\)\) return;/)
-  assert.match(functionBody('onDragStart'), /if \(designerHistory\.busy\.value\) return;/)
-  assert.match(functionBody('handleFieldKeydown'), /if \(ctrlKey && designerHistory\.busy\.value\) return;/)
+  assert.match(functionBody('onDragStart'), /if \(designerHistory\.busy\.value \|\| isReordering\.value\) \{[\s\S]*return;/)
+  assert.match(functionBody('onDrop'), /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return;/)
+  assert.match(functionBody('handleFieldKeydown'), /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value\)\) return;/)
+  assert.match(functionBody('handleFieldKeydown'), /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return;/)
 })
 
 test('history-producing designer controls and property forms are disabled during replay', () => {
@@ -304,7 +309,7 @@ test('history-producing designer controls and property forms are disabled during
   assert.match(designerSource, /data-test="designer-batch-delete"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-copy-field"[\s\S]*?:disabled="copyingFieldIds\.has\(ff\.id\) \|\| designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-delete-field"[\s\S]*?:disabled="!isDraftField\(ff\) && designerHistory\.busy\.value"/)
-  assert.match(designerSource, /:draggable="!designerHistory\.busy\.value"/)
+  assert.match(designerSource, /:draggable="!designerHistory\.busy\.value && !isReordering"/)
   assert.match(designerSource, /data-test="designer-log-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-draft-save"[\s\S]*?:disabled="designerHistory\.busy\.value"/)

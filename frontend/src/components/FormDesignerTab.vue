@@ -150,6 +150,7 @@ const editFormPaperOrientation = ref('auto');
 const editFormTarget = ref(null);
 const dragSrcId = ref(null);
 const dragOverIdx = ref(null);
+const isReordering = ref(false);
 const deletingFieldIds = ref(new Set());
 const copyingFieldIds = ref(new Set());
 const viewMode = ref(resolveInitialViewMode(editMode.value, readStoredViewMode()));
@@ -182,6 +183,10 @@ function recordDesignerHistory(context, entry) {
   if (context.sessionId !== formSelectionSession) return false;
   if (context.formId !== (selectedForm.value?.id ?? null)) return false;
   return designerHistory.record(entry);
+}
+
+function isCurrentDesignerHistoryContext(context) {
+  return Boolean(context && context.sessionId === formSelectionSession && context.formId === (selectedForm.value?.id ?? null));
 }
 
 // 数据加载
@@ -893,12 +898,17 @@ async function batchDelete() {
 }
 
 // 拖拽排序
-function onDragStart(ff) {
-  if (designerHistory.busy.value) return;
+function onDragStart(ff, e) {
+  if (designerHistory.busy.value || isReordering.value) {
+    e?.preventDefault();
+    return;
+  }
+  if (e?.dataTransfer) e.dataTransfer.effectAllowed = 'move';
   dragSrcId.value = ff.id;
 }
 function onDragOver(e, idx) {
   e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = idx;
 }
 function onDragLeave() {
@@ -908,10 +918,35 @@ function normalizeFormFieldOrder(fields) {
   return fields.map((field, index) => ({ ...field, order_index: index + 1 }));
 }
 
+async function persistFieldReorder(historyContext, previousFields, normalized) {
+  if (isReordering.value) return false;
+  const formId = historyContext.formId;
+  const previousOrder = previousFields.map((f) => f.id);
+  const nextOrder = normalized.map((f) => f.id);
+  isReordering.value = true;
+  formFields.value = normalized;
+  try {
+    await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder });
+    api.invalidateCache(`/api/forms/${formId}/fields`);
+    recordReorderHistory(historyContext, previousOrder, nextOrder);
+    return true;
+  } catch (e) {
+    if (isCurrentDesignerHistoryContext(historyContext)) {
+      formFields.value = previousFields;
+      ElMessage.warning('排序保存失败，已恢复');
+      loadFormFields();
+    }
+    return false;
+  } finally {
+    isReordering.value = false;
+  }
+}
+
 async function onDrop(e, targetIdx) {
   e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = null;
-  if (designerHistory.busy.value) return;
+  if (designerHistory.busy.value || isReordering.value) return;
   recordPerfEvent({
     type: 'instant',
     name: 'designer_reorder_field',
@@ -923,23 +958,11 @@ async function onDrop(e, targetIdx) {
   if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
-  const formId = historyContext.formId;
-  const previousOrder = formFields.value.map((f) => f.id);
-  try {
-    const arr = [...formFields.value];
-    const [item] = arr.splice(srcIdx, 1);
-    arr.splice(targetIdx, 0, item);
-    const normalized = normalizeFormFieldOrder(arr);
-    const nextOrder = normalized.map((f) => f.id);
-    formFields.value = normalized;
-    await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder });
-    api.invalidateCache(`/api/forms/${formId}/fields`);
-    await loadFormFields();
-    recordReorderHistory(historyContext, previousOrder, nextOrder);
-  } catch (e) {
-    ElMessage.warning('排序保存失败，已恢复');
-    loadFormFields();
-  }
+  const previousFields = formFields.value;
+  const arr = [...previousFields];
+  const [item] = arr.splice(srcIdx, 1);
+  arr.splice(targetIdx, 0, item);
+  await persistFieldReorder(historyContext, previousFields, normalizeFormFieldOrder(arr));
 }
 
 // 键盘排序与焦点
@@ -964,31 +987,19 @@ async function handleFieldKeydown(event, field, index) {
     else selectedIds.value.push(id);
     return;
   }
-  if (ctrlKey && designerHistory.busy.value) return;
+  if (ctrlKey && (designerHistory.busy.value || isReordering.value)) return;
   const move = async (from, to) => {
-    if (designerHistory.busy.value) return;
+    if (designerHistory.busy.value || isReordering.value) return;
     if (to < 0 || to >= formFields.value.length) return;
     if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
     const historyContext = captureDesignerHistoryContext();
     if (!historyContext) return;
-    const formId = historyContext.formId;
-    const previousOrder = formFields.value.map((f) => f.id);
-    try {
-      const arr = [...formFields.value];
-      const [item] = arr.splice(from, 1);
-      arr.splice(to, 0, item);
-      const normalized = normalizeFormFieldOrder(arr);
-      const nextOrder = normalized.map((f) => f.id);
-      formFields.value = normalized;
-      await api.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder });
-      api.invalidateCache(`/api/forms/${formId}/fields`);
-      await loadFormFields();
-      nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus());
-      recordReorderHistory(historyContext, previousOrder, nextOrder);
-    } catch (e) {
-      ElMessage.warning('排序保存失败，已恢复');
-      loadFormFields();
-    }
+    const previousFields = formFields.value;
+    const arr = [...previousFields];
+    const [item] = arr.splice(from, 1);
+    arr.splice(to, 0, item);
+    const saved = await persistFieldReorder(historyContext, previousFields, normalizeFormFieldOrder(arr));
+    if (saved) nextTick(() => fieldItemRefs.value[formFields.value[to].id]?.focus());
   };
   if (ctrlKey) {
     if (key === 'ArrowUp') await move(index, index - 1);
@@ -3708,7 +3719,7 @@ function openAddForm() {
                   :ref="(el) => (fieldItemRefs[ff.id] = el)"
                   class="ff-item"
                   :class="{ inline: ff.inline_mark, 'ff-selected': selectedFieldId === ff.id }"
-                  :draggable="!designerHistory.busy.value"
+                  :draggable="!designerHistory.busy.value && !isReordering"
                   role="button"
                   :style="
                     (dragOverIdx === idx ? 'border-top:2px solid var(--color-primary);' : '') +
@@ -3716,8 +3727,8 @@ function openAddForm() {
                   "
                   tabindex="0"
                   @click="onSelectFieldClick(ff)"
-                  @dragstart="onDragStart(ff)"
-                  @dragover="onDragOver($event, idx)"
+                  @dragstart="onDragStart(ff, $event)"
+                  @dragover.prevent="onDragOver($event, idx)"
                   @dragleave="onDragLeave"
                   @drop="onDrop($event, idx)"
                   @keydown="handleFieldKeydown($event, ff, idx)"
@@ -3727,6 +3738,7 @@ function openAddForm() {
                     v-model="selectedIds"
                     :value="ff.id"
                     size="small"
+                    draggable="false"
                     @click.stop
                     ><span></span></el-checkbox
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
@@ -3750,6 +3762,7 @@ function openAddForm() {
                       size="small"
                       link
                       :type="ff.inline_mark ? 'warning' : ''"
+                      draggable="false"
                       :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'"
                       @click.stop="toggleInline(ff)"
                       >⊞</el-button
@@ -3759,6 +3772,7 @@ function openAddForm() {
                     size="small"
                     link
                     data-test="designer-copy-field"
+                    draggable="false"
                     :disabled="copyingFieldIds.has(ff.id) || designerHistory.busy.value"
                     :aria-label="'复制 ' + getFormFieldDisplayLabel(ff)"
                     @click.stop="copyFormField(ff)"
@@ -3768,6 +3782,7 @@ function openAddForm() {
                     size="small"
                     link
                     data-test="designer-delete-field"
+                    draggable="false"
                     :disabled="!isDraftField(ff) && designerHistory.busy.value"
                     @click.stop="removeField(ff)"
                     >删除</el-button>
