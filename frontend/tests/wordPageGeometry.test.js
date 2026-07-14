@@ -77,6 +77,17 @@ test('wp-form-title preserves Heading-1 equivalent font weight and size', () => 
   )
 })
 
+test('wp-form-title uses black color', () => {
+  const body = extractRuleBody(readMainCss(), '.word-page .wp-form-title')
+  assert.ok(body)
+
+  const color = extractDeclaration(body, 'color')
+  assert.ok(
+    color === '#000' || color === '#000000' || color === 'black',
+    `.wp-form-title color should be black, got ${color}`,
+  )
+})
+
 test('wp-form-title does not use auto-centering margin', () => {
   const body = extractRuleBody(readMainCss(), '.word-page .wp-form-title')
   assert.ok(body)

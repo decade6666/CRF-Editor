@@ -663,3 +663,74 @@ agy+codex 联合审查复选字段类型实现，Claude 复核仲裁：采纳 Co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 49: 表单设计器字段实例复制（稳健档撤销/重做）
+
+**Date**: 2026-07-13
+**Task**: 表单设计器字段实例复制（稳健档撤销/重做）
+**Branch**: `draft`
+
+### Summary
+
+在字段行删除按钮左侧新增复制按钮：复制字段全部内容、OID追加_copy避免唯一约束冲突、新字段落源字段下一行。普通字段经/copy复制定义+建完整实例，日志行仅复制实例；含草稿守卫、行级双击锁、孤儿定义清理、选中刷新与撤销/重做。重做从首次完整快照重建定义或409复用，永不重调/copy防OID漂移；重做建实例失败清理本次孤儿定义。经Codex+Antigravity交叉审查（复核后修复redo孤儿清理真问题、判定409映射为假阳性）。全前端437测试通过、lint零错误、build通过。既有busy/session协调通病另立backlog任务。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9102e9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 50: 设计器交互批次：6需求(拖拽/预览标题/属性卡保存取消/多表单提醒阈值/打开刷新字段库)+历史busy协调
+
+**Date**: 2026-07-14
+**Task**: 设计器交互批次：6需求(拖拽/预览标题/属性卡保存取消/多表单提醒阈值/打开刷新字段库)+历史busy协调
+**Branch**: `draft`
+
+### Summary
+
+agent teams 并行/串行实现 6 项设计器与字段库需求，拆为 G1-G5 五子任务：G2 预览标题黑色、G5 打开刷新字段库+跨项目守卫、G4 多表单才提醒+共享 helper fieldReferenceImpact.js、G1 拖拽🚫+卡顿修复+并发守卫、G3 属性卡显式保存/取消+脏态三态离开拦截+复用影响提醒。改 FormDesignerTab.vue 的 G5→G1→G3 串行(单写者)，G2/G4 并行。每任务 agy+亲验双源交叉审查(codex 本环境不可用)、agent 复核审查意见后修正。前端 466 测试绿/0 lint error/build 通过。范围外后续项：App.vue Tab 切换离开守卫。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb811cd` | (see git log) |
+| `054e791` | (see git log) |
+| `1f65bbf` | (see git log) |
+| `cff0803` | (see git log) |
+| `ef4f230` | (see git log) |
+| `6478ac5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

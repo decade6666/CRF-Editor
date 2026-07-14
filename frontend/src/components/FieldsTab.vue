@@ -9,6 +9,7 @@ import { rankFuzzyMatches } from '../composables/searchRanking'
 import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
+import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -106,8 +107,8 @@ async function save() {
       ElMessage.success('新增成功')
     } else {
       const refs = await api.get(`/api/field-definitions/${selectedFieldId.value}/references`)
-      if (refs.length) {
-        const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})`), 5, '、')
+      if (countDistinctForms(refs) > 1) {
+        const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' })
         await ElMessageBox.confirm(`修改将影响以下表单：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
       }
       await api.put(`/api/projects/${props.projectId}/field-definitions/${selectedFieldId.value}`, { ...editProp })
@@ -122,8 +123,8 @@ async function save() {
 async function del(f) {
   try {
     const refs = await api.get(`/api/field-definitions/${f.id}/references`)
-    if (refs.length) {
-      const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})`), 5, '、')
+    if (countDistinctForms(refs) > 1) {
+      const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' })
       await ElMessageBox.confirm(`删除字段 "${f.label}" 将同时删除以下表单中的该字段：\n${msg}\n确认删除？`, '确认', { type: 'warning' })
     } else {
       await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
@@ -143,7 +144,7 @@ async function batchDelFields() {
     const allRefs = []
     for (const f of selFields.value) {
       const refs = refsMap[f.id] || []
-      if (refs.length) allRefs.push(`【${f.label}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})`), 3, '、'))
+      if (countDistinctForms(refs) > 1) allRefs.push(`【${f.label}】：` + formatFieldImpactMessage(refs, { max: 3, sep: '、' }))
     }
     const msg = allRefs.length
       ? `以下字段将同时从相关表单中删除：\n${allRefs.join('\n')}\n确认删除？`

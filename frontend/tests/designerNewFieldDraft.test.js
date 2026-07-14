@@ -52,7 +52,7 @@ test('saveDraftField 先建定义后建实例并替换草稿、入撤销栈', ()
   assert.match(body, /loadFormFields\(formId\)/)
   assert.match(body, /loadFieldDefs\(\)/)
   // 作为一次「新建字段」入撤销栈
-  assert.match(body, /designerHistory\.record\(/)
+  assert.match(body, /recordDesignerHistory\(historyContext, \{/)
   assert.match(body, /label: '新建字段'/)
   // 失败保留草稿并报错，不静默
   assert.match(body, /ElMessage\.error\(e\.message\)/)
@@ -120,7 +120,7 @@ test('切换表单/选字段/新建草稿前都经过草稿确认', () => {
   assert.match(fnBody('selectForm'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
   // 字段点击入口
   const click = fnBody('onSelectFieldClick')
-  assert.match(click, /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
+  assert.match(click, /if \(hasDraft\.value && !isDraftField\(ff\)\) \{[\s\S]*?confirmDiscardDraft\(\)/)
 })
 
 test('切换项目时设计器已激活就必须经过 canLeaveProject 守卫', () => {

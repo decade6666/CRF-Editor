@@ -9,7 +9,21 @@ const codelistsSource = readFileSync(path.resolve(currentDir, '../src/components
 const visitsSource = readFileSync(path.resolve(currentDir, '../src/components/VisitsTab.vue'), 'utf8');
 const fieldsSource = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8');
 const formsSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
+const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
 const sortableSource = readFileSync(path.resolve(currentDir, '../src/composables/useSortableTable.js'), 'utf8');
+
+function extractBlockAfter(source, needle) {
+  const start = source.indexOf(needle);
+  assert.notEqual(start, -1, `should locate ${needle}`);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(bodyStart + 1, index);
+  }
+  assert.fail(`${needle} should have a complete body`);
+}
 
 test('CodelistsTab wires left list drag sorting through useSortableTable', () => {
   assert.match(codelistsSource, /const codelistsTableRef = ref\(null\)/);
@@ -147,20 +161,48 @@ test('FormDesignerTab has no imperative updateFormOrder handler after R1', () =>
   assert.match(formsSource, /\/api\/projects\/\$\{props\.projectId\}\/forms\/reorder/);
 });
 
-test('FormDesignerTab field reorder invalidates cached form fields in each reorder path', () => {
+test('FormDesignerTab field reorder dragover advertises a move drop target for the whole row', () => {
+  const onDragOverBody = extractBlockAfter(formsSource, 'function onDragOver(');
+  assert.match(onDragOverBody, /e\.preventDefault\(\)/);
+  assert.match(onDragOverBody, /e\.dataTransfer\.dropEffect = 'move'/);
+  assert.match(formsSource, /@dragover\.prevent="onDragOver\(\$event, idx\)"/);
+  assert.match(formsSource, /function onDragStart\(ff, e\)/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) \{/);
+  assert.match(formsSource, /e\.dataTransfer\.effectAllowed = 'move'/);
+  assert.match(formsSource, /<el-checkbox[\s\S]*?draggable="false"[\s\S]*?@click\.stop/);
+  assert.match(formsSource, /data-test="designer-copy-field"[\s\S]*?draggable="false"[\s\S]*?@click\.stop="copyFormField\(ff\)"/);
+  assert.match(formsSource, /data-test="designer-delete-field"[\s\S]*?draggable="false"[\s\S]*?@click\.stop="removeField\(ff\)"/);
+});
+
+test('FormDesignerTab field reorder keeps optimistic order on success and reloads only after failure', () => {
   // R1 删除了 updateFormFieldOrder 手动路径；仅剩 onDrop + keyboard move 两条路径
-  // 06-15 撤销/恢复：两条路径统一捕获 formId 并经 recordReorderHistory 入栈
+  // G1：成功路径不再二次 loadFormFields 覆盖乐观顺序；失败时回滚本地顺序并刷新。
   assert.match(formsSource, /async function onDrop\(/);
   assert.match(formsSource, /const move = async \(from, to\) => \{/);
+  assert.match(formsSource, /const isReordering = ref\(false\)/);
+  assert.match(formsSource, /async function persistFieldReorder\(historyContext, previousFields, normalized\)/);
+  assert.match(formsSource, /if \(isReordering\.value\) return false/);
+  assert.match(formsSource, /isReordering\.value = true/);
   assert.match(formsSource, /\/api\/forms\/\$\{formId\}\/fields\/reorder/);
   assert.match(formsSource, /const nextOrder = normalized\.map\(\(f\) => f\.id\)/);
   assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/);
-  assert.match(formsSource, /await loadFormFields\(/);
+  assert.match(formsSource, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*?formFields\.value = previousFields[\s\S]*?loadFormFields\(\)/);
+  assert.match(formsSource, /finally \{[\s\S]*?isReordering\.value = false/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return/);
+  assert.match(formsSource, /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value\)\) return/);
+  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering"/);
+  assert.match(mainCssSource, /\.ff-item \{[^}]*user-select: none;[^}]*-webkit-user-select: none;/);
   assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/);
-  // 拖拽与键盘排序都必须记录撤销历史（Finding 2）
-  const reorderRecordCalls = (formsSource.match(/recordReorderHistory\(formId, previousOrder, nextOrder\);/g) || [])
-    .length;
-  assert.equal(reorderRecordCalls, 2);
+  const persistBody = extractBlockAfter(formsSource, 'async function persistFieldReorder(');
+  const successBranch = persistBody.slice(0, persistBody.indexOf('} catch'));
+  assert.doesNotMatch(successBranch, /loadFormFields\(/);
+  const dropBody = extractBlockAfter(formsSource, 'async function onDrop(');
+  const moveBody = extractBlockAfter(formsSource, 'const move = async (from, to) =>');
+  assert.doesNotMatch(dropBody, /await loadFormFields\(/);
+  assert.doesNotMatch(moveBody, /await loadFormFields\(/);
+  const reorderRecordCalls =
+    (formsSource.match(/recordReorderHistory\(historyContext, previousOrder, nextOrder\);/g) || []).length;
+  assert.equal(reorderRecordCalls, 1);
 });
 
 test('FormDesignerTab keeps designer entry visible for selected form outside edit mode gate', () => {
@@ -197,7 +239,7 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.match(formsSource, /class="fd-panel-resizer"/);
   assert.match(formsSource, /aria-label="调整字段库宽度"/);
   assert.doesNotMatch(formsSource, /:draggable="editMode"/);
-  assert.match(formsSource, /:draggable="true"/);
+  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering"/);
   assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/);
   assert.doesNotMatch(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/);
   assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\) && !isDraftField\(ff\)"/);
@@ -205,7 +247,10 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
     formsSource,
     /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)"/,
   );
-  assert.match(formsSource, /@click\.stop="removeField\(ff\)">删除<\/el-button>/);
+  assert.match(
+    formsSource,
+    /data-test="designer-delete-field"[\s\S]*?@click\.stop="removeField\(ff\)"[\s\S]*?>删除<\/el-button/,
+  );
   assert.doesNotMatch(formsSource, /<div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览/);
   assert.doesNotMatch(formsSource, /<div v-if="!editMode" class="designer-notes-readonly">/);
   // 脚本端：所有函数首行的 !editMode.value 守卫清零
