@@ -41,9 +41,10 @@ export function useDesignerHistory() {
     for (const entry of redoStack.value) remapEntryIds(entry.ids, oldId, newId);
   }
 
-  // 记录一条新命令：超出上限丢弃最旧，执行新操作清空 redo 栈。
+  // 记录一条新命令：回放期间拒绝写入；超出上限丢弃最旧，执行新操作清空 redo 栈。
   function record(entry) {
-    if (!entry || typeof entry.undo !== 'function' || typeof entry.redo !== 'function') return;
+    if (busy.value) return false;
+    if (!entry || typeof entry.undo !== 'function' || typeof entry.redo !== 'function') return false;
     const normalized = {
       label: entry.label || '',
       ids: cloneIds(entry.ids),
@@ -54,6 +55,7 @@ export function useDesignerHistory() {
     if (next.length > MAX_HISTORY) next.shift();
     undoStack.value = next;
     redoStack.value = [];
+    return true;
   }
 
   async function undo() {

@@ -157,9 +157,9 @@ test('FormDesignerTab field reorder invalidates cached form fields in each reord
   assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/);
   assert.match(formsSource, /await loadFormFields\(/);
   assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/);
-  // 拖拽与键盘排序都必须记录撤销历史（Finding 2）
-  const reorderRecordCalls = (formsSource.match(/recordReorderHistory\(formId, previousOrder, nextOrder\);/g) || [])
-    .length;
+  // 拖拽与键盘排序都必须把捕获的表单 session 上下文传给共享历史记录器
+  const reorderRecordCalls =
+    (formsSource.match(/recordReorderHistory\(historyContext, previousOrder, nextOrder\);/g) || []).length;
   assert.equal(reorderRecordCalls, 2);
 });
 
@@ -197,7 +197,7 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.match(formsSource, /class="fd-panel-resizer"/);
   assert.match(formsSource, /aria-label="调整字段库宽度"/);
   assert.doesNotMatch(formsSource, /:draggable="editMode"/);
-  assert.match(formsSource, /:draggable="true"/);
+  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value"/);
   assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/);
   assert.doesNotMatch(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/);
   assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\) && !isDraftField\(ff\)"/);
@@ -205,7 +205,10 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
     formsSource,
     /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)"/,
   );
-  assert.match(formsSource, /@click\.stop="removeField\(ff\)">删除<\/el-button>/);
+  assert.match(
+    formsSource,
+    /data-test="designer-delete-field"[\s\S]*?@click\.stop="removeField\(ff\)"[\s\S]*?>删除<\/el-button/,
+  );
   assert.doesNotMatch(formsSource, /<div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览/);
   assert.doesNotMatch(formsSource, /<div v-if="!editMode" class="designer-notes-readonly">/);
   // 脚本端：所有函数首行的 !editMode.value 守卫清零

@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Implementation must preserve component-local state conventions and existing FormDesigner leave/session guards while adding the history coordination contract."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"The history composable API change must follow project composable contracts, immutable updates, and test requirements."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Busy-state control disabling and Element Plus form/button wiring must follow current component and accessibility conventions."}

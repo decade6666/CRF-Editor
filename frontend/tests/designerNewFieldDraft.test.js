@@ -52,7 +52,7 @@ test('saveDraftField 先建定义后建实例并替换草稿、入撤销栈', ()
   assert.match(body, /loadFormFields\(formId\)/)
   assert.match(body, /loadFieldDefs\(\)/)
   // 作为一次「新建字段」入撤销栈
-  assert.match(body, /designerHistory\.record\(/)
+  assert.match(body, /recordDesignerHistory\(historyContext, \{/)
   assert.match(body, /label: '新建字段'/)
   // 失败保留草稿并报错，不静默
   assert.match(body, /ElMessage\.error\(e\.message\)/)

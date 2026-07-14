@@ -102,7 +102,7 @@ test('choice codelist row exposes icon actions with disable guard', () => {
 test('property editor restores type-specific controls', () => {
   assert.match(
     formDesignerSource,
-    /<el-form :model="editProp" label-width="88px" size="small">[\s\S]*<el-form-item label="字段标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
+    /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"[\s\S]*<el-form-item label="字段标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
   )
   assert.match(formDesignerSource, /<el-form-item v-if="isChoiceField\(editProp\.field_type\)" label="字段选项">/)
   assert.match(formDesignerSource, /:autosize="editProp\.field_type === '标签' \? \{ minRows: 2, maxRows: 4 \} : undefined"/)
