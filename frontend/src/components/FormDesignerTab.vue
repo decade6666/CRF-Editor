@@ -156,6 +156,7 @@ const viewMode = ref(resolveInitialViewMode(editMode.value, readStoredViewMode()
 const designerHistory = useDesignerHistory();
 let formFieldsLoadSession = 0;
 let formSelectionSession = 0;
+let designerAuxiliaryLoadSession = 0;
 
 writeStoredViewMode(viewMode.value);
 
@@ -234,14 +235,27 @@ function applyFormAnnotationPositions(formId, annotationPositions) {
   });
 }
 
-async function loadFieldDefs() {
-  fieldDefs.value = await api.cachedGet(`/api/projects/${props.projectId}/field-definitions`);
+async function loadFieldDefs(projectId = props.projectId) {
+  const loadedFieldDefs = await api.cachedGet(`/api/projects/${projectId}/field-definitions`);
+  if (projectId !== props.projectId) return false;
+  fieldDefs.value = loadedFieldDefs;
+  return true;
 }
-async function loadCodelists() {
-  codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`);
+async function refreshDesignerFieldDefinitions(projectId = props.projectId) {
+  api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
+  return loadFieldDefs(projectId);
 }
-async function loadUnits() {
-  units.value = await api.cachedGet(`/api/projects/${props.projectId}/units`);
+async function loadCodelists(projectId = props.projectId) {
+  const loadedCodelists = await api.cachedGet(`/api/projects/${projectId}/codelists`);
+  if (projectId !== props.projectId) return false;
+  codelists.value = loadedCodelists;
+  return true;
+}
+async function loadUnits(projectId = props.projectId) {
+  const loadedUnits = await api.cachedGet(`/api/projects/${projectId}/units`);
+  if (projectId !== props.projectId) return false;
+  units.value = loadedUnits;
+  return true;
 }
 
 const LEGACY_FORCE_LANDSCAPE_KEY = 'crf_forceLandscape';
@@ -2700,18 +2714,35 @@ const {
   renderList: filteredForms,
 });
 
-async function ensureDesignerAuxiliaryDataLoaded() {
-  if (designerAuxiliaryLoaded.value || designerAuxiliaryLoading.value) return;
+async function ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs = false } = {}) {
+  const loadSession = designerAuxiliaryLoadSession;
+  const projectId = props.projectId;
+  const isStaleLoad = () => loadSession !== designerAuxiliaryLoadSession || projectId !== props.projectId;
+  if (designerAuxiliaryLoaded.value) {
+    if (!refreshFieldDefs) return;
+    designerAuxiliaryLoadError.value = '';
+    try {
+      const loaded = await refreshDesignerFieldDefinitions(projectId);
+      if (!loaded || isStaleLoad()) throw new Error('项目已切换，请重新打开设计器');
+    } catch (error) {
+      designerAuxiliaryLoadError.value = error?.message || '加载失败';
+      throw error;
+    }
+    return;
+  }
+  if (designerAuxiliaryLoading.value) return;
   designerAuxiliaryLoading.value = true;
   designerAuxiliaryLoadError.value = '';
+  const loadFieldDefinitions = refreshFieldDefs ? refreshDesignerFieldDefinitions : loadFieldDefs;
   try {
-    await Promise.all([loadFieldDefs(), loadCodelists(), loadUnits()]);
+    const loaded = await Promise.all([loadFieldDefinitions(projectId), loadCodelists(projectId), loadUnits(projectId)]);
+    if (loaded.some((item) => item === false) || isStaleLoad()) throw new Error('项目已切换，请重新打开设计器');
     designerAuxiliaryLoaded.value = true;
   } catch (error) {
-    designerAuxiliaryLoadError.value = error?.message || '加载失败';
+    if (!isStaleLoad()) designerAuxiliaryLoadError.value = error?.message || '加载失败';
     throw error;
   } finally {
-    designerAuxiliaryLoading.value = false;
+    if (!isStaleLoad()) designerAuxiliaryLoading.value = false;
   }
 }
 
@@ -2761,6 +2792,7 @@ watch(
       return;
     }
     fieldPropProjectId.value = newProjectId;
+    designerAuxiliaryLoadSession += 1;
     designerAuxiliaryLoaded.value = false;
     designerAuxiliaryLoading.value = false;
     designerAuxiliaryLoadError.value = '';
@@ -2794,7 +2826,7 @@ async function handleDesignerBeforeClose(done) {
 async function openDesigner() {
   markPerfStart('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   try {
-    await ensureDesignerAuxiliaryDataLoaded();
+    await ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs: true });
     showDesigner.value = true;
     refreshDesignerPreviewOverrides();
     markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
@@ -3738,7 +3770,7 @@ function openAddForm() {
                     data-test="designer-delete-field"
                     :disabled="!isDraftField(ff) && designerHistory.busy.value"
                     @click.stop="removeField(ff)"
-                    >删除</el-button
+                    >删除</el-button>
                 </div>
               </div>
             </div>
