@@ -151,6 +151,7 @@ const editFormTarget = ref(null);
 const dragSrcId = ref(null);
 const dragOverIdx = ref(null);
 const deletingFieldIds = ref(new Set());
+const copyingFieldIds = ref(new Set());
 const viewMode = ref(resolveInitialViewMode(editMode.value, readStoredViewMode()));
 const designerHistory = useDesignerHistory();
 let formFieldsLoadSession = 0;
@@ -643,6 +644,138 @@ async function addField(fd) {
     });
   } catch (e) {
     ElMessage.error(e.message);
+  }
+}
+
+// 从字段定义复制接口的完整响应构造重做快照，避免丢失 checkbox_label 等定义属性。
+function buildDefinitionSnapshotFromResponse(newFd) {
+  return {
+    variable_name: newFd.variable_name,
+    label: newFd.label,
+    field_type: newFd.field_type,
+    integer_digits: newFd.integer_digits ?? null,
+    decimal_digits: newFd.decimal_digits ?? null,
+    date_format: newFd.date_format ?? null,
+    checkbox_label: newFd.checkbox_label ?? null,
+    codelist_id: newFd.codelist_id ?? null,
+    unit_id: newFd.unit_id ?? null,
+    is_multi_record: newFd.is_multi_record ?? 0,
+    table_type: newFd.table_type ?? '固定行',
+    // 重做时让字段库按当前尾部追加，避免回放旧字段库排序。
+    order_index: null,
+  };
+}
+
+async function copyFormField(ff) {
+  if (isDraftField(ff)) return;
+  if (copyingFieldIds.value.has(ff.id)) return;
+
+  copyingFieldIds.value = new Set([...copyingFieldIds.value, ff.id]);
+  try {
+    if (hasDraft.value) {
+      const proceed = await confirmDiscardDraft();
+      if (!proceed) return;
+    }
+    const formId = selectedForm.value?.id;
+    if (!formId) return;
+    const projectId = props.projectId;
+    const isLogRow = Boolean(ff.is_log_row) && ff.field_definition_id == null;
+    const baseInstancePayload = {
+      ...buildFormFieldCreatePayload(ff),
+      order_index: (ff.order_index ?? 0) + 1,
+    };
+
+    let copiedDefinition = null;
+    let createdFormField;
+    if (isLogRow) {
+      createdFormField = await api.post(`/api/forms/${formId}/fields`, {
+        ...baseInstancePayload,
+        field_definition_id: null,
+      });
+    } else {
+      copiedDefinition = await api.post(`/api/field-definitions/${ff.field_definition_id}/copy`, {});
+      try {
+        createdFormField = await api.post(`/api/forms/${formId}/fields`, {
+          ...baseInstancePayload,
+          field_definition_id: copiedDefinition.id,
+        });
+      } catch (error) {
+        try {
+          await api.del(`/api/field-definitions/${copiedDefinition.id}`);
+        } catch {
+          // 保留实例创建失败的原始错误，避免孤儿清理错误覆盖用户可操作提示。
+        }
+        throw error;
+      }
+    }
+
+    await reloadAfterReplay(formId, { defs: !isLogRow });
+    const created = formFields.value.find((field) => field.id === createdFormField.id);
+    if (created) selectField(created);
+
+    const definitionSnapshot = copiedDefinition ? buildDefinitionSnapshotFromResponse(copiedDefinition) : null;
+    designerHistory.record({
+      label: '复制字段',
+      ids: { ffId: createdFormField.id, fdId: copiedDefinition?.id ?? null },
+      undo: async (ids) => {
+        await api.del(`/api/form-fields/${ids.ffId}`);
+        if (ids.fdId != null) {
+          try {
+            await api.del(`/api/field-definitions/${ids.fdId}`);
+          } catch (error) {
+            const status = Number(error?.status ?? error?.response?.status);
+            if (status === 409) {
+              ElMessage.warning('字段定义已被其他表单引用，已保留定义');
+            } else if (status !== 404) {
+              throw error;
+            }
+          }
+        }
+        await reloadAfterReplay(formId, { defs: ids.fdId != null });
+      },
+      redo: async (ids, { remapId }) => {
+        let fieldDefinitionId = ids.fdId;
+        let rebuiltDefinitionId = null;
+        if (fieldDefinitionId != null && definitionSnapshot) {
+          try {
+            const rebuiltDefinition = await api.post(
+              `/api/projects/${projectId}/field-definitions`,
+              definitionSnapshot,
+            );
+            rebuiltDefinitionId = rebuiltDefinition.id;
+            remapId(ids.fdId, rebuiltDefinition.id);
+            fieldDefinitionId = rebuiltDefinition.id;
+          } catch (error) {
+            const status = Number(error?.status ?? error?.response?.status);
+            if (status !== 409) throw error;
+          }
+        }
+        let recreated;
+        try {
+          recreated = await api.post(`/api/forms/${formId}/fields`, {
+            ...baseInstancePayload,
+            field_definition_id: fieldDefinitionId,
+          });
+        } catch (error) {
+          if (rebuiltDefinitionId != null) {
+            try {
+              await api.del(`/api/field-definitions/${rebuiltDefinitionId}`);
+            } catch {
+              // 保留实例创建失败的原始错误，避免孤儿清理错误覆盖重做失败原因。
+            }
+          }
+          throw error;
+        }
+        remapId(ids.ffId, recreated.id);
+        await reloadAfterReplay(formId, { defs: ids.fdId != null });
+      },
+    });
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    const next = new Set(copyingFieldIds.value);
+    next.delete(ff.id);
+    copyingFieldIds.value = next;
   }
 }
 
@@ -3527,6 +3660,14 @@ function openAddForm() {
                       @click.stop="toggleInline(ff)"
                       >⊞</el-button
                     ></el-tooltip
+                  ><el-button
+                    v-if="!isDraftField(ff)"
+                    size="small"
+                    link
+                    :disabled="copyingFieldIds.has(ff.id)"
+                    :aria-label="'复制 ' + getFormFieldDisplayLabel(ff)"
+                    @click.stop="copyFormField(ff)"
+                    >复制</el-button
                   ><el-button type="danger" size="small" link @click.stop="removeField(ff)">删除</el-button>
                 </div>
               </div>
