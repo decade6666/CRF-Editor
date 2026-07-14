@@ -47,11 +47,13 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     'selectField',
     'buildDefinitionSnapshotFromResponse',
     'designerHistory',
+    'captureDesignerHistoryContext',
+    'recordDesignerHistory',
     'ElMessage',
     'props',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 15, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 17, 'runtime copy function should receive its full dependency context')
   const snapshotBuilder = new Function('newFd', functionBody('buildDefinitionSnapshotFromResponse'))
   const copyingFieldIds = { value: new Set() }
   const context = [
@@ -83,6 +85,8 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     (field) => calls.selected.push(field.id),
     snapshotBuilder,
     recordHistory,
+    () => ({ formId: 8, sessionId: 0 }),
+    (historyContext, entry) => (historyContext?.formId === 8 ? recordHistory.record(entry) : false),
     {
       error: (message) => calls.errors.push(message),
       warning: (message) => calls.warnings.push(message),
@@ -137,7 +141,7 @@ test('字段列表复制按钮位于删除左侧，并连接草稿与行级锁�
 
   assert.ok(copyButtonStart > -1, 'should render a non-draft copy button')
   assert.ok(removeButtonStart > copyButtonStart, 'copy button should precede delete')
-  assert.match(copyButton, /:disabled="copyingFieldIds\.has\(ff\.id\)"/)
+  assert.match(copyButton, /:disabled="copyingFieldIds\.has\(ff\.id\) \|\| designerHistory\.busy\.value"/)
   assert.match(copyButton, /@click\.stop="copyFormField\(ff\)"/)
   assert.match(copyButton, /:aria-label="'复制 ' \+ getFormFieldDisplayLabel\(ff\)"/)
   assert.match(source, /const copyingFieldIds = ref\(new Set\(\)\)/)
@@ -148,7 +152,7 @@ test('字段列表复制按钮位于删除左侧，并连接草稿与行级锁�
   assert.match(body, /copyingFieldIds\.value\.has\(ff\.id\)/)
   assert.match(body, /order_index: \(ff\.order_index \?\? 0\) \+ 1/)
   assert.match(body, /\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/copy/)
-  assert.match(body, /designerHistory\.record\([\s\S]*?label: '复制字段'/)
+  assert.match(body, /recordDesignerHistory\(historyContext, \{[\s\S]*?label: '复制字段'/)
 })
 
 test('复制普通字段按定义再实例顺序请求，选中新实例并保留完整定义快照', async () => {
