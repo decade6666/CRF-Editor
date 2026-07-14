@@ -51,9 +51,10 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     'recordDesignerHistory',
     'ElMessage',
     'props',
+    'resolveFieldPropLeave',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 17, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 18, 'runtime copy function should receive its full dependency context')
   const snapshotBuilder = new Function('newFd', functionBody('buildDefinitionSnapshotFromResponse'))
   const copyingFieldIds = { value: new Set() }
   const context = [
@@ -92,6 +93,7 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
       warning: (message) => calls.warnings.push(message),
     },
     { projectId: 5 },
+    async () => true,
   ]
 
   return {

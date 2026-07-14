@@ -14,6 +14,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
+import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
 import {
@@ -561,7 +562,7 @@ function snapshotFieldPropState(ff) {
   return {
     is_log_row: !!ff.is_log_row,
     label_override: ff.label_override ?? null,
-    default_value: ff.default_value ?? null,
+    default_value: ff.default_value || null,
     bg_color: ff.bg_color ?? null,
     text_color: ff.text_color ?? null,
     label_bold: ff.label_bold ?? 1,
@@ -653,6 +654,8 @@ function handleRedo() {
 async function addField(fd) {
   if (designerHistory.busy.value) return;
   if (!selectedForm.value) return ElMessage.warning('请先选择表单');
+  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '添加字段' });
+  if (!canLeaveFieldProp) return;
   const historyContext = captureDesignerHistoryContext();
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
@@ -708,6 +711,8 @@ async function copyFormField(ff) {
 
   copyingFieldIds.value = new Set([...copyingFieldIds.value, ff.id]);
   try {
+    const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '复制字段' });
+    if (!canLeaveFieldProp) return;
     if (hasDraft.value) {
       const proceed = await confirmDiscardDraft();
       if (!proceed) return;
@@ -831,11 +836,13 @@ async function removeField(ff) {
   const formId = historyContext.formId;
   const snapshot = buildReplaySnapshot(ff);
   const shouldReloadDefs = Boolean(snapshot.fieldDefinitionPayload);
+  const shouldResetSelectedField = selectedFieldId.value === ff.id;
   try {
     await confirmFormChange();
     deletingFieldIds.value = new Set([...deletingFieldIds.value, ff.id]);
     await api.del(`/api/form-fields/${ff.id}`);
     formFields.value = formFields.value.filter((f) => f.id !== ff.id);
+    if (shouldResetSelectedField) resetFieldPropAutoSaveState();
     await reloadAfterReplay(formId, { defs: shouldReloadDefs });
     recordDesignerHistory(historyContext, {
       label: '删除字段',
@@ -866,6 +873,7 @@ async function batchDelete() {
   if (!historyContext) return;
   const formId = historyContext.formId;
   const ids = [...selectedIds.value];
+  const shouldResetSelectedField = selectedFieldId.value != null && ids.includes(selectedFieldId.value);
   const snapshots = formFields.value
     .filter((f) => ids.includes(f.id))
     .map((f) => ({ ffId: f.id, snapshot: buildReplaySnapshot(f) }));
@@ -874,6 +882,7 @@ async function batchDelete() {
     await confirmFormChange();
     await api.post(`/api/forms/${formId}/fields/batch-delete`, { ids });
     selectedIds.value = [];
+    if (shouldResetSelectedField) resetFieldPropAutoSaveState();
     await reloadAfterReplay(formId, { defs: shouldReloadDefs });
     recordDesignerHistory(historyContext, {
       label: '批量删除',
@@ -976,7 +985,7 @@ async function handleFieldKeydown(event, field, index) {
   if (!['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(key)) return;
   event.preventDefault();
   if (key === 'Enter') {
-    selectField(field);
+    await onSelectFieldClick(field);
     return;
   }
   if (key === ' ') {
@@ -1253,20 +1262,14 @@ function applyPreviewSnapshot(baseField, snapshot) {
   };
 }
 
-const pendingFieldPropSnapshotVersion = ref(0);
-const pendingFieldPropSnapshotMap = computed(() => {
-  pendingFieldPropSnapshotVersion.value;
-  return new Map(pendingFieldPropSnapshots.map((snapshot) => [snapshot.fieldId, snapshot]));
-});
 const liveEditSnapshot = computed(() => {
   if (!selectedFieldId.value) return null;
   return buildFieldPropSnapshot(selectedFieldId.value);
 });
 const designerPreviewFields = computed(() => {
   return designerVisibleFields.value.map((field) => {
-    const pendingSnapshot = pendingFieldPropSnapshotMap.value.get(field.id);
     const liveSnapshot = liveEditSnapshot.value?.fieldId === field.id ? liveEditSnapshot.value : null;
-    return applyPreviewSnapshot(field, liveSnapshot || pendingSnapshot);
+    return applyPreviewSnapshot(field, liveSnapshot);
   });
 });
 const designerRenderGroups = computed(() => buildFormDesignerRenderGroups(designerPreviewFields.value));
@@ -1707,6 +1710,8 @@ async function saveQuickEdit() {
     if (selectedForm.value) {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
       await loadFormFields();
+      const refreshed = formFields.value.find((item) => item.id === quickEditField.value?.id);
+      if (refreshed && selectedFieldId.value === refreshed.id && !isFieldPropDirty.value) selectField(refreshed);
     }
     ElMessage.success('已保存');
     showQuickEdit.value = false;
@@ -1732,9 +1737,9 @@ async function toggleInline(ff) {
     });
     api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
     await loadFormFields();
-    if (selectedFieldId.value === ff.id) {
+    if (selectedFieldId.value === ff.id && !isFieldPropDirty.value) {
       const refreshed = formFields.value.find((item) => item.id === ff.id);
-      if (refreshed) editProp.inline_mark = refreshed.inline_mark || 0;
+      if (refreshed) selectField(refreshed);
     }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
@@ -1759,13 +1764,10 @@ const editProp = reactive({
   label_bold: 1,
   label_font_size: 'default',
 });
-let fieldPropSaveTimer = null;
-let pendingFieldPropSnapshots = [];
+const fieldPropBaseline = ref(null);
+const isSavingFieldProp = ref(false);
 let isHydratingFieldProp = false;
-let isSavingFieldProp = false;
-let fieldPropAutoSaveErrorShown = false;
 let fieldPropSaveSession = 0;
-let lastFieldPropSaveError = null;
 const fieldPropProjectId = ref(props.projectId);
 let lastHydratedFieldPropDraftKey = '';
 const designerFieldTypes = [
@@ -1811,6 +1813,60 @@ watch(
     Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
   },
 );
+
+function getSelectedFormField(fieldId = selectedFieldId.value) {
+  if (!fieldId) return null;
+  return formFields.value.find((f) => f.id === fieldId) || null;
+}
+
+function normalizeEditorDefaultValue() {
+  if (!isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))) return null;
+  return normalizeDefaultValue(editProp.default_value, !editProp.inline_mark) || null;
+}
+
+function currentEditorPropState() {
+  const ff = getSelectedFormField();
+  if (!ff || selectedFieldId.value === DRAFT_FIELD_ID) return null;
+  const isLogRow = Boolean(ff.is_log_row);
+  const labelOverride = isLogRow && ff.label_override == null && editProp.label === '以下为log行'
+    ? null
+    : editProp.label;
+  const normalizedFieldType = editProp.field_type || null;
+  const normalizedCheckboxLabel = normalizedFieldType === '复选' ? (editProp.checkbox_label ?? null) : null;
+  const normalizedCodelistId = isChoiceField(normalizedFieldType) ? editProp.codelist_id : null;
+  const normalizedUnitId = ['文本', '数值'].includes(normalizedFieldType) ? (editProp.unit_id ?? null) : null;
+  return {
+    is_log_row: isLogRow,
+    label_override: isLogRow ? (labelOverride ?? null) : (ff.label_override ?? null),
+    default_value: isLogRow ? null : normalizeEditorDefaultValue(),
+    bg_color: editProp.bg_color ?? null,
+    text_color: editProp.text_color ?? null,
+    label_bold: editProp.label_bold ? 1 : 0,
+    label_font_size: editProp.label_font_size === 'default' ? null : editProp.label_font_size,
+    fd: {
+      label: isLogRow ? null : (editProp.label ?? null),
+      variable_name: isLogRow ? null : (editProp.variable_name ?? null),
+      field_type: isLogRow ? null : normalizedFieldType,
+      integer_digits: isLogRow || normalizedFieldType !== '数值' ? null : editProp.integer_digits,
+      decimal_digits: isLogRow || normalizedFieldType !== '数值' ? null : editProp.decimal_digits,
+      date_format: isLogRow || !DATE_FORMAT_OPTIONS[normalizedFieldType] ? null : editProp.date_format,
+      checkbox_label: isLogRow ? null : normalizedCheckboxLabel,
+      codelist_id: isLogRow ? null : normalizedCodelistId,
+      unit_id: isLogRow ? null : normalizedUnitId,
+    },
+  };
+}
+
+function syncFieldPropBaselineFromEditor() {
+  fieldPropBaseline.value = selectedFieldId.value === DRAFT_FIELD_ID ? null : currentEditorPropState();
+}
+
+const isFieldPropDirty = computed(() => {
+  if (!selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID) return false;
+  if (!fieldPropBaseline.value) return false;
+  const currentState = currentEditorPropState();
+  return Boolean(currentState && !sameFieldPropState(fieldPropBaseline.value, currentState));
+});
 
 function applyCustomBgColor() {
   const raw = String(customBgColorInput.value ?? '').trim();
@@ -1869,92 +1925,10 @@ function getFieldPropSnapshotKey(snapshot = buildFieldPropSnapshot()) {
   return snapshot ? JSON.stringify(snapshot) : '';
 }
 
-function upsertPendingFieldPropSnapshot(snapshot) {
-  if (!snapshot?.fieldId) return;
-  const snapshotKey = getFieldPropSnapshotKey(snapshot);
-  pendingFieldPropSnapshots = [
-    ...pendingFieldPropSnapshots.filter((item) => item.fieldId !== snapshot.fieldId),
-    { ...snapshot, snapshotKey },
-  ];
-  pendingFieldPropSnapshotVersion.value += 1;
-}
-
-function hasPendingFieldPropSnapshot(fieldId, snapshotKey = '') {
-  return pendingFieldPropSnapshots.some(
-    (item) => item.fieldId === fieldId && (!snapshotKey || item.snapshotKey !== snapshotKey),
-  );
-}
-
-function classifyFieldPropSaveError(error) {
-  const message = String(error?.message || '').trim() || '字段属性保存失败';
-  const status = Number(error?.status || error?.response?.status);
-  let code = 'unknown';
-  if (message === '自动保存上下文已变更') {
-    code = 'context_changed';
-  } else if (message === '单选/多选字段必须选择选项字典') {
-    code = 'missing_codelist';
-  } else if (Number.isFinite(status) && status > 0) {
-    code = `http_${status}`;
-  }
-  const retryable =
-    code !== 'context_changed' &&
-    code !== 'missing_codelist' &&
-    (!Number.isFinite(status) || status >= 500 || status === 429 || status === 408);
-  return {
-    code,
-    message,
-    status: Number.isFinite(status) ? status : null,
-    retryable,
-    discardable: code === 'missing_codelist',
-  };
-}
-
-function buildFieldPropLeaveFailureResult(message, overrides = {}) {
-  return {
-    ok: false,
-    message,
-    retryable: false,
-    discardable: false,
-    code: 'unknown',
-    ...overrides,
-  };
-}
-
-function discardPendingFieldPropChanges(resetOptions = {}) {
-  resetFieldPropAutoSaveState(resetOptions);
-}
-
-async function confirmDiscardFieldPropChanges(failure, { resetOptions = {}, actionText = '关闭' } = {}) {
-  try {
-    await ElMessageBox.confirm(
-      `${failure.message}\n是否放弃当前未保存的字段属性修改并继续${actionText}？`,
-      '字段属性未保存',
-      {
-        confirmButtonText: '继续修改',
-        cancelButtonText: `放弃并${actionText}`,
-        distinguishCancelAndClose: true,
-        type: 'warning',
-      },
-    );
-    return false;
-  } catch (e) {
-    if (e === 'cancel') {
-      discardPendingFieldPropChanges(resetOptions);
-      return true;
-    }
-    return false;
-  }
-}
-
 function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   fieldPropSaveSession += 1;
-  clearTimeout(fieldPropSaveTimer);
-  fieldPropSaveTimer = null;
-  pendingFieldPropSnapshots = [];
-  pendingFieldPropSnapshotVersion.value += 1;
-  isSavingFieldProp = false;
-  fieldPropAutoSaveErrorShown = false;
-  lastFieldPropSaveError = null;
+  isSavingFieldProp.value = false;
+  fieldPropBaseline.value = null;
   if (!preserveEditor) {
     selectedFieldId.value = null;
     Object.assign(editProp, {
@@ -1980,122 +1954,70 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   }
 }
 
-async function flushFieldPropSaveBeforeReset(resetOptions = {}) {
-  const sessionId = fieldPropSaveSession;
-  clearTimeout(fieldPropSaveTimer);
-  fieldPropSaveTimer = null;
-  lastFieldPropSaveError = null;
-  const flushResult = await flushPendingFieldPropSave(sessionId);
-  if (flushResult === false) {
-    return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存失败，请稍后重试', {
-      ...lastFieldPropSaveError,
-    });
-  }
-  if (isSavingFieldProp) {
-    const settled = await new Promise((resolve) => {
-      const check = () => {
-        if (!isSavingFieldProp) {
-          resolve(true);
-          return;
-        }
-        if (sessionId !== fieldPropSaveSession) {
-          resolve(false);
-          return;
-        }
-        setTimeout(check, 20);
-      };
-      check();
-    });
-    if (!settled) {
-      return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存尚未完成，请稍后重试', {
-        ...lastFieldPropSaveError,
-      });
+async function confirmFieldReferenceImpact(ff) {
+  if (!ff || ff.is_log_row || !ff.field_definition_id) return true;
+  const refs = await api.get(`/api/field-definitions/${ff.field_definition_id}/references`);
+  if (countDistinctForms(refs) <= 1) return true;
+  const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' });
+  await ElMessageBox.confirm(`修改将影响以下表单：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
+  return true;
+}
+
+async function saveSelectedFieldProp() {
+  if (designerHistory.busy.value || isSavingFieldProp.value) return false;
+  if (!selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID || !isFieldPropDirty.value) return true;
+  const ff = getSelectedFormField();
+  if (!ff) return false;
+  const snapshot = buildFieldPropSnapshot();
+  let sessionId = null;
+  isSavingFieldProp.value = true;
+  try {
+    if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id) {
+      ElMessage.warning('单选/多选字段必须选择选项字典');
+      return false;
     }
+    await confirmFieldReferenceImpact(ff);
+    fieldPropSaveSession += 1;
+    sessionId = fieldPropSaveSession;
+    await saveFieldProp(snapshot, sessionId);
+    if (selectedFieldId.value === snapshot.fieldId) syncFieldPropBaselineFromEditor();
+    ElMessage.success('已保存');
+    return true;
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return false;
+    ElMessage.error(e.message || '字段属性保存失败');
+    return false;
+  } finally {
+    if (sessionId == null || sessionId === fieldPropSaveSession) isSavingFieldProp.value = false;
   }
-  if (pendingFieldPropSnapshots.length) {
-    return buildFieldPropLeaveFailureResult(lastFieldPropSaveError?.message || '字段属性保存失败，请先处理后再离开', {
-      ...lastFieldPropSaveError,
-    });
-  }
-  resetFieldPropAutoSaveState(resetOptions);
-  return { ok: true };
+}
+
+function cancelSelectedFieldProp() {
+  if (!selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID) return;
+  const ff = getSelectedFormField();
+  if (ff) selectField(ff);
 }
 
 async function resolveFieldPropLeave({ resetOptions = {}, actionText = '关闭' } = {}) {
-  const result = await flushFieldPropSaveBeforeReset(resetOptions);
-  if (result.ok) return true;
-  if (result.discardable) {
-    return confirmDiscardFieldPropChanges(result, { resetOptions, actionText });
+  if (!isFieldPropDirty.value) return true;
+  try {
+    await ElMessageBox.confirm(`字段属性修改尚未保存，保存或取消后将继续${actionText}。`, '字段属性未保存', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    });
+    return await saveSelectedFieldProp();
+  } catch (e) {
+    if (e === 'cancel') {
+      resetFieldPropAutoSaveState(resetOptions);
+      return true;
+    }
+    return false;
   }
-  ElMessage.error(`字段属性未保存：${result.message}`);
-  return false;
 }
 
 const currentFieldPropDraftKey = computed(() => getFieldPropSnapshotKey());
-
-async function flushPendingFieldPropSave(sessionId = fieldPropSaveSession) {
-  if (sessionId !== fieldPropSaveSession) return false;
-  if (!pendingFieldPropSnapshots.length || isSavingFieldProp) return true;
-  if (designerHistory.busy.value) {
-    clearTimeout(fieldPropSaveTimer);
-    fieldPropSaveTimer = setTimeout(() => {
-      void flushPendingFieldPropSave(sessionId);
-    }, 100);
-    return true;
-  }
-  const [snapshot, ...rest] = pendingFieldPropSnapshots;
-  pendingFieldPropSnapshots = rest;
-  pendingFieldPropSnapshotVersion.value += 1;
-  const snapshotKey = snapshot.snapshotKey || getFieldPropSnapshotKey(snapshot);
-  let saveSucceeded = false;
-  let flushFailed = false;
-  let interrupted = false;
-  let shouldContinue = false;
-  isSavingFieldProp = true;
-  try {
-    await saveFieldProp(snapshot, sessionId);
-    fieldPropAutoSaveErrorShown = false;
-    saveSucceeded = true;
-  } catch (e) {
-    flushFailed = true;
-    const failure = classifyFieldPropSaveError(e);
-    lastFieldPropSaveError = failure;
-    const isExpiredContext = failure.code === 'context_changed';
-    if (!hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey)) upsertPendingFieldPropSnapshot(snapshot);
-    if (!fieldPropAutoSaveErrorShown && !isExpiredContext) {
-      ElMessage.error(failure.message);
-      fieldPropAutoSaveErrorShown = true;
-    }
-    if (classifyFieldPropSaveError(e).retryable) {
-      clearTimeout(fieldPropSaveTimer);
-      fieldPropSaveTimer = setTimeout(() => {
-        void flushPendingFieldPropSave(sessionId);
-      }, 1000);
-    }
-  } finally {
-    interrupted = sessionId !== fieldPropSaveSession;
-    isSavingFieldProp = false;
-    if (!interrupted) {
-      const isCurrentSelectedField = selectedFieldId.value === snapshot.fieldId;
-      const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey() !== snapshotKey;
-      const hasQueuedDraft = hasPendingFieldPropSnapshot(snapshot.fieldId, snapshotKey);
-      if (hasNewerDraft && !hasQueuedDraft) upsertPendingFieldPropSnapshot(buildFieldPropSnapshot(snapshot.fieldId));
-      const shouldRefillEditor =
-        selectedFieldId.value === snapshot.fieldId && !hasPendingFieldPropSnapshot(snapshot.fieldId);
-      if (saveSucceeded && shouldRefillEditor) {
-        const updated = formFields.value.find((f) => f.id === snapshot.fieldId);
-        if (updated) selectField(updated);
-      }
-      if (saveSucceeded && pendingFieldPropSnapshots.length) {
-        clearTimeout(fieldPropSaveTimer);
-        shouldContinue = true;
-      }
-    }
-  }
-  if (interrupted) return false;
-  if (shouldContinue) return flushPendingFieldPropSave(sessionId);
-  return !flushFailed;
-}
 
 watch(currentFieldPropDraftKey, (draftKey) => {
   if (!draftKey || isHydratingFieldProp || draftKey === lastHydratedFieldPropDraftKey) return;
@@ -2103,20 +2025,10 @@ watch(currentFieldPropDraftKey, (draftKey) => {
   if (selectedFieldId.value === DRAFT_FIELD_ID) {
     applyEditorToDraft();
     lastHydratedFieldPropDraftKey = draftKey;
-    return;
   }
-  const snapshot = buildFieldPropSnapshot();
-  if (!snapshot) return;
-  fieldPropAutoSaveErrorShown = false;
-  upsertPendingFieldPropSnapshot(snapshot);
-  clearTimeout(fieldPropSaveTimer);
-  fieldPropSaveTimer = setTimeout(() => {
-    void flushPendingFieldPropSave(fieldPropSaveSession);
-  }, 400);
 });
 
 function selectField(ff) {
-  if (selectedFieldId.value && selectedFieldId.value !== ff.id) void flushPendingFieldPropSave();
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
   if (ff.is_log_row) {
@@ -2141,11 +2053,13 @@ function selectField(ff) {
     customTextColorInput.value =
       ff.text_color && !TEXT_COLOR_OPTIONS.some((o) => o.value === ff.text_color) ? ff.text_color : '';
     lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id));
+    syncFieldPropBaselineFromEditor();
     isHydratingFieldProp = false;
     return;
   }
   const fd = ff.field_definition;
   if (!fd) {
+    fieldPropBaseline.value = null;
     lastHydratedFieldPropDraftKey = '';
     isHydratingFieldProp = false;
     return;
@@ -2171,18 +2085,19 @@ function selectField(ff) {
   customTextColorInput.value =
     ff.text_color && !TEXT_COLOR_OPTIONS.some((o) => o.value === ff.text_color) ? ff.text_color : '';
   lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id));
+  syncFieldPropBaselineFromEditor();
   isHydratingFieldProp = false;
 }
 
 async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fieldPropSaveSession) {
   if (designerHistory.busy.value) return false;
   if (!snapshot?.fieldId) return;
-  if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
   const historyContext = captureDesignerHistoryContext();
   const ff = formFields.value.find((f) => f.id === snapshot.fieldId);
   const formId = historyContext?.formId;
   const projectId = snapshot.projectId;
-  if (!ff || !formId || projectId !== props.projectId) throw new Error('自动保存上下文已变更');
+  if (!ff || !formId || projectId !== fieldPropProjectId.value) throw new Error('字段属性保存上下文已变更');
   if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
     throw new Error('单选/多选字段必须选择选项字典');
   const propEditFieldId = ff.id;
@@ -2190,7 +2105,7 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   const beforePropState = snapshotFieldPropState(ff);
   if (ff.is_log_row) {
     const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label });
-    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
+    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
     syncSelectedField(updated, { syncEditor: false });
     api.invalidateCache(`/api/forms/${formId}/fields`);
   } else {
@@ -2209,12 +2124,12 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
       codelist_id: snapshot.codelist_id,
       unit_id: snapshot.unit_id ?? null,
     });
-    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
+    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
     let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } };
     syncSelectedField(currentField, { syncEditor: false });
     api.invalidateCache(`/api/forms/${formId}/fields`);
     const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue });
-    if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
+    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
     currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition };
     syncSelectedField(currentField, { syncEditor: false });
   }
@@ -2225,7 +2140,7 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
     label_bold: snapshot.label_bold,
     label_font_size: snapshot.label_font_size,
   });
-  if (sessionId !== fieldPropSaveSession) throw new Error('自动保存上下文已变更');
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
   syncSelectedField(
     { ...baseField, ...updatedColors, field_definition: baseField.field_definition },
     { syncEditor: false },
@@ -2307,6 +2222,8 @@ async function confirmDiscardDraft() {
 async function newField() {
   if (designerHistory.busy.value) return;
   if (!selectedForm.value) return;
+  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '新建字段' });
+  if (!canLeaveFieldProp) return;
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
     if (!proceed) return;
@@ -2423,11 +2340,10 @@ async function saveDraftField() {
 
 // 字段行点击选中入口：存在草稿且点击非草稿字段时先确认保存/丢弃。
 async function onSelectFieldClick(ff) {
-  if (isDraftField(ff) || selectedFieldId.value === ff.id) {
-    selectField(ff);
-    return;
-  }
-  if (hasDraft.value) {
+  if (selectedFieldId.value === ff.id) return;
+  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '切换字段' });
+  if (!canLeaveFieldProp) return;
+  if (hasDraft.value && !isDraftField(ff)) {
     const proceed = await confirmDiscardDraft();
     if (!proceed) return;
   }
@@ -2657,7 +2573,7 @@ async function quickSaveCodelist() {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
       await loadFormFields();
       const updated = formFields.value.find((f) => f.id === selectedFieldId.value);
-      if (updated) selectField(updated);
+      if (updated && !isFieldPropDirty.value) selectField(updated);
     }
     refreshKey.value++;
     closeQuickEditCodelist();
@@ -2670,7 +2586,7 @@ async function quickSaveCodelist() {
       api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
       await loadFormFields();
       const updated = formFields.value.find((f) => f.id === selectedFieldId.value);
-      if (updated) selectField(updated);
+      if (updated && !isFieldPropDirty.value) selectField(updated);
     }
     refreshKey.value++;
     closeQuickEditCodelist();
@@ -4857,6 +4773,30 @@ function openAddForm() {
                   :loading="savingDraft"
                   :disabled="designerHistory.busy.value"
                   @click="saveDraftField"
+                >
+                  保存
+                </el-button>
+              </div>
+              <div
+                v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"
+                class="designer-draft-actions"
+                data-test="designer-property-actions"
+              >
+                <el-button
+                  size="small"
+                  data-test="designer-property-cancel"
+                  :disabled="!isFieldPropDirty || designerHistory.busy.value || isSavingFieldProp"
+                  @click="cancelSelectedFieldProp"
+                >
+                  取消
+                </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  data-test="designer-property-save"
+                  :loading="isSavingFieldProp"
+                  :disabled="!isFieldPropDirty || designerHistory.busy.value"
+                  @click="saveSelectedFieldProp"
                 >
                   保存
                 </el-button>
