@@ -12,6 +12,19 @@ const buildFieldDefinitionPayload = fieldDefinitionPayloadExpression
   ? new Function('snapshot', `return (${fieldDefinitionPayloadExpression})`)
   : null
 
+function functionBody(name) {
+  const start = formDesignerSource.indexOf(`function ${name}(`)
+  assert.notEqual(start, -1, `should locate ${name}`)
+  const bodyStart = formDesignerSource.indexOf('{', start)
+  let depth = 0
+  for (let index = bodyStart; index < formDesignerSource.length; index += 1) {
+    if (formDesignerSource[index] === '{') depth += 1
+    if (formDesignerSource[index] === '}') depth -= 1
+    if (depth === 0) return formDesignerSource.slice(bodyStart + 1, index)
+  }
+  assert.fail(`${name} should have a complete body`)
+}
+
 const DATE_FORMAT_OPTIONS = {
   日期: ['yyyy-MM-dd', 'MM/dd/yyyy'],
   日期时间: ['yyyy-MM-dd HH:mm', 'yyyy/MM/dd HH:mm:ss'],
@@ -113,7 +126,115 @@ test('field definition payload keeps cleared unit as null', () => {
   assert.equal(selectedPayload.checkbox_label, '已确认')
 })
 
-test('normalizeHexColorInput accepts 3 or 6 digit hex values', () => {
+test('property editor exposes explicit dirty state helpers and keeps drafts clean', () => {
+  assert.match(formDesignerSource, /const fieldPropBaseline = ref\(null\)/)
+  assert.match(formDesignerSource, /function currentEditorPropState\(\) \{[\s\S]*label_override: isLogRow \? \(labelOverride \?\? null\) : \(ff\.label_override \?\? null\)/)
+  assert.match(formDesignerSource, /function syncFieldPropBaselineFromEditor\(\) \{[\s\S]*fieldPropBaseline\.value = selectedFieldId\.value === DRAFT_FIELD_ID \? null : currentEditorPropState\(\)/)
+  assert.match(formDesignerSource, /const isFieldPropDirty = computed\(\(\) => \{[\s\S]*selectedFieldId\.value === DRAFT_FIELD_ID[\s\S]*!sameFieldPropState\(fieldPropBaseline\.value, currentState\)/)
+  assert.match(formDesignerSource, /syncFieldPropBaselineFromEditor\(\)/)
+})
+
+test('property editor baseline normalization keeps stale type-specific values clean on hydration', () => {
+  const currentEditorPropState = new Function(
+    'getSelectedFormField',
+    'selectedFieldId',
+    'DRAFT_FIELD_ID',
+    'editProp',
+    'DATE_FORMAT_OPTIONS',
+    'isChoiceField',
+    'normalizeEditorDefaultValue',
+    `${functionBody('currentEditorPropState')}`,
+  )
+  const DRAFT_FIELD_ID = '__draft__'
+  const ff = {
+    id: 7,
+    is_log_row: 0,
+    label_override: null,
+    default_value: '',
+    bg_color: null,
+    text_color: null,
+    label_bold: 1,
+    label_font_size: null,
+  }
+  const editProp = {
+    label: '体温',
+    variable_name: 'TEMP',
+    field_type: '文本',
+    integer_digits: 6,
+    decimal_digits: 2,
+    date_format: null,
+    checkbox_label: null,
+    codelist_id: null,
+    unit_id: 3,
+    default_value: '',
+    inline_mark: 0,
+    bg_color: null,
+    text_color: null,
+    label_bold: 1,
+    label_font_size: 'default',
+  }
+  const selectedFieldId = { value: ff.id }
+  const getSelectedFormField = () => ff
+  const normalizeEditorDefaultValue = () => null
+  const state = currentEditorPropState(
+    getSelectedFormField,
+    selectedFieldId,
+    DRAFT_FIELD_ID,
+    editProp,
+    DATE_FORMAT_OPTIONS,
+    (fieldType) => ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(fieldType),
+    normalizeEditorDefaultValue,
+  )
+  const staleBaseline = {
+    ...state,
+    fd: {
+      ...state.fd,
+      integer_digits: 6,
+      decimal_digits: 2,
+    },
+  }
+
+  assert.equal(state.fd.integer_digits, null)
+  assert.equal(state.fd.decimal_digits, null)
+  assert.equal(state.fd.unit_id, 3)
+  assert.equal(JSON.stringify(staleBaseline) === JSON.stringify(state), false)
+  assert.equal(JSON.stringify(state) === JSON.stringify(state), true)
+  assert.match(formDesignerSource, /syncFieldPropBaselineFromEditor\(\)/)
+})
+
+test('property editor no longer schedules persistent autosave', () => {
+  assert.doesNotMatch(formDesignerSource, /fieldPropSaveTimer\s*=\s*setTimeout/)
+  assert.doesNotMatch(formDesignerSource, /flushPendingFieldPropSave/)
+  assert.doesNotMatch(formDesignerSource, /pendingFieldPropSnapshots/)
+  assert.match(formDesignerSource, /watch\(currentFieldPropDraftKey,[\s\S]*selectedFieldId\.value === DRAFT_FIELD_ID[\s\S]*applyEditorToDraft\(\)/)
+})
+
+test('property editor save validates, warns on multi-form references, and updates baseline', () => {
+  const body = /async function saveSelectedFieldProp\(\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
+  assert.ok(body, 'should locate saveSelectedFieldProp body')
+  assert.match(body, /isSavingFieldProp\.value = true/)
+  assert.match(body, /isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id/)
+  assert.match(body, /ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)/)
+  assert.match(body, /await confirmFieldReferenceImpact\(ff\)/)
+  assert.match(formDesignerSource, /import \{ countDistinctForms, formatFieldImpactMessage \} from '..\/composables\/fieldReferenceImpact'/)
+  assert.match(formDesignerSource, /countDistinctForms\(refs\) <= 1/)
+  assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
+  assert.match(formDesignerSource, /修改将影响以下表单：\\n\$\{msg\}\\n确认修改？/)
+  assert.match(body, /await saveFieldProp\(snapshot, sessionId\)/)
+  assert.match(body, /if \(selectedFieldId\.value === snapshot\.fieldId\) syncFieldPropBaselineFromEditor\(\)/)
+  assert.match(body, /if \(sessionId == null \|\| sessionId === fieldPropSaveSession\) isSavingFieldProp\.value = false/)
+  assert.match(body, /return true/)
+})
+
+test('property editor cancel restores selected field from baseline without requests', () => {
+  const body = /function cancelSelectedFieldProp\(\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
+  assert.ok(body, 'should locate cancelSelectedFieldProp body')
+  assert.doesNotMatch(body, /api\.(post|put|patch|del|get)\(/)
+  assert.match(body, /if \(ff\) selectField\(ff\)/)
+})
+
+
+test('normalizeHexColorInput accepts and normalizes valid values', () => {
   assert.equal(normalizeHexColorInput('#abc'), 'AABBCC')
   assert.equal(normalizeHexColorInput('a1b2c3'), 'A1B2C3')
 })

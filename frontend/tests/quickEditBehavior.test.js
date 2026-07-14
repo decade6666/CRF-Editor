@@ -59,13 +59,8 @@ test('quick edit is limited to field instance properties only', () => {
   assert.equal(hasFieldTypeEditInQuickEdit, false, 'Quick edit should not include field_type selector')
 })
 
-test('preview uses derived visible and preview field models', () => {
-  assert.match(formDesignerSource, /const designerVisibleFields = computed\(\(\) => \{/)
-  assert.match(formDesignerSource, /_displayOrder: index \+ 1/)
-  assert.match(formDesignerSource, /const designerPreviewFields = computed\(\(\) => \{/)
-  assert.match(formDesignerSource, /pendingFieldPropSnapshotMap\.value\.get\(field\.id\)/)
-  assert.match(formDesignerSource, /liveEditSnapshot\.value\?\.fieldId === field\.id/)
-  assert.match(formDesignerSource, /const designerRenderGroups = computed\(\(\) => buildFormDesignerRenderGroups\(designerPreviewFields\.value\)\)/)
+test('property editor previews live edits and design notes use independent autosave', () => {
+  assert.match(formDesignerSource, /const designerPreviewFields = computed\(\(\) => \{[\s\S]*const liveSnapshot = liveEditSnapshot\.value\?\.fieldId === field\.id \? liveEditSnapshot\.value : null;[\s\S]*return applyPreviewSnapshot\(field, liveSnapshot\)/)
   assert.match(formDesignerSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\)/)
   assert.match(formDesignerSource, /formsTableRef\.value\?\.setCurrentRow\(currentForm\)/)
@@ -206,7 +201,7 @@ test('field list exposes inline toggle backed by patch endpoint', () => {
     /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`,[\s\S]*inline_mark: ff\.inline_mark \? 0 : 1[\s\S]*\}\)/,
   )
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)/)
-  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id\) \{[\s\S]*if \(refreshed\) editProp\.inline_mark = refreshed\.inline_mark \|\| 0/)
+  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"/)
   assert.match(formDesignerSource, /content="横向表格标记"/)
   assert.match(formDesignerSource, /:aria-label="'切换 ' \+ getFormFieldDisplayLabel\(ff\) \+ ' 的横向表格标记'"/)
@@ -281,66 +276,55 @@ test('quick edit codelist save uses single snapshot request and preserves descri
   assert.match(formDesignerSource, /options: normalizedOptions\.map\([\s\S]*opt[\s\S]*=>[\s\S]*\(\{/)
   assert.doesNotMatch(formDesignerSource, /for \(const id of originalIds\) if \(!currentIds\.has\(id\)\) await api\.del/)
   assert.doesNotMatch(formDesignerSource, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/options/)
+  assert.match(formDesignerSource, /const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)/)
   assert.match(formDesignerSource, /closeQuickEditCodelist\(\)/)
   assert.match(formDesignerSource, /保存失败：\$\{e\.message\}。已刷新为最新字典数据，请重新检查后再编辑。/)
   assert.match(formDesignerSource, /quickEditCodelistSaving\.value = false/)
 })
 
 
-test('property editor auto saves without manual save buttons', () => {
-  assert.match(formDesignerSource, /let pendingFieldPropSnapshots = \[\]/)
-  assert.match(formDesignerSource, /let fieldPropAutoSaveErrorShown = false/)
-  assert.match(formDesignerSource, /let fieldPropSaveSession = 0/)
+test('property editor uses explicit save and cancel buttons instead of persistent autosave', () => {
+  assert.match(formDesignerSource, /const fieldPropBaseline = ref\(null\)/)
+  assert.match(formDesignerSource, /const isSavingFieldProp = ref\(false\)/)
   assert.match(formDesignerSource, /const fieldPropProjectId = ref\(props\.projectId\)/)
-  assert.match(formDesignerSource, /function upsertPendingFieldPropSnapshot\(snapshot\) \{[\s\S]*pendingFieldPropSnapshots = \[/)
-  assert.match(formDesignerSource, /function hasPendingFieldPropSnapshot\(fieldId, snapshotKey = ''\) \{[\s\S]*pendingFieldPropSnapshots\.some/)
-  assert.match(formDesignerSource, /function resetFieldPropAutoSaveState\(\{ preserveEditor = false \} = \{\}\) \{[\s\S]*fieldPropSaveSession \+= 1[\s\S]*pendingFieldPropSnapshots = \[\]/)
-  assert.match(formDesignerSource, /if \(!preserveEditor\) \{[\s\S]*selectedFieldId\.value = null[\s\S]*lastHydratedFieldPropDraftKey = ''/)
-  assert.match(formDesignerSource, /const currentFieldPropDraftKey = computed\(\(\) => getFieldPropSnapshotKey\(\)\)/)
-  assert.match(
-    formDesignerSource,
-    /watch\(currentFieldPropDraftKey,[\s\S]*draftKey[\s\S]*=> \{[\s\S]*fieldPropAutoSaveErrorShown = false[\s\S]*upsertPendingFieldPropSnapshot\(snapshot\)/,
-  )
-  assert.match(formDesignerSource, /fieldPropSaveTimer = setTimeout\(\(\) => \{[\s\S]*void flushPendingFieldPropSave\(fieldPropSaveSession\)[\s\S]*\}, 400\)/)
-  assert.doesNotMatch(formDesignerSource, /@click="saveFieldProp">保存<\/el-button>/)
+  assert.match(formDesignerSource, /const isFieldPropDirty = computed\(\(\) => \{[\s\S]*selectedFieldId\.value === DRAFT_FIELD_ID[\s\S]*!sameFieldPropState\(fieldPropBaseline\.value, currentState\)/)
+  assert.match(formDesignerSource, /function resetFieldPropAutoSaveState\(\{ preserveEditor = false \} = \{\}\) \{[\s\S]*fieldPropSaveSession \+= 1[\s\S]*fieldPropBaseline\.value = null/)
+  assert.match(formDesignerSource, /function syncFieldPropBaselineFromEditor\(\) \{[\s\S]*currentEditorPropState\(\)/)
+  assert.match(formDesignerSource, /watch\(currentFieldPropDraftKey,[\s\S]*selectedFieldId\.value === DRAFT_FIELD_ID[\s\S]*applyEditorToDraft\(\)/)
+  assert.doesNotMatch(formDesignerSource, /let pendingFieldPropSnapshots = \[\]/)
+  assert.doesNotMatch(formDesignerSource, /flushPendingFieldPropSave/)
+  assert.doesNotMatch(formDesignerSource, /fieldPropSaveTimer = setTimeout/)
+  assert.match(formDesignerSource, /data-test="designer-property-actions"/)
+  assert.match(formDesignerSource, /data-test="designer-property-cancel"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value \|\| isSavingFieldProp"[\s\S]*@click="cancelSelectedFieldProp"/)
+  assert.match(formDesignerSource, /data-test="designer-property-save"[\s\S]*:loading="isSavingFieldProp"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value"[\s\S]*@click="saveSelectedFieldProp"/)
 })
 
 
-test('property editor hydration flushes pending autosave before switching fields', () => {
+test('property editor hydrates baseline before switching fields', () => {
   assert.match(formDesignerSource, /let isHydratingFieldProp = false/)
   assert.match(formDesignerSource, /let lastHydratedFieldPropDraftKey = ''/)
-  assert.match(formDesignerSource, /if \(selectedFieldId\.value && selectedFieldId\.value !== ff\.id\) void flushPendingFieldPropSave\(\)/)
+  assert.doesNotMatch(formDesignerSource, /if \(selectedFieldId\.value && selectedFieldId\.value !== ff\.id\) void flushPendingFieldPropSave\(\)/)
   assert.match(formDesignerSource, /projectId: fieldPropProjectId\.value/)
   assert.match(formDesignerSource, /lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey\(buildFieldPropSnapshot\(ff\.id\)\)/)
-  assert.match(formDesignerSource, /const hasNewerDraft = isCurrentSelectedField && getFieldPropSnapshotKey\(\) !== snapshotKey/)
-  assert.match(
-    formDesignerSource,
-    /const shouldRefillEditor =[\s\S]*selectedFieldId\.value === snapshot\.fieldId[\s\S]*!hasPendingFieldPropSnapshot\(snapshot\.fieldId\)/,
-  )
+  assert.match(formDesignerSource, /syncFieldPropBaselineFromEditor\(\)/)
 })
 
 
-test('property editor retries only retryable autosave errors', () => {
-  assert.match(formDesignerSource, /async function flushPendingFieldPropSave\(sessionId = fieldPropSaveSession\) \{/)
-  assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) return false/)
-  assert.match(formDesignerSource, /if \(!pendingFieldPropSnapshots\.length \|\| isSavingFieldProp\) return true/)
-  assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId\)[\s\S]*fieldPropAutoSaveErrorShown = false[\s\S]*saveSucceeded = true/)
-  assert.match(formDesignerSource, /const failure = classifyFieldPropSaveError\(e\)/)
-  assert.match(formDesignerSource, /lastFieldPropSaveError = failure/)
-  assert.match(formDesignerSource, /const isExpiredContext = failure\.code === 'context_changed'/)
-  assert.match(formDesignerSource, /if \(!hasPendingFieldPropSnapshot\(snapshot\.fieldId, snapshotKey\)\) upsertPendingFieldPropSnapshot\(snapshot\)/)
-  assert.match(formDesignerSource, /if \(!fieldPropAutoSaveErrorShown && !isExpiredContext\) \{[\s\S]*ElMessage\.error\(failure\.message\)[\s\S]*fieldPropAutoSaveErrorShown = true/)
-  assert.match(formDesignerSource, /if \(classifyFieldPropSaveError\(e\)\.retryable\) \{[\s\S]*fieldPropSaveTimer = setTimeout\(\(\) => \{[\s\S]*void flushPendingFieldPropSave\(sessionId\)[\s\S]*\}, 1000\)/)
-  assert.match(formDesignerSource, /const retryable =[\s\S]*status >= 500 \|\| status === 429 \|\| status === 408/)
-  assert.match(formDesignerSource, /const hasQueuedDraft = hasPendingFieldPropSnapshot\(snapshot\.fieldId, snapshotKey\)/)
-  assert.match(formDesignerSource, /if \(hasNewerDraft && !hasQueuedDraft\) upsertPendingFieldPropSnapshot\(buildFieldPropSnapshot\(snapshot\.fieldId\)\)/)
-  assert.match(formDesignerSource, /if \(saveSucceeded && shouldRefillEditor\) \{[\s\S]*if \(updated\) selectField\(updated\)/)
-  assert.match(formDesignerSource, /return !flushFailed/)
-  assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('自动保存上下文已变更'\)/)
+test('property editor save uses shared multi-form impact warning and context guards', () => {
+  assert.match(formDesignerSource, /async function saveSelectedFieldProp\(\) \{/)
+  assert.match(formDesignerSource, /isSavingFieldProp\.value = true/)
+  assert.match(formDesignerSource, /await confirmFieldReferenceImpact\(ff\)/)
+  assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId\)/)
+  assert.match(formDesignerSource, /if \(selectedFieldId\.value === snapshot\.fieldId\) syncFieldPropBaselineFromEditor\(\)/)
+  assert.match(formDesignerSource, /const refs = await api\.get\(`\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/references`\)/)
+  assert.match(formDesignerSource, /if \(countDistinctForms\(refs\) <= 1\) return true/)
+  assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
+  assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('字段属性保存上下文已变更'\)/)
   assert.match(
     formDesignerSource,
     /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\)[\s\S]*throw new Error\('单选\/多选字段必须选择选项字典'\)/,
   )
+  assert.match(formDesignerSource, /if \(sessionId == null \|\| sessionId === fieldPropSaveSession\) isSavingFieldProp\.value = false/)
   assert.doesNotMatch(formDesignerSource, /editProp\.default_value = normalizedDefaultValue/)
 })
 
@@ -354,25 +338,23 @@ test('api helpers preserve HTTP status on thrown errors', () => {
 })
 
 
-test('property editor uses explicit leave guards instead of close-then-reopen rollback', () => {
-  assert.match(formDesignerSource, /function classifyFieldPropSaveError\(error\) \{[\s\S]*code = 'missing_codelist'[\s\S]*discardable: code === 'missing_codelist'/)
-  assert.match(formDesignerSource, /async function flushFieldPropSaveBeforeReset\(resetOptions = \{\}\) \{[\s\S]*const flushResult = await flushPendingFieldPropSave\(sessionId\)/)
-  assert.match(formDesignerSource, /if \(isSavingFieldProp\) \{[\s\S]*setTimeout\(check, 20\)/)
-  assert.match(formDesignerSource, /if \(pendingFieldPropSnapshots\.length\) \{[\s\S]*return buildFieldPropLeaveFailureResult\(/)
-  assert.match(formDesignerSource, /async function confirmDiscardFieldPropChanges\(failure, \{ resetOptions = \{\}, actionText = '关闭' \} = \{\}\) \{[\s\S]*cancelButtonText: `放弃并\$\{actionText\}`/)
-  assert.match(formDesignerSource, /function discardPendingFieldPropChanges\(resetOptions = \{\}\) \{[\s\S]*resetFieldPropAutoSaveState\(resetOptions\)[\s\S]*\}/)
-  assert.match(formDesignerSource, /async function resolveFieldPropLeave\(\{ resetOptions = \{\}, actionText = '关闭' \} = \{\}\) \{[\s\S]*if \(result\.discardable\) \{[\s\S]*confirmDiscardFieldPropChanges\(/)
-  assert.match(formDesignerSource, /ElMessage\.error\(`字段属性未保存：\$\{result\.message\}`\)/)
+test('property editor dirty leave guard uses save, discard, and close states', () => {
+  assert.match(formDesignerSource, /async function resolveFieldPropLeave\(\{ resetOptions = \{\}, actionText = '关闭' \} = \{\}\) \{[\s\S]*if \(!isFieldPropDirty\.value\) return true/)
+  assert.match(formDesignerSource, /confirmButtonText: '保存'/)
+  assert.match(formDesignerSource, /cancelButtonText: '取消'/)
+  assert.match(formDesignerSource, /distinguishCancelAndClose: true/)
+  assert.match(formDesignerSource, /return await saveSelectedFieldProp\(\)/)
+  assert.match(formDesignerSource, /if \(e === 'cancel'\) \{[\s\S]*resetFieldPropAutoSaveState\(resetOptions\);[\s\S]*return true/)
+  assert.doesNotMatch(formDesignerSource, /if \(e === 'cancel'\) \{[\s\S]*cancelSelectedFieldProp\(\)/)
+  assert.match(formDesignerSource, /return false/)
   assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\)/)
   assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeave = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = previousProjectId/)
   assert.doesNotMatch(formDesignerSource, /if \(!resetSucceeded\) showDesigner\.value = true/)
-  assert.match(formDesignerSource, /if \(!preserveEditor\) \{[\s\S]*selectedFieldId\.value = null/)
 })
 
 
-test('missing codelist validation becomes a discardable leave failure', () => {
-  assert.match(formDesignerSource, /if \(message === '单选\/多选字段必须选择选项字典'\) \{[\s\S]*code = 'missing_codelist'/)
-  assert.match(formDesignerSource, /discardable: code === 'missing_codelist'/)
+test('missing codelist validation blocks explicit property save', () => {
+  assert.match(formDesignerSource, /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\) \{[\s\S]*ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)[\s\S]*return false/)
 })
 
 
@@ -382,6 +364,36 @@ test('app blocks project switch until form designer can leave', () => {
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
   assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(isTabActivated\('designer'\) && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
   assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
+})
+
+
+test('field switch goes through property dirty leave guard before selecting another field', () => {
+  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id\) return;[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '切换字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(hasDraft\.value && !isDraftField\(ff\)\)[\s\S]*selectField\(fresh\)/)
+})
+
+
+test('dirty property edits are guarded before reselecting or refreshing editor state', () => {
+  assert.match(formDesignerSource, /async function newField\(\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '新建字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*selectField\(draft\)/)
+  assert.match(formDesignerSource, /async function addField\(fd\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '添加字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*api\.post\(`\/api\/forms\/\$\{formId\}\/fields`/)
+  assert.match(formDesignerSource, /async function copyFormField\(ff\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '复制字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(created\) selectField\(created\)/)
+  assert.match(formDesignerSource, /if \(refreshed && selectedFieldId\.value === refreshed\.id && !isFieldPropDirty\.value\) selectField\(refreshed\)/)
+  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
+  assert.match(formDesignerSource, /if \(key === 'Enter'\) \{[\s\S]*await onSelectFieldClick\(field\);[\s\S]*return;[\s\S]*\}/)
+  assert.match(formDesignerSource, /const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)/)
+})
+
+
+test('project watcher fallback saves against the previous property project context', () => {
+  assert.match(formDesignerSource, /const fieldPropProjectId = ref\(props\.projectId\)/)
+  assert.match(formDesignerSource, /projectId: fieldPropProjectId\.value/)
+  assert.match(formDesignerSource, /if \(!ff \|\| !formId \|\| projectId !== fieldPropProjectId\.value\) throw new Error\('字段属性保存上下文已变更'\)/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeave = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = newProjectId/)
+})
+
+
+test('deleting the selected field clears the property editor state', () => {
+  assert.match(formDesignerSource, /const shouldResetSelectedField = selectedFieldId\.value === ff\.id;[\s\S]*if \(shouldResetSelectedField\) resetFieldPropAutoSaveState\(\);/)
+  assert.match(formDesignerSource, /const shouldResetSelectedField = selectedFieldId\.value != null && ids\.includes\(selectedFieldId\.value\);[\s\S]*if \(shouldResetSelectedField\) resetFieldPropAutoSaveState\(\);/)
 })
 
 
