@@ -663,3 +663,36 @@ agy+codex 联合审查复选字段类型实现，Claude 复核仲裁：采纳 Co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 49: 表单设计器字段实例复制（稳健档撤销/重做）
+
+**Date**: 2026-07-13
+**Task**: 表单设计器字段实例复制（稳健档撤销/重做）
+**Branch**: `draft`
+
+### Summary
+
+在字段行删除按钮左侧新增复制按钮：复制字段全部内容、OID追加_copy避免唯一约束冲突、新字段落源字段下一行。普通字段经/copy复制定义+建完整实例，日志行仅复制实例；含草稿守卫、行级双击锁、孤儿定义清理、选中刷新与撤销/重做。重做从首次完整快照重建定义或409复用，永不重调/copy防OID漂移；重做建实例失败清理本次孤儿定义。经Codex+Antigravity交叉审查（复核后修复redo孤儿清理真问题、判定409映射为假阳性）。全前端437测试通过、lint零错误、build通过。既有busy/session协调通病另立backlog任务。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9102e9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

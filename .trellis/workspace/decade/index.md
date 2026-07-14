@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 48
+- **Total Sessions**: 49
 - **Last Active**: 2026-07-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~665 | Active |
+| `journal-0.md` | ~698 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 49 | 2026-07-13 | 表单设计器字段实例复制（稳健档撤销/重做） | `d9102e9` | `draft` |
 | 48 | 2026-07-13 | 复选字段类型：联合审查复核与修复收尾 | `151b695` | `draft` |
 | 47 | 2026-07-10 | 表单设计弹窗界面调整（可拖拽分栏+aCRF两行布局） | `82a265d` | `draft` |
 | 46 | 2026-07-07 | docx导入规则深度优化：横纵向按Word换行判定+AI复核提示词增强 | `5c9ab22` | `draft` |
