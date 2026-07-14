@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 49
-- **Last Active**: 2026-07-13
+- **Total Sessions**: 50
+- **Last Active**: 2026-07-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~698 | Active |
+| `journal-0.md` | ~736 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 50 | 2026-07-14 | 设计器交互批次：6需求(拖拽/预览标题/属性卡保存取消/多表单提醒阈值/打开刷新字段库)+历史busy协调 | `bb811cd`, `054e791`, `1f65bbf`, `cff0803`, `ef4f230`, `6478ac5` | `draft` |
 | 49 | 2026-07-13 | 表单设计器字段实例复制（稳健档撤销/重做） | `d9102e9` | `draft` |
 | 48 | 2026-07-13 | 复选字段类型：联合审查复核与修复收尾 | `151b695` | `draft` |
 | 47 | 2026-07-10 | 表单设计弹窗界面调整（可拖拽分栏+aCRF两行布局） | `82a265d` | `draft` |
