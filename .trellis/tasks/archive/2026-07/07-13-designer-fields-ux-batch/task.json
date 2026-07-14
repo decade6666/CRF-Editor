@@ -1,0 +1,32 @@
+{
+  "id": "designer-fields-ux-batch",
+  "name": "designer-fields-ux-batch",
+  "title": "表单设计器与字段界面交互批次",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-07-13",
+  "completedAt": "2026-07-14",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-13-designer-checkbox-drag-fix",
+    "07-13-word-preview-title-color",
+    "07-13-designer-field-prop-save-cancel",
+    "07-13-fields-multiref-warn-threshold",
+    "07-13-designer-open-refresh-fieldlib"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
