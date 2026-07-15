@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/prd.md", "reason": "Acceptance AC1-AC10 and out-of-scope constraints for quality gate"}
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/design.md", "reason": "Expected coordination contracts to verify against diff"}
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/implement.md", "reason": "Checklist evidence, forbidden ops, verification command list"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Doc sync check for designer history/session contracts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality baseline for review"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid speculative abstraction / queue frameworks per residual constraints"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Ensure UI coordination stays frontend-only without backend drift"}

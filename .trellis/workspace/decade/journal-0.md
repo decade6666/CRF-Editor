@@ -767,3 +767,69 @@ agent teams 并行/串行实现 6 项设计器与字段库需求，拆为 G1-G5 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 52: 设计器历史 busy/session 残留竞态修复
+
+**Date**: 2026-07-14
+**Task**: 设计器历史 busy/session 残留竞态修复
+**Branch**: `draft`
+
+### Summary
+
+Surgical port residual designer history coordination: formSelectionAttempt/session, reloadForms identity, membership↔reorder, leave/draft-aware history (resolveDesignerLeave), quick/inline session guards; tests 490 green; browser smoke on designer paths; archived task 07-14-designer-history-busy-residual. Work commit ce01d31 also bundled tab leave guard.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ce01d31` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 53: 复选文本默认✔
+
+**Date**: 2026-07-15
+**Task**: 复选文本默认✔
+**Branch**: `draft`
+
+### Summary
+
+复选字段空 checkbox_label 回退由字段标签改为默认字符 ✔（前后端单一回退点 CHECKBOX_DEFAULT_TEXT，渲染+宽度+导出共用），编辑器占位符改静态 ✔，重生成 planner_cases.json（比例不变），更新前后端测试与跨栈契约文档。后端 695 passed/4 xfailed，前端 490 passed，lint 0 errors。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6ab2ee5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

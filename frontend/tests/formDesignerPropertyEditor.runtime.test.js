@@ -233,6 +233,47 @@ test('property editor cancel restores selected field from baseline without reque
   assert.match(body, /if \(ff\) selectField\(ff\)/)
 })
 
+test('saveFieldProp refreshes the field library only after a field definition update', () => {
+  // 修改字段定义（非日志行分支）保存成功后必须 bump refreshKey 触发左侧字段库重载；
+  // 日志行分支只改实例 label_override，不改字段定义，不应触发字段库刷新。
+  const body = functionBody('saveFieldProp')
+
+  // 定位 `if (ff.is_log_row) { ... } else { ... }`，分别提取两分支
+  const ifStart = body.indexOf('if (ff.is_log_row)')
+  assert.notEqual(ifStart, -1, 'should locate the log-row branch')
+  const ifBraceOpen = body.indexOf('{', ifStart)
+  let depth = 0
+  let ifBraceClose = -1
+  for (let index = ifBraceOpen; index < body.length; index += 1) {
+    if (body[index] === '{') depth += 1
+    if (body[index] === '}') depth -= 1
+    if (depth === 0) {
+      ifBraceClose = index
+      break
+    }
+  }
+  assert.notEqual(ifBraceClose, -1, 'log-row branch should be balanced')
+  const logRowBranch = body.slice(ifBraceOpen + 1, ifBraceClose)
+
+  const elseStart = body.indexOf('else', ifBraceClose)
+  const elseBraceOpen = body.indexOf('{', elseStart)
+  depth = 0
+  let elseBraceClose = -1
+  for (let index = elseBraceOpen; index < body.length; index += 1) {
+    if (body[index] === '{') depth += 1
+    if (body[index] === '}') depth -= 1
+    if (depth === 0) {
+      elseBraceClose = index
+      break
+    }
+  }
+  assert.notEqual(elseBraceClose, -1, 'non-log-row branch should be balanced')
+  const definitionBranch = body.slice(elseBraceOpen + 1, elseBraceClose)
+
+  assert.match(definitionBranch, /refreshKey\.value\+\+/, 'field-definition update should bump refreshKey')
+  assert.doesNotMatch(logRowBranch, /refreshKey\.value\+\+/, 'log-row branch should not bump refreshKey')
+})
+
 
 test('normalizeHexColorInput accepts and normalizes valid values', () => {
   assert.equal(normalizeHexColorInput('#abc'), 'AABBCC')
@@ -243,4 +284,33 @@ test('normalizeHexColorInput rejects invalid values', () => {
   assert.equal(normalizeHexColorInput(''), null)
   assert.equal(normalizeHexColorInput('xyz'), null)
   assert.equal(normalizeHexColorInput('fff;display:none'), null)
+})
+
+test('FormDesignerTab guards OID charset on form/field/option submit paths', () => {
+  // req2：表单 OID / 字段 variable_name / 内联字典选项 code 保存前须做字符集校验并内联报错
+  assert.match(
+    formDesignerSource,
+    /import \{ isValidOptionalOid, isValidRequiredOid, OID_ERROR \} from '..\/composables\/oidValidation'/,
+    'should import the shared OID validators',
+  )
+
+  const addForm = functionBody('addForm')
+  assert.match(addForm, /isValidOptionalOid\(newFormCode\.value\)/)
+  assert.match(addForm, /ElMessage\.warning\(OID_ERROR\)/)
+
+  const updateForm = functionBody('updateForm')
+  assert.match(updateForm, /isValidOptionalOid\(editFormCode\.value\)/)
+  assert.match(updateForm, /ElMessage\.warning\(OID_ERROR\)/)
+
+  const saveProp = functionBody('saveSelectedFieldProp')
+  assert.match(saveProp, /!isValidRequiredOid\(snapshot\.variable_name\)/)
+  assert.match(saveProp, /ElMessage\.warning\(OID_ERROR\)/)
+
+  const quickAdd = functionBody('quickAddCodelist')
+  assert.match(quickAdd, /!isValidOptionalOid\(opt\.code\)/)
+  assert.match(quickAdd, /ElMessage\.warning\(OID_ERROR\)/)
+
+  const quickSave = functionBody('quickSaveCodelist')
+  assert.match(quickSave, /!isValidOptionalOid\(opt\.code\)/)
+  assert.match(quickSave, /ElMessage\.warning\(OID_ERROR\)/)
 })

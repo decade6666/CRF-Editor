@@ -218,6 +218,17 @@ watch(activeTab, (newTab) => {
   }
 });
 
+async function onMainTabBeforeLeave(activeName, oldActiveName) {
+  if (
+    oldActiveName === 'designer' &&
+    isTabActivated('designer') &&
+    formDesignerTabRef.value?.canLeaveTab
+  ) {
+    return await formDesignerTabRef.value.canLeaveTab();
+  }
+  return true;
+}
+
 function onMainTabChange(name) {
   const firstActivation = !isTabActivated(name);
   activateTab(name);
@@ -1229,6 +1240,7 @@ function startResize(e) {
             class="main-content-tabs"
             v-model="activeTab"
             style="height: 100%; display: flex; flex-direction: column"
+            :before-leave="onMainTabBeforeLeave"
             @tab-change="onMainTabChange"
           >
             <!-- eslint-enable vue/attributes-order -->

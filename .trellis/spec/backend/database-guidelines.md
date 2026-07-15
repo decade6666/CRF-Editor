@@ -162,7 +162,7 @@ _load_template_field_definitions(..., has_checkbox_label: bool) -> list[FieldDef
 #### 5. Good / Base / Bad Cases
 
 - **Good**: a current template with `checkbox_label="受试者已确认"` previews and imports the same value; a legacy template produces `None` without any source-file write.
-- **Base**: `checkbox_label=None` is valid persisted data and the renderer later falls back to `label`.
+- **Base**: `checkbox_label=None` is valid persisted data and the renderer later falls back to the default character `✔`.
 - **Bad**: execute `ALTER TABLE` against a template file, or ORM-select a missing column and let legacy preview/import fail with `OperationalError`.
 
 #### 6. Tests Required

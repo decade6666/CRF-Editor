@@ -357,8 +357,8 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
 @pytest.mark.parametrize(
     ("checkbox_label", "expected_control"),
     [
-        (None, "□已签署"),
-        ("", "□已签署"),
+        (None, "□✔"),
+        ("", "□✔"),
         ("本人已确认", "□本人已确认"),
     ],
 )
@@ -412,7 +412,7 @@ def test_export_inline_checkbox_ignores_default_value(
     doc = export_document(session, project.id, tmp_path)
     inline_table = doc.tables[-1]
 
-    assert inline_table.cell(1, 0).text == "□已签署"
+    assert inline_table.cell(1, 0).text == "□✔"
     assert "不应渲染" not in inline_table.cell(1, 0).text
 
 

@@ -1,0 +1,31 @@
+{
+  "id": "crf-editor-batch-fixes",
+  "name": "crf-editor-batch-fixes",
+  "title": "CRF Editor 批量修复(列宽/OID/aCRF预览/刷新/Tab守卫)",
+  "description": "5 项需求父任务",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-07-14",
+  "completedAt": "2026-07-14",
+  "branch": null,
+  "base_branch": "draft",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-14-column-width-min-relax",
+    "07-14-oid-charset-validation",
+    "07-14-acrf-preview-geometry-parity",
+    "07-14-designer-field-lib-refresh"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
