@@ -438,6 +438,19 @@ test('9.8 useColumnResize_localStorage_priority: 合法持久化值优先于 fac
   delete globalThis.localStorage
 })
 
+test('9.8b useColumnResize_new_min_ratio_storage_floor: 新下限 0.02 的持久化值可正常读回', async () => {
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  ls.setItem('crf:designer:col-widths:42:normal', JSON.stringify([0.02, 0.98]))
+
+  const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+  const { ref } = await import('vue')
+  const r = useColumnResize(ref(42), ref('normal'), () => [0.4, 0.6])
+  assert.deepEqual(r.colRatios, [0.02, 0.98])
+
+  delete globalThis.localStorage
+})
+
 test('9.9 useColumnResize_invalid_localStorage_fallback: 非法值回退 factory', async () => {
   const ls = createLocalStorageStub()
   globalThis.localStorage = ls
@@ -999,6 +1012,36 @@ test('16.3.5b batchResetColumnWidths_clears_multiple_forms: 批量清除多表�
   delete globalThis.localStorage
 })
 
+test('16.4.0 useColumnResize_drag_clamps_to_new_min_ratio: 拖拽允许到 0.02 且不会低于该下限', async () => {
+  const ls = createLocalStorageStub()
+  const { window, listeners } = createWindowStub()
+  globalThis.localStorage = ls
+  globalThis.window = window
+
+  try {
+    const { useColumnResize } = await import('../src/composables/useColumnResize.js')
+    const { ref } = await import('vue')
+    const r = useColumnResize(ref(42), ref('normal:fieldIds=1,2'), () => [0.4, 0.6])
+    const { activeHandle } = createResizeHarness({
+      containerLeft: 0,
+      containerWidth: 100,
+    })
+
+    r.onResizeStart(0, { preventDefault() {}, currentTarget: activeHandle, pointerId: 1 })
+    listeners.get('pointermove')({ clientX: 2 })
+    assert.ok(Math.abs(r.colRatios[0] - 0.02) < 1e-9)
+    assert.ok(Math.abs(r.colRatios[1] - 0.98) < 1e-9)
+
+    listeners.get('pointermove')({ clientX: -10 })
+    assert.ok(Math.abs(r.colRatios[0] - 0.02) < 1e-9)
+    assert.ok(Math.abs(r.colRatios[1] - 0.98) < 1e-9)
+    assert.ok(Math.abs(r.colRatios[0] + r.colRatios[1] - 1) < 1e-9)
+  } finally {
+    delete globalThis.localStorage
+    delete globalThis.window
+  }
+})
+
 test('16.4.1 useColumnResize_snaps_to_cross_group_boundaries: 可吸附到同作用域其他表格边界', async () => {
   const ls = createLocalStorageStub()
   const { window, listeners } = createWindowStub()
@@ -1045,7 +1088,7 @@ test('16.4.2 useColumnResize_ignores_out_of_range_snap_candidates: 越界候选�
     r.onResizeStart(0, { preventDefault() {}, currentTarget: activeHandle, pointerId: 1 })
     listeners.get('pointermove')({ clientX: 111 })
 
-    assert.ok(Math.abs(r.colRatios[0] - 0.45) < 1e-9)
+    assert.ok(Math.abs(r.colRatios[0] - 0.53) < 1e-9)
     assert.equal(r.snapGuideX, null)
   } finally {
     delete globalThis.localStorage

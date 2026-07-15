@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-13T01:53:24-07:00",
+  "timestamp": "2026-07-14T00:00:00-07:00",
   "version": "1.4.0",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -64,6 +64,7 @@
         "backend/src/models/visit_form.py"
       ],
       "schemas": [
+        "backend/src/schemas/_common.py",
         "backend/src/schemas/codelist.py",
         "backend/src/schemas/field.py",
         "backend/src/schemas/form.py",
@@ -110,6 +111,7 @@
         "backend/tests/test_form_paper_orientation.py",
         "backend/tests/test_import_service.py",
         "backend/tests/test_isolation.py",
+        "backend/tests/test_oid_validation.py",
         "backend/tests/test_order_service.py",
         "backend/tests/test_perf_baseline.py",
         "backend/tests/test_perf_busy_wait_metric.py",
@@ -177,6 +179,7 @@
         "frontend/src/composables/formDesignerPreviewModel.js",
         "frontend/src/composables/formDesignerPropertyEditor.js",
         "frontend/src/composables/formFieldPresentation.js",
+        "frontend/src/composables/oidValidation.js",
         "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/searchRanking.js",
         "frontend/src/composables/useAcrfAnnotationDrag.js",
@@ -234,6 +237,7 @@
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
         "frontend/tests/formFieldPresentation.test.js",
         "frontend/tests/importRenameFeedback.test.js",
+        "frontend/tests/oidValidationWiring.test.js",
         "frontend/tests/orderingStructure.test.js",
         "frontend/tests/ordinalQuickEditWiring.test.js",
         "frontend/tests/paneSplit.test.js",

@@ -3,6 +3,8 @@ from typing_extensions import Annotated
 from datetime import datetime
 from pydantic import BaseModel, StringConstraints, field_validator, model_validator
 
+from ._common import optional_oid_validator, required_oid_validator
+
 LabelBold = Literal[0, 1]
 CheckboxLabel = Optional[Annotated[str, StringConstraints(max_length=255)]]
 
@@ -42,6 +44,8 @@ class FieldDefinitionCreate(BaseModel):
     table_type: str = "固定行"
     order_index: Optional[int] = None
 
+    _validate_variable_name = required_oid_validator("variable_name")
+
     @model_validator(mode="before")
     @classmethod
     def clear_checkbox_codelist(cls, values: object) -> object:
@@ -63,6 +67,8 @@ class FieldDefinitionUpdate(BaseModel):
     is_multi_record: Optional[int] = None
     table_type: Optional[str] = None
     order_index: Optional[int] = None
+
+    _validate_variable_name = optional_oid_validator("variable_name")
 
     @model_validator(mode="before")
     @classmethod

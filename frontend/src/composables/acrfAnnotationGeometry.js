@@ -9,7 +9,10 @@ export const ACRF_ANNOTATION_PADDING_X_EMU = 22860;
 export const ACRF_ANNOTATION_PADDING_Y_EMU = 18000;
 export const ACRF_ANNOTATION_BORDER_WIDTH_EMU = 12700;
 export const ACRF_ANNOTATION_BOX_WIDTH_MAX_CM = 4.6;
-export const ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU = -120000;
+// 默认纵向偏移：让 0.7cm 注记盒纵向居中于单元格内单行文本。
+// = -(boxHeightEmu - singleLineHeightEmu)/2 = -(Cm(0.7)=252000 - Pt(15.6)=198120)/2 = -26940 EMU。
+// 后端 export_service.py 同名常量必须同值同源；delta 语义不变（相对新默认偏移）。
+export const ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU = -26940;
 export const ACRF_ANNOTATION_EMU_PER_01CM = 3600;
 
 export const ACRF_ANNOTATION_BORDER_COLOR = '#C00000';
