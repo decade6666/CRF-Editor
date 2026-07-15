@@ -5,6 +5,7 @@ import { api, genCode, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import { OID_ERROR, isValidOptionalOid } from '../composables/oidValidation.js'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -126,6 +127,7 @@ function onClTableHeaderDragend(newWidth, _, col) {
 }
 
 async function addCl() {
+  if (!isValidOptionalOid(clForm.code)) return ElMessage.warning(OID_ERROR)
   try {
     await api.post(`/api/projects/${props.projectId}/codelists`, { ...clForm })
     showAddCl.value = false; clForm.name = ''; clForm.code = ''; clForm.description = ''; reload()
@@ -196,6 +198,7 @@ function openAddOpt() {
 
 async function addOpt() {
   if (!optForm.code.trim()) return ElMessage.warning('请输入编码值')
+  if (!isValidOptionalOid(optForm.code)) return ElMessage.warning(OID_ERROR)
   if (!optForm.decode.trim()) return ElMessage.warning('请输入标签')
   try {
     await api.post(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options`, { ...optForm })
@@ -223,6 +226,7 @@ function openEditCl(c) {
 }
 
 async function updateCl() {
+  if (!isValidOptionalOid(editClForm.code)) return ElMessage.warning(OID_ERROR)
   try {
     const refs = await api.get(`/api/projects/${props.projectId}/codelists/${editClTarget.value.id}/references`)
     if (refs.length) {
@@ -250,6 +254,7 @@ function openEditOpt(o) {
 
 async function updateOpt() {
   if (!editOptForm.code.trim()) return ElMessage.warning('请输入编码值')
+  if (!isValidOptionalOid(editOptForm.code)) return ElMessage.warning(OID_ERROR)
   if (!editOptForm.decode.trim()) return ElMessage.warning('请输入标签')
   try {
     const refs = await api.get(`/api/projects/${props.projectId}/codelists/${selected.value.id}/references`)

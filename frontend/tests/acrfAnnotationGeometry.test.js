@@ -35,13 +35,15 @@ test('aCRF annotation geometry mirrors backend constants and three anchor defaul
   assert.equal(ACRF_ANNOTATION_PADDING_Y_EMU, 18000);
   assert.equal(ACRF_ANNOTATION_BORDER_WIDTH_EMU, 12700);
   assert.equal(ACRF_ANNOTATION_BOX_WIDTH_MAX_CM, 4.6);
-  assert.equal(ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU, -120000);
+  assert.equal(ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU, -26940);
   assert.equal(ACRF_ANNOTATION_EMU_PER_01CM, 3600);
-  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_FIELD], -120000);
-  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_INLINE_HEADER], -120000);
-  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_FORM], -120000);
+  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_FIELD], -26940);
+  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_INLINE_HEADER], -26940);
+  assert.equal(ACRF_ANNOTATION_DEFAULT_OFFSET_EMU_BY_KIND[ANNOTATION_KIND_FORM], -26940);
+  // 默认偏移使 0.7cm 盒纵向居中于 15.6pt 单行文本：-(Cm(0.7)=252000 - Pt(15.6)=198120)/2 = -26940 EMU
+  assert.equal(ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU, -Math.round((0.7 * 360000 - 15.6 * 12700) / 2));
 
-  const expectedTopCm = -120000 / 360000;
+  const expectedTopCm = -26940 / 360000;
   assert.ok(Math.abs(resolveAnnotationTopCm(ANNOTATION_KIND_FIELD, 0) - expectedTopCm) < 1e-9);
   assert.ok(Math.abs(resolveAnnotationTopCm(ANNOTATION_KIND_INLINE_HEADER, 0) - expectedTopCm) < 1e-9);
   assert.ok(Math.abs(resolveAnnotationTopCm(ANNOTATION_KIND_FORM, 0) - expectedTopCm) < 1e-9);

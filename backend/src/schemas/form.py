@@ -3,6 +3,8 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError, field_validator
 
+from ._common import optional_oid_validator
+
 
 PaperOrientation = Literal["auto", "landscape", "portrait"]
 ANNOTATION_FORM_KEY = "_form"
@@ -96,6 +98,8 @@ class FormCreate(BaseModel):
     annotation_positions: Optional[AnnotationPositions] = None
     paper_orientation: PaperOrientation = "auto"
 
+    _validate_code = optional_oid_validator("code")
+
     @field_validator("annotation_positions", mode="before")
     @classmethod
     def validate_annotation_positions(cls, value: Any) -> AnnotationPositions | None:
@@ -110,6 +114,8 @@ class FormUpdate(BaseModel):
     design_notes: Optional[str] = None
     annotation_positions: Optional[AnnotationPositions] = None
     paper_orientation: Optional[PaperOrientation] = None
+
+    _validate_code = optional_oid_validator("code")
 
     @field_validator("annotation_positions", mode="before")
     @classmethod

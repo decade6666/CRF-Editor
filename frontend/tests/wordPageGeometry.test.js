@@ -144,3 +144,28 @@ test('whole-cell fill-line stretches to fill its column in preview (adaptive und
   assert.ok(choiceFill && /align-self:\s*flex-end/.test(choiceFill),
     'trailing .choice-atom .fill-line must keep align-self: flex-end')
 })
+
+test('shared A4 page class fixes VisitsTab preview to 21cm/29.7cm (parity with designer)', () => {
+  // req3.2：VisitsTab 预览与设计器预览统一为固定 A4，消除宽度差异及由此导致的字段红框漂移
+  const css = readMainCss()
+  const a4 = extractRuleBody(css, '.word-page--a4')
+  assert.ok(a4, '.word-page--a4 rule must exist in main.css')
+  assert.equal(extractDeclaration(a4, 'width'), '21cm')
+  assert.equal(extractDeclaration(a4, 'min-height'), '29.7cm')
+  assert.equal(extractDeclaration(a4, 'max-width'), '100%')
+
+  const a4Landscape = extractRuleBody(css, '.word-page--a4.landscape')
+  assert.ok(a4Landscape, '.word-page--a4.landscape rule must exist in main.css')
+  assert.equal(extractDeclaration(a4Landscape, 'width'), '29.7cm')
+  assert.equal(extractDeclaration(a4Landscape, 'min-height'), '21cm')
+
+  const visitsSource = readFileSync(
+    path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+    'utf8',
+  )
+  assert.match(
+    visitsSource,
+    /'word-page',\s*'word-page--a4'/,
+    'VisitsTab preview page must apply the shared A4 class',
+  )
+})

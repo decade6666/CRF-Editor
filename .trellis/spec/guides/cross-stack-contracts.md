@@ -425,10 +425,12 @@ export const ACRF_ANNOTATION_EMU_PER_01CM = 3600
 1in = 914400 EMU = 96 CSS px = 72 pt
 1cm = 360000 EMU
 0.01cm = 3600 EMU
-defaultVerticalOffset = -120000 EMU
+defaultVerticalOffset = -26940 EMU
 posOffset = defaultVerticalOffset + deltaY01cm * 3600
 +deltaY means moving the annotation downward
 ```
+
+- Default vertical offset centers the `0.7cm` box on the cell's single text line: `-(Cm(0.7)=252000 - Pt(15.6)=198120)/2 = -26940 EMU` (updated 2026-07-14 from the previous `-120000`; no migration of stored `annotation_positions.y` — already-customized offsets shift with the new baseline).
 
 - The export-side `wp:positionV/@posOffset` MUST use `default + Δy`, not `default - Δy`.
 - The preview-side `top` CSS value MUST derive from the same formula after EMU→cm conversion.
@@ -436,7 +438,7 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 
 **Shared frontend/backend constants**:
 
-- Visual constants that must evolve together: font size `8pt`, box height `0.7cm`, X padding `22860 EMU`, Y padding `18000 EMU`, border width `12700 EMU`, max width `4.6cm`, default vertical offset `-120000 EMU`.
+- Visual constants that must evolve together: font size `8pt`, box height `0.7cm`, X padding `22860 EMU`, Y padding `18000 EMU`, border width `12700 EMU`, max width `4.6cm`, default vertical offset `-26940 EMU`.
 - Frontend single source: `frontend/src/composables/acrfAnnotationGeometry.js`
 - Backend single source: `backend/src/services/export_service.py`
 - Validation/storage single source: `backend/src/schemas/form.py`
@@ -489,6 +491,7 @@ const landscapeMode = resolveLandscape(form.paper_orientation, autoFallbackFlag)
 
 - Designer: `selectedFormPaperOrientation` + `resolveLandscape` drive `.designer-scaled-word-page.landscape`.
 - Visits preview: `resolvePreviewLandscape` + `previewLandscapeMode` drive the same CSS class on inline preview.
+- Both previews share a **fixed A4 page geometry** (21cm×29.7cm, landscape flips to 29.7cm×21cm): the designer preview uses `.designer-scaled-word-page` and the VisitsTab preview uses the shared global `.word-page--a4` (`frontend/src/styles/main.css`, 2026-07-14). Keeping the same fixed A4 on both sides is what makes their aCRF field-annotation vertical positions match (same `td.row-resize-anchor` positioned ancestor + same wrapping/row heights); do not revert VisitsTab to the elastic `max-width` page.
 - Legacy `localStorage['crf_forceLandscape']` is migrated **once** to per-form settings on first load; do not reintroduce reads of the legacy global flag after migration.
 
 **Contract Rules**:
