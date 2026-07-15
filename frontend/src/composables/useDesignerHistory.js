@@ -31,6 +31,7 @@ export function useDesignerHistory() {
   const undoStack = ref([]);
   const redoStack = ref([]);
   const busy = ref(false);
+  let generation = 0;
 
   const canUndo = computed(() => !busy.value && undoStack.value.length > 0);
   const canRedo = computed(() => !busy.value && redoStack.value.length > 0);
@@ -61,11 +62,13 @@ export function useDesignerHistory() {
   async function undo() {
     if (busy.value || !undoStack.value.length) return;
     const entry = undoStack.value[undoStack.value.length - 1];
+    const replayGeneration = generation;
     // 回放可能在中途 remapId 后再抛错；先快照 ids，失败时还原，保证栈内容不被污染。
     const idsSnapshot = cloneIds(entry.ids);
     busy.value = true;
     try {
       await entry.undo(entry.ids, { remapId });
+      if (replayGeneration !== generation) return;
       undoStack.value = undoStack.value.slice(0, -1);
       redoStack.value = [...redoStack.value, entry];
     } catch (err) {
@@ -79,10 +82,12 @@ export function useDesignerHistory() {
   async function redo() {
     if (busy.value || !redoStack.value.length) return;
     const entry = redoStack.value[redoStack.value.length - 1];
+    const replayGeneration = generation;
     const idsSnapshot = cloneIds(entry.ids);
     busy.value = true;
     try {
       await entry.redo(entry.ids, { remapId });
+      if (replayGeneration !== generation) return;
       redoStack.value = redoStack.value.slice(0, -1);
       undoStack.value = [...undoStack.value, entry];
     } catch (err) {
@@ -94,6 +99,7 @@ export function useDesignerHistory() {
   }
 
   function clear() {
+    generation += 1;
     undoStack.value = [];
     redoStack.value = [];
   }

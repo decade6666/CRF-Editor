@@ -138,11 +138,33 @@ test('FormDesignerTab drag handle is hidden only when filtered after R3 brief-mo
 test('FormDesignerTab keeps form list sorted by order_index after reload', () => {
   assert.match(formsSource, /const orderedForms = \[\.\.\.forms\.value\]\.sort\(/);
   assert.match(formsSource, /const selectedFormId = selectedForm\.value\?\.id \?\? null/);
-  assert.match(formsSource, /selectedForm\.value = forms\.value\.find\(\(f\) => f\.id === selectedFormId\) \|\| null/);
+  const reloadBody = extractBlockAfter(formsSource, 'async function reloadForms(');
+  assert.match(reloadBody, /const refreshedSelectedForm = forms\.value\.find\(\(f\) => f\.id === selectedFormId\) \|\| null;/);
+  assert.match(reloadBody, /Object\.assign\(selectedForm\.value, refreshedSelectedForm\);/);
+  assert.match(
+    reloadBody,
+    /if \(refreshedSelectedForm\) \{[\s\S]*?Object\.assign\(selectedForm\.value, refreshedSelectedForm\);[\s\S]*?return;[\s\S]*?\}/,
+  );
+  assert.match(reloadBody, /invalidateFormSelectionSession\(\);[\s\S]*?selectedForm\.value = null;[\s\S]*?formFields\.value = \[\];/);
   assert.match(formsSource, /ref="formsTableRef"/);
   assert.match(formsSource, /:data="filteredForms"/);
   assert.match(formsSource, /highlight-current-row/);
   assert.match(formsSource, /row-key="id"/);
+});
+
+test('FormDesignerTab form selection uses attempt supersession and only commits the session after leave guards pass', () => {
+  assert.match(formsSource, /let formSelectionAttempt = 0;/);
+  const selectBody = extractBlockAfter(formsSource, 'async function selectForm(');
+  assert.match(selectBody, /const selectionSession = formSelectionSession;/);
+  assert.match(selectBody, /const projectId = props\.projectId;/);
+  assert.match(selectBody, /const selectionAttempt = \+\+formSelectionAttempt;/);
+  assert.match(selectBody, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return;/);
+  assert.match(
+    selectBody,
+    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;/,
+  );
+  assert.match(selectBody, /invalidateFormSelectionSession\(\);[\s\S]*?selectedForm\.value = nextForm \|\| null;/);
+  assert.doesNotMatch(selectBody, /\+\+formSelectionSession/);
 });
 
 test('FormDesignerTab form order column wires double-click quick edit through useOrdinalQuickEdit', () => {
@@ -167,7 +189,7 @@ test('FormDesignerTab field reorder dragover advertises a move drop target for t
   assert.match(onDragOverBody, /e\.dataTransfer\.dropEffect = 'move'/);
   assert.match(formsSource, /@dragover\.prevent="onDragOver\(\$event, idx\)"/);
   assert.match(formsSource, /function onDragStart\(ff, e\)/);
-  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) \{/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) \{/);
   assert.match(formsSource, /e\.dataTransfer\.effectAllowed = 'move'/);
   assert.match(formsSource, /<el-checkbox[\s\S]*?draggable="false"[\s\S]*?@click\.stop/);
   assert.match(formsSource, /data-test="designer-copy-field"[\s\S]*?draggable="false"[\s\S]*?@click\.stop="copyFormField\(ff\)"/);
@@ -180,17 +202,21 @@ test('FormDesignerTab field reorder keeps optimistic order on success and reload
   assert.match(formsSource, /async function onDrop\(/);
   assert.match(formsSource, /const move = async \(from, to\) => \{/);
   assert.match(formsSource, /const isReordering = ref\(false\)/);
+  assert.match(formsSource, /const fieldMembershipMutationCount = ref\(0\)/);
+  assert.match(formsSource, /function isFieldMembershipBusy\(\)/);
+  assert.match(formsSource, /function beginFieldMembershipMutation\(\)/);
+  assert.match(formsSource, /function endFieldMembershipMutation\(\)/);
   assert.match(formsSource, /async function persistFieldReorder\(historyContext, previousFields, normalized\)/);
-  assert.match(formsSource, /if \(isReordering\.value\) return false/);
+  assert.match(formsSource, /if \(isReordering\.value \|\| isFieldMembershipBusy\(\)\) return false/);
   assert.match(formsSource, /isReordering\.value = true/);
   assert.match(formsSource, /\/api\/forms\/\$\{formId\}\/fields\/reorder/);
   assert.match(formsSource, /const nextOrder = normalized\.map\(\(f\) => f\.id\)/);
   assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/);
-  assert.match(formsSource, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*?formFields\.value = previousFields[\s\S]*?loadFormFields\(\)/);
+  assert.match(formsSource, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*?formFields\.value = previousFields[\s\S]*?loadFormFields\(formId\)/);
   assert.match(formsSource, /finally \{[\s\S]*?isReordering\.value = false/);
-  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return/);
-  assert.match(formsSource, /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value\)\) return/);
-  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering"/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) return/);
+  assert.match(formsSource, /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\)\) return/);
+  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/);
   assert.match(mainCssSource, /\.ff-item \{[^}]*user-select: none;[^}]*-webkit-user-select: none;/);
   assert.doesNotMatch(formsSource, /async function updateFormFieldOrder/);
   const persistBody = extractBlockAfter(formsSource, 'async function persistFieldReorder(');
@@ -239,7 +265,7 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.match(formsSource, /class="fd-panel-resizer"/);
   assert.match(formsSource, /aria-label="调整字段库宽度"/);
   assert.doesNotMatch(formsSource, /:draggable="editMode"/);
-  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering"/);
+  assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/);
   assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/);
   assert.doesNotMatch(formsSource, /<el-tooltip v-if="editMode && canToggleInline\(ff\)"/);
   assert.match(formsSource, /<el-tooltip v-if="canToggleInline\(ff\) && !isDraftField\(ff\)"/);

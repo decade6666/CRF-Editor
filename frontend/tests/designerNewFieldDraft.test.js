@@ -120,7 +120,8 @@ test('切换表单/选字段/新建草稿前都经过草稿确认', () => {
   assert.match(fnBody('selectForm'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
   // 字段点击入口
   const click = fnBody('onSelectFieldClick')
-  assert.match(click, /if \(hasDraft\.value && !isDraftField\(ff\)\) \{[\s\S]*?confirmDiscardDraft\(\)/)
+  assert.match(click, /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
+  assert.match(click, /resolveFieldPropLeave\(\{ actionText: '切换字段' \}\)/)
 })
 
 test('切换项目时设计器已激活就必须经过 canLeaveProject 守卫', () => {

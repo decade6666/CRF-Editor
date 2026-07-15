@@ -345,28 +345,46 @@ refreshKey.value++
 
 ### 1. Scope / Trigger
 
-- Trigger: user leaves the active form-design editing context by one of three
+- Trigger: user leaves the active form-design editing context by one of four
   paths:
   1. closing the fullscreen designer dialog
   2. switching to another form inside `FormDesignerTab`
   3. switching to another project while the designer tab has already been activated
+  4. leaving the workbench 「表单」Tab (`name="designer"`) via top-level `el-tabs`
 - The designer maintains **two independent unsaved-state channels**:
   - local new-field draft state (`__draft__` row, not persisted yet)
-  - field-property autosave queue (`pendingFieldPropSnapshots`)
+  - field-property dirty baseline (`fieldPropBaseline` / `isFieldPropDirty`; explicit save, not autosave)
 - Leaving must guard **both** channels; handling only one causes silent data loss
   or close-loop bugs.
+- Workbench Tab leave is especially easy to miss: `watch(activeTab)` invalidates
+  field-definition cache and bumps `refreshKey` when entering `fields`/`designer`,
+  so an unguarded switch can wipe dirty property edits after the tab already changed.
 
 ### 2. Signatures
 
 ```javascript
-// App.vue
+// App.vue — project leave
 if (isTabActivated('designer') && formDesignerTabRef.value?.canLeaveProject) {
   const canLeave = await formDesignerTabRef.value.canLeaveProject()
   if (!canLeave) return
 }
 
+// App.vue — workbench Tab leave (before v-model / activeTab watchers run)
+async function onMainTabBeforeLeave(activeName, oldActiveName) {
+  if (
+    oldActiveName === 'designer' &&
+    isTabActivated('designer') &&
+    formDesignerTabRef.value?.canLeaveTab
+  ) {
+    return await formDesignerTabRef.value.canLeaveTab()
+  }
+  return true
+}
+
 // FormDesignerTab.vue
-async function canLeaveProject() => Promise<boolean>
+async function resolveDesignerLeave({ actionText }) => Promise<boolean>
+async function canLeaveProject() => Promise<boolean>  // resolveDesignerLeave({ actionText: '切换项目' })
+async function canLeaveTab() => Promise<boolean>      // resolveDesignerLeave({ actionText: '切换标签页' }) + discard rehydrate
 async function resolveFieldPropLeave({ resetOptions, actionText } = {}) => Promise<boolean>
 async function handleDesignerBeforeClose(done) => Promise<void>
 async function confirmDiscardDraft() => Promise<boolean>
@@ -377,13 +395,17 @@ async function confirmDiscardDraft() => Promise<boolean>
 | Field / Function | Type | Constraint |
 |---|---|---|
 | `hasDraft` | `ComputedRef<boolean>` | True when a local `__draft__` field exists; leaving must guard this before clearing form/project state. |
-| `confirmDiscardDraft()` | `() => Promise<boolean>` | Three-way guard: save, discard, or abort. Used before switching form, selecting another field, creating another draft, and project leave once the designer tab is activated. |
-| `pendingFieldPropSnapshots` | in-memory queue | Leaving must flush or explicitly discard it; never silently keep queue state while closing the dialog. |
-| `resolveFieldPropLeave()` | `({ resetOptions, actionText }) => Promise<boolean>` | Unified guard for field-property autosave on dialog close / form switch / project switch. |
+| `confirmDiscardDraft()` | `() => Promise<boolean>` | Three-way guard: save, discard, or abort. Used before switching form, selecting another field, creating another draft, and project/tab leave once the designer tab is activated. |
+| `isFieldPropDirty` / `fieldPropBaseline` | computed + baseline snapshot | Explicit property-card dirty state; leave must confirm save/discard/abort via `resolveFieldPropLeave`. |
+| `resolveDesignerLeave()` | `({ actionText }) => Promise<boolean>` | Shared leave chain for project/tab: busy/reorder/draft-save block → draft confirm → annotation flush → design-notes flush → `resolveFieldPropLeave({ preserveEditor: true, actionText })`. |
+| `canLeaveProject()` | `() => Promise<boolean>` | Project switch entry; delegates to `resolveDesignerLeave({ actionText: '切换项目' })`. |
+| `canLeaveTab()` | `() => Promise<boolean>` | Workbench Tab leave entry; delegates to `resolveDesignerLeave({ actionText: '切换标签页' })`. Because lazy tabs keep `FormDesignerTab` mounted, a successful discard with `preserveEditor` must rehydrate the selected field (or clear the editor) so returning to the designer does not show abandoned edits. |
+| `resolveFieldPropLeave()` | `({ resetOptions, actionText }) => Promise<boolean>` | Unified property dirty confirm on dialog close / form switch / project switch / tab leave. |
 | `missing_codelist` | classified error code | Treated as `discardable`; UI must offer “继续修改 / 放弃并<actionText>”. |
 | non-discardable autosave errors | classified error | Must block leave and show a reason; do not silently re-open the dialog after close. |
 | `handleDesignerBeforeClose` | Element Plus `before-close` hook | Must guard before actual close; avoid close-then-reopen rollback via `watch(showDesigner)`. |
 | `App.vue:selectProject` | project switch entry | Must use `isTabActivated('designer')`, not only `activeTab === 'designer'`, because lazy tabs stay mounted after first activation. |
+| `App.vue:onMainTabBeforeLeave` | Element Plus `el-tabs` `:before-leave` | Must run before `v-model`/`watch(activeTab)` cache invalidation. Only guard leave when `oldActiveName === 'designer'` and the designer tab is activated; other tab transitions stay open. Returning `false` (or a Promise that resolves to `false`) blocks the switch. |
 
 ### 4. Validation & Error Matrix
 
@@ -391,29 +413,39 @@ async function confirmDiscardDraft() => Promise<boolean>
 |---|---|
 | Draft exists, user switches form | `confirmDiscardDraft()` runs before selection changes. |
 | Draft exists, user switches project after designer tab has been activated once | `App.vue` still calls `canLeaveProject()` via `isTabActivated('designer')`; draft cannot be silently dropped. |
-| Field autosave fails with `missing_codelist` | Leave path shows discard confirmation; user may discard local property edits and continue leaving. |
-| Field autosave fails with 5xx / network / 429 / 408 | Leave is blocked; UI shows explicit error message. |
+| Property card is dirty, user leaves 「表单」Tab | `onMainTabBeforeLeave` → `canLeaveTab` → `resolveFieldPropLeave({ actionText: '切换标签页' })`; close dialog stays on designer; save/discard may proceed. |
+| Property discard on Tab leave with lazy-mounted designer | `canLeaveTab` rehydrates selected field (or clears editor) after successful discard so returning does not show abandoned values. |
+| Field property leave fails with `missing_codelist` | Leave path shows discard confirmation; user may discard local property edits and continue leaving. |
+| Field property leave fails with 5xx / network / 429 / 408 | Leave is blocked; UI shows explicit error message. |
 | Dialog close path uses `watch(showDesigner)` rollback | **Bug.** Causes close-flash-reopen UX and hides the true failure reason. |
+| Workbench Tab leave only uses `@tab-change` (post-switch) | **Bug.** Cannot veto; `watch(activeTab)` may already invalidate caches and lose dirty property edits. |
 | Discarding field-property edits triggers extra reload during leave | Avoid when possible; introduces a new failure point while the user is trying to leave. |
 
 ### 5. Good / Base / Bad Cases
 
 - **Good**: user changes a field to `单选` without selecting a dictionary → clicks close → designer shows discard confirmation → choosing discard closes the dialog without flash-reopen.
-- **Base**: autosave succeeds → dialog closes / form switches / project switches with no extra prompts.
+- **Good**: user dirties a property card on 「表单」 → clicks 「字段」 → unsaved confirm appears → closing the dialog keeps the designer tab active; cache refresh does not run.
+- **Base**: property save succeeds → dialog closes / form switches / project switches / tab leaves with no extra prompts.
 - **Bad**: project switch only checks `activeTab === 'designer'` → user activated designer earlier, moved to another tab, then switched project → mounted designer component loses local draft silently.
 - **Bad**: close path first sets `showDesigner = false`, then watcher reopens it on failure → user sees “点 X 又弹回来” with no actionable exit.
+- **Bad**: workbench Tab leave has no `:before-leave` → dirty property edits disappear when switching to 「字段」 and `refreshKey` reloads field definitions.
 
 ### 6. Tests Required
 
 - `frontend/tests/quickEditBehavior.test.js`
   - assert `resolveFieldPropLeave`, `handleDesignerBeforeClose`, discardable `missing_codelist`, and no close-reopen watcher rollback.
+  - assert `resolveDesignerLeave` / `canLeaveProject` / `canLeaveTab` wiring and `App.vue` `:before-leave="onMainTabBeforeLeave"`.
+- `frontend/tests/designerHistory.test.js`
+  - assert leave guards still block while busy/reorder/draft-save and that `canLeaveTab` rehydrates after discard.
 - `frontend/tests/designerNewFieldDraft.test.js`
   - assert project switching uses `isTabActivated('designer') && formDesignerTabRef.value?.canLeaveProject`.
 - Assertion points:
   - `missing_codelist` → `discardable: true`
   - `selectForm()` uses `resolveFieldPropLeave({ actionText: '切换表单' })`
-  - `canLeaveProject()` uses `resolveFieldPropLeave({ actionText: '切换项目' })`
+  - `canLeaveProject()` delegates to `resolveDesignerLeave({ actionText: '切换项目' })`
+  - `canLeaveTab()` delegates to `resolveDesignerLeave({ actionText: '切换标签页' })` and rehydrates after discard
   - main dialog uses `:before-close="handleDesignerBeforeClose"`
+  - workbench tabs use `:before-leave="onMainTabBeforeLeave"`
 
 ### 7. Wrong vs Correct
 
@@ -586,3 +618,29 @@ function logout() {
   router.push('/login')
 }
 ```
+
+---
+
+## Designer History Busy / Session Residual Coordination
+
+**Scope / Trigger**: `FormDesignerTab` in-memory undo/redo, form selection switching, field membership mutations (add/copy/remove/batch/save-draft/log-row), optimistic field reorder, and project leave.
+
+**Contracts** (task `07-14-designer-history-busy-residual`):
+
+1. **History generation** (`useDesignerHistory.js`): `clear()` advances a monotonic generation; successful undo/redo migrates stacks only when generation is unchanged; failures always restore id snapshots and rethrow.
+2. **Committed session vs attempt**:
+   - `formSelectionSession` advances only when a form selection is truly committed or the selected form disappears.
+   - `formSelectionAttempt` supersedes pending switches (same-form reselect, busy leave, project leave cancel pending form switch) without invalidating still-current form history context.
+3. **Same-form `reloadForms` identity**: if selected form still exists, `Object.assign` metadata onto the same object and map list entries back to that reference; do **not** invalidate session (avoids `watch(selectedForm)` reloading fields and wiping optimistic order).
+4. **Stale backend success**: after write success, `invalidateCache` first, then `isCurrentDesignerHistoryContext` before UI reload / history record.
+5. **Membership ↔ reorder mutual exclusion**:
+   - `fieldMembershipMutationCount` / `begin` / `end` / `isFieldMembershipBusy` on six write paths only (`addField`, `copyFormField`, `removeField`, `batchDelete`, `saveDraftField`, `addLogRow`).
+   - `newField` is **not** a membership counter path; it only rejects when history busy or reordering.
+   - Reorder drag/keyboard/`persistFieldReorder` reject when membership busy; membership skips list reload when reorder is active after invalidate.
+6. **Leave / draft-aware history**: history replay, reorder, or draft-save busy blocks form switch and project leave; undo/redo with a local draft confirms save/discard/cancel first and rechecks context.
+7. **Property / quick / inline during reorder**: do not `loadFormFields` over optimistic order (`saveFieldProp` / `saveQuickEdit` / `toggleInline`); preserve concurrent `refreshKey.value++` on definition updates.
+
+**Naming**: keep main helper name `isCurrentDesignerHistoryContext` (do not rename solely to match isolation trees).
+
+**Forbidden**: whole-file overwrite of `FormDesignerTab.vue`, applying isolation full patches, `npm run format`, backend contract changes, or converting optimistic reorder success back into list reload.
+
