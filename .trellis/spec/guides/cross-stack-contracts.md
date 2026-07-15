@@ -540,7 +540,7 @@ is_default_value_supported(form_field) -> bool
 
 ```javascript
 // Frontend rendering / layout
-renderCtrl({ field_type: '复选', label, checkbox_label }) // `□${checkbox_label || label || ''}`
+renderCtrl({ field_type: '复选', label, checkbox_label }) // `□${checkbox_label || CHECKBOX_DEFAULT_TEXT}` (✔)
 isChoiceField('复选') // false
 isDefaultValueSupported('复选', inlineMark) // false
 computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FILL_LINE_WEIGHT)
@@ -548,7 +548,7 @@ computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FI
 
 #### 3. Contracts
 
-- `checkbox_label || label || ''` is the sole text fallback on both stacks. An empty string is equivalent to no custom text; `label_override` never replaces checkbox control text.
+- `checkbox_label || '✔'` is the sole text fallback on both stacks (`CHECKBOX_DEFAULT_TEXT` / `field_rendering.CHECKBOX_DEFAULT_TEXT`). An empty string is equivalent to no custom text and renders the default `✔`; `label` is no longer a fallback and `label_override` never replaces checkbox control text.
 - `codelist_id` is always `null`; the type MUST stay outside `isChoiceField()` and choice/default-value UI, validation, option loading, and codelist merge paths.
 - A checkbox renders as a normal two-column field (`label | □text`), including preview and eCRF Word export. aCRF remains field-variable annotation only.
 - Default values are forbidden even when `inline_mark` is true. The inline shortcut must not override the checkbox exclusion, or preview/export and planner text drift.
@@ -560,7 +560,7 @@ computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FI
 
 | Condition | Expected behavior |
 | --- | --- |
-| `checkbox_label` is `null` or `""` | Render `□` plus field-definition `label`; no stored label copy is required. |
+| `checkbox_label` is `null` or `""` | Render `□` plus the default character `✔`; no stored label copy is required. |
 | Custom `checkbox_label` is present | Render `□` plus the custom text on preview/export; use that text for planner weight. |
 | Create/update/clone/import receives a codelist ID | Persist/remap `None`; do not create, merge, or display codelist options. |
 | Checkbox has `default_value`, including an inline field | Ignore it; default-value editor/renderer/weight must remain unavailable. |

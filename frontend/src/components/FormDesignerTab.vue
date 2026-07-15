@@ -4764,7 +4764,7 @@ function openAddForm() {
                   </el-select>
                 </el-form-item>
                 <el-form-item v-if="editProp.field_type === '复选'" label="复选文本">
-                  <el-input v-model="editProp.checkbox_label" :placeholder="editProp.label" />
+                  <el-input v-model="editProp.checkbox_label" placeholder="✔" />
                 </el-form-item>
                 <template v-if="editProp.field_type === '数值'">
                   <el-form-item label="整数位数"

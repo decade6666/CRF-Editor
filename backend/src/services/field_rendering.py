@@ -22,9 +22,12 @@ CONTROL_PLACEHOLDER_WEIGHTS = {
 NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
 
 
+CHECKBOX_DEFAULT_TEXT = "✔"
+
+
 def resolve_checkbox_label(field_def: object) -> str:
-    """返回复选控件的自定义文本，空值时动态回退字段标签。"""
-    return getattr(field_def, "checkbox_label", None) or getattr(field_def, "label", None) or ""
+    """返回复选控件的自定义文本，空值时回退默认字符 ✔。"""
+    return getattr(field_def, "checkbox_label", None) or CHECKBOX_DEFAULT_TEXT
 
 
 def is_default_value_supported(form_field) -> bool:

@@ -110,15 +110,16 @@ class TestChoiceAtomWeight:
 
 
 @pytest.mark.parametrize(
-    ("checkbox_label", "expected_label"),
+    ("checkbox_label", "expected_weight"),
     [
-        (None, "已签署"),
-        ("本人已确认", "本人已确认"),
+        # 空复选文本回退默认字符 ✔（atom 权重 2），被 FILL_LINE_WEIGHT 最小保护抬到 6
+        (None, 6),
+        ("本人已确认", compute_choice_atom_weight("本人已确认", False)),
     ],
 )
 def test_checkbox_control_weight_uses_marker_and_resolved_label(
     checkbox_label: str | None,
-    expected_label: str,
+    expected_weight: float,
 ) -> None:
     field_definition = SimpleNamespace(
         field_type="复选",
@@ -131,10 +132,7 @@ def test_checkbox_control_weight_uses_marker_and_resolved_label(
         default_value=None,
     )
 
-    assert build_field_control_weight(form_field) == compute_choice_atom_weight(
-        expected_label,
-        False,
-    )
+    assert build_field_control_weight(form_field) == expected_weight
 
 
 def test_checkbox_inline_default_value_is_ignored_by_control_weight() -> None:
@@ -149,10 +147,9 @@ def test_checkbox_inline_default_value_is_ignored_by_control_weight() -> None:
         default_value="这段默认值不应影响复选控件宽度",
     )
 
-    assert build_field_control_weight(form_field) == compute_choice_atom_weight(
-        "已签署",
-        False,
-    )
+    # 复选控件忽略 inline default_value：空复选文本回退 ✔（atom 2）被最小保护抬到 6，
+    # 而非采用默认值文本权重
+    assert build_field_control_weight(form_field) == 6
 
 
 class TestBuildColumnDemands:
