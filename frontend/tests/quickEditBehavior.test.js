@@ -198,9 +198,9 @@ test('field list exposes inline toggle backed by patch endpoint', () => {
   assert.match(formDesignerSource, /await confirmFormChange\(\)/)
   assert.match(
     formDesignerSource,
-    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`,[\s\S]*inline_mark: ff\.inline_mark \? 0 : 1[\s\S]*\}\)/,
+    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`,[\s\S]*inline_mark: nextInlineMark[\s\S]*\}\)/,
   )
-  assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)/)
+  assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"/)
   assert.match(formDesignerSource, /content="横向表格标记"/)
@@ -359,16 +359,52 @@ test('missing codelist validation blocks explicit property save', () => {
 
 
 test('app blocks project switch until form designer can leave', () => {
-  assert.match(formDesignerSource, /async function canLeaveProject\(\) \{[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*return resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)/)
-  assert.match(formDesignerSource, /defineExpose\(\{[\s\S]*canLeaveProject,[\s\S]*getForms: \(\) => forms\.value,/)
+  assert.match(
+    formDesignerSource,
+    /async function resolveDesignerLeave\(\{ actionText \}\) \{[\s\S]*if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return false;[\s\S]*formSelectionAttempt \+= 1;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*return resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText \}\)/,
+  )
+  assert.match(
+    formDesignerSource,
+    /async function canLeaveProject\(\) \{[\s\S]*return resolveDesignerLeave\(\{ actionText: '切换项目' \}\)/,
+  )
+  assert.match(
+    formDesignerSource,
+    /async function canLeaveTab\(\) \{[\s\S]*const ok = await resolveDesignerLeave\(\{ actionText: '切换标签页' \}\);[\s\S]*if \([\s\S]*ok &&[\s\S]*selectedFieldId\.value &&[\s\S]*selectedFieldId\.value !== DRAFT_FIELD_ID &&[\s\S]*!fieldPropBaseline\.value[\s\S]*\) \{[\s\S]*const ff = getSelectedFormField\(\);[\s\S]*if \(ff\) selectField\(ff\);[\s\S]*else resetFieldPropAutoSaveState\(\);[\s\S]*\}[\s\S]*return ok/,
+  )
+  assert.match(formDesignerSource, /defineExpose\(\{[\s\S]*canLeaveProject,[\s\S]*canLeaveTab,[\s\S]*getForms: \(\) => forms\.value,/)
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
   assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(isTabActivated\('designer'\) && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
   assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
 })
 
+test('app blocks main tab leave from designer until form designer can leave', () => {
+  assert.match(appSource, /:before-leave="onMainTabBeforeLeave"/)
+  assert.match(
+    appSource,
+    /async function onMainTabBeforeLeave\(activeName, oldActiveName\) \{[\s\S]*if \([\s\S]*oldActiveName === 'designer' &&[\s\S]*isTabActivated\('designer'\) &&[\s\S]*formDesignerTabRef\.value\?\.canLeaveTab[\s\S]*\) \{[\s\S]*return await formDesignerTabRef\.value\.canLeaveTab\(\)[\s\S]*\}[\s\S]*return true/,
+  )
+})
+
+test('form switch uses attempt supersession and only commits selection session after leave guards', () => {
+  assert.match(formDesignerSource, /let formSelectionAttempt = 0/)
+  assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const selectionAttempt = \+\+formSelectionAttempt/)
+  assert.match(formDesignerSource, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return/)
+  assert.match(
+    formDesignerSource,
+    /const canLeaveFieldProp = await resolveFieldPropLeave\(\{[\s\S]*resetOptions: \{ preserveEditor: true \},[\s\S]*actionText: '切换表单',?[\s\S]*\}\)/,
+  )
+  assert.match(
+    formDesignerSource,
+    /async function selectForm\(nextForm\) \{[\s\S]*resetFieldPropAutoSaveState\(\)[\s\S]*invalidateFormSelectionSession\(\)[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*selectedForm\.value = nextForm \|\| null/,
+  )
+})
+
 
 test('field switch goes through property dirty leave guard before selecting another field', () => {
-  assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id\) return;[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '切换字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(hasDraft\.value && !isDraftField\(ff\)\)[\s\S]*selectField\(fresh\)/)
+  assert.match(
+    formDesignerSource,
+    /async function onSelectFieldClick\(ff\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '切换字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*selectField\(fresh\)/,
+  )
 })
 
 
@@ -408,17 +444,21 @@ test('form switch only lets latest field load commit', () => {
 
 
 test('form switch flushes field autosave and clears stale field state before selecting next form', () => {
-  assert.match(formDesignerSource, /function invalidateFormSelectionSession\(\) \{[\s\S]*formSelectionSession \+= 1[\s\S]*\}/)
+  assert.match(formDesignerSource, /function invalidateFormSelectionSession\(\) \{[\s\S]*formSelectionSession \+= 1[\s\S]*formSelectionAttempt \+= 1/)
   assert.match(formDesignerSource, /let formSelectionSession = 0/)
-  assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const sessionId = \+\+formSelectionSession/)
+  assert.match(formDesignerSource, /let formSelectionAttempt = 0/)
+  assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const selectionAttempt = \+\+formSelectionAttempt/)
   assert.match(formDesignerSource, /const flushSucceeded = await flushDesignNotesSave\(buildDesignNotesSaveSnapshot\(\{ form: currentForm \}\)\)/)
-  assert.match(formDesignerSource, /if \(sessionId !== formSelectionSession\) return/)
+  assert.match(formDesignerSource, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return/)
   assert.match(
     formDesignerSource,
     /const canLeaveFieldProp = await resolveFieldPropLeave\(\{[\s\S]*resetOptions: \{ preserveEditor: true \},[\s\S]*actionText: '切换表单',?[\s\S]*\}\)/,
   )
   assert.match(formDesignerSource, /if \(!canLeaveFieldProp\) \{[\s\S]*formsTableRef\.value\?\.setCurrentRow\(currentForm\)[\s\S]*return/)
-  assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*resetFieldPropAutoSaveState\(\)[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*selectedForm\.value = nextForm \|\| null/)
+  assert.match(
+    formDesignerSource,
+    /async function selectForm\(nextForm\) \{[\s\S]*resetFieldPropAutoSaveState\(\)[\s\S]*invalidateFormSelectionSession\(\)[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*selectedForm\.value = nextForm \|\| null/,
+  )
 })
 
 
