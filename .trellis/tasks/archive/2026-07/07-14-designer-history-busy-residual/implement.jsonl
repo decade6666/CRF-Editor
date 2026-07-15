@@ -1,0 +1,9 @@
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/prd.md", "reason": "Residual requirements R1-R8, AC1-AC10, surgical-port constraints"}
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/design.md", "reason": "Token/counter design, membership vs newField boundary, concurrent OID/refreshKey collision rules"}
+{"file": ".trellis/tasks/07-14-designer-history-busy-residual/implement.md", "reason": "Ordered surgical steps, forbidden ops, verification commands, evidence table"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Target doc for attempt/session, membership↔reorder, stale-cache contracts after implement"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend spec index / related state docs"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Cross-stack contract guide; confirm no backend contract change for this residual"}
+{"file": "/tmp/crf-history-integration-assessment.md", "reason": "Main vs isolation gap assessment; do-not-apply-patch rationale"}
+{"file": "/tmp/crf-editor-history-current-head/frontend/src/components/FormDesignerTab.vue", "reason": "Read-only semantic authority for surgical port (never whole-file copy)"}
+{"file": "/tmp/crf-editor-history-current-head/frontend/src/composables/useDesignerHistory.js", "reason": "Read-only generation/busy reference (main already has generation)"}
