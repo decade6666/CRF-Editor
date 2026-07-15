@@ -18,6 +18,7 @@
 /** 字符权重常量 */
 const WEIGHT_CHINESE = 2  // 中文字符权重
 const WEIGHT_ASCII = 1    // 英文/数字/标点权重
+export const CHECKBOX_DEFAULT_TEXT = '✔'  // 复选控件文本为空时的默认字符
 const FILL_LINE_WEIGHT = 6  // 填写线默认权重
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -391,7 +392,7 @@ function buildFillLineHtml(length = 20, minLength = 4) {
 }
 
 function resolveCheckboxText(field) {
-  return field?.checkbox_label || field?.label || ''
+  return field?.checkbox_label || CHECKBOX_DEFAULT_TEXT
 }
 
 function getChoiceSymbol(fieldType) {

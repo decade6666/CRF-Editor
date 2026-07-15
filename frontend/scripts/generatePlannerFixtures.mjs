@@ -133,7 +133,7 @@ const cases = [
   {
     name: 'normal_checkbox_label_fallback',
     kind: 'normal',
-    description: '复选默认文本回退字段标签并保留控件最小宽度',
+    description: '复选默认文本回退 ✔ 并保留控件最小宽度',
     fields: [checkboxField('已')],
   },
   {

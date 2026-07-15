@@ -35,8 +35,8 @@ const DEFAULT_DATE_FORMATS = {
   时间: 'HH:mm',
 }
 
-test('checkbox renderer uses custom text or label fallback without choice-field behavior', () => {
-  assert.equal(renderCtrl({ field_type: '复选', label: '已确认' }), '□已确认')
+test('checkbox renderer uses custom text or ✔ fallback without choice-field behavior', () => {
+  assert.equal(renderCtrl({ field_type: '复选', label: '已确认' }), '□✔')
   assert.equal(
     renderCtrl({ field_type: '复选', label: '字段标签', checkbox_label: '自定义确认' }),
     '□自定义确认',
@@ -97,13 +97,13 @@ test('field editors expose the checkbox type, text input, and persistence mappin
   assert.match(fieldsTabSource, /syncFieldTypeSpecificProps\(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS\)/)
   assert.match(
     fieldsTabSource,
-    /<el-form-item v-if="editProp\.field_type === '复选'" label="复选文本"><el-input v-model="editProp\.checkbox_label" :placeholder="editProp\.label" \/><\/el-form-item>/,
+    /<el-form-item v-if="editProp\.field_type === '复选'" label="复选文本"><el-input v-model="editProp\.checkbox_label" placeholder="✔" \/><\/el-form-item>/,
   )
 
   assert.match(formDesignerSource, /const designerFieldTypes = \[[\s\S]*?'复选'/)
   assert.match(
     formDesignerSource,
-    /<el-form-item v-if="editProp\.field_type === '复选'" label="复选文本">[\s\S]*?v-model="editProp\.checkbox_label"[\s\S]*?:placeholder="editProp\.label"/,
+    /<el-form-item v-if="editProp\.field_type === '复选'" label="复选文本">[\s\S]*?v-model="editProp\.checkbox_label"[\s\S]*?placeholder="✔"/,
   )
   assert.match(formDesignerSource, /checkbox_label: snapshot\.checkbox_label \?\? null/)
   assert.match(formDesignerSource, /checkbox_label: editProp\.checkbox_label \?\? null/)

@@ -479,7 +479,7 @@ async function quickSaveCodelist() {
               <el-option v-for="f in (DATE_FORMAT_OPTIONS[editProp.field_type] || [])" :key="f" :label="f" :value="f" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="editProp.field_type === '复选'" label="复选文本"><el-input v-model="editProp.checkbox_label" :placeholder="editProp.label" /></el-form-item>
+          <el-form-item v-if="editProp.field_type === '复选'" label="复选文本"><el-input v-model="editProp.checkbox_label" placeholder="✔" /></el-form-item>
           <el-form-item v-if="['单选','多选','单选（纵向）','多选（纵向）'].includes(editProp.field_type)" label="选项">
             <div style="display:flex;align-items:center;gap:4px;width:100%">
               <el-select v-model="editProp.codelist_id" clearable filterable style="flex:1;min-width:0" placeholder="请选择">
