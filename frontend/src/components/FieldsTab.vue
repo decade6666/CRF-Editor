@@ -10,6 +10,7 @@ import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibilit
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
+import { OID_ERROR, isValidOptionalOid, isValidRequiredOid } from '../composables/oidValidation.js'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -95,6 +96,9 @@ function clearSelection() { resetProp(); selectedFieldId.value = null; isCreatin
 
 async function save() {
   if (!isCreating.value && !selectedFieldId.value) return
+  if (!['标签', '日志行'].includes(editProp.field_type) && !isValidRequiredOid(editProp.variable_name)) {
+    return ElMessage.warning(OID_ERROR)
+  }
   if (['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(editProp.field_type) && !editProp.codelist_id)
     return ElMessage.warning('单选/多选字段必须选择选项字典')
   try {
@@ -226,6 +230,7 @@ function openQuickAddCodelist() {
   showQuickAddCodelist.value = true
 }
 function quickAddOptRow() {
+  if (editMode.value && !isValidOptionalOid(quickOptCode.value)) return ElMessage.warning(OID_ERROR)
   if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickCodelistOpts.value.length
   quickCodelistOpts.value.push({
@@ -259,6 +264,8 @@ async function quickAddCodelist() {
   const normalizedOptions = normalizeQuickOptions(quickCodelistOpts.value)
   const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
   if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
+  const invalidOidIdx = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code))
+  if (invalidOidIdx !== -1) return ElMessage.warning(OID_ERROR)
 
   quickAddCodelistSaving.value = true
   try {
@@ -311,6 +318,7 @@ function openQuickEditCodelist() {
   showQuickEditCodelist.value = true
 }
 function quickEditAddOptRow() {
+  if (editMode.value && !isValidOptionalOid(quickEditOptCode.value)) return ElMessage.warning(OID_ERROR)
   if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickEditCodelistOpts.value.length
   quickEditCodelistOpts.value.push({
@@ -344,6 +352,8 @@ async function quickSaveCodelist() {
   const normalizedOptions = normalizeQuickOptions(quickEditCodelistOpts.value)
   const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
   if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
+  const invalidOidIdx = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code))
+  if (invalidOidIdx !== -1) return ElMessage.warning(OID_ERROR)
 
   quickEditCodelistSaving.value = true
   try {

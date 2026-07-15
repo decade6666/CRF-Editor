@@ -980,7 +980,7 @@ async function toggleCell(visitId, formId) {
       暂无字段
     </div>
     <div v-else class="word-preview">
-      <div :class="['word-page', { landscape: previewLandscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
+      <div :class="['word-page', 'word-page--a4', { landscape: previewLandscapeMode, 'word-page--with-notes': hasPreviewNotes }]">
         <div class="wp-form-title-row">
           <div class="wp-form-title">{{ formPreviewTitle }}</div>
           <span
@@ -1425,6 +1425,7 @@ async function toggleCell(visitId, formId) {
 <style scoped>
 .wp-form-title-row {
   position: relative;
+  min-height: 0.7cm;
   padding-right: 4.8cm;
 }
 

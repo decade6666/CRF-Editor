@@ -2,8 +2,8 @@ import { reactive, ref, watch, isRef } from 'vue'
 
 const SNAP_ANCHORS = [0.25, 1 / 3, 0.5, 2 / 3, 0.75]
 const SNAP_PX = 6
-const MIN_RATIO = 0.1
-const MAX_RATIO = 0.9
+const MIN_RATIO = 0.02
+const MAX_RATIO = 1 - MIN_RATIO
 
 function readRatios(key, n) {
   try {
