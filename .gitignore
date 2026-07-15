@@ -55,6 +55,7 @@ node_modules/
 .playwright-mcp/
 .obsidian/
 .claude/settings.local.json
+.claude/worktrees/
 .trellis/workspace/
 .ccg/
 
