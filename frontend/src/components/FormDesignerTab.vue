@@ -60,7 +60,12 @@ import {
   planUnifiedColumnFractions,
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer';
-import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor';
+import {
+  buildFormPropState,
+  normalizeHexColorInput,
+  sameFormPropState,
+  syncFieldTypeSpecificProps,
+} from '../composables/formDesignerPropertyEditor';
 import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline';
 import {
   buildFormDesignerRenderGroups,
@@ -123,15 +128,18 @@ function getFormDomainAnnotationText(form) {
 // 核心数据
 const forms = ref([]);
 const searchForm = ref('');
-const filteredForms = computed(() => {
-  const orderedForms = [...forms.value].sort((a, b) => {
+// 全量有序表单列表（不受左侧 searchForm 过滤）；全屏设计器下拉切换必须用此列表，避免搜索态漏项。
+const orderedForms = computed(() =>
+  [...forms.value].sort((a, b) => {
     const orderA = a?.order_index ?? Number.MAX_SAFE_INTEGER;
     const orderB = b?.order_index ?? Number.MAX_SAFE_INTEGER;
     if (orderA !== orderB) return orderA - orderB;
     return (a?.id ?? 0) - (b?.id ?? 0);
-  });
-  return rankFuzzyMatches(orderedForms, searchForm.value, (item) => Object.values(item));
-});
+  }),
+);
+const filteredForms = computed(() =>
+  rankFuzzyMatches(orderedForms.value, searchForm.value, (item) => Object.values(item)),
+);
 const selectedForm = ref(null);
 const fieldDefs = ref([]);
 const formFields = ref([]);
@@ -150,6 +158,10 @@ const editFormName = ref('');
 const editFormCode = ref('');
 const editFormPaperOrientation = ref('auto');
 const editFormTarget = ref(null);
+// 全屏设计器右侧「表单属性」编辑缓冲（与左侧弹窗 editForm* 双入口；显式保存，镜像字段属性脏态模式）
+const editFormProp = reactive({ name: '', code: '', paper_orientation: 'auto' });
+const formPropBaseline = ref(null);
+const isSavingFormProp = ref(false);
 const dragSrcId = ref(null);
 const dragOverIdx = ref(null);
 const isReordering = ref(false);
@@ -486,10 +498,37 @@ function openEditForm(f) {
   showEditForm.value = true;
 }
 
-async function updateForm() {
-  if (!isValidOptionalOid(editFormCode.value)) return ElMessage.warning(OID_ERROR);
+function syncFormPropEditor(form = selectedForm.value) {
+  const state = buildFormPropState(form);
+  Object.assign(editFormProp, state);
+  formPropBaseline.value = form ? { ...state } : null;
+}
+
+const isFormPropDirty = computed(() => {
+  if (!formPropBaseline.value) return false;
+  return !sameFormPropState(formPropBaseline.value, {
+    name: editFormProp.name,
+    code: editFormProp.code,
+    paper_orientation: editFormProp.paper_orientation,
+  });
+});
+
+/**
+ * Shared form-property PUT path for the edit dialog and the designer side pane.
+ * Returns true on success, false on validation/cancel/error.
+ */
+async function persistFormProps({ name, code, paper_orientation, targetForm }) {
+  if (!targetForm?.id) return false;
+  if (!String(name ?? '').trim()) {
+    ElMessage.warning('表单名称不能为空');
+    return false;
+  }
+  if (!isValidOptionalOid(code)) {
+    ElMessage.warning(OID_ERROR);
+    return false;
+  }
   try {
-    const refs = await api.get(`/api/forms/${editFormTarget.value.id}/references`);
+    const refs = await api.get(`/api/forms/${targetForm.id}/references`);
     if (refs.length) {
       const msg = truncRefs(
         refs.map((r) => r.visit_name),
@@ -499,24 +538,126 @@ async function updateForm() {
       await ElMessageBox.confirm(`修改将影响以下访视：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
     }
     if (
-      editFormPaperOrientation.value === 'portrait' &&
-      editFormTarget.value?.id === selectedForm.value?.id &&
+      paper_orientation === 'portrait' &&
+      targetForm?.id === selectedForm.value?.id &&
       needsLandscape.value
     ) {
       await ElMessageBox.confirm('当前内容较宽，纵向显示可能出现换行或截断，仍要保存？', '纸张方向提醒', {
         type: 'warning',
       });
     }
-    await api.put(`/api/forms/${editFormTarget.value.id}`, {
-      name: editFormName.value,
-      code: editFormCode.value,
-      paper_orientation: editFormPaperOrientation.value,
+    await api.put(`/api/forms/${targetForm.id}`, {
+      name,
+      code,
+      paper_orientation,
     });
-    showEditForm.value = false;
-    reloadForms();
+    await reloadForms();
+    if (selectedForm.value?.id === targetForm.id) {
+      syncFormPropEditor(selectedForm.value);
+    }
+    return true;
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error(e.message);
+    if (e !== 'cancel') ElMessage.error(e?.message || String(e));
+    return false;
   }
+}
+
+async function updateForm() {
+  const ok = await persistFormProps({
+    name: editFormName.value,
+    code: editFormCode.value,
+    paper_orientation: editFormPaperOrientation.value,
+    targetForm: editFormTarget.value,
+  });
+  if (ok) showEditForm.value = false;
+}
+
+async function saveFormProp() {
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFormProp.value) return false;
+  if (!selectedForm.value) return false;
+  isSavingFormProp.value = true;
+  try {
+    return await persistFormProps({
+      name: editFormProp.name,
+      code: editFormProp.code,
+      paper_orientation: editFormProp.paper_orientation,
+      targetForm: selectedForm.value,
+    });
+  } finally {
+    isSavingFormProp.value = false;
+  }
+}
+
+function cancelFormProp() {
+  syncFormPropEditor(selectedForm.value);
+}
+
+async function resolveFormPropLeave({ actionText = '关闭' } = {}) {
+  if (!isFormPropDirty.value) return true;
+  try {
+    await ElMessageBox.confirm(`表单属性修改尚未保存，保存或取消后将继续${actionText}。`, '表单属性未保存', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    });
+    return await saveFormProp();
+  } catch (e) {
+    if (e === 'cancel') {
+      cancelFormProp();
+      return true;
+    }
+    return false;
+  }
+}
+
+async function onSwitchFormFromDropdown(formId) {
+  // el-select 在部分场景会把 option value 以 string 抛出；forms.id 为 number，严格 === 会匹配失败导致静默不切换
+  const targetId =
+    formId == null || formId === ''
+      ? null
+      : typeof formId === 'number'
+        ? formId
+        : Number(formId);
+  if (targetId == null || Number.isNaN(targetId)) {
+    formsTableRef.value?.setCurrentRow(selectedForm.value);
+    return;
+  }
+  if ((selectedForm.value?.id ?? null) === targetId) return;
+  const next = forms.value.find((f) => f.id === targetId || String(f.id) === String(formId)) || null;
+  if (!next) {
+    ElMessage.warning('未找到目标表单');
+    formsTableRef.value?.setCurrentRow(selectedForm.value);
+    return;
+  }
+  const previousId = selectedForm.value?.id ?? null;
+  await selectForm(next);
+  // 仅在切换成功后同步左表高亮；失败路径由 selectForm 内部恢复
+  if ((selectedForm.value?.id ?? null) === next.id && next.id !== previousId) {
+    const row =
+      filteredForms.value.find((f) => f.id === next.id) ||
+      forms.value.find((f) => f.id === next.id) ||
+      selectedForm.value;
+    formsTableRef.value?.setCurrentRow(row);
+  }
+}
+
+async function onCanvasBlankClick(event) {
+  if (!selectedFieldId.value) return;
+  if (event?.target?.closest?.('.ff-item')) return;
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
+  const historyContext = captureDesignerHistoryContext();
+  if (!historyContext) return;
+  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '回到表单属性' });
+  if (!isCurrentDesignerHistoryContext(historyContext)) return;
+  if (!canLeaveFieldProp) return;
+  if (hasDraft.value) {
+    const proceed = await confirmDiscardDraft();
+    if (!isCurrentDesignerHistoryContext(historyContext)) return;
+    if (!proceed) return;
+  }
+  resetFieldPropAutoSaveState();
+  syncFormPropEditor(selectedForm.value);
 }
 
 // 表单字段操作
@@ -764,6 +905,11 @@ async function copyFormField(ff) {
   try {
     const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '复制字段' });
     if (!canLeaveFieldProp) return;
+    // 从表单属性视图进入复制结果选中时，先处理未保存的表单属性（镜像 onSelectFieldClick）
+    if (!selectedFieldId.value) {
+      const canLeaveFormProp = await resolveFormPropLeave({ actionText: '复制字段' });
+      if (!canLeaveFormProp) return;
+    }
     if (hasDraft.value) {
       const proceed = await confirmDiscardDraft();
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
@@ -1690,6 +1836,17 @@ async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
   return notesSavePromise;
 }
 
+// el-table 的 @current-change 在 :data（filteredForms 每次返回新数组）重算或程序化
+// setCurrentRow 之后，会以「当前已选中行」重新 emit 一次 current-change。若直接透传给
+// selectForm，这类回显会命中 selectForm 的同 id 分支并 `formSelectionAttempt += 1`，
+// 从而作废正在进行中的下拉切换（selectForm(目标) 在后续 await 处静默 return，永不 commit）。
+// 用户点击其它行时 el-table 只会以「不同行」触发 current-change，故过滤 null 与同 id 回显是安全的。
+function onFormsTableCurrentChange(row) {
+  if (!row) return;
+  if ((row.id ?? null) === (selectedForm.value?.id ?? null)) return;
+  return selectForm(row);
+}
+
 async function selectForm(nextForm) {
   const currentForm = selectedForm.value;
   if ((currentForm?.id ?? null) === (nextForm?.id ?? null)) {
@@ -1735,11 +1892,18 @@ async function selectForm(nextForm) {
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
   }
+  const canLeaveFormProp = await resolveFormPropLeave({ actionText: '切换表单' });
+  if (!isFormSelectionAttemptCurrent(selectionAttempt, selectionSession, projectId)) return;
+  if (!canLeaveFormProp) {
+    formsTableRef.value?.setCurrentRow(currentForm);
+    return;
+  }
   resetFieldPropAutoSaveState();
   invalidateFormSelectionSession();
   formFields.value = [];
   selectedIds.value = [];
   selectedForm.value = nextForm || null;
+  syncFormPropEditor(selectedForm.value);
   markPerfEnd(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
 }
 
@@ -2363,6 +2527,11 @@ async function newField() {
   if (!selectedForm.value) return;
   const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '新建字段' });
   if (!canLeaveFieldProp) return;
+  // 从表单属性视图新建草稿字段时，先处理未保存的表单属性（镜像 onSelectFieldClick）
+  if (!selectedFieldId.value) {
+    const canLeaveFormProp = await resolveFormPropLeave({ actionText: '新建字段' });
+    if (!canLeaveFormProp) return;
+  }
   const historyContext = captureDesignerHistoryContext();
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
@@ -2501,6 +2670,12 @@ async function onSelectFieldClick(ff) {
   const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '切换字段' });
   if (!isCurrentDesignerHistoryContext(historyContext)) return;
   if (!canLeaveFieldProp) return;
+  // 从「表单属性」切到字段前，先处理未保存的表单属性
+  if (!selectedFieldId.value) {
+    const canLeaveFormProp = await resolveFormPropLeave({ actionText: '切换字段' });
+    if (!isCurrentDesignerHistoryContext(historyContext)) return;
+    if (!canLeaveFormProp) return;
+  }
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
     if (!isCurrentDesignerHistoryContext(historyContext)) return;
@@ -2886,8 +3061,17 @@ watch(
     const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId });
     const flushSucceeded = await flushDesignNotesSave(flushSnapshot);
     if (!flushSucceeded && selectedForm.value?.id) return;
-    const canLeave = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText: '切换项目' });
-    if (!canLeave) {
+    const canLeaveFieldProp = await resolveFieldPropLeave({
+      resetOptions: { preserveEditor: true },
+      actionText: '切换项目',
+    });
+    if (!canLeaveFieldProp) {
+      fieldPropProjectId.value = previousProjectId;
+      return;
+    }
+    // 防御：App 路径已走 canLeaveProject，此处补 form leave 避免未来绕过静默丢表单属性
+    const canLeaveFormProp = await resolveFormPropLeave({ actionText: '切换项目' });
+    if (!canLeaveFormProp) {
       fieldPropProjectId.value = previousProjectId;
       return;
     }
@@ -2914,7 +3098,9 @@ async function resolveDesignerLeave({ actionText }) {
   if (!annotationFlushSucceeded && selectedForm.value?.id) return false;
   const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot());
   if (!flushSucceeded && selectedForm.value?.id) return false;
-  return resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText });
+  const canLeaveFieldProp = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText });
+  if (!canLeaveFieldProp) return false;
+  return resolveFormPropLeave({ actionText });
 }
 
 async function canLeaveProject() {
@@ -2940,8 +3126,10 @@ async function canLeaveTab() {
 }
 
 async function handleDesignerBeforeClose(done) {
-  const canClose = await resolveFieldPropLeave({ actionText: '关闭设计窗口' });
-  if (canClose) {
+  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '关闭设计窗口' });
+  if (!canLeaveFieldProp) return;
+  const canLeaveFormProp = await resolveFormPropLeave({ actionText: '关闭设计窗口' });
+  if (canLeaveFormProp) {
     refreshPreviewOverrideState(renderGroupsView.value, 'main');
     done();
   }
@@ -2951,6 +3139,7 @@ async function openDesigner() {
   markPerfStart('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   try {
     await ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs: true });
+    syncFormPropEditor(selectedForm.value);
     showDesigner.value = true;
     refreshDesignerPreviewOverrides();
     markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
@@ -3003,7 +3192,7 @@ function openAddForm() {
         row-key="id"
         style="width: 100%"
         height="100%"
-        @current-change="selectForm"
+        @current-change="onFormsTableCurrentChange"
         @selection-change="(r) => (selForms = r)"
       >
         <el-table-column v-if="!isFormsFiltered" width="32"
@@ -3694,7 +3883,27 @@ function openAddForm() {
       <template #header="{ titleId, titleClass }">
         <div class="designer-dialog-header">
           <div class="designer-dialog-header-main">
-            <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">设计：{{ selectedForm?.name || '' }}</span>
+            <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">
+              <span class="designer-dialog-title-prefix">设计：</span>
+              <el-select
+                data-test="designer-form-switch"
+                class="designer-form-switch"
+                size="small"
+                filterable
+                teleported
+                :model-value="selectedForm?.id ?? undefined"
+                placeholder="选择表单"
+                :disabled="designerHistory.busy.value || isReordering || savingDraft"
+                @change="onSwitchFormFromDropdown"
+              >
+                <el-option
+                  v-for="f in orderedForms"
+                  :key="f.id"
+                  :label="f.name"
+                  :value="f.id"
+                />
+              </el-select>
+            </span>
             <el-switch
               v-if="editMode"
               v-model="viewMode"
@@ -3826,7 +4035,8 @@ function openAddForm() {
                   >共 {{ designerVisibleFields.length }} 个字段</span
                 >
               </div>
-              <div class="fd-canvas-list designer-field-list">
+              <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank-area click deselects field and shows form props -->
+              <div class="fd-canvas-list designer-field-list" @click="onCanvasBlankClick">
                 <div
                   v-for="(ff, idx) in designerVisibleFields"
                   :key="ff.id"
@@ -4631,15 +4841,52 @@ function openAddForm() {
         </div>
         <div class="designer-side-pane" :style="{ width: propWidth + 'px', gridTemplateRows: sideRows }">
           <div class="designer-editor-card">
-            <div class="designer-section-title">属性编辑</div>
-            <el-empty v-if="!selectedFieldId" class="empty-state" :image-size="56" style="height: 100%">
-              <template #image>
-                <el-icon aria-hidden="true"><EditPen /></el-icon>
-              </template>
-              <template #description>
-                <p>← 选择字段</p>
-              </template>
-            </el-empty>
+            <div class="designer-section-title">{{ selectedFieldId ? '字段属性' : '表单属性' }}</div>
+            <div v-if="!selectedFieldId" class="designer-editor-scroll" data-test="designer-form-property-form">
+              <el-form
+                :model="editFormProp"
+                label-width="88px"
+                size="small"
+                :disabled="designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
+              >
+                <el-form-item v-if="editMode" label="OID">
+                  <el-input v-model="editFormProp.code" data-test="designer-form-property-code" />
+                </el-form-item>
+                <el-form-item label="名称">
+                  <el-input v-model="editFormProp.name" data-test="designer-form-property-name" />
+                </el-form-item>
+                <el-form-item label="纸张方向">
+                  <el-radio-group
+                    v-model="editFormProp.paper_orientation"
+                    data-test="designer-form-paper-orientation"
+                  >
+                    <el-radio label="auto">自动</el-radio>
+                    <el-radio label="landscape">横向</el-radio>
+                    <el-radio label="portrait">纵向</el-radio>
+                  </el-radio-group>
+                </el-form-item>
+              </el-form>
+              <div class="designer-draft-actions" data-test="designer-form-property-actions">
+                <el-button
+                  size="small"
+                  data-test="designer-form-property-cancel"
+                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || isSavingFormProp"
+                  @click="cancelFormProp"
+                >
+                  取消
+                </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  data-test="designer-form-property-save"
+                  :loading="isSavingFormProp"
+                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
+                  @click="saveFormProp"
+                >
+                  保存
+                </el-button>
+              </div>
+            </div>
             <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
               <el-form
                 :model="editProp"
@@ -5517,9 +5764,40 @@ function openAddForm() {
 .designer-dialog-title {
   flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 允许下拉框完整交互；ellipsis 留给前缀文案即可 */
+  overflow: visible;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.designer-dialog-title-prefix {
+  flex: 0 0 auto;
+}
+
+.designer-form-switch {
+  min-width: 160px;
+  max-width: min(360px, 40vw);
+}
+
+/* 去掉下拉聚焦时的强选中光标/描边提醒 */
+.designer-form-switch :deep(.el-select__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+  cursor: pointer;
+}
+.designer-form-switch :deep(.el-select__wrapper.is-focused),
+.designer-form-switch :deep(.el-select__wrapper.is-hovering:not(.is-focused)) {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+}
+.designer-form-switch :deep(.el-select__caret),
+.designer-form-switch :deep(.el-select__suffix) {
+  cursor: pointer;
+}
+.designer-form-switch :deep(.el-select__selected-item),
+.designer-form-switch :deep(.el-select__input) {
+  cursor: pointer;
+  caret-color: transparent;
 }
 
 .designer-library-pane {

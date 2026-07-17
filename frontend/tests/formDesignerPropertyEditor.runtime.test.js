@@ -15,8 +15,28 @@ const buildFieldDefinitionPayload = fieldDefinitionPayloadExpression
 function functionBody(name) {
   const start = formDesignerSource.indexOf(`function ${name}(`)
   assert.notEqual(start, -1, `should locate ${name}`)
-  const bodyStart = formDesignerSource.indexOf('{', start)
+  // Skip parameter list (which may contain destructuring braces) before finding the body.
   let depth = 0
+  let bodyStart = -1
+  let inParams = false
+  for (let index = start; index < formDesignerSource.length; index += 1) {
+    const ch = formDesignerSource[index]
+    if (ch === '(') {
+      depth += 1
+      inParams = true
+      continue
+    }
+    if (ch === ')') {
+      depth -= 1
+      if (inParams && depth === 0) {
+        inParams = false
+        bodyStart = formDesignerSource.indexOf('{', index + 1)
+        break
+      }
+    }
+  }
+  assert.notEqual(bodyStart, -1, `${name} should have a body brace after params`)
+  depth = 0
   for (let index = bodyStart; index < formDesignerSource.length; index += 1) {
     if (formDesignerSource[index] === '{') depth += 1
     if (formDesignerSource[index] === '}') depth -= 1
@@ -298,9 +318,13 @@ test('FormDesignerTab guards OID charset on form/field/option submit paths', () 
   assert.match(addForm, /isValidOptionalOid\(newFormCode\.value\)/)
   assert.match(addForm, /ElMessage\.warning\(OID_ERROR\)/)
 
+  // 表单编辑弹窗与设计器内联卡共用 persistFormProps；OID 校验集中在该共享路径
   const updateForm = functionBody('updateForm')
-  assert.match(updateForm, /isValidOptionalOid\(editFormCode\.value\)/)
-  assert.match(updateForm, /ElMessage\.warning\(OID_ERROR\)/)
+  assert.match(updateForm, /persistFormProps\(/)
+  assert.match(updateForm, /code: editFormCode\.value/)
+  const persistFormProps = functionBody('persistFormProps')
+  assert.match(persistFormProps, /isValidOptionalOid\(code\)/)
+  assert.match(persistFormProps, /ElMessage\.warning\(OID_ERROR\)/)
 
   const saveProp = functionBody('saveSelectedFieldProp')
   assert.match(saveProp, /!isValidRequiredOid\(snapshot\.variable_name\)/)

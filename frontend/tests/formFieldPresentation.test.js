@@ -425,7 +425,7 @@ test('notes autosave failures keep main preview on persisted notes', () => {
     formDesignerSource,
     /const flushSnapshot = buildDesignNotesSaveSnapshot\(\{ projectId: previousProjectId \}\)/,
   );
-  assert.match(formDesignerSource, /@current-change="selectForm"/);
+  assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/);
   assert.match(
     formDesignerSource,
     /class="designer-side-pane"[\s\S]*class="designer-editor-card"[\s\S]*class="designer-notes-card"/,

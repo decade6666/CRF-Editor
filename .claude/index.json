@@ -233,6 +233,7 @@
         "frontend/tests/fieldsTabCodelistQuickEdit.test.js",
         "frontend/tests/fieldsTabEditorFooterButtons.test.js",
         "frontend/tests/fieldsTabOrdinalConsistency.test.js",
+        "frontend/tests/formDesignerFormPropertyEditor.test.js",
         "frontend/tests/formDesignerPreviewModel.test.js",
         "frontend/tests/formDesignerPropertyEditor.runtime.test.js",
         "frontend/tests/formFieldPresentation.test.js",

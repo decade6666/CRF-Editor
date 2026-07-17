@@ -64,7 +64,7 @@ test('property editor previews live edits and design notes use independent autos
   assert.match(formDesignerSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\)/)
   assert.match(formDesignerSource, /formsTableRef\.value\?\.setCurrentRow\(currentForm\)/)
-  assert.match(formDesignerSource, /@current-change="selectForm"/)
+  assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/)
 })
 
 test('fullscreen designer preview rehydrates latest width and height overrides when opened', () => {
@@ -74,7 +74,10 @@ test('fullscreen designer preview rehydrates latest width and height overrides w
 })
 
 test('closing fullscreen designer rehydrates main preview overrides before returning', () => {
-  assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*const canClose = await resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\);[\s\S]*if \(canClose\) \{[\s\S]*refreshPreviewOverrideState\(renderGroupsView\.value, 'main'\);[\s\S]*done\(\);[\s\S]*\}/)
+  assert.match(
+    formDesignerSource,
+    /async function handleDesignerBeforeClose\(done\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\);[\s\S]*const canLeaveFormProp = await resolveFormPropLeave\(\{ actionText: '关闭设计窗口' \}\);[\s\S]*if \(canLeaveFormProp\) \{[\s\S]*refreshPreviewOverrideState\(renderGroupsView\.value, 'main'\);[\s\S]*done\(\);[\s\S]*\}/,
+  )
 })
 
 
@@ -345,10 +348,14 @@ test('property editor dirty leave guard uses save, discard, and close states', (
   assert.match(formDesignerSource, /distinguishCancelAndClose: true/)
   assert.match(formDesignerSource, /return await saveSelectedFieldProp\(\)/)
   assert.match(formDesignerSource, /if \(e === 'cancel'\) \{[\s\S]*resetFieldPropAutoSaveState\(resetOptions\);[\s\S]*return true/)
-  assert.doesNotMatch(formDesignerSource, /if \(e === 'cancel'\) \{[\s\S]*cancelSelectedFieldProp\(\)/)
+  // 字段属性丢弃必须走 resetFieldPropAutoSaveState，不能调用 cancelSelectedFieldProp（后者会重读服务器）
+  assert.doesNotMatch(
+    formDesignerSource,
+    /async function resolveFieldPropLeave\([\s\S]*?if \(e === 'cancel'\) \{[\s\S]*?cancelSelectedFieldProp\(\)[\s\S]*?\n\}/,
+  )
   assert.match(formDesignerSource, /return false/)
-  assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\)/)
-  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeave = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = previousProjectId/)
+  assert.match(formDesignerSource, /async function handleDesignerBeforeClose\(done\) \{[\s\S]*resolveFieldPropLeave\(\{ actionText: '关闭设计窗口' \}\)[\s\S]*resolveFormPropLeave\(\{ actionText: '关闭设计窗口' \}\)/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{[\s\S]*resetOptions: \{ preserveEditor: true \},[\s\S]*actionText: '切换项目',[\s\S]*\}\)[\s\S]*const canLeaveFormProp = await resolveFormPropLeave\(\{ actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = previousProjectId/)
   assert.doesNotMatch(formDesignerSource, /if \(!resetSucceeded\) showDesigner\.value = true/)
 })
 
@@ -361,7 +368,7 @@ test('missing codelist validation blocks explicit property save', () => {
 test('app blocks project switch until form designer can leave', () => {
   assert.match(
     formDesignerSource,
-    /async function resolveDesignerLeave\(\{ actionText \}\) \{[\s\S]*if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return false;[\s\S]*formSelectionAttempt \+= 1;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*return resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText \}\)/,
+    /async function resolveDesignerLeave\(\{ actionText \}\) \{[\s\S]*if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return false;[\s\S]*formSelectionAttempt \+= 1;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText \}\)[\s\S]*return resolveFormPropLeave\(\{ actionText \}\)/,
   )
   assert.match(
     formDesignerSource,
@@ -423,7 +430,7 @@ test('project watcher fallback saves against the previous property project conte
   assert.match(formDesignerSource, /const fieldPropProjectId = ref\(props\.projectId\)/)
   assert.match(formDesignerSource, /projectId: fieldPropProjectId\.value/)
   assert.match(formDesignerSource, /if \(!ff \|\| !formId \|\| projectId !== fieldPropProjectId\.value\) throw new Error\('字段属性保存上下文已变更'\)/)
-  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeave = await resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = newProjectId/)
+  assert.match(formDesignerSource, /watch\([\s\S]*\(\) => props\.projectId,[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{[\s\S]*resetOptions: \{ preserveEditor: true \},[\s\S]*actionText: '切换项目',[\s\S]*\}\)[\s\S]*const canLeaveFormProp = await resolveFormPropLeave\(\{ actionText: '切换项目' \}\)[\s\S]*fieldPropProjectId\.value = newProjectId/)
 })
 
 

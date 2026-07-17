@@ -25,7 +25,7 @@ graph TD
     C --> C1["src/components (13)"];
     C --> C2["src/composables (23)"];
     C --> C3["src/styles"];
-    C --> C4["tests (47)"];
+    C --> C4["tests (51)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,7 +36,7 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (47 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (47 files, including 46 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (51 files, including 50 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 
 ## Core Capabilities
@@ -45,7 +45,7 @@ graph TD
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel, and default-off AI review suggestions that can be accepted per suggestion / per form / globally before import
-- Form designer real-time preview, field instance quick edit/copy with no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
+- Form designer real-time preview, full-screen form-switch dropdown and inline form-property editing (OID / name / paper orientation), field instance quick edit/copy with no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
@@ -127,6 +127,8 @@ cd frontend && node --test tests/*.test.js
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
 
 ## Change Log
+- `2026-07-15` (task `07-15-designer-form-switch-inline-props`): Full-screen form designer gains a form-switch dropdown in the header and an inline form-property editor (OID/name/paper orientation) on the right pane when no field is selected; blank field-list clicks return to form props. Field property explicit-save/dirty-leave pattern is mirrored for form props; backend unchanged. Frontend suite 502 passed.
+
 - `2026-07-14` (task `07-14-checkbox-default-check`): Checkbox (`复选`) empty-text fallback changed from the field label to the fixed default character `✔`. Single central fallback point per stack — backend `field_rendering.resolve_checkbox_label` (`CHECKBOX_DEFAULT_TEXT`, reused by export + width) and frontend `useCRFRenderer.resolveCheckboxText` (`CHECKBOX_DEFAULT_TEXT`, reused by render + width); export/parity inherit automatically. The designer / field-library "复选文本" input placeholder switched from the field label to a static `✔`. No data migration (empty stays empty, resolves to `✔` at runtime). `planner_cases.json` regenerated (fraction unchanged — single-field row min-width protection dominates). Updated backend `test_width_planning.py` / `test_export_service.py` and frontend `checkboxFieldType.test.js`; backend 695 passed/4 xfailed, frontend 490 passed, lint 0 errors.
 - `2026-07-14` (task `07-14-crf-editor-batch-fixes`): Batch of four independent fixes. (1) Draggable column minimum widened (`useColumnResize.js` `MIN_RATIO` 0.1→0.02, `MAX_RATIO`→`1 - MIN_RATIO`; content-driven planner floors & `planner_cases.json` unchanged). (2) OID charset validation `^[A-Za-z0-9._-]+$` enforced at edit time only (no migration): backend `schemas/_common.py` validators wired into form/field/codelist Create/Update schemas ↔ frontend `composables/oidValidation.js` submit-path guards in `FormDesignerTab`/`FieldsTab`/`CodelistsTab`; optional codes may stay empty, required `variable_name` must be non-empty. (3) aCRF preview geometry parity: VisitsTab preview and designer preview now share a fixed A4 page (`.word-page--a4` / `.designer-scaled-word-page`), and the annotation default vertical offset moved `-120000`→`-26940 EMU` (centers the 0.7cm box on the cell text line) in `acrfAnnotationGeometry.js` + `export_service.py` in sync — see Cross-Stack Contracts (aCRF geometry); no `annotation_positions` migration. (4) Field library auto-refreshes after a designer property save (`FormDesignerTab.saveFieldProp` bumps `refreshKey` on the field-definition branch). Backend 695 passed/4 xfailed; frontend 476 passed (added `test_oid_validation.py`, `oidValidationWiring.test.js`).
 - `2026-07-13` (task `07-13-designer-field-copy`): The form designer now copies persisted field instances directly below their source. Regular fields copy the complete definition through the existing backend endpoint and create a full instance duplicate; log rows duplicate only the instance. A draft guard, row-level double-click lock, orphan-definition cleanup, selection refresh, and robust undo/redo are included. Redo recreates/reuses the original copied-definition snapshot (including `checkbox_label`) rather than invoking copy again, preventing `_copyN` OID drift. Added frontend regression coverage; the frontend test inventory is now 47 files (46 `.test.js` + `testProperty.js`).

@@ -44,6 +44,8 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     'beginFieldMembershipMutation',
     'endFieldMembershipMutation',
     'resolveFieldPropLeave',
+    'selectedFieldId',
+    'resolveFormPropLeave',
     'selectedForm',
     'buildFormFieldCreatePayload',
     'api',
@@ -59,7 +61,7 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     'props',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 22, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 24, 'runtime copy function should receive its full dependency context')
   const snapshotBuilder = new Function('newFd', functionBody('buildDefinitionSnapshotFromResponse'))
   const copyingFieldIds = { value: new Set() }
   const context = [
@@ -74,6 +76,8 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     () => {
       calls.membershipEnds += 1
     },
+    async () => true,
+    { value: null },
     async () => true,
     { value: { id: 8 } },
     (ff) => ({
