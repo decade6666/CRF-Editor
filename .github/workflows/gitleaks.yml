@@ -27,3 +27,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Only required for Organizations, not personal accounts.
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # action v3.0.0 defaults to gitleaks 8.24.3, which does not honor the
+          # modern [[allowlists]] array used by .gitleaks.toml (added in 8.25).
+          # Pin to the version used for local verification so CI matches.
+          GITLEAKS_VERSION: "8.30.1"
