@@ -33,3 +33,17 @@ export function normalizeHexColorInput(value) {
   }
   return /^[0-9A-F]{6}$/.test(normalized) ? normalized : null
 }
+
+/** Snapshot of form-level props editable in the designer side pane / edit dialog. */
+export function buildFormPropState(form) {
+  return {
+    name: form?.name || '',
+    code: form?.code || '',
+    paper_orientation: form?.paper_orientation || 'auto',
+  }
+}
+
+export function sameFormPropState(a, b) {
+  if (!a || !b) return false
+  return a.name === b.name && a.code === b.code && a.paper_orientation === b.paper_orientation
+}

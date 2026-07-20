@@ -36,7 +36,7 @@ test('search components route filtered lists through rankFuzzyMatches', () => {
   const expectations = [
     ['src/components/CodelistsTab.vue', /rankFuzzyMatches\(codelists\.value, searchCl\.value/, /rankFuzzyMatches\(selected\.value\?\.options \|\| \[\], searchOpt\.value/],
     ['src/components/FieldsTab.vue', /rankFuzzyMatches\(visibleDefinitions, searchField\.value/],
-    ['src/components/FormDesignerTab.vue', /rankFuzzyMatches\(orderedForms, searchForm\.value/, /rankFuzzyMatches\(fieldDefs\.value\.filter\(isVisibleInFieldLibrary\), fieldSearch\.value/],
+    ['src/components/FormDesignerTab.vue', /rankFuzzyMatches\(orderedForms\.value, searchForm\.value/, /rankFuzzyMatches\(fieldDefs\.value\.filter\(isVisibleInFieldLibrary\), fieldSearch\.value/],
     ['src/components/UnitsTab.vue', /rankFuzzyMatches\(orderedUnits, searchUnit\.value/],
     ['src/components/VisitsTab.vue', /rankFuzzyMatches\(visits\.value, searchVisit\.value/],
   ];

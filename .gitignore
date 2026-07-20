@@ -55,6 +55,7 @@ node_modules/
 .playwright-mcp/
 .obsidian/
 .claude/settings.local.json
+.claude/worktrees/
 .trellis/workspace/
 .ccg/
 
@@ -75,3 +76,12 @@ config.yaml
 backend/.venv-linux/
 backend/.venv-linux.py38-broken/
 image/
+
+# ==========================================
+# 本地测试账号（含明文口令，禁止提交）
+# ==========================================
+TEST_ACCOUNTS.local.md
+
+# gitleaks local report artifacts
+gitleaks-report*.json
+gitleaks-report*.sarif

@@ -136,7 +136,7 @@ test('FormDesignerTab drag handle is hidden only when filtered after R3 brief-mo
 });
 
 test('FormDesignerTab keeps form list sorted by order_index after reload', () => {
-  assert.match(formsSource, /const orderedForms = \[\.\.\.forms\.value\]\.sort\(/);
+  assert.match(formsSource, /const orderedForms = computed\(\(\) =>\s*\[\.\.\.forms\.value\]\.sort\(/);
   assert.match(formsSource, /const selectedFormId = selectedForm\.value\?\.id \?\? null/);
   const reloadBody = extractBlockAfter(formsSource, 'async function reloadForms(');
   assert.match(reloadBody, /const refreshedSelectedForm = forms\.value\.find\(\(f\) => f\.id === selectedFormId\) \|\| null;/);
@@ -293,7 +293,7 @@ test('FormDesignerTab designer dialog uses center-bottom preview and right-side 
   assert.match(formsSource, /ff\._displayOrder/);
   assert.match(
     formsSource,
-    /<el-dialog[\s\S]*v-model="showDesigner"[\s\S]*:before-close="handleDesignerBeforeClose"[\s\S]*:close-on-click-modal="false"[\s\S]*fullscreen[\s\S]*class="designer-dialog"[\s\S]*>[\s\S]*<template #header="\{ titleId, titleClass \}">[\s\S]*:id="titleId"[\s\S]*:class="\[titleClass, 'designer-dialog-title'\]"[\s\S]*设计：\{\{ selectedForm\?\.name \|\| '' \}\}[\s\S]*<\/template>/,
+    /<el-dialog[\s\S]*v-model="showDesigner"[\s\S]*:before-close="handleDesignerBeforeClose"[\s\S]*:close-on-click-modal="false"[\s\S]*fullscreen[\s\S]*class="designer-dialog"[\s\S]*>[\s\S]*<template #header="\{ titleId, titleClass \}">[\s\S]*:id="titleId"[\s\S]*:class="\[titleClass, 'designer-dialog-title'\]"[\s\S]*设计：[\s\S]*data-test=\"designer-form-switch\"[\s\S]*:model-value=\"selectedForm\?\.id(?: \?\? undefined)?\"[\s\S]*<\/template>/,
   );
   assert.match(formsSource, /\.designer-dialog-header \{[\s\S]*padding-right: 32px;[\s\S]*\}/);
   assert.match(formsSource, /class="designer-shell"/);

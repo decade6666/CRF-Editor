@@ -122,7 +122,7 @@ test('two inline-prompt switches share one localStorage-backed viewMode and only
   );
   assert.match(
     formDesignerSource,
-    /<template #header="\{ titleId, titleClass \}">[\s\S]*?<div class="designer-dialog-header-main">[\s\S]*?<span :id="titleId" :class="\[titleClass, 'designer-dialog-title'\]">设计：\{\{ selectedForm\?\.name \|\| '' \}\}<\/span>[\s\S]*?<el-switch[\s\S]*?v-if="editMode"[\s\S]*?v-model="viewMode"/,
+    /<template #header="\{ titleId, titleClass \}">[\s\S]*?<div class="designer-dialog-header-main">[\s\S]*?<span :id="titleId" :class="\[titleClass, 'designer-dialog-title'\]">[\s\S]*?设计：[\s\S]*?data-test=\"designer-form-switch\"[\s\S]*?:model-value=\"selectedForm\?\.id(?: \?\? undefined)?\"[\s\S]*?<\/span>[\s\S]*?<el-switch[\s\S]*?v-if="editMode"[\s\S]*?v-model="viewMode"/,
   );
   assert.doesNotMatch(formDesignerSource, /:title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)"/);
 });
@@ -378,7 +378,7 @@ test('canvas and dialog headers keep titles accessible and resilient after addin
   );
   assert.match(
     formDesignerSource,
-    /<template #header="\{ titleId, titleClass \}">[\s\S]*?<div class="designer-dialog-header-main">[\s\S]*?<span :id="titleId" :class="\[titleClass, 'designer-dialog-title'\]">设计：\{\{ selectedForm\?\.name \|\| '' \}\}<\/span>[\s\S]*?<el-switch[\s\S]*?v-model="viewMode"/,
+    /<template #header="\{ titleId, titleClass \}">[\s\S]*?<div class="designer-dialog-header-main">[\s\S]*?<span :id="titleId" :class="\[titleClass, 'designer-dialog-title'\]">[\s\S]*?设计：[\s\S]*?data-test=\"designer-form-switch\"[\s\S]*?:model-value=\"selectedForm\?\.id(?: \?\? undefined)?\"[\s\S]*?<\/span>[\s\S]*?<el-switch[\s\S]*?v-model="viewMode"/,
   );
   assert.match(formDesignerSource, /\.designer-dialog-header \{[\s\S]*padding-right: 32px;[\s\S]*\}/);
   assert.match(formDesignerSource, /\.designer-dialog-header-main \{[\s\S]*gap: 8px;[\s\S]*max-width: 100%;[\s\S]*\}/);

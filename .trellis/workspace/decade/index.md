@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 53
-- **Last Active**: 2026-07-15
+- **Total Sessions**: 54
+- **Last Active**: 2026-07-16
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~835 | Active |
+| `journal-0.md` | ~868 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 54 | 2026-07-16 | 修复全屏设计器下拉切换表单无效（el-table current-change 回环作废在途切换） | `a937e0b` | `draft` |
 | 53 | 2026-07-15 | 复选文本默认✔ | `6ab2ee5` | `draft` |
 | 52 | 2026-07-14 | 设计器历史 busy/session 残留竞态修复 | `ce01d31` | `draft` |
 | 51 | 2026-07-14 | CRF Editor 批量修复:列宽下限/OID字符集/aCRF预览A4几何(部分,FormDesignerTab因外部并行冲突延后) | `f5a7f65` | `draft` |

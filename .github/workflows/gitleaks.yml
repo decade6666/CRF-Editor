@@ -1,0 +1,29 @@
+name: gitleaks
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *" # run once a day at 4 AM UTC
+
+permissions:
+  contents: read
+  # gitleaks-action lists PR commits and posts a summary comment on findings.
+  pull-requests: write
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions pinned to immutable commit SHAs (supply-chain hardening).
+      # Version tags kept as comments for readability / upgrade tracking.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0 # full history required so gitleaks can scan past commits
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only required for Organizations, not personal accounts.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

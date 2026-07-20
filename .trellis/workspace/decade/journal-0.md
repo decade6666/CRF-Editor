@@ -833,3 +833,36 @@ Surgical port residual designer history coordination: formSelectionAttempt/sessi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 54: 修复全屏设计器下拉切换表单无效（el-table current-change 回环作废在途切换）
+
+**Date**: 2026-07-16
+**Task**: 修复全屏设计器下拉切换表单无效（el-table current-change 回环作废在途切换）
+**Branch**: `draft`
+
+### Summary
+
+浏览器实测复现并锁定根因：el-table @current-change 直接绑 selectForm，filteredForms 每次新数组导致 setCurrentRow 后以当前行回环 emit，命中 selectForm 同 id 分支 formSelectionAttempt++，作废在途的下拉切换（永不 commit）。新增 onFormsTableCurrentChange wrapper 过滤 null 与同 id 回显；下拉光标 caret 透明 + wrapper cursor pointer。前端 506 通过、lint 0 error。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a937e0b` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

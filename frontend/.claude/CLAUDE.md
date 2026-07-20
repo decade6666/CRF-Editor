@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-07-13
+> Last updated: 2026-07-15
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -32,7 +32,7 @@
 - `src/composables/` (24 JS modules): shared logic for API, aCRF annotation geometry/persistence, Word-import AI suggestion acceptance/reconciliation/payload building, drag ordering, ordinal quick edit, ranked fuzzy search, OID charset validation (`oidValidation.js`), field-library visibility, delete confirmations, field rendering, form designer property editing, preview view model, export download state, column width / row height dragging, session countdown, designer undo/redo history, visit preview orientation, pane splitting, lazy tab loading, performance baseline, and more.
 - `src/styles/`: global styles and theme variables.
 - `scripts/` (3 scripts): fixture generation (`generatePlannerFixtures.mjs`), build metric collection (`collectBuildMetrics.mjs`), browser performance baseline (`runBrowserPerfBaseline.mjs`).
-- `tests/` (50 files: 49 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
+- `tests/` (51 files: 50 `.test.js` + `testProperty.js`): frontend regression, contract tests, and property-testing helper utilities based on `node:test`.
 
 ## Key Components and Flows
 - `components/LoginView.vue`: username + password login form; shows migration hint in development and a generic authentication failure message in production.
@@ -41,7 +41,7 @@
 - `components/ProjectInfoTab.vue`: project information, metadata, and Logo operations.
 - `components/VisitsTab.vue`: visit structure, visit-form matrix, visit preview, left/right Element Plus ordering tables, visit / visit-form ordinal quick edit, and shared eCRF / aCRF preview annotations with vertical drag persistence.
 - `components/FieldsTab.vue`: field library maintenance; supports the codelist-free single checkbox type (`复选`) with optional checkbox text that falls back to the default character `✔`. The choice-field option row provides inline 新增字典 / 编辑字典 entries (standalone implementation, parity with the designer) that reuse the codelist `create` / `snapshot` / `references` endpoints with impact confirmation and `refreshKey` sync, and the main list supports ordinal quick edit.
-- `components/FormDesignerTab.vue`: form design, field instance editing/copying (with robust undo/redo replay), explicit property save/cancel with dirty leave guards and multi-form impact confirmation, real-time preview, complete-mode eCRF / aCRF preview switching with field OID / form-domain annotation overlays, shared vertical annotation dragging/persistence, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), ordinal quick edit for the left-side form list, and checkbox type/text editing.
+- `components/FormDesignerTab.vue`: form design, field instance editing/copying (with robust undo/redo replay), explicit property save/cancel with dirty leave guards and multi-form impact confirmation, full-screen designer form-switch dropdown plus inline form-property card (OID / name / paper orientation) with the same explicit save/dirty-leave pattern, real-time preview, complete-mode eCRF / aCRF preview switching with field OID / form-domain annotation overlays, shared vertical annotation dragging/persistence, column width dragging, quick edit, in-memory undo/redo (Undo/Redo buttons + Ctrl+Z / Ctrl+Y), ordinal quick edit for the left-side form list, and checkbox type/text editing.
 - `components/TemplatePreviewDialog.vue`: template import preview.
 - `components/DocxCompareDialog.vue`: Word import comparison preview and AI suggestion application; AI review suggestions expose per-suggestion / per-form accept controls (default off), and the right "import effect" panel renders `SimulatedCRFForm` in `view-mode="ai"` with only the accepted suggestion subset so accepted field types preview live.
 - `components/DocxScreenshotPanel.vue`: Word import screenshot display.
@@ -95,7 +95,7 @@
 - `adminViewStructure.test.js`: admin interface structure.
 - `appSettingsShell.test.js`, `appCollapse.test.js`, `sidebarCollapseBehavior.test.js`: application shell, settings, and collapse behavior.
 - `columnWidthPlanning.test.js`, `columnWidthPlanning.pbt.test.js`: column width planning contract and property tests.
-- `formDesignerPropertyEditor.runtime.test.js`, `quickEditBehavior.test.js`, `formFieldPresentation.test.js`: designer property editing, quick edit, and field display.
+- `formDesignerPropertyEditor.runtime.test.js`, `formDesignerFormPropertyEditor.test.js`, `quickEditBehavior.test.js`, `formFieldPresentation.test.js`: designer field/form property editing, form-switch dropdown wiring, blank-click deselect, quick edit, and field display.
 - `exportDownloadState.test.js`: export download state.
 - `portDefaults.test.js`: development port conventions.
 - `visitPreviewLandscape.test.js`: visit preview orientation.
@@ -137,6 +137,8 @@
 | Config | `package.json`, `vite.config.js` |
 
 ## Change Log
+- `2026-07-15` (task `07-15-designer-form-switch-inline-props`): Full-screen designer header title is now a controlled form-switch `el-select` (options from `filteredForms`, change routes through `selectForm`). The right property pane is dual-mode: no field selected shows editable form props (OID/name/paper orientation) with explicit save/cancel and dirty leave guards; field selection still shows field props; blank clicks on the field list deselect back to form props. Dialog `updateForm` and the inline card share `persistFormProps` (`PUT /api/forms/{id}`). Added pure helpers `buildFormPropState`/`sameFormPropState` and `formDesignerFormPropertyEditor.test.js`. Frontend suite 502 passed; lint 0 errors on FormDesignerTab.
+
 - `2026-07-14` (task `07-14-checkbox-default-check`): Checkbox (`复选`) empty-text fallback changed from the field label to the fixed default character `✔`. `useCRFRenderer.js` now exports `CHECKBOX_DEFAULT_TEXT = '✔'` and `resolveCheckboxText` resolves `checkbox_label || CHECKBOX_DEFAULT_TEXT` (reused by render + width planning). The "复选文本" input placeholder in `FieldsTab.vue` and `FormDesignerTab.vue` switched from the field label to a static `✔`. Regenerated `backend/tests/fixtures/planner_cases.json` via `generatePlannerFixtures.mjs` (fraction unchanged — single-field row min-width protection dominates). Updated `checkboxFieldType.test.js`; full frontend suite 490 passed, lint 0 errors.
 - `2026-07-14` (task `07-14-designer-history-busy-residual`): surgical port of residual busy/session races — `formSelectionAttempt` vs committed session, same-form `reloadForms` identity, membership↔reorder mutual exclusion, leave/draft-aware history (`resolveDesignerLeave` + `canLeaveTab`/`canLeaveProject`), reorder-safe property/quick/inline paths; preserved concurrent OID validation and `saveFieldProp` `refreshKey++`. Frontend full suite 490 passed; lint 0 errors; build OK.
 - `2026-07-14` (task `07-14-crf-editor-batch-fixes`): 批量修复四项。(1) 列宽最小限制放宽：`useColumnResize.js` `MIN_RATIO` 0.1→0.02、`MAX_RATIO` 0.9→`1 - MIN_RATIO`（仅放宽用户拖拽/缓存读回下限，内容驱动 planner 下限与 `planner_cases.json` fixture 不变）。(2) OID 字符集校验：新增 `composables/oidValidation.js`（`OID_PATTERN` `^[A-Za-z0-9._-]+$`、`OID_ERROR`、`isValidOptionalOid`/`isValidRequiredOid`），`FormDesignerTab.vue`（表单 OID、字段 `variable_name`、内联字典选项 code）、`FieldsTab.vue`、`CodelistsTab.vue` 提交前以 `ElMessage.warning(OID_ERROR)` 拦截；可选字段留空放行、必填 `variable_name` 非空；仅编辑时拦截、不迁移存量，与后端 `schemas/_common.py` 同源。(3) aCRF 预览几何对齐：新增全局 `.word-page--a4`（21cm×29.7cm，landscape 翻转），`VisitsTab.vue` 预览页改用 `word-page--a4` 与设计器预览统一 A4，消除宽度差异及由此导致的字段红框纵向漂移；`acrfAnnotationGeometry.js` 默认纵向偏移 `-120000`→`-26940` EMU（`= -(Cm(0.7)-Pt(15.6))/2`，使 0.7cm 注记盒纵向居中于单元格单行文本），与后端 `export_service.py` 同源同值，不迁移已自定义 `annotation_positions.y`。(4) 设计器字段库刷新：`FormDesignerTab.vue` `saveFieldProp` 改字段定义（非日志行）分支保存成功后 `refreshKey.value++`，左侧字段库自动重载。测试目录新增 `oidValidationWiring.test.js`（49 个 `.test.js` + `testProperty.js`），扩展 `formDesignerPropertyEditor.runtime.test.js` / `columnWidthPlanning.test.js` / `acrfAnnotationGeometry.test.js` / `wordPageGeometry.test.js`；全量前端 476 通过。
