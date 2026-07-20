@@ -81,3 +81,7 @@ image/
 # 本地测试账号（含明文口令，禁止提交）
 # ==========================================
 TEST_ACCOUNTS.local.md
+
+# gitleaks local report artifacts
+gitleaks-report*.json
+gitleaks-report*.sarif
