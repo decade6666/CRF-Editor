@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 54
-- **Last Active**: 2026-07-16
+- **Total Sessions**: 55
+- **Last Active**: 2026-07-20
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-0.md` | ~868 | Active |
+| `journal-0.md` | ~901 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 55 | 2026-07-20 | 添加 gitleaks 密钥扫描 | `476268d` | `draft` |
 | 54 | 2026-07-16 | 修复全屏设计器下拉切换表单无效（el-table current-change 回环作废在途切换） | `a937e0b` | `draft` |
 | 53 | 2026-07-15 | 复选文本默认✔ | `6ab2ee5` | `draft` |
 | 52 | 2026-07-14 | 设计器历史 busy/session 残留竞态修复 | `ce01d31` | `draft` |
