@@ -123,8 +123,10 @@ cd frontend && node --test tests/*.test.js
 
 ## Git Workflow
 - **draft → main must be merged via PR**; directly running `git push origin main` is forbidden.
-- Process: complete development on draft → create a PR (draft → main) → review/merge the PR → auto-sync to main.
+- Process: complete development on draft → create a PR (draft → main, ready for review) → **CI auto-merge after checks pass** → main updates. Do **not** manually run `gh pr merge` / force-merge unless the user explicitly authorizes an exception.
+- Workflow: `.github/workflows/auto-merge-draft-to-main.yml` (owner `decade6666`, head `draft`, base `main`, same-repo, non-draft PR → `gh pr merge --auto --merge`).
 - The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
+- Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log
 - `2026-07-15` (task `07-15-designer-form-switch-inline-props`): Full-screen form designer gains a form-switch dropdown in the header and an inline form-property editor (OID/name/paper orientation) on the right pane when no field is selected; blank field-list clicks return to form props. Field property explicit-save/dirty-leave pattern is mirrored for form props; backend unchanged. Frontend suite 502 passed.
