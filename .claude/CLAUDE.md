@@ -122,10 +122,10 @@ cd frontend && node --test tests/*.test.js
 **Rule**: Always read prefs/ before modifying code, and log decisions according to the rules in workflow.md when making decisions.
 
 ## Git Workflow
-- **draft → main must be merged via PR**; directly running `git push origin main` is forbidden.
-- Process: complete development on draft → create a PR (draft → main, ready for review) → **CI auto-merge after checks pass** → main updates. Do **not** manually run `gh pr merge` / force-merge unless the user explicitly authorizes an exception.
-- Workflow: `.github/workflows/auto-merge-draft-to-main.yml` (owner `decade6666`, head `draft`, base `main`, same-repo, non-draft PR → `gh pr merge --auto --merge`).
-- The `draft` branch can be pushed directly to remote; the `main` branch only accepts PR merges.
+- **Any branch → main must be merged via PR**; directly running `git push origin main` is forbidden.
+- Process: complete development on a task/feature branch → create a PR (`<branch>` → `main`, ready for review) → **CI auto-merge after checks pass** → main updates. Do **not** manually run `gh pr merge` / force-merge unless the user explicitly authorizes an exception.
+- Workflow: `.github/workflows/auto-merge-draft-to-main.yml` (owner `decade6666`, **any head branch**, base `main`, same-repo, non-draft PR → `gh pr merge --auto --merge`).
+- Feature/`draft` branches can be pushed directly to remote; the `main` branch only accepts PR merges.
 - Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log

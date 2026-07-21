@@ -24,7 +24,7 @@ These guides help you **ask the right questions before coding**.
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
 | [Cross-Stack Contracts](./cross-stack-contracts.md) | Backend-frontend shared contracts | Changing shared constants/fixtures |
-| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | PR auto-merge ownership + codeagent-wrapper path | Opening draft→main PRs; multi-CLI dispatch |
+| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | PR auto-merge ownership + codeagent-wrapper path | Opening any-branch→main PRs; multi-CLI dispatch |
 
 ---
 
@@ -66,9 +66,9 @@ These guides help you **ask the right questions before coding**.
 
 → Treat developer-local settings as ignored/local-only; commit only shared configuration or reproducible evidence outputs.
 
-### When to Finish a draft → main PR / Dispatch Multi-CLI
+### When to Finish an any-branch → main PR / Dispatch Multi-CLI
 
-- [ ] Opening or updating a PR from `draft` to `main`
+- [ ] Opening or updating a PR from any head branch to `main`
 - [ ] Tempted to run `gh pr merge` after creating the PR
 - [ ] Calling Codex / Antigravity / other backends via `codeagent-wrapper`
 

@@ -1,4 +1,4 @@
-name: Auto-merge draft to main
+name: Auto-merge to main
 
 on:
   pull_request:
@@ -14,11 +14,10 @@ permissions:
 
 jobs:
   enable-auto-merge:
-    name: Enable auto-merge for owner draft PRs
+    name: Enable auto-merge for owner PRs into main
     if: |
       github.event.pull_request.user.login == 'decade6666' &&
       github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.ref == 'draft' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
     runs-on: ubuntu-latest

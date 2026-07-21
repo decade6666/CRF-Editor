@@ -5,9 +5,9 @@
 
 ---
 
-## 1. draft → main PR Auto-Merge
+## 1. any branch → main PR Auto-Merge
 
-**What**: Owner-authored `draft` → `main` PRs are **auto-merged after required checks pass**. Agents and humans must **not** run manual `gh pr merge` (or equivalent) as part of the normal finish path.
+**What**: Owner-authored same-repo PRs targeting `main` (any head branch) are **auto-merged after required checks pass**. Agents and humans must **not** run manual `gh pr merge` (or equivalent) as part of the normal finish path.
 
 **Why**:
 - Workflow `.github/workflows/auto-merge-draft-to-main.yml` enables merge-commit auto-merge on qualifying PRs.
@@ -18,7 +18,7 @@
 | Field | Rule |
 |-------|------|
 | Base | `main` only |
-| Head | `draft` only |
+| Head | **any branch** (same-repo; forks excluded) |
 | Author | `decade6666` (repo owner) |
 | Same-repo PR | head repo must equal base repo (no fork PRs) |
 | Draft PR flag | must be **ready for review** (`draft == false`) |
@@ -27,7 +27,7 @@
 
 ### Agent checklist (finish path)
 
-- [ ] Push `draft` and open PR `draft` → `main` if missing
+- [ ] Push the task/feature branch and open PR `<branch>` → `main` if missing
 - [ ] Ensure PR is not marked draft (ready for review)
 - [ ] Confirm CI workflows are running / green (or still pending)
 - [ ] **Do not** run `gh pr merge` / click Merge / force-merge
@@ -38,27 +38,26 @@
 #### Wrong
 ```bash
 # Agent tries to finish by merging immediately
-gh pr create --base main --head draft ...
+gh pr create --base main --head chore/foo ...
 gh pr merge 49 --merge   # ❌ CI-owned; may be denied or race checks
 ```
 
 #### Correct
 ```bash
-gh pr create --base main --head draft ...
+gh pr create --base main --head chore/foo ...
 # Optional: gh pr view <N> --json state,mergeStateStatus,autoMergeRequest
 # Then stop. Auto-merge runs after required checks pass.
 ```
 
 ### Source of truth
 
-- Workflow: `.github/workflows/auto-merge-draft-to-main.yml`
+- Workflow: `.github/workflows/auto-merge-draft-to-main.yml` (filename kept for history; scope is any head → `main`)
 - Trigger types: `opened` / `reopened` / `synchronize` / `ready_for_review`
 - Action: `gh pr merge "$PR_URL" --auto --merge`
 
 ### Exceptions (only with explicit user instruction)
 
 - Emergency hot-fix when CI is broken and the user **explicitly** authorizes a manual merge
-- Non-`draft` head branches (feature branches) are **out of scope** of this auto-merge workflow — ask before any merge
 
 ---
 
