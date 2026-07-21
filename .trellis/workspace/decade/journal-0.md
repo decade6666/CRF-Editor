@@ -866,3 +866,36 @@ Surgical port residual designer history coordination: formSelectionAttempt/sessi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 55: 添加 gitleaks 密钥扫描
+
+**Date**: 2026-07-20
+**Task**: 添加 gitleaks 密钥扫描
+**Branch**: `draft`
+
+### Summary
+
+为 CRF-Editor 引入 gitleaks CI 扫描与 .gitleaks.toml。对齐 ClaudeCode.md 参考 workflow；经 Codex+Antigravity 交叉审查后加固：action pin 到不可变 SHA(checkout@v5.0.1 / gitleaks-action@v3.0.0)、迁移 [[allowlists]]、删除整目录白名单、占位符锚定为 ^...$；全历史扫描 0 泄露，假密钥正例可检出。工作提交 476268d。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `476268d` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
