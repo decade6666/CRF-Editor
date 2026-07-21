@@ -106,6 +106,10 @@ calling it yourself.
 `bin/codeagent-wrapper.mjs` next to the `trellis` executable. Do not search
 `~/.claude/bin`, `~/.local/bin`, or `/tmp/trellis-wrapper-*` stubs.
 
+**This host (CRF-Editor):** resolve to `/usr/bin/codeagent-wrapper`
+(symlink → `/usr/lib/node_modules/@decade666/trellis/bin/codeagent-wrapper.mjs`).
+Project note: `.trellis/spec/guides/git-and-tooling-conventions.md`.
+
 Override with `TRELLIS_CODEAGENT_WRAPPER=/abs/path/codeagent-wrapper.mjs` when you
 must point at a different build.
 
