@@ -1,7 +1,9 @@
 # ==========================================
 # 项目本地配置（含敏感路径，禁止提交）
 # ==========================================
-/config.yaml
+config.yaml
+!.trellis/config.yaml
+TEST_ACCOUNTS.local.md
 
 # ==========================================
 # Python 运行时缓存
@@ -16,13 +18,15 @@ __pycache__/
 # ==========================================
 # 数据库与上传文件
 # ==========================================
-/crf_editor.db
+*.db
 database/
 data/
-backend/crf_editor.db
-*.db
 uploads/
-docs/
+
+# ==========================================
+# 根级截图目录（仅忽略仓库根 /docs/）
+# ==========================================
+/docs/
 
 # ==========================================
 # 构建产物与发布包
@@ -65,22 +69,15 @@ node_modules/
 console_errors.txt
 nul
 docx-compare-*.png
-
-# ==========================================
-# 静态资源（大文件）
-# ==========================================
-assets/logos/*.jpg
-config.yaml
-!.trellis/config.yaml
 /.pytest-tmp/
 backend/.venv-linux/
 backend/.venv-linux.py38-broken/
-image/
 
 # ==========================================
-# 本地测试账号（含明文口令，禁止提交）
+# 静态资源（大文件）与本地样例
 # ==========================================
-TEST_ACCOUNTS.local.md
+assets/logos/*.jpg
+image/
 
 # gitleaks local report artifacts
 gitleaks-report*.json
