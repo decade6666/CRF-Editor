@@ -113,16 +113,28 @@ export function buildAiOverridesPayload({ forms, accepted, selectedFormIndices }
     const overrides = [];
 
     for (const suggestion of getAcceptedSuggestionsForForm(form, accepted)) {
-      if (!VALID_FIELD_TYPE_SET.has(suggestion.suggested_type)) continue;
+      const hasSuggestedFields =
+        Array.isArray(suggestion.suggested_fields) && suggestion.suggested_fields.length > 0;
+
+      // 一对多替换允许首项为「复选」（不在 VALID_FIELD_TYPES 内）
+      if (!hasSuggestedFields && !VALID_FIELD_TYPE_SET.has(suggestion.suggested_type)) continue;
 
       const field = fieldsByIndex.get(suggestion.index);
       if (!field) continue;
-      if (field.field_type === suggestion.suggested_type) continue;
+      if (!hasSuggestedFields && field.field_type === suggestion.suggested_type) continue;
 
-      overrides.push({
+      const entry = {
         index: suggestion.index,
         field_type: suggestion.suggested_type,
-      });
+      };
+      if (hasSuggestedFields) {
+        entry.suggested_fields = suggestion.suggested_fields.map((sf) => ({
+          label: sf.label,
+          field_type: sf.field_type,
+          ...(sf.inline_mark ? { inline_mark: true } : {}),
+        }));
+      }
+      overrides.push(entry);
     }
 
     if (overrides.length) {
@@ -134,4 +146,36 @@ export function buildAiOverridesPayload({ forms, accepted, selectedFormIndices }
   }
 
   return payload;
+}
+
+/** 将一对多 AI 建议展开到预览字段列表（仅用于 SimulatedCRFForm ai 模式）。 */
+export function expandFieldsWithAcceptedSuggestions(fields, acceptedSuggestions) {
+  const byIndex = new Map();
+  for (const sug of acceptedSuggestions || []) {
+    byIndex.set(sug.index, sug);
+  }
+  const out = [];
+  for (const field of fields || []) {
+    const sug = byIndex.get(field.index);
+    if (!sug) {
+      out.push({ ...field, _aiModified: false });
+      continue;
+    }
+    if (Array.isArray(sug.suggested_fields) && sug.suggested_fields.length) {
+      sug.suggested_fields.forEach((sf, i) => {
+        out.push({
+          ...field,
+          index: `${field.index}:${i}`,
+          label: sf.label,
+          field_type: sf.field_type,
+          options: undefined,
+          inline_mark: sf.inline_mark ? 1 : field.inline_mark,
+          _aiModified: true,
+        });
+      });
+    } else {
+      out.push({ ...field, field_type: sug.suggested_type, _aiModified: true });
+    }
+  }
+  return out;
 }

@@ -25,6 +25,9 @@ class Project(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
+    db_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="其他", default="其他"
+    )
     order_index: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

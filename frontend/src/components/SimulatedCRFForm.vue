@@ -73,6 +73,7 @@ import {
   buildFormDesignerRenderGroups,
 } from '../composables/formFieldPresentation'
 import { resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape'
+import { expandFieldsWithAcceptedSuggestions } from '../composables/docxAiSuggestionOverrides'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
 
@@ -132,13 +133,9 @@ const displayFields = computed(() => {
   if (!props.fields?.length) return []
 
   if (props.viewMode === 'ai') {
-    return props.fields.map(f => {
-      const sug = aiSugMap.value[f.index]
-      const nextField = sug
-        ? { ...f, field_type: sug.suggested_type, _aiModified: true }
-        : { ...f, _aiModified: false }
-      return applyPreviewDefaultValue(nextField)
-    })
+    return expandFieldsWithAcceptedSuggestions(props.fields, props.aiSuggestions).map((f) =>
+      applyPreviewDefaultValue(f),
+    )
   }
 
   // direct 模式：原始字段

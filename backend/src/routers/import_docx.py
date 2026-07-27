@@ -28,6 +28,11 @@ from src.models.user import User
 from src.services.docx_import_service import DocxImportService
 from src.perf import perf_span, record_counter, record_payload_size
 
+from src.services.field_type_policy import (
+    MULTISELECT_REJECT_MSG,
+    allows_multiselect,
+    is_multiselect_field_type,
+)
 from src.services.ai_review_service import (
     VALID_FIELD_TYPES,
     cleanup_old_ai_tasks,
@@ -86,6 +91,18 @@ class DocxFieldPreview(BaseModel):
 
 
 
+class DocxAISuggestionField(BaseModel):
+
+    label: str
+
+    field_type: str
+
+    inline_mark: Optional[bool] = None
+
+
+
+
+
 class DocxAISuggestion(BaseModel):
 
     index: int
@@ -93,6 +110,8 @@ class DocxAISuggestion(BaseModel):
     suggested_type: str
 
     reason: str
+
+    suggested_fields: Optional[List[DocxAISuggestionField]] = None
 
 
 
@@ -147,7 +166,9 @@ class DocxAIFieldOverride(BaseModel):
 
     index: int           # 字段在 fields 数组中的索引
 
-    field_type: str      # AI建议的字段类型
+    field_type: str      # AI建议的字段类型（一对多时取首项类型）
+
+    suggested_fields: Optional[List[DocxAISuggestionField]] = None
 
 
 
@@ -252,6 +273,7 @@ def _serialize_ai_suggestions(
                 index=item["index"],
                 suggested_type=item["suggested_type"],
                 reason=item.get("reason", ""),
+                suggested_fields=item.get("suggested_fields"),
             )
             for item in items
         ]
@@ -309,7 +331,7 @@ async def preview_docx_import(
         limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
 
     with perf_span("auth_owner"):
-        verify_project_owner(project_id, current_user, session)
+        project = verify_project_owner(project_id, current_user, session)
 
 
 
@@ -348,7 +370,8 @@ async def preview_docx_import(
 
     try:
 
-        full_forms = DocxImportService.parse_full(file_path)
+        allow_multi = allows_multiselect(getattr(project, "db_type", None))
+        full_forms = DocxImportService.parse_full(file_path, allow_multiselect=allow_multi)
 
     except Exception:
 
@@ -379,7 +402,7 @@ async def preview_docx_import(
     filtered_forms_data = _build_filtered_forms_data(full_forms)
     ai_task_id = None
     try:
-        ai_task = await start_ai_review(temp_id, full_forms)
+        ai_task = await start_ai_review(temp_id, full_forms, allow_multiselect=allow_multi)
         ai_task_id = temp_id if ai_task else None
     except Exception:
         logger.warning("AI复核后台任务启动失败 temp_id=%s", temp_id, exc_info=True)
@@ -467,7 +490,7 @@ def execute_docx_import(
         limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
 
     with perf_span("auth_owner"):
-        verify_project_owner(project_id, current_user, session)
+        project = verify_project_owner(project_id, current_user, session)
 
 
 
@@ -511,6 +534,29 @@ def execute_docx_import(
                         f"不支持的字段类型: {o.field_type}"
 
                     )
+
+                if is_multiselect_field_type(o.field_type) and not allows_multiselect(getattr(project, "db_type", None)):
+
+                    raise HTTPException(400, MULTISELECT_REJECT_MSG)
+
+                if getattr(o, "suggested_fields", None):
+
+                    for sf in o.suggested_fields:
+
+                        ft = sf.field_type if hasattr(sf, "field_type") else sf.get("field_type")
+
+                        if is_multiselect_field_type(ft):
+
+                            raise HTTPException(400, MULTISELECT_REJECT_MSG)
+
+                        if ft == "复选":
+
+                            continue
+
+                        if ft not in VALID_FIELD_TYPES:
+
+                            raise HTTPException(400, f"不支持的字段类型: {ft}")
+
 
 
 
@@ -617,7 +663,7 @@ async def start_docx_screenshot(
 
     """触发异步截图任务：将 docx 转为逐页 PNG"""
 
-    verify_project_owner(project_id, current_user, session)
+    project = verify_project_owner(project_id, current_user, session)
 
 
 
@@ -667,7 +713,8 @@ async def start_docx_screenshot(
 
             try:
 
-                full_forms = DocxImportService.parse_full(file_path)
+                allow_multi = allows_multiselect(getattr(project, "db_type", None))
+                full_forms = DocxImportService.parse_full(file_path, allow_multiselect=allow_multi)
 
                 forms_data = []
 

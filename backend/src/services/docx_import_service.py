@@ -41,6 +41,8 @@ from src.models.unit import Unit
 from src.perf import perf_span, record_counter
 from src.utils import generate_code
 from src.services.order_service import OrderService
+from src.services.field_type_policy import allows_multiselect, is_multiselect_field_type
+from src.models.project import Project
 
 
 logger = logging.getLogger(__name__)
@@ -1081,6 +1083,156 @@ def _classify_column(header: str) -> str:
 
 
 
+def _option_decodes(field: dict) -> List[str]:
+
+    """从解析字段的 options 中提取 decode 文本，过滤空值。"""
+
+    options = field.get("options") or []
+
+    decodes: List[str] = []
+
+    for opt in options:
+
+        if isinstance(opt, dict):
+
+            decode = (opt.get("decode") or "").strip()
+
+        else:
+
+            decode = str(opt or "").strip()
+
+        if decode:
+
+            decodes.append(decode)
+
+    return decodes
+
+
+
+
+
+def _truncate_label(label: str, max_len: int = 255) -> str:
+
+    if len(label) <= max_len:
+
+        return label
+
+    if max_len <= 3:
+
+        return label[:max_len]
+
+    return label[: max_len - 3] + "..."
+
+
+
+
+
+def _split_multiselect_field(field: dict) -> List[dict]:
+
+    """将单个多选字段拆为 标签+复选 或 内联复选 序列。
+
+
+
+    非多选字段原样返回。确定性纯函数，preview/execute 共用。
+
+    """
+
+    if not isinstance(field, dict):
+
+        return [field]
+
+    if field.get("type") == "log_row":
+
+        return [field]
+
+    field_type = field.get("field_type")
+
+    if not is_multiselect_field_type(field_type):
+
+        return [field]
+
+
+
+    decodes = _option_decodes(field)
+
+    stem = (field.get("label") or "").strip() or "未命名"
+
+    is_inline = bool(field.get("inline_mark"))
+
+
+
+    if not decodes:
+
+        if is_inline:
+
+            return [{
+
+                "label": _truncate_label(stem),
+
+                "field_type": "文本",
+
+                "inline_mark": True,
+
+            }]
+
+        return [{"label": _truncate_label(stem), "field_type": "标签"}]
+
+
+
+    if is_inline:
+
+        result: List[dict] = []
+
+        for decode in decodes:
+
+            result.append({
+
+                "label": _truncate_label(f"{stem}-{decode}"),
+
+                "field_type": "复选",
+
+                "inline_mark": True,
+
+            })
+
+        return result
+
+
+
+    result = [{"label": _truncate_label(stem), "field_type": "标签"}]
+
+    for decode in decodes:
+
+        result.append({
+
+            "label": _truncate_label(decode),
+
+            "field_type": "复选",
+
+        })
+
+    return result
+
+
+
+
+
+def _split_multiselect_fields(fields: List[dict]) -> List[dict]:
+
+    """对字段列表应用多选拆分，保序。"""
+
+    out: List[dict] = []
+
+    for field in fields or []:
+
+        out.extend(_split_multiselect_field(field))
+
+    return out
+
+
+
+
+
 def _cleanup_field_config(field_info: dict, new_type: str) -> None:
 
     """覆盖字段类型后，清理不一致的配置属性
@@ -1280,11 +1432,23 @@ class DocxImportService:
 
 
     @staticmethod
-    def parse_full(file_path: str) -> List[dict]:
-        """解析Word文档，返回完整的表单+字段结构"""
+    def parse_full(file_path: str, *, allow_multiselect: bool = True) -> List[dict]:
+        """解析Word文档，返回完整的表单+字段结构。
+
+        allow_multiselect=False 时，将「多选」/「多选（纵向）」拆为标签+复选（或内联复选）。
+        """
         with perf_span("docx_parse"):
             doc = Document(file_path)
-            return DocxImportService._extract_forms(doc)
+            forms = DocxImportService._extract_forms(doc)
+            if allow_multiselect:
+                return forms
+            return [
+                {
+                    **form,
+                    "fields": _split_multiselect_fields(form.get("fields") or []),
+                }
+                for form in forms
+            ]
 
 
     # ── 核心解析：按顺序遍历文档元素，匹配标题与表格 ──
@@ -1429,7 +1593,9 @@ class DocxImportService:
 
         """
 
-        all_forms = self.parse_full(file_path)
+        project = self.session.get(Project, target_project_id)
+        allow_multi = allows_multiselect(project.db_type if project else None)
+        all_forms = self.parse_full(file_path, allow_multiselect=allow_multi)
         # 过滤非法索引：去重 + 排除负数 + 排除越界
         valid_indices = list(dict.fromkeys(
             i for i in form_indices if 0 <= i < len(all_forms)
@@ -1444,9 +1610,9 @@ class DocxImportService:
             return {"imported_form_count": 0, "detail": []}
 
 
-        # 构建 AI 覆盖映射：{form_index: {field_index: field_type}}
+        # 构建 AI 覆盖映射：{form_index: {field_index: field_type | list[dict]}}
 
-        override_map: Dict[int, Dict[int, str]] = {}
+        override_map: Dict[int, Dict[int, Any]] = {}
 
         if ai_overrides:
 
@@ -1456,15 +1622,43 @@ class DocxImportService:
 
                 overrides = fo.overrides if hasattr(fo, "overrides") else fo.get("overrides", [])
 
-                field_map = {}
+                field_map: Dict[int, Any] = {}
 
                 for o in overrides:
 
                     idx = o.index if hasattr(o, "index") else o.get("index")
 
-                    ft = o.field_type if hasattr(o, "field_type") else o.get("field_type")
+                    suggested_fields = (
+                        o.suggested_fields if hasattr(o, "suggested_fields") else o.get("suggested_fields")
+                    )
 
-                    field_map[idx] = ft
+                    if suggested_fields:
+
+                        seq = []
+
+                        for sf in suggested_fields:
+
+                            if hasattr(sf, "model_dump"):
+
+                                entry = sf.model_dump(exclude_none=True)
+
+                            elif isinstance(sf, dict):
+
+                                entry = {k: v for k, v in sf.items() if v is not None}
+
+                            else:
+
+                                continue
+
+                            seq.append(entry)
+
+                        field_map[idx] = seq
+
+                    else:
+
+                        ft = o.field_type if hasattr(o, "field_type") else o.get("field_type")
+
+                        field_map[idx] = ft
 
                 override_map[fi] = field_map
 
@@ -1538,7 +1732,7 @@ class DocxImportService:
 
         existing_vars: set,
 
-        field_overrides: Optional[Dict[int, str]] = None,
+        field_overrides: Optional[Dict[int, Any]] = None,
 
     ) -> dict:
 
@@ -1589,11 +1783,86 @@ class DocxImportService:
         field_count = 0
 
         order_index = 0
+
+
+
+        # 先按 real_index 应用 AI 覆盖（含一对多），再统一建库，避免边遍历边插入打乱索引
+
+        expanded_fields: List[dict] = []
+
         real_index = 0
 
-
-
         for field_info in form_data["fields"]:
+
+            if field_info.get("type") == "log_row":
+
+                expanded_fields.append(field_info)
+
+                continue
+
+            current_real_index = real_index
+
+            real_index += 1
+
+            override = field_overrides.get(current_real_index) if field_overrides else None
+
+            if override is None:
+
+                expanded_fields.append(field_info)
+
+                continue
+
+            if isinstance(override, list):
+
+                logger.info(
+
+                    "AI一对多覆盖: 表单=%s 字段#%d '%s' -> %d 个字段",
+
+                    form_name,
+
+                    current_real_index,
+
+                    field_info.get("field_type"),
+
+                    len(override),
+
+                )
+
+                for entry in override:
+
+                    item = dict(entry)
+
+                    # 内联标记：若原字段为内联且替换项未显式指定，则继承
+
+                    if field_info.get("inline_mark") and "inline_mark" not in item:
+
+                        item["inline_mark"] = True
+
+                    _cleanup_field_config(item, item.get("field_type") or "文本")
+
+                    expanded_fields.append(item)
+
+            else:
+
+                logger.info(
+
+                    "AI覆盖: 表单=%s 字段#%d '%s' -> %s",
+
+                    form_name, current_real_index, field_info.get("field_type"), override,
+
+                )
+
+                item = dict(field_info)
+
+                item["field_type"] = override
+
+                _cleanup_field_config(item, override)
+
+                expanded_fields.append(item)
+
+
+
+        for field_info in expanded_fields:
 
             order_index += 1
 
@@ -1616,31 +1885,6 @@ class DocxImportService:
                 ))
 
                 continue
-
-            current_real_index = real_index
-            real_index += 1
-
-
-
-            # 应用 AI 建议覆盖：替换字段类型并清理不一致的配置
-
-            if field_overrides and current_real_index in field_overrides:
-
-                override_type = field_overrides[current_real_index]
-
-                logger.info(
-
-                    "AI覆盖: 表单=%s 字段#%d '%s' -> %s",
-
-                    form_name, current_real_index, field_info.get("field_type"), override_type,
-
-                )
-
-                field_info = dict(field_info)  # 浅拷贝，避免污染原数据
-
-                field_info["field_type"] = override_type
-
-                _cleanup_field_config(field_info, override_type)
 
 
 

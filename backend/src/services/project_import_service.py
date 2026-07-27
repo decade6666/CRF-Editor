@@ -27,7 +27,7 @@ _REQUIRED_TABLES = frozenset({
 
 _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
     "project": frozenset({
-        "id", "name", "version", "order_index", "created_at", "deleted_at",
+        "id", "name", "version", "db_type", "order_index", "created_at", "deleted_at",
         "trial_name", "crf_version", "crf_version_date", "protocol_number", "screening_number_format", "sponsor",
         "company_logo_path", "data_management_unit", "owner_id",
     }),
@@ -64,6 +64,11 @@ def _patch_legacy_project_schema(file_path: str) -> None:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
             if 'screening_number_format' not in cols:
                 conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
+            if 'db_type' not in cols:
+                conn.execute(
+                    "ALTER TABLE project ADD COLUMN db_type VARCHAR(20) "
+                    "NOT NULL DEFAULT '其他'"
+                )
         if 'form' in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
             if 'annotation_positions' not in cols:
@@ -100,6 +105,7 @@ def _build_import_project_snapshot(project: Project) -> Project:
     return Project(
         name=project.name,
         version=project.version,
+        db_type=getattr(project, "db_type", None) or "其他",
         trial_name=project.trial_name,
         crf_version=project.crf_version,
         crf_version_date=project.crf_version_date,
@@ -149,6 +155,7 @@ def _validate_schema(ext_session: Session) -> None:
         effective_required_columns = set(required_columns)
         if table_name == "project":
             effective_required_columns.discard("screening_number_format")
+            effective_required_columns.discard("db_type")
         missing_columns = effective_required_columns - existing_columns
         if missing_columns:
             incompatible.append(

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   VALID_FIELD_TYPES,
   buildAiOverridesPayload,
+  expandFieldsWithAcceptedSuggestions,
   isAllAccepted,
   isAllIndeterminate,
   isFormFullyAccepted,
@@ -176,3 +177,29 @@ test('buildAiOverridesPayload returns an empty list when nothing valid is accept
     [],
   );
 });
+
+
+test('expandFieldsWithAcceptedSuggestions expands one-to-many suggestions for preview', () => {
+  const fields = [
+    { index: 0, label: 'A', field_type: '文本' },
+    { index: 1, label: '症状', field_type: '文本' },
+  ]
+  const expanded = expandFieldsWithAcceptedSuggestions(fields, [
+    {
+      index: 1,
+      suggested_type: '标签',
+      suggested_fields: [
+        { label: '症状', field_type: '标签' },
+        { label: '头痛', field_type: '复选' },
+      ],
+    },
+  ])
+  assert.equal(expanded.length, 3)
+  assert.equal(expanded[0].field_type, '文本')
+  assert.equal(expanded[0]._aiModified, false)
+  assert.equal(expanded[1].field_type, '标签')
+  assert.equal(expanded[1].label, '症状')
+  assert.equal(expanded[1]._aiModified, true)
+  assert.equal(expanded[2].field_type, '复选')
+  assert.equal(expanded[2].label, '头痛')
+})

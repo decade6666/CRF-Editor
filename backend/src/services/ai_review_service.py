@@ -36,6 +36,30 @@ VALID_FIELD_TYPES = [
     "单选（纵向）", "多选（纵向）", "标签",
 ]
 
+VALID_FIELD_TYPES_NO_MULTISELECT = [
+    t for t in VALID_FIELD_TYPES if t not in ("多选", "多选（纵向）")
+]
+
+SYSTEM_PROMPT_NO_MULTISELECT_SUFFIX = """
+【本次复核附加约束】
+当前项目数据库类型为「其他」，不支持「多选」与「多选（纵向）」。
+1. 禁止输出 suggested_type 为「多选」或「多选（纵向）」；若判定为多选语义，请输出「单选」或使用 suggested_fields 一对多替换。
+2. 已被解析器拆分为「标签」+ 若干「复选」的字段组属于正确结果，一律输出 ok=true，不得合并回选择型。
+3. 「复选」不是可建议类型；不要对任何字段输出 suggested_type=「复选」。
+4. 若确需一对多替换，可额外输出 suggested_fields（数组，每项含 label 与 field_type），表示用该序列替换 index 处字段；此时 suggested_type 填序列首项 field_type。
+"""
+
+
+def _resolve_system_prompt(allow_multiselect: bool = True) -> str:
+    if allow_multiselect:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT + SYSTEM_PROMPT_NO_MULTISELECT_SUFFIX
+
+
+def _resolve_allowed_types(allow_multiselect: bool = True):
+    return VALID_FIELD_TYPES if allow_multiselect else VALID_FIELD_TYPES_NO_MULTISELECT
+
+
 SYSTEM_PROMPT = """你是 eCRF（电子病例报告表）字段类型复核专家。
 用户会提供从 Word 文档解析出的字段列表，每个字段包含：标签、规则引擎识别的类型，以及可能的 options / integer_digits / decimal_digits / date_format 信息。
 你的任务：逐一判断字段类型是否正确；若有误，给出更正类型与简要原因。
@@ -201,6 +225,7 @@ async def _call_llm_openai(
     user_prompt: str,
     timeout: int = 30,
     client: Optional[httpx.AsyncClient] = None,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> Optional[str]:
     """调用OpenAI兼容的LLM API，返回文本响应"""
     url = api_url.rstrip("/") + "/chat/completions"
@@ -211,7 +236,7 @@ async def _call_llm_openai(
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.1,
@@ -248,6 +273,7 @@ async def _call_llm_anthropic(
     user_prompt: str,
     timeout: int = 30,
     client: Optional[httpx.AsyncClient] = None,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> Optional[str]:
     """调用Anthropic Messages API，返回文本响应"""
     url = api_url.rstrip("/") + "/messages"
@@ -259,7 +285,7 @@ async def _call_llm_anthropic(
     payload = {
         "model": model,
         "max_tokens": 4096,
-        "system": SYSTEM_PROMPT,
+        "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
         "temperature": 0.1,
     }
@@ -296,11 +322,16 @@ async def _call_llm(
     timeout: int = 30,
     api_format: str = "openai",
     client: Optional[httpx.AsyncClient] = None,
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> Optional[str]:
     """统一调度：根据 api_format 路由到对应的 LLM 调用函数"""
     if api_format == "anthropic":
-        return await _call_llm_anthropic(api_url, api_key, model, user_prompt, timeout, client=client)
-    return await _call_llm_openai(api_url, api_key, model, user_prompt, timeout, client=client)
+        return await _call_llm_anthropic(
+            api_url, api_key, model, user_prompt, timeout, client=client, system_prompt=system_prompt
+        )
+    return await _call_llm_openai(
+        api_url, api_key, model, user_prompt, timeout, client=client, system_prompt=system_prompt
+    )
 
 
 def _get_ai_review_config():
@@ -324,14 +355,63 @@ def _is_valid_field_index(index: object, fields: List[dict]) -> bool:
     return isinstance(index, int) and 0 <= index < len(fields)
 
 
-def _extract_valid_diffs(fields: List[dict], parsed: List[dict]) -> List[dict]:
-    return [
-        item for item in parsed
-        if not item.get("ok", True)
-        and item.get("suggested_type") in VALID_FIELD_TYPES
-        and _is_valid_field_index(item.get("index"), fields)
-        and item.get("suggested_type") != fields[item["index"]].get("field_type")
-    ]
+def _normalize_suggested_fields(raw) -> Optional[List[dict]]:
+    """校验并规范化一对多 suggested_fields；非法则返回 None。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        return None
+    normalized: List[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        label = item.get("label")
+        field_type = item.get("field_type")
+        if not isinstance(label, str) or not label.strip():
+            return None
+        if field_type not in ("标签", "复选", "文本", "数值", "日期", "时间", "单选", "单选（纵向）"):
+            # 一对多替换允许 复选；禁止多选
+            return None
+        if field_type in ("多选", "多选（纵向）"):
+            return None
+        entry = {"label": label.strip(), "field_type": field_type}
+        if item.get("inline_mark"):
+            entry["inline_mark"] = True
+        normalized.append(entry)
+    return normalized or None
+
+
+def _extract_valid_diffs(
+    fields: List[dict],
+    parsed: List[dict],
+    allowed_types: Optional[List[str]] = None,
+) -> List[dict]:
+    allowed = allowed_types if allowed_types is not None else VALID_FIELD_TYPES
+    results: List[dict] = []
+    for item in parsed:
+        if item.get("ok", True):
+            continue
+        if not _is_valid_field_index(item.get("index"), fields):
+            continue
+        suggested = item.get("suggested_type")
+        if suggested not in allowed:
+            continue
+        if suggested == fields[item["index"]].get("field_type") and not item.get("suggested_fields"):
+            continue
+        out = {
+            "index": item["index"],
+            "suggested_type": suggested,
+            "reason": item.get("reason") or "",
+        }
+        suggested_fields = _normalize_suggested_fields(item.get("suggested_fields"))
+        if suggested_fields is not None:
+            out["suggested_fields"] = suggested_fields
+            # 首项类型与 suggested_type 对齐，便于一对一 UI 回退展示
+            out["suggested_type"] = suggested_fields[0]["field_type"]
+            if out["suggested_type"] not in allowed and out["suggested_type"] != "复选":
+                continue
+        results.append(out)
+    return results
 
 
 async def _review_form_in_background(
@@ -341,6 +421,7 @@ async def _review_form_in_background(
     api_format: str,
     sem: asyncio.Semaphore,
     client: httpx.AsyncClient,
+    allow_multiselect: bool = True,
 ) -> Tuple[int, List[dict]]:
     fields = form.get("fields", [])
     real_fields = _get_real_fields(fields)
@@ -348,6 +429,8 @@ async def _review_form_in_background(
         return form_index, []
     try:
         prompt = _build_user_prompt(form["name"], real_fields)
+        system_prompt = _resolve_system_prompt(allow_multiselect)
+        allowed_types = _resolve_allowed_types(allow_multiselect)
         async with sem:
             text = await _call_llm(
                 cfg.api_url,
@@ -357,10 +440,13 @@ async def _review_form_in_background(
                 cfg.timeout,
                 api_format=api_format,
                 client=client,
+                system_prompt=system_prompt,
             )
         if not text:
             return form_index, []
-        return form_index, _extract_valid_diffs(real_fields, _parse_ai_response(text))
+        return form_index, _extract_valid_diffs(
+            real_fields, _parse_ai_response(text), allowed_types=allowed_types
+        )
     except Exception as exc:
         logger.warning(
             "AI复核表单失败 form_index=%d form_name=%s error=%s",
@@ -372,7 +458,12 @@ async def _review_form_in_background(
         return form_index, []
 
 
-async def _run_ai_review_task(temp_id: str, task: AIReviewTask, forms: List[dict]) -> None:
+async def _run_ai_review_task(
+    temp_id: str,
+    task: AIReviewTask,
+    forms: List[dict],
+    allow_multiselect: bool = True,
+) -> None:
     cfg = _get_ai_review_config()
     task.status = "running"
     if task.total == 0:
@@ -384,7 +475,9 @@ async def _run_ai_review_task(temp_id: str, task: AIReviewTask, forms: List[dict
         async with httpx.AsyncClient(timeout=cfg.timeout, follow_redirects=True) as client:
             review_tasks = [
                 asyncio.create_task(
-                    _review_form_in_background(form_index, form, cfg, api_format, sem, client)
+                    _review_form_in_background(
+                        form_index, form, cfg, api_format, sem, client, allow_multiselect
+                    )
                 )
                 for form_index, form in enumerate(forms)
             ]
@@ -421,7 +514,12 @@ def cleanup_old_ai_tasks(max_age: int = 3600) -> int:
     return len(expired_ids)
 
 
-async def start_ai_review(temp_id: str, forms: List[dict]) -> Optional[AIReviewTask]:
+async def start_ai_review(
+    temp_id: str,
+    forms: List[dict],
+    *,
+    allow_multiselect: bool = True,
+) -> Optional[AIReviewTask]:
     cleanup_old_ai_tasks()
     if not _is_ai_review_enabled():
         logger.info("AI复核未启用或配置不完整，后台任务未启动 temp_id=%s", temp_id)
@@ -431,7 +529,7 @@ async def start_ai_review(temp_id: str, forms: List[dict]) -> Optional[AIReviewT
         return existing
     task = AIReviewTask(total=len(forms))
     _ai_tasks[temp_id] = task
-    asyncio.create_task(_run_ai_review_task(temp_id, task, forms))
+    asyncio.create_task(_run_ai_review_task(temp_id, task, forms, allow_multiselect))
     return task
 
 
@@ -486,13 +584,7 @@ async def review_forms(
             if not text:
                 return None
             parsed = _parse_ai_response(text)
-            diffs = [
-                s for s in parsed
-                if not s.get("ok", True)
-                and s.get("suggested_type") in VALID_FIELD_TYPES
-                and _is_valid_field_index(s.get("index"), real_fields)
-                and s.get("suggested_type") != real_fields[s["index"]].get("field_type")
-            ]
+            diffs = _extract_valid_diffs(real_fields, parsed)
             if diffs:
                 return fi, diffs
             return None

@@ -79,10 +79,12 @@ import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewM
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
+import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
 const editMode = inject('editMode', ref(false));
+const projectDbType = inject('projectDbType', ref('其他'));
 const VIEW_MODE_STORAGE_KEY = 'crf_view_mode';
 
 function normalizeStoredViewMode(value) {
@@ -2074,6 +2076,9 @@ const designerFieldTypes = [
   '复选',
   '标签',
 ];
+const designerAvailableFieldTypes = computed(() =>
+  buildFieldTypeOptions(designerFieldTypes, projectDbType.value, editProp.field_type)
+);
 const BG_COLOR_OPTIONS = [
   { value: null, label: '默认' },
   { value: 'A6A6A6', label: '灰色' },
@@ -2265,6 +2270,14 @@ async function saveSelectedFieldProp() {
   try {
     if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id) {
       ElMessage.warning('单选/多选字段必须选择选项字典');
+      return false;
+    }
+    if (
+      !ff.is_log_row &&
+      isMultiselectFieldType(snapshot.field_type) &&
+      !allowsMultiselect(projectDbType.value)
+    ) {
+      ElMessage.warning('当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型');
       return false;
     }
     if (
@@ -2584,6 +2597,10 @@ async function saveDraftField() {
   const fd = draft.field_definition || {};
   if (isChoiceField(fd.field_type) && !fd.codelist_id) {
     ElMessage.error('单选/多选字段必须选择选项字典');
+    return false;
+  }
+  if (isMultiselectFieldType(fd.field_type) && !allowsMultiselect(projectDbType.value)) {
+    ElMessage.error('当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型');
     return false;
   }
   if (isReordering.value) return false;
@@ -5007,7 +5024,13 @@ function openAddForm() {
                 /></el-form-item>
                 <el-form-item label="字段类型">
                   <el-select v-model="editProp.field_type" style="width: 100%">
-                    <el-option v-for="t in designerFieldTypes" :key="t" :label="t" :value="t" />
+                    <el-option
+                      v-for="t in designerAvailableFieldTypes"
+                      :key="t.value"
+                      :label="t.label"
+                      :value="t.value"
+                      :disabled="t.disabled"
+                    />
                   </el-select>
                 </el-form-item>
                 <el-form-item v-if="editProp.field_type === '复选'" label="复选文本">

@@ -129,7 +129,7 @@ const selectedProject = ref(null);
 const { activeTab, activateTab, isTabActivated, reset: resetLazyTabs } = createLazyTabState('info');
 const formDesignerTabRef = ref(null);
 const showCreateProject = ref(false);
-const newProject = reactive({ name: '', version: '1.0' });
+const newProject = reactive({ name: '', version: '1.0', db_type: '其他' });
 const copyingProjectId = ref(null);
 
 const { dragging: draggingProjects, handleDragEnd: handleProjectDragEnd } = useOrderableList('/api/projects/reorder');
@@ -191,6 +191,10 @@ watch(editMode, (v) => {
   if (!v && ADVANCED_EDIT_TABS.has(activeTab.value)) resetLazyTabs('info');
 });
 provide('editMode', editMode);
+
+// 当前项目数据库类型（字段库 / 设计器注入；缺省「其他」）
+const projectDbType = computed(() => selectedProject.value?.db_type || '其他');
+provide('projectDbType', projectDbType);
 
 function handleRefresh() {
   api.clearAllCache();
@@ -1282,6 +1286,12 @@ function startResize(e) {
       <el-form :model="newProject" label-width="80px">
         <el-form-item label="项目名称"><el-input v-model="newProject.name" /></el-form-item>
         <el-form-item label="版本号"><el-input v-model="newProject.version" /></el-form-item>
+        <el-form-item label="数据库类型">
+          <el-radio-group v-model="newProject.db_type">
+            <el-radio label="赛美斯">赛美斯</el-radio>
+            <el-radio label="其他">其他</el-radio>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateProject = false">取消</el-button>

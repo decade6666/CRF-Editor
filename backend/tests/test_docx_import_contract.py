@@ -189,14 +189,14 @@ def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.parse_full",
-        lambda _path: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
+        lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxScreenshotService.start",
         lambda **_kwargs: None,
     )
 
-    async def fake_start_ai_review(_temp_id, _forms):
+    async def fake_start_ai_review(_temp_id, _forms, **_kwargs):
         return AIReviewTask(status="pending", total=1)
 
     monkeypatch.setattr("src.routers.import_docx.start_ai_review", fake_start_ai_review)
@@ -241,7 +241,7 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
 
     with Session(engine) as session:
         service = DocxImportService(session)
-        monkeypatch.setattr(service, "parse_full", lambda _path: parsed_forms)
+        monkeypatch.setattr(service, "parse_full", lambda _path, **_kw: parsed_forms)
 
         summary = service.import_forms(
             project_id,

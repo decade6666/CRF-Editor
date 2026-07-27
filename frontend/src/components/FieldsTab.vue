@@ -11,10 +11,13 @@ import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyE
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
 import { OID_ERROR, isValidOptionalOid, isValidRequiredOid } from '../composables/oidValidation.js'
+import { isChoiceField } from '../composables/useCRFRenderer'
+import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
 const editMode = inject('editMode', ref(false))
+const projectDbType = inject('projectDbType', ref('其他'))
 
 const fields = ref([])
 const codelists = ref([])
@@ -27,6 +30,9 @@ const editProp = reactive({
   checkbox_label: null, codelist_id: null, unit_id: null,
 })
 const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '复选']
+const availableFieldTypes = computed(() =>
+  buildFieldTypeOptions(fieldTypes, projectDbType.value, editProp.field_type)
+)
 
 const DATE_FORMAT_OPTIONS = {
   '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
@@ -99,8 +105,10 @@ async function save() {
   if (!['标签', '日志行'].includes(editProp.field_type) && !isValidRequiredOid(editProp.variable_name)) {
     return ElMessage.warning(OID_ERROR)
   }
-  if (['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(editProp.field_type) && !editProp.codelist_id)
+  if (isChoiceField(editProp.field_type) && !editProp.codelist_id)
     return ElMessage.warning('单选/多选字段必须选择选项字典')
+  if (isMultiselectFieldType(editProp.field_type) && !allowsMultiselect(projectDbType.value))
+    return ElMessage.warning('当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型')
   try {
     if (isCreating.value) {
       const created = await api.post(`/api/projects/${props.projectId}/field-definitions`, { ...editProp })
@@ -467,7 +475,7 @@ async function quickSaveCodelist() {
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
           <el-form-item label="字段类型">
             <el-select v-model="editProp.field_type" style="width:100%">
-              <el-option v-for="t in fieldTypes" :key="t" :label="t" :value="t" />
+              <el-option v-for="t in availableFieldTypes" :key="t.value" :label="t.label" :value="t.value" :disabled="t.disabled" />
             </el-select>
           </el-form-item>
           <template v-if="editProp.field_type === '数值'">
@@ -480,7 +488,7 @@ async function quickSaveCodelist() {
             </el-select>
           </el-form-item>
           <el-form-item v-if="editProp.field_type === '复选'" label="复选文本"><el-input v-model="editProp.checkbox_label" placeholder="✔" /></el-form-item>
-          <el-form-item v-if="['单选','多选','单选（纵向）','多选（纵向）'].includes(editProp.field_type)" label="选项">
+          <el-form-item v-if="isChoiceField(editProp.field_type)" label="选项">
             <div style="display:flex;align-items:center;gap:4px;width:100%">
               <el-select v-model="editProp.codelist_id" clearable filterable style="flex:1;min-width:0" placeholder="请选择">
                 <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
