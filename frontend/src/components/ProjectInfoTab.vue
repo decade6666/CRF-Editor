@@ -27,7 +27,8 @@ watch(() => props.project, (p) => {
   if (skipFormReset.value) { skipFormReset.value = false; return }
   screeningNumberFormatTouched.value = false
   Object.assign(form, {
-    name: p.name, version: p.version, trial_name: p.trial_name || '',
+    name: p.name, version: p.version, db_type: p.db_type || '其他',
+    trial_name: p.trial_name || '',
     crf_version: p.crf_version || '', crf_version_date: p.crf_version_date || '',
     protocol_number: p.protocol_number || '',
     screening_number_format: p.screening_number_format || DEFAULT_SCREENING_NUMBER_FORMAT,
@@ -89,6 +90,12 @@ async function uploadLogo(e) {
     <el-divider content-position="left">项目信息</el-divider>
     <el-form-item label="项目名称"><el-input v-model="form.name" /></el-form-item>
     <el-form-item label="版本号"><el-input v-model="form.version" /></el-form-item>
+    <el-form-item label="数据库类型">
+      <el-radio-group v-model="form.db_type">
+        <el-radio label="赛美斯">赛美斯</el-radio>
+        <el-radio label="其他">其他</el-radio>
+      </el-radio-group>
+    </el-form-item>
     <el-divider content-position="left">封面页信息</el-divider>
     <el-form-item label="试验名称"><el-input v-model="form.trial_name" /></el-form-item>
     <el-form-item label="CRF版本"><el-input v-model="form.crf_version" /></el-form-item>

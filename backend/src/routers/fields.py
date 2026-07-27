@@ -36,6 +36,12 @@ from src.repositories.field_definition_repository import FieldDefinitionReposito
 
 from src.repositories.form_field_repository import FormFieldRepository
 
+from src.services.field_type_policy import (
+    MULTISELECT_REJECT_MSG,
+    allows_multiselect,
+    is_multiselect_field_type,
+)
+
 from src.repositories.base_repository import BaseRepository
 
 from src.schemas.field import (
@@ -78,11 +84,21 @@ def list_field_definitions(project_id: int, session: Session = Depends(get_sessi
 
 
 
+def _reject_disallowed_multiselect(project, field_type):
+
+    if is_multiselect_field_type(field_type) and not allows_multiselect(getattr(project, "db_type", None)):
+
+        raise HTTPException(400, MULTISELECT_REJECT_MSG)
+
+
+
 @router.post("/projects/{project_id}/field-definitions", response_model=FieldDefinitionResponse, status_code=201)
 
 def create_field_definition(project_id: int, data: FieldDefinitionCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
-    verify_project_owner(project_id, current_user, session)
+    project = verify_project_owner(project_id, current_user, session)
+
+    _reject_disallowed_multiselect(project, data.field_type)
     if data.codelist_id is not None:
         verify_project_codelist_owner(data.codelist_id, project_id, current_user, session)
     if data.unit_id is not None:
@@ -120,7 +136,7 @@ def create_field_definition(project_id: int, data: FieldDefinitionCreate, sessio
 
 def update_field_definition(project_id: int, fd_id: int, data: FieldDefinitionUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
-    verify_project_owner(project_id, current_user, session)
+    project = verify_project_owner(project_id, current_user, session)
 
     repo = FieldDefinitionRepository(session)
 
@@ -129,6 +145,10 @@ def update_field_definition(project_id: int, fd_id: int, data: FieldDefinitionUp
     if fd.project_id != project_id:
 
         raise HTTPException(403, "无权修改该项目的字段定义")
+
+    if data.field_type is not None and data.field_type != fd.field_type:
+
+        _reject_disallowed_multiselect(project, data.field_type)
 
     if data.codelist_id is not None:
         verify_project_codelist_owner(data.codelist_id, project_id, current_user, session)

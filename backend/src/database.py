@@ -598,6 +598,33 @@ def _migrate_add_project_screening_number_format(engine):
 
 
 
+def _migrate_add_project_db_type(engine):
+
+    """给 project 表补上 db_type 列，默认「其他」。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("project"):
+
+        return
+
+    with engine.begin() as conn:
+
+        cols = [c["name"] for c in insp.get_columns("project")]
+
+        if "db_type" not in cols:
+
+            conn.execute(text(
+
+                "ALTER TABLE project ADD COLUMN db_type VARCHAR(20) "
+
+                "NOT NULL DEFAULT '其他'"
+
+            ))
+
+
+
+
 
 def _migrate_add_user_is_admin(engine):
 
@@ -1088,6 +1115,8 @@ def init_db():
     _migrate_add_project_owner_id(engine)
 
     _migrate_add_project_screening_number_format(engine)
+
+    _migrate_add_project_db_type(engine)
 
     _migrate_add_user_is_admin(engine)
 

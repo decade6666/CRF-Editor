@@ -29,9 +29,13 @@ def normalize_screening_number_format(value):
     return normalized
 
 
+_ALLOWED_DB_TYPES = frozenset({"赛美斯", "其他"})
+
+
 class ProjectCreate(BaseModel):
     name: str
     version: str
+    db_type: str = "其他"
     trial_name: Optional[str] = None
     crf_version: Optional[str] = None
     crf_version_date: Optional[date] = None
@@ -39,6 +43,18 @@ class ProjectCreate(BaseModel):
     screening_number_format: Optional[str] = None
     sponsor: Optional[str] = None
     data_management_unit: Optional[str] = None
+
+    @field_validator("db_type", mode="before")
+    @classmethod
+    def validate_db_type(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "其他"
+        if not isinstance(value, str):
+            raise ValueError("数据库类型必须是字符串")
+        normalized = value.strip()
+        if normalized not in _ALLOWED_DB_TYPES:
+            raise ValueError("数据库类型仅支持「赛美斯」或「其他」")
+        return normalized
 
     @field_validator("crf_version_date", mode="before")
     @classmethod

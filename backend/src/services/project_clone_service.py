@@ -208,6 +208,7 @@ class ProjectCloneService:
             new_project = Project(
                 name=new_name,
                 version=src.version,
+                db_type=src.db_type or "其他",
                 trial_name=src.trial_name,
                 crf_version=src.crf_version,
                 crf_version_date=src.crf_version_date,

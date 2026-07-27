@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Lightweight migration, project column, import/clone contracts"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "VALID_FIELD_TYPES lock; checkbox; update NO_MULTISELECT note"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "provide/inject pattern for projectDbType"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Element Plus form patterns; ProjectInfoTab"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "PR auto-merge finish path"}

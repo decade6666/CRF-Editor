@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Migration + import validation checklist"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "AI VALID_FIELD_TYPES + checkbox contracts must stay green"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend test/lint gates"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gates if present"}

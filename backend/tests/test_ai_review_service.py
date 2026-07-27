@@ -194,7 +194,7 @@ def test_start_ai_review_creates_background_task(monkeypatch: pytest.MonkeyPatch
         assert current.status == "done"
         assert current.completed == 2
         assert current.suggestions == {
-            0: [{"index": 0, "ok": False, "suggested_type": "单选", "reason": "存在互斥选项"}],
+            0: [{"index": 0, "suggested_type": "单选", "reason": "存在互斥选项"}],
         }
 
     asyncio.run(scenario())
@@ -226,7 +226,7 @@ def test_review_forms_uses_real_field_indexes_when_log_rows_exist(monkeypatch: p
 
     assert error is None
     assert suggestions == {
-        0: [{"index": 1, "ok": False, "suggested_type": "日期", "reason": "真实字段序号应重排"}],
+        0: [{"index": 1, "suggested_type": "日期", "reason": "真实字段序号应重排"}],
     }
     assert len(prompts) == 1
     assert '  0. 标签="字段A"' in prompts[0]
@@ -259,7 +259,7 @@ def test_review_forms_rejects_negative_and_string_indexes(monkeypatch: pytest.Mo
 
     assert error is None
     assert suggestions == {
-        0: [{"index": 1, "ok": False, "suggested_type": "日期", "reason": "仅该条应保留"}],
+        0: [{"index": 1, "suggested_type": "日期", "reason": "仅该条应保留"}],
     }
 
 
@@ -343,3 +343,46 @@ def test_ai_review_cleanup_with_temp_cleanup(engine, monkeypatch: pytest.MonkeyP
     assert ("temp", temp_id) in cleanup_calls
     assert ("screenshot", temp_id) in cleanup_calls
     assert get_ai_task(temp_id) is None
+
+
+def test_resolve_system_prompt_and_allowed_types_for_other_db():
+    from src.services.ai_review_service import (
+        SYSTEM_PROMPT,
+        VALID_FIELD_TYPES,
+        VALID_FIELD_TYPES_NO_MULTISELECT,
+        _extract_valid_diffs,
+        _resolve_allowed_types,
+        _resolve_system_prompt,
+    )
+
+    assert _resolve_system_prompt(True) == SYSTEM_PROMPT
+    other = _resolve_system_prompt(False)
+    assert "其他" in other
+    assert "多选" in other
+    assert other.startswith(SYSTEM_PROMPT)
+
+    assert _resolve_allowed_types(True) == VALID_FIELD_TYPES
+    assert "多选" not in _resolve_allowed_types(False)
+    assert set(VALID_FIELD_TYPES_NO_MULTISELECT) == set(VALID_FIELD_TYPES) - {"多选", "多选（纵向）"}
+
+    fields = [{"label": "A", "field_type": "文本"}, {"label": "B", "field_type": "文本"}]
+    parsed = [
+        {"index": 0, "ok": False, "suggested_type": "多选", "reason": "x"},
+        {"index": 1, "ok": False, "suggested_type": "单选", "reason": "y"},
+        {
+            "index": 0,
+            "ok": False,
+            "suggested_type": "标签",
+            "reason": "split",
+            "suggested_fields": [
+                {"label": "题干", "field_type": "标签"},
+                {"label": "选项1", "field_type": "复选"},
+            ],
+        },
+    ]
+    diffs = _extract_valid_diffs(fields, parsed, allowed_types=VALID_FIELD_TYPES_NO_MULTISELECT)
+    assert all(d["suggested_type"] != "多选" for d in diffs)
+    assert any(d["suggested_type"] == "单选" for d in diffs)
+    multi = [d for d in diffs if d.get("suggested_fields")]
+    assert len(multi) == 1
+    assert multi[0]["suggested_fields"][0]["field_type"] == "标签"

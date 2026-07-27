@@ -65,7 +65,7 @@
                     </el-checkbox>
                     <span class="ai-suggestion-label">{{ getFieldLabel(item.index) }}</span>
                   </div>
-                  <span class="ai-suggestion-type">{{ getFieldType(item.index) }} → {{ item.suggested_type }}</span>
+                  <span class="ai-suggestion-type">{{ formatSuggestionTransition(item) }}</span>
                 </div>
                 <p class="ai-suggestion-reason">{{ item.reason || 'AI 建议调整字段类型。' }}</p>
               </li>
@@ -168,6 +168,15 @@ function getField(index) {
 
 function getFieldLabel(index) {
   return getField(index)?.label || `字段 ${index + 1}`;
+}
+
+function formatSuggestionTransition(item) {
+  const from = getFieldType(item.index)
+  if (Array.isArray(item?.suggested_fields) && item.suggested_fields.length) {
+    const to = item.suggested_fields.map((sf) => sf.field_type).join('+')
+    return `${from} → ${to}`
+  }
+  return `${from} → ${item.suggested_type}`
 }
 
 function getFieldType(index) {
