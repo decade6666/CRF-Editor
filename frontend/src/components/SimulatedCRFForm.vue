@@ -94,15 +94,6 @@ const props = defineProps({
 
 defineEmits(['field-click'])
 
-// 构建 AI 建议映射 {fieldIndex: suggestion}
-const aiSugMap = computed(() => {
-  const map = {}
-  for (const s of props.aiSuggestions || []) {
-    map[s.index] = s
-  }
-  return map
-})
-
 // 当前展示的字段列表（根据 viewMode 决定是否应用 AI 建议）
 function applyPreviewDefaultValue(field) {
   const inlineMark = Boolean(field.inline_mark)
