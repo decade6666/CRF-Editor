@@ -201,6 +201,8 @@ python main.py
 
 服务启动后访问 `http://localhost:8888` 打开 Web 界面。
 
+设置 `CRF_ENV=production` 时，uvicorn 自动关闭热重载（适合长期运行）；需要「后台运行 + 开机自启」时请使用下面的「生产部署（Linux / systemd）」章节。
+
 如果设置了 `CRF_ENV=production`：
 
 - 访问 `/docs`、`/redoc`、`/openapi.json` 会返回 404
@@ -259,6 +261,109 @@ python app_launcher.py
 - **目录**：预渲染目录条目，打开即可查看与点击跳转；服务器装有 LibreOffice 时导出即带真实页码，否则显示非空回退页码并在 Word 更新域后校正
 - **表单访视分布图**：矩阵表格显示表单与访视的关联关系
 - **表单内容**：详细的表单字段定义和控件
+
+## 生产部署（Linux / systemd）
+
+适用于 Linux 服务器长期运行：服务由 systemd 托管，后台运行、崩溃自动重启、服务器重启后自动启动，日志统一进入 journald。
+
+> 架构约束：后端使用 SQLite（WAL 模式）与单机内存限流，**只能单进程单实例运行**，不支持多副本横向扩展；也不要同时用 `python main.py` 手动启动多个实例，会造成数据库写冲突或端口占用。
+
+### 前置准备（一次性）
+
+```bash
+# 1. 构建前端（后端托管 frontend/dist 静态文件）
+cd frontend
+npm ci && npm run build
+
+# 2. 创建虚拟环境并安装后端依赖（脚本也会自动执行，此处可跳过）
+cd ..
+python3 -m venv backend/.venv-linux
+backend/.venv-linux/bin/python -m pip install -r backend/requirements.txt
+```
+
+### 一键安装
+
+```bash
+sudo bash deploy/install-service.sh
+```
+
+首次运行会生成 `/etc/crf-editor/crf-editor.env`（自动填充随机的 `CRF_AUTH_SECRET_KEY`）并提示你编辑该文件：
+
+```bash
+sudo vi /etc/crf-editor/crf-editor.env   # 设置 CRF_ADMIN_BOOTSTRAP_PASSWORD（生产管理员初始密码）
+sudo bash deploy/install-service.sh      # 再次运行完成安装
+```
+
+脚本会渲染 `deploy/crf-editor.service.template` 到 `/etc/systemd/system/crf-editor.service`，执行 `systemctl enable --now`，并打印服务状态。
+
+### 手工安装（不用脚本时）
+
+```bash
+# 1. 准备环境变量文件（含 CRF_ENV=production、CRF_AUTH_SECRET_KEY、CRF_ADMIN_BOOTSTRAP_PASSWORD）
+sudo mkdir -p /etc/crf-editor
+sudo cp deploy/crf-editor.env.example /etc/crf-editor/crf-editor.env
+sudo vi /etc/crf-editor/crf-editor.env
+
+# 2. 渲染 systemd unit（把占位符换成实际路径）
+APP_DIR="$PWD"
+PY="$PWD/backend/.venv-linux/bin/python"
+sed -e "s#__APP_DIR__#${APP_DIR}#g" -e "s#__PYTHON_BIN__#${PY}#g" \
+    deploy/crf-editor.service.template | sudo tee /etc/systemd/system/crf-editor.service
+
+# 3. 启用并启动
+sudo systemctl daemon-reload
+sudo systemctl enable --now crf-editor
+```
+
+### 日常运维
+
+| 操作 | 命令 |
+| --- | --- |
+| 查看状态 | `systemctl status crf-editor` |
+| 查看实时日志 | `journalctl -u crf-editor -f` |
+| 重启 / 停止 | `systemctl restart crf-editor` / `systemctl stop crf-editor` |
+| 日志保留策略 | `sudo journalctl --vacuum-time=30d` |
+
+服务配置了 `Restart=always`，进程崩溃会自动拉起；日志默认占用系统磁盘，建议定期按上表清理。
+
+### 对外暴露方式（二选一）
+
+**方式 A：直接暴露端口**
+
+保持 `/etc/crf-editor/crf-editor.env` 中 `CRF_SERVER_HOST=0.0.0.0`，在防火墙放行 `CRF_SERVER_PORT`（默认 8888）后直接访问 `http://<服务器IP>:8888`。
+
+**方式 B：Nginx 反向代理（推荐公网使用）**
+
+1. 把 `CRF_SERVER_HOST` 改为 `127.0.0.1`，使后端仅监听本机回环
+2. 参考 `deploy/nginx/crf-editor.conf.example` 配置反向代理（含大文件上传 `client_max_body_size` 与长耗时接口超时），`nginx -t` 通过后 `nginx -s reload`
+3. 若服务器已用 1panel / openresty 等面板占用 80/443，请通过面板的「网站」功能添加反代站点，而不是直接放置 Nginx 配置文件
+
+> 提示：无论哪种方式，若之前用 `nohup` / `python main.py` 手动启动过实例，请先停掉再启用服务，否则会端口冲突。
+
+### 升级流程
+
+```bash
+git pull
+cd frontend && npm ci && npm run build
+cd ../backend && <venv-python> -m pip install -r backend/requirements.txt
+sudo systemctl restart crf-editor
+```
+
+### 备份
+
+需要备份的状态数据：`database/`（SQLite 数据库）、`uploads/`（项目 Logo 等上传文件）、`config.yaml` / `/etc/crf-editor/crf-editor.env`（配置与密钥）。
+
+SQLite 处于 WAL 模式时，直接拷贝 `*.db` 会漏掉 `-wal` / `-shm` 文件中的未合并数据。正确做法：先 `systemctl stop crf-editor` 再拷贝整个 `database/` 目录，或用 `sqlite3 database/crf_editor.db ".backup '/备份路径/crf_editor.db'"` 在线备份（后者无需停机）。
+
+### 卸载
+
+```bash
+sudo bash deploy/install-service.sh uninstall
+```
+
+脚本只停止并删除服务，**保留** `/etc/crf-editor/`、`database/`、`uploads/` 等数据与配置，便于日后重新安装。
+
+上线前的安全收敛项（保留管理员初始化与审计、密钥轮换、多实例限制等）见下方「上线安全注意事项」。
 
 ## 上线安全注意事项
 
