@@ -338,3 +338,51 @@ test('FormDesignerTab guards OID charset on form/field/option submit paths', () 
   assert.match(quickSave, /!isValidOptionalOid\(opt\.code\)/)
   assert.match(quickSave, /ElMessage\.warning\(OID_ERROR\)/)
 })
+
+test('log row property panel shares the persisted-field cancel/save action bar', () => {
+  // log 行分支与普通字段分支共用同一组「取消/保存」：提升为两分支公共兄弟节点，
+  // 全文件只允许存在一处 designer-property-actions，禁止复制粘贴回归。
+  const actionBarCount = (formDesignerSource.match(/data-test="designer-property-actions"/g) || []).length
+  assert.equal(actionBarCount, 1, 'designer-property-actions must exist exactly once')
+
+  // 表单属性分支（v-if="!selectedFieldId"）之后是 <template v-else>，
+  // 其内部依次为：log 行分支（v-if）→ 普通字段分支（v-else）→ 公共按钮栏。
+  const wrappedSection = formDesignerSource.match(
+    /<template v-else>([\s\S]*?)data-test="designer-property-actions"([\s\S]*?)<\/template>/,
+  )
+  assert.ok(wrappedSection, 'field branches must be wrapped in a shared <template v-else> with the action bar inside')
+
+  const [, beforeBar] = wrappedSection
+  assert.match(
+    beforeBar,
+    /data-test="designer-log-property-form"[\s\S]*?<div v-else class="designer-editor-scroll">/,
+    'log row branch (v-if) must come before the normal-field branch (v-else)',
+  )
+  assert.match(
+    beforeBar,
+    /<div v-if="editProp\.field_type === '日志行'" class="designer-editor-scroll">/,
+    'log row branch must use v-if so it sits inside the shared v-else wrapper',
+  )
+  assert.doesNotMatch(
+    formDesignerSource,
+    /v-else-if="editProp\.field_type === '日志行'"/,
+    'log row branch must not keep v-else-if',
+  )
+
+  // 公共按钮栏对两分支一视同仁：非草稿选中时出现，门控与 handler 与普通字段原有契约一致。
+  const actionBar = wrappedSection[2]
+  assert.match(
+    beforeBar,
+    /class="designer-draft-actions designer-editor-actions"/,
+    'shared action bar should sit outside the scroll area with a footer class',
+  )
+  assert.match(beforeBar, /v-if="selectedFieldId !== DRAFT_FIELD_ID"/, 'draft fields keep their own draft actions')
+  assert.match(
+    actionBar,
+    /data-test="designer-property-cancel"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value \|\| isSavingFieldProp"[\s\S]*@click="cancelSelectedFieldProp"/,
+  )
+  assert.match(
+    actionBar,
+    /data-test="designer-property-save"[\s\S]*:loading="isSavingFieldProp"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value"[\s\S]*@click="saveSelectedFieldProp"/,
+  )
+})
