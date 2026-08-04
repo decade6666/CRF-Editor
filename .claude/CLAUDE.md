@@ -38,6 +38,7 @@ graph TD
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (47 files) |
 | frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (51 files, including 50 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
+| deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
 ## Core Capabilities
 - Management of projects, visits, forms, fields, units, and option dictionaries; the codelist-free single checkbox field (`复选`) has an optional field-definition `checkbox_label` and falls back to the default character `✔` when empty
@@ -50,8 +51,9 @@ graph TD
 - AI configuration testing, exact-first fuzzy search, session countdown with click-to-renew, theme switching, desktop packaging and release
 
 ## Key Entry Points
-- Backend development entry: `backend/main.py`
+- Backend development entry: `backend/main.py` (production 模式下自动关闭 uvicorn 热重载)
 - Desktop release entry: `backend/app_launcher.py`
+- Production deployment: `deploy/install-service.sh` (systemd 服务安装/卸载), `deploy/crf-editor.service.template`, `deploy/crf-editor.env.example`, `deploy/nginx/crf-editor.conf.example`; 使用说明见 README「生产部署（Linux / systemd）」章节
 - Backend configuration: `backend/src/config.py` (reads `config.yaml` from the project root; production prefers `CRF_*` environment variables)
 - Backend database: `backend/src/database.py` (SQLite PRAGMA, Session, and lightweight migrations)
 - Backend routers: `backend/src/routers/`
@@ -71,6 +73,8 @@ cd frontend && npm run lint
 cd frontend && npm run format
 cd backend && python -m pytest
 cd frontend && node --test tests/*.test.js
+sudo bash deploy/install-service.sh          # 安装 systemd 生产服务（后台运行 + 开机自启）
+sudo bash deploy/install-service.sh uninstall
 ```
 
 ## Development Conventions
@@ -129,6 +133,7 @@ cd frontend && node --test tests/*.test.js
 - Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log
+- `2026-08-04` (task `systemd-deployment`): Linux 生产部署优化。新增 `deploy/` 目录（`install-service.sh` 一键安装/卸载 systemd 服务、`crf-editor.service.template`、`crf-editor.env.example`、`deploy/nginx/crf-editor.conf.example` 反代示例）；`backend/main.py` 新增 `should_enable_reload()`，`CRF_ENV=production` 时自动关闭 uvicorn 热重载（新增 `backend/tests/test_main_reload_flag.py`）；README 中英新增「生产部署（Linux / systemd）」章节（后台运行 + 开机自启 + journald 日志 + 备份/升级/卸载）；`.env.example` 补齐 `CRF_ADMIN_BOOTSTRAP_PASSWORD` 与 `CRF_DATABASE_PATH`；`.gitignore` 新增 `.env` / `deploy/*.env`。后端 714 passed / 4 xfailed。
 - `2026-07-15` (task `07-15-designer-form-switch-inline-props`): Full-screen form designer gains a form-switch dropdown in the header and an inline form-property editor (OID/name/paper orientation) on the right pane when no field is selected; blank field-list clicks return to form props. Field property explicit-save/dirty-leave pattern is mirrored for form props; backend unchanged. Frontend suite 502 passed.
 
 - `2026-07-14` (task `07-14-checkbox-default-check`): Checkbox (`复选`) empty-text fallback changed from the field label to the fixed default character `✔`. Single central fallback point per stack — backend `field_rendering.resolve_checkbox_label` (`CHECKBOX_DEFAULT_TEXT`, reused by export + width) and frontend `useCRFRenderer.resolveCheckboxText` (`CHECKBOX_DEFAULT_TEXT`, reused by render + width); export/parity inherit automatically. The designer / field-library "复选文本" input placeholder switched from the field label to a static `✔`. No data migration (empty stays empty, resolves to `✔` at runtime). `planner_cases.json` regenerated (fraction unchanged — single-field row min-width protection dominates). Updated backend `test_width_planning.py` / `test_export_service.py` and frontend `checkboxFieldType.test.js`; backend 695 passed/4 xfailed, frontend 490 passed, lint 0 errors.

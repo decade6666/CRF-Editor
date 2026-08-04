@@ -201,6 +201,8 @@ python main.py
 
 After starting, open `http://localhost:8888` in your browser to access the web interface.
 
+When `CRF_ENV=production` is set, uvicorn automatically disables hot reload (suitable for long-running processes); for background execution with automatic startup on boot, use the "Production Deployment (Linux / systemd)" section below.
+
 When `CRF_ENV=production` is set:
 
 - `/docs`, `/redoc`, and `/openapi.json` return 404
@@ -259,6 +261,109 @@ The exported Word document contains:
 - **Table of Contents**: Pre-rendered entries visible on open with clickable navigation; real page numbers are baked in when exported on a server with LibreOffice, otherwise non-empty fallback numbers are shown and corrected after updating fields in Word
 - **Form-Visit Distribution Diagram**: Matrix table showing form-visit associations
 - **Form Content**: Detailed form field definitions and controls
+
+## Production Deployment (Linux / systemd)
+
+For long-running Linux servers: the service is managed by systemd — it runs in the background, restarts automatically after crashes, starts automatically on server boot, and all logs go to journald.
+
+> Architecture constraint: the backend uses SQLite (WAL mode) and a single-node in-memory rate limiter, so it **must run as a single process / single instance** and does not support horizontal scaling; do not start multiple instances manually with `python main.py` either, as that causes database write conflicts or port collisions.
+
+### One-time Preparation
+
+```bash
+# 1. Build the frontend (the backend serves the frontend/dist static files)
+cd frontend
+npm ci && npm run build
+
+# 2. Create a virtualenv and install backend dependencies (the script also does this; can be skipped)
+cd ..
+python3 -m venv backend/.venv-linux
+backend/.venv-linux/bin/python -m pip install -r backend/requirements.txt
+```
+
+### One-click Installation
+
+```bash
+sudo bash deploy/install-service.sh
+```
+
+The first run generates `/etc/crf-editor/crf-editor.env` (filling in a random `CRF_AUTH_SECRET_KEY`) and asks you to edit that file:
+
+```bash
+sudo vi /etc/crf-editor/crf-editor.env   # set CRF_ADMIN_BOOTSTRAP_PASSWORD (reserved admin initial password)
+sudo bash deploy/install-service.sh      # run again to finish installation
+```
+
+The script renders `deploy/crf-editor.service.template` to `/etc/systemd/system/crf-editor.service`, runs `systemctl enable --now`, and prints the service status.
+
+### Manual Installation (without the script)
+
+```bash
+# 1. Prepare the env file (must include CRF_ENV=production, CRF_AUTH_SECRET_KEY, CRF_ADMIN_BOOTSTRAP_PASSWORD)
+sudo mkdir -p /etc/crf-editor
+sudo cp deploy/crf-editor.env.example /etc/crf-editor/crf-editor.env
+sudo vi /etc/crf-editor/crf-editor.env
+
+# 2. Render the systemd unit (replace the placeholders with real paths)
+APP_DIR="$PWD"
+PY="$PWD/backend/.venv-linux/bin/python"
+sed -e "s#__APP_DIR__#${APP_DIR}#g" -e "s#__PYTHON_BIN__#${PY}#g" \
+    deploy/crf-editor.service.template | sudo tee /etc/systemd/system/crf-editor.service
+
+# 3. Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable --now crf-editor
+```
+
+### Daily Operations
+
+| Action | Command |
+| --- | --- |
+| Check status | `systemctl status crf-editor` |
+| Follow logs | `journalctl -u crf-editor -f` |
+| Restart / stop | `systemctl restart crf-editor` / `systemctl stop crf-editor` |
+| Log retention | `sudo journalctl --vacuum-time=30d` |
+
+The service uses `Restart=always`, so crashed processes are pulled back up automatically; logs consume disk space by default, so clean them up periodically as shown above.
+
+### Exposing the Service (choose one)
+
+**Option A: expose the port directly**
+
+Keep `CRF_SERVER_HOST=0.0.0.0` in `/etc/crf-editor/crf-editor.env`, allow `CRF_SERVER_PORT` (default 8888) in the firewall, then access `http://<server-ip>:8888`.
+
+**Option B: Nginx reverse proxy (recommended for public access)**
+
+1. Change `CRF_SERVER_HOST` to `127.0.0.1` so the backend listens on loopback only
+2. Configure the reverse proxy following `deploy/nginx/crf-editor.conf.example` (includes large upload `client_max_body_size` and long-request timeouts), run `nginx -t`, then `nginx -s reload`
+3. If ports 80/443 are already used by a panel such as 1panel / openresty, add the reverse-proxy site through the panel's website feature instead of placing Nginx config files directly
+
+> Note: whichever option you use, stop any manually started instance (`nohup` / `python main.py`) before enabling the service, or you will hit a port conflict.
+
+### Upgrade Flow
+
+```bash
+git pull
+cd frontend && npm ci && npm run build
+cd ../backend && <venv-python> -m pip install -r backend/requirements.txt
+sudo systemctl restart crf-editor
+```
+
+### Backup
+
+State to back up: `database/` (SQLite database), `uploads/` (project logos and other uploads), and `config.yaml` / `/etc/crf-editor/crf-editor.env` (configuration and secrets).
+
+Because SQLite runs in WAL mode, copying `*.db` alone misses unmerged data in the `-wal` / `-shm` files. Either stop the service first (`systemctl stop crf-editor`) and copy the whole `database/` directory, or use `sqlite3 database/crf_editor.db ".backup '/backup/path/crf_editor.db'"` for an online backup without downtime.
+
+### Uninstall
+
+```bash
+sudo bash deploy/install-service.sh uninstall
+```
+
+The script only stops and removes the service; it **keeps** `/etc/crf-editor/`, `database/`, `uploads/` and other data and configuration so you can reinstall later.
+
+Security hardening items before go-live (reserved admin bootstrap and audit, secret rotation, multi-instance limits, etc.) are covered in "Deployment Security Notes" below.
 
 ## Deployment Security Notes
 

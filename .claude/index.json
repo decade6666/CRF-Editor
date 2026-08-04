@@ -286,11 +286,25 @@
         "percent": 100
       },
       "gaps": []
+    },
+    {
+      "name": "deploy",
+      "path": "deploy/",
+      "language": "Shell",
+      "claude_md": null,
+      "important_paths": [
+        "deploy/crf-editor.service.template",
+        "deploy/crf-editor.env.example",
+        "deploy/install-service.sh",
+        "deploy/nginx/crf-editor.conf.example"
+      ],
+      "coverage": 100,
+      "gaps": []
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 198,
-    "scanned_files": 198,
+    "estimated_total_files": 202,
+    "scanned_files": 202,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

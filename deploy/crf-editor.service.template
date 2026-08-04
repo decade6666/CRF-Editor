@@ -1,0 +1,24 @@
+[Unit]
+Description=CRF Editor (FastAPI + SQLite)
+Documentation=https://github.com/decade6666/CRF-Editor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=root
+WorkingDirectory=__APP_DIR__/backend
+EnvironmentFile=/etc/crf-editor/crf-editor.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PYTHON_BIN__ main.py
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crf-editor
+
+[Install]
+WantedBy=multi-user.target
