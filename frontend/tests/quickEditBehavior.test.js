@@ -153,7 +153,7 @@ test('property editor aligns bg default swatch with text default swatch and remo
   assert.doesNotMatch(formDesignerSource, /const TEXT_COLOR_OPTIONS = \[[\s\S]*\{ value: '000000', label: '黑色' \}/)
   assert.match(
     formDesignerSource,
-    /v-else-if="editProp\.field_type === '日志行'"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null[\s\S]*customBgColorInput = ''/,
+    /v-if="editProp\.field_type === '日志行'"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null[\s\S]*customBgColorInput = ''/,
   )
   assert.match(
     formDesignerSource,

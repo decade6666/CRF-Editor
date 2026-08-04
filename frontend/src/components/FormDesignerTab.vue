@@ -4904,168 +4904,209 @@ function openAddForm() {
                 </el-button>
               </div>
             </div>
-            <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
-              <el-form
-                :model="editProp"
-                label-width="88px"
-                size="small"
-                data-test="designer-log-property-form"
-                :disabled="designerHistory.busy.value"
-              >
-                <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
-                <el-form-item label="底纹颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
-                      @click="
-                        editProp.bg_color = null;
-                        customBgColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in BG_COLOR_OPTIONS.slice(1)"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择底纹颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.bg_color = opt.value;
-                        customBgColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customBgColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomBgColor"
-                    >
-                      <template #prefix
-                        ><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template
+            <template v-else>
+              <div v-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
+                <el-form
+                  :model="editProp"
+                  label-width="88px"
+                  size="small"
+                  data-test="designer-log-property-form"
+                  :disabled="designerHistory.busy.value"
+                >
+                  <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
+                  <el-form-item label="底纹颜色">
+                    <div class="color-picker">
+                      <button
+                        type="button"
+                        class="color-option color-option-default"
+                        :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
+                        @click="
+                          editProp.bg_color = null;
+                          customBgColorInput = '';
+                        "
                       >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="文字颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
-                      @click="
-                        editProp.text_color = null;
-                        customTextColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in TEXT_COLOR_OPTIONS"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择文字颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.text_color = opt.value;
-                        customTextColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customTextColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomTextColor"
-                    >
-                      <template #prefix
-                        ><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template
+                        默认
+                      </button>
+                      <button
+                        v-for="opt in BG_COLOR_OPTIONS.slice(1)"
+                        :key="opt.value"
+                        type="button"
+                        class="color-option"
+                        :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }"
+                        :style="{ background: '#' + opt.value }"
+                        :aria-label="`选择底纹颜色：${opt.label}`"
+                        :title="opt.label"
+                        @click="
+                          editProp.bg_color = opt.value;
+                          customBgColorInput = '';
+                        "
+                      ></button>
+                      <el-input
+                        v-model="customBgColorInput"
+                        placeholder="自定义HEX"
+                        size="small"
+                        style="width: 90px; margin-left: 4px"
+                        @input="applyCustomBgColor"
                       >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="标签加粗">
-                  <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
-                </el-form-item>
-                <el-form-item label="标签字号">
-                  <el-radio-group v-model="editProp.label_font_size" size="small">
-                    <el-radio-button label="large">大</el-radio-button>
-                    <el-radio-button label="default">默认</el-radio-button>
-                    <el-radio-button label="small">小</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-              </el-form>
-            </div>
-            <div v-else class="designer-editor-scroll">
-              <el-form
-                :model="editProp"
-                label-width="88px"
-                size="small"
-                data-test="designer-field-property-form"
-                :disabled="designerHistory.busy.value"
-              >
-                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
-                  ><el-input v-model="editProp.variable_name"
-                /></el-form-item>
-                <el-form-item label="字段标签"
-                  ><el-input
-                    v-model="editProp.label"
-                    :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
-                    :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
-                /></el-form-item>
-                <el-form-item label="字段类型">
-                  <el-select v-model="editProp.field_type" style="width: 100%">
-                    <el-option
-                      v-for="t in designerAvailableFieldTypes"
-                      :key="t.value"
-                      :label="t.label"
-                      :value="t.value"
-                      :disabled="t.disabled"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item v-if="editProp.field_type === '复选'" label="复选文本">
-                  <el-input v-model="editProp.checkbox_label" placeholder="✔" />
-                </el-form-item>
-                <template v-if="editProp.field_type === '数值'">
-                  <el-form-item label="整数位数"
-                    ><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width: 100%"
+                        <template #prefix
+                          ><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template
+                        >
+                      </el-input>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="文字颜色">
+                    <div class="color-picker">
+                      <button
+                        type="button"
+                        class="color-option color-option-default"
+                        :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
+                        @click="
+                          editProp.text_color = null;
+                          customTextColorInput = '';
+                        "
+                      >
+                        默认
+                      </button>
+                      <button
+                        v-for="opt in TEXT_COLOR_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        class="color-option"
+                        :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }"
+                        :style="{ background: '#' + opt.value }"
+                        :aria-label="`选择文字颜色：${opt.label}`"
+                        :title="opt.label"
+                        @click="
+                          editProp.text_color = opt.value;
+                          customTextColorInput = '';
+                        "
+                      ></button>
+                      <el-input
+                        v-model="customTextColorInput"
+                        placeholder="自定义HEX"
+                        size="small"
+                        style="width: 90px; margin-left: 4px"
+                        @input="applyCustomTextColor"
+                      >
+                        <template #prefix
+                          ><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''"
+                            >■</span
+                          ></template
+                        >
+                      </el-input>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="标签加粗">
+                    <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
+                  </el-form-item>
+                  <el-form-item label="标签字号">
+                    <el-radio-group v-model="editProp.label_font_size" size="small">
+                      <el-radio-button label="large">大</el-radio-button>
+                      <el-radio-button label="default">默认</el-radio-button>
+                      <el-radio-button label="small">小</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                </el-form>
+              </div>
+              <div v-else class="designer-editor-scroll">
+                <el-form
+                  :model="editProp"
+                  label-width="88px"
+                  size="small"
+                  data-test="designer-field-property-form"
+                  :disabled="designerHistory.busy.value"
+                >
+                  <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
+                    ><el-input v-model="editProp.variable_name"
                   /></el-form-item>
-                  <el-form-item label="小数位数"
-                    ><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width: 100%"
+                  <el-form-item label="字段标签"
+                    ><el-input
+                      v-model="editProp.label"
+                      :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
+                      :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
                   /></el-form-item>
-                </template>
-                <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
-                  <el-select v-model="editProp.date_format" clearable style="width: 100%">
-                    <el-option
-                      v-for="f in DATE_FORMAT_OPTIONS[editProp.field_type] || []"
-                      :key="f"
-                      :label="f"
-                      :value="f"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item v-if="isChoiceField(editProp.field_type)" label="字段选项">
-                  <div class="choice-codelist-row">
-                    <el-select
-                      v-model="editProp.codelist_id"
-                      class="choice-codelist-select"
-                      clearable
-                      filterable
-                      placeholder="请选择"
-                    >
-                      <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
+                  <el-form-item label="字段类型">
+                    <el-select v-model="editProp.field_type" style="width: 100%">
+                      <el-option
+                        v-for="t in designerAvailableFieldTypes"
+                        :key="t.value"
+                        :label="t.label"
+                        :value="t.value"
+                        :disabled="t.disabled"
+                      />
                     </el-select>
-                    <div class="choice-codelist-actions">
+                  </el-form-item>
+                  <el-form-item v-if="editProp.field_type === '复选'" label="复选文本">
+                    <el-input v-model="editProp.checkbox_label" placeholder="✔" />
+                  </el-form-item>
+                  <template v-if="editProp.field_type === '数值'">
+                    <el-form-item label="整数位数"
+                      ><el-input-number v-model="editProp.integer_digits" :min="1" :max="20" style="width: 100%"
+                    /></el-form-item>
+                    <el-form-item label="小数位数"
+                      ><el-input-number v-model="editProp.decimal_digits" :min="0" :max="15" style="width: 100%"
+                    /></el-form-item>
+                  </template>
+                  <el-form-item v-if="['日期', '日期时间', '时间'].includes(editProp.field_type)" label="日期格式">
+                    <el-select v-model="editProp.date_format" clearable style="width: 100%">
+                      <el-option
+                        v-for="f in DATE_FORMAT_OPTIONS[editProp.field_type] || []"
+                        :key="f"
+                        :label="f"
+                        :value="f"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item v-if="isChoiceField(editProp.field_type)" label="字段选项">
+                    <div class="choice-codelist-row">
+                      <el-select
+                        v-model="editProp.codelist_id"
+                        class="choice-codelist-select"
+                        clearable
+                        filterable
+                        placeholder="请选择"
+                      >
+                        <el-option v-for="c in codelists" :key="c.id" :label="c.name" :value="c.id" />
+                      </el-select>
+                      <div class="choice-codelist-actions">
+                        <el-button
+                          class="choice-codelist-icon-btn"
+                          size="small"
+                          circle
+                          type="primary"
+                          plain
+                          :icon="Plus"
+                          aria-label="新增字典"
+                          title="新增字典"
+                          @click="openQuickAddCodelist"
+                        />
+                        <el-button
+                          class="choice-codelist-icon-btn"
+                          size="small"
+                          circle
+                          type="warning"
+                          plain
+                          :icon="EditPen"
+                          aria-label="编辑字典"
+                          title="编辑字典"
+                          :disabled="!editProp.codelist_id"
+                          @click="openQuickEditCodelist"
+                        />
+                      </div>
+                    </div>
+                  </el-form-item>
+                  <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
+                    <div style="display: flex; gap: 4px">
+                      <el-select
+                        v-model="editProp.unit_id"
+                        clearable
+                        filterable
+                        style="flex: 1"
+                        placeholder="请选择"
+                        :value-on-clear="null"
+                      >
+                        <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
+                      </el-select>
                       <el-button
                         class="choice-codelist-icon-btn"
                         size="small"
@@ -5073,203 +5114,168 @@ function openAddForm() {
                         type="primary"
                         plain
                         :icon="Plus"
-                        aria-label="新增字典"
-                        title="新增字典"
-                        @click="openQuickAddCodelist"
-                      />
-                      <el-button
-                        class="choice-codelist-icon-btn"
-                        size="small"
-                        circle
-                        type="warning"
-                        plain
-                        :icon="EditPen"
-                        aria-label="编辑字典"
-                        title="编辑字典"
-                        :disabled="!editProp.codelist_id"
-                        @click="openQuickEditCodelist"
+                        aria-label="新增单位"
+                        title="新增单位"
+                        @click="showQuickAddUnit = true"
                       />
                     </div>
-                  </div>
-                </el-form-item>
-                <el-form-item v-if="['文本', '数值'].includes(editProp.field_type)" label="单位">
-                  <div style="display: flex; gap: 4px">
-                    <el-select
-                      v-model="editProp.unit_id"
-                      clearable
-                      filterable
-                      style="flex: 1"
-                      placeholder="请选择"
-                      :value-on-clear="null"
-                    >
-                      <el-option v-for="u in units" :key="u.id" :label="u.symbol" :value="u.id" />
-                    </el-select>
-                    <el-button
-                      class="choice-codelist-icon-btn"
-                      size="small"
-                      circle
-                      type="primary"
-                      plain
-                      :icon="Plus"
-                      aria-label="新增单位"
-                      title="新增单位"
-                      @click="showQuickAddUnit = true"
+                  </el-form-item>
+                  <el-form-item
+                    v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))"
+                    label="默认值/覆盖"
+                  >
+                    <template #label>
+                      <el-tooltip
+                        :content="
+                          editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'
+                        "
+                      >
+                        <span
+                          >默认值 <el-icon><InfoFilled /></el-icon
+                        ></span>
+                      </el-tooltip>
+                    </template>
+                    <el-input
+                      v-model="editProp.default_value"
+                      :type="editProp.inline_mark ? 'textarea' : 'text'"
+                      :rows="editProp.inline_mark ? 2 : undefined"
+                      :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'"
                     />
-                  </div>
-                </el-form-item>
-                <el-form-item
-                  v-if="isDefaultValueSupported(editProp.field_type, Boolean(editProp.inline_mark))"
-                  label="默认值/覆盖"
-                >
-                  <template #label>
-                    <el-tooltip
-                      :content="
-                        editProp.inline_mark ? '横向表格字段支持多行默认值。' : '仅支持非表格普通字段的单行覆盖值。'
-                      "
-                    >
-                      <span
-                        >默认值 <el-icon><InfoFilled /></el-icon
-                      ></span>
-                    </el-tooltip>
-                  </template>
-                  <el-input
-                    v-model="editProp.default_value"
-                    :type="editProp.inline_mark ? 'textarea' : 'text'"
-                    :rows="editProp.inline_mark ? 2 : undefined"
-                    :placeholder="editProp.inline_mark ? '请输入多行默认值' : '请输入单行覆盖值'"
-                  />
-                </el-form-item>
-                <el-form-item label="底纹颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
-                      @click="
-                        editProp.bg_color = null;
-                        customBgColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in BG_COLOR_OPTIONS.slice(1)"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择底纹颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.bg_color = opt.value;
-                        customBgColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customBgColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomBgColor"
-                    >
-                      <template #prefix
-                        ><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template
+                  </el-form-item>
+                  <el-form-item label="底纹颜色">
+                    <div class="color-picker">
+                      <button
+                        type="button"
+                        class="color-option color-option-default"
+                        :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
+                        @click="
+                          editProp.bg_color = null;
+                          customBgColorInput = '';
+                        "
                       >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="文字颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
-                      @click="
-                        editProp.text_color = null;
-                        customTextColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in TEXT_COLOR_OPTIONS"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择文字颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.text_color = opt.value;
-                        customTextColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customTextColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomTextColor"
-                    >
-                      <template #prefix
-                        ><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template
+                        默认
+                      </button>
+                      <button
+                        v-for="opt in BG_COLOR_OPTIONS.slice(1)"
+                        :key="opt.value"
+                        type="button"
+                        class="color-option"
+                        :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }"
+                        :style="{ background: '#' + opt.value }"
+                        :aria-label="`选择底纹颜色：${opt.label}`"
+                        :title="opt.label"
+                        @click="
+                          editProp.bg_color = opt.value;
+                          customBgColorInput = '';
+                        "
+                      ></button>
+                      <el-input
+                        v-model="customBgColorInput"
+                        placeholder="自定义HEX"
+                        size="small"
+                        style="width: 90px; margin-left: 4px"
+                        @input="applyCustomBgColor"
                       >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="标签加粗">
-                  <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
-                </el-form-item>
-                <el-form-item label="标签字号">
-                  <el-radio-group v-model="editProp.label_font_size" size="small">
-                    <el-radio-button label="large">大</el-radio-button>
-                    <el-radio-button label="default">默认</el-radio-button>
-                    <el-radio-button label="small">小</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-              </el-form>
-              <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">
-                <el-button size="small" data-test="designer-draft-cancel" @click="removeDraftFromState">
-                  取消
-                </el-button>
-                <el-button
-                  type="primary"
-                  size="small"
-                  data-test="designer-draft-save"
-                  :loading="savingDraft"
-                  :disabled="designerHistory.busy.value"
-                  @click="saveDraftField"
+                        <template #prefix
+                          ><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template
+                        >
+                      </el-input>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="文字颜色">
+                    <div class="color-picker">
+                      <button
+                        type="button"
+                        class="color-option color-option-default"
+                        :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
+                        @click="
+                          editProp.text_color = null;
+                          customTextColorInput = '';
+                        "
+                      >
+                        默认
+                      </button>
+                      <button
+                        v-for="opt in TEXT_COLOR_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        class="color-option"
+                        :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }"
+                        :style="{ background: '#' + opt.value }"
+                        :aria-label="`选择文字颜色：${opt.label}`"
+                        :title="opt.label"
+                        @click="
+                          editProp.text_color = opt.value;
+                          customTextColorInput = '';
+                        "
+                      ></button>
+                      <el-input
+                        v-model="customTextColorInput"
+                        placeholder="自定义HEX"
+                        size="small"
+                        style="width: 90px; margin-left: 4px"
+                        @input="applyCustomTextColor"
+                      >
+                        <template #prefix
+                          ><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''"
+                            >■</span
+                          ></template
+                        >
+                      </el-input>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="标签加粗">
+                    <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
+                  </el-form-item>
+                  <el-form-item label="标签字号">
+                    <el-radio-group v-model="editProp.label_font_size" size="small">
+                      <el-radio-button label="large">大</el-radio-button>
+                      <el-radio-button label="default">默认</el-radio-button>
+                      <el-radio-button label="small">小</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                </el-form>
+                <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">
+                  <el-button size="small" data-test="designer-draft-cancel" @click="removeDraftFromState">
+                    取消
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    size="small"
+                    data-test="designer-draft-save"
+                    :loading="savingDraft"
+                    :disabled="designerHistory.busy.value"
+                    @click="saveDraftField"
+                  >
+                    保存
+                  </el-button>
+                </div>
+                <div
+                  v-if="selectedFieldId !== DRAFT_FIELD_ID"
+                  class="designer-draft-actions designer-editor-actions"
+                  data-test="designer-property-actions"
                 >
-                  保存
-                </el-button>
+                  <el-button
+                    size="small"
+                    data-test="designer-property-cancel"
+                    :disabled="!isFieldPropDirty || designerHistory.busy.value || isSavingFieldProp"
+                    @click="cancelSelectedFieldProp"
+                  >
+                    取消
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    size="small"
+                    data-test="designer-property-save"
+                    :loading="isSavingFieldProp"
+                    :disabled="!isFieldPropDirty || designerHistory.busy.value"
+                    @click="saveSelectedFieldProp"
+                  >
+                    保存
+                  </el-button>
+                </div>
               </div>
-              <div
-                v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"
-                class="designer-draft-actions"
-                data-test="designer-property-actions"
-              >
-                <el-button
-                  size="small"
-                  data-test="designer-property-cancel"
-                  :disabled="!isFieldPropDirty || designerHistory.busy.value || isSavingFieldProp"
-                  @click="cancelSelectedFieldProp"
-                >
-                  取消
-                </el-button>
-                <el-button
-                  type="primary"
-                  size="small"
-                  data-test="designer-property-save"
-                  :loading="isSavingFieldProp"
-                  :disabled="!isFieldPropDirty || designerHistory.busy.value"
-                  @click="saveSelectedFieldProp"
-                >
-                  保存
-                </el-button>
-              </div>
-            </div>
+            </template>
           </div>
           <button
             type="button"
