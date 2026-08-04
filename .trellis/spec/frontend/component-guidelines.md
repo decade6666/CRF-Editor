@@ -872,3 +872,66 @@ const FormDesigner = defineAsyncComponent(() =>
 <!-- CORRECT - Named method -->
 <el-button @click="removeDeletedItems">
 ```
+
+---
+
+## Scenario: FormDesignerTab Shared Field-Property Action Bar
+
+### 1. Scope / Trigger
+
+- Trigger: changing the persisted-field property editor in
+  `frontend/src/components/FormDesignerTab.vue` — adding a new field-type
+  branch, moving the 取消/保存 buttons, or adjusting the property pane layout.
+- The right property card has three mutually exclusive branches:
+  `v-if="!selectedFieldId"` (form props), `v-else-if="editProp.field_type === '日志行'"`
+  (log row), `v-else` (normal fields). The draft row and the form-props branch
+  keep their own local action buttons.
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| The persisted-field 取消/保存 bar is **one card-level sibling** of the three branch divs (`data-test="designer-property-actions"`, `v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"`, classes `designer-draft-actions designer-editor-actions`) | Every persisted field type branch (log row included) must land on the same explicit save/cancel with identical dirty/busy gating; per-branch duplicates are forbidden |
+| The bar sits **outside the scroll area** (`.designer-editor-scroll` is `flex: 1`, the card is a flex column), fixed to the card footer | Buttons stay reachable on long forms and behave identically for every field type |
+| Shared nodes are hoisted as **siblings of the branches**, not by wrapping branches in `<template v-else>` | Wrapping forces whole-branch re-indentation, inflating the diff with pure whitespace (700 lines for an 8-line change); sibling hoisting keeps the diff minimal |
+
+### 3. Wrong vs Correct
+
+```vue
+<!-- WRONG - duplicate action bars per branch -->
+<div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
+  <el-form data-test="designer-log-property-form">...</el-form>
+  <div class="designer-draft-actions"><el-button>取消</el-button><el-button>保存</el-button></div>
+</div>
+<div v-else class="designer-editor-scroll">
+  <el-form data-test="designer-field-property-form">...</el-form>
+  <div class="designer-draft-actions"><el-button>取消</el-button><el-button>保存</el-button></div>
+</div>
+
+<!-- WRONG - template wrapper forces whole-branch re-indent (700-line whitespace diff) -->
+<template v-else>
+  <div v-if="editProp.field_type === '日志行'" class="designer-editor-scroll">...</div>
+  <div v-else class="designer-editor-scroll">...</div>
+</template>
+
+<!-- CORRECT - one shared sibling bar, branches untouched -->
+<div v-if="!selectedFieldId" class="designer-editor-scroll">...form props + its own actions...</div>
+<div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">...log form...</div>
+<div v-else class="designer-editor-scroll">...field form + draft actions...</div>
+<div
+  v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"
+  class="designer-draft-actions designer-editor-actions"
+  data-test="designer-property-actions"
+>
+  <el-button ...>取消</el-button>
+  <el-button ...>保存</el-button>
+</div>
+```
+
+### 4. Validation
+
+- `frontend/tests/formDesignerPropertyEditor.runtime.test.js` locks:
+  `designer-property-actions` appears exactly once; the bar is a sibling of
+  the branches (after the `v-else` scroll div, before `pane-v-resizer`); the
+  log-row branch keeps `v-else-if`; the buttons keep their exact
+  `:disabled` / `:loading` / `@click` bindings.
