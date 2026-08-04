@@ -4,6 +4,8 @@
 config.yaml
 !.trellis/config.yaml
 TEST_ACCOUNTS.local.md
+.env
+deploy/*.env
 
 # ==========================================
 # Python 运行时缓存

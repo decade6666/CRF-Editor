@@ -125,6 +125,11 @@ def _build_fastapi_kwargs() -> dict:
     return {}
 
 
+def should_enable_reload() -> bool:
+    """开发模式启用热重载；production 下必须关闭（守护进程不需要文件监听）。"""
+    return not is_production_env()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
@@ -608,6 +613,8 @@ if __name__ == "__main__":
 
     }
 
+    _reload = should_enable_reload()
+
     uvicorn.run(
 
         "main:app",
@@ -616,9 +623,9 @@ if __name__ == "__main__":
 
         port=config.server.port,
 
-        reload=True,
+        reload=_reload,
 
-        reload_dirs=[_backend_dir],
+        reload_dirs=[_backend_dir] if _reload else None,
 
         log_config=log_config,
 
