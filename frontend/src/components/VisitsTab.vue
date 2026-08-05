@@ -356,7 +356,7 @@ function getScopedDefaultValue(ff, singleLine = false) {
 }
 
 // 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
-function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
+function renderCellHtml(ff, fillLineChars = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const fd = ff.field_definition
   const field = toRendererField(fd)
@@ -364,13 +364,12 @@ function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
   if (defaultValue) {
     return escapePreviewText(defaultValue)
   }
-  return renderCtrlHtml(field, fillLineChars, columnCm)
+  return renderCtrlHtml(field, fillLineChars)
 }
 
-function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
+function getInlineRows(fields, fillCharsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
-    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null
     const defaultValue = getScopedDefaultValue(ff)
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n')
@@ -378,12 +377,12 @@ function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars, columnCm)),
+        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars)),
       }
     }
-    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），纵向尾线按 flex 填满剩余宽、不溢出；
+    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom）；
     // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
-    const ctrl = renderCtrlHtml(toRendererField(ff.field_definition), fillChars, columnCm)
+    const ctrl = renderCtrlHtml(toRendererField(ff.field_definition), fillChars)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
@@ -1295,7 +1294,7 @@ async function toggleCell(visitId, formId) {
                       ></span>
                     </td>
                     <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
-                      <span v-html="renderCellHtml(ff, normalFillChars(gv, gi), normalColumnCm(gv, gi))"></span>
+                      <span v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></span>
                       <span
                         v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
                         :class="[

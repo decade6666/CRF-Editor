@@ -150,9 +150,9 @@ def _migrate_add_code_columns(engine):
 
 
 
-def _migrate_add_trailing_underscore(engine):
+def _migrate_drop_codelist_option_trailing_underscore(engine):
 
-    """给 codelist_option 表补上 trailing_underscore 列"""
+    """删除 codelist_option.trailing_underscore 列。"""
 
     insp = inspect(engine)
 
@@ -160,15 +160,86 @@ def _migrate_add_trailing_underscore(engine):
 
         return
 
-    with engine.begin() as conn:
+    cols = {c["name"] for c in insp.get_columns("codelist_option")}
 
-        cols = [c["name"] for c in insp.get_columns("codelist_option")]
+    if "trailing_underscore" not in cols:
 
-        if "trailing_underscore" not in cols:
+        return
 
-            conn.execute(text('ALTER TABLE "codelist_option" ADD COLUMN trailing_underscore INTEGER DEFAULT 0 NOT NULL'))
+    try:
+
+        with engine.begin() as conn:
+
+            conn.execute(text('ALTER TABLE "codelist_option" DROP COLUMN trailing_underscore'))
+
+    except Exception:
+
+        try:
+
+            _rebuild_codelist_option_without_trailing_underscore(engine)
+
+        except Exception:
+
+            raise RuntimeError(
+                "无法删除 codelist_option.trailing_underscore 列：DROP COLUMN 与重建表兜底均失败。"
+                "该列若为无 server default 的 NOT NULL，后续新增选项会直接报错，请升级 SQLite（>=3.35）"
+                "或手动迁移数据库后再启动。"
+            ) from None
+
+        logger.warning("DROP COLUMN 不可用，已通过重建表方式删除 codelist_option.trailing_underscore 列。")
 
 
+def _rebuild_codelist_option_without_trailing_underscore(engine) -> None:
+    """SQLite 老版本不支持 DROP COLUMN 时，重建 codelist_option 表并跳过该列。
+
+    按 SQLite 12 步重建流程执行：新表不含 trailing_underscore，逐行拷贝数据，
+    保留唯一约束与索引。任一语句失败即抛异常（由调用方决定是否阻止启动）。
+    """
+    conn = engine.raw_connection()
+
+    try:
+
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        conn.execute("BEGIN")
+
+        conn.execute(
+            'CREATE TABLE "codelist_option_new" ('
+            'id INTEGER NOT NULL, '
+            'codelist_id INTEGER NOT NULL, '
+            'code VARCHAR(100), '
+            'decode VARCHAR(255) NOT NULL, '
+            'order_index INTEGER, '
+            'PRIMARY KEY (id), '
+            'UNIQUE (codelist_id, code, decode), '
+            'CONSTRAINT "fk_codelist_option_codelist" FOREIGN KEY(codelist_id) REFERENCES codelist (id) ON DELETE CASCADE)'
+        )
+
+        conn.execute(
+            'INSERT INTO "codelist_option_new" (id, codelist_id, code, decode, order_index) '
+            'SELECT id, codelist_id, code, decode, order_index FROM "codelist_option"'
+        )
+
+        conn.execute('DROP TABLE "codelist_option"')
+
+        conn.execute('ALTER TABLE "codelist_option_new" RENAME TO "codelist_option"')
+
+        conn.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS "idx_codelist_option_order" '
+            'ON "codelist_option" (codelist_id, order_index)'
+        )
+
+        conn.commit()
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
 
 
 
@@ -872,6 +943,58 @@ def _move_orphan_projects_to_recycle_bin(engine) -> None:
 
 
 
+def _normalize_log_row_presentation(engine) -> None:
+
+    """将历史 log 行的展示属性统一重置为默认值。"""
+
+    insp = inspect(engine)
+
+    if not insp.has_table("form_field"):
+
+        return
+
+    cols = {c["name"] for c in insp.get_columns("form_field")}
+
+    required = {
+        "is_log_row",
+        "label_override",
+        "bg_color",
+        "text_color",
+        "label_bold",
+        "label_font_size",
+    }
+
+    if not required.issubset(cols):
+
+        return
+
+    with engine.begin() as conn:
+
+        result = conn.execute(
+            text(
+                """
+                UPDATE form_field
+                   SET label_override = '以下为log行',
+                       bg_color = NULL,
+                       text_color = NULL,
+                       label_bold = 1,
+                       label_font_size = NULL
+                 WHERE is_log_row = 1
+                   AND (
+                        label_override IS NOT '以下为log行'
+                        OR bg_color IS NOT NULL
+                        OR text_color IS NOT NULL
+                        OR label_bold IS NOT 1
+                        OR label_font_size IS NOT NULL
+                   )
+                """
+            )
+        )
+
+        if result.rowcount > 0:
+
+            logger.info("已重置 %d 条 log 行为默认展示属性", result.rowcount)
+
 
 
 def _is_form_field_rowid_pk_compatible(engine) -> bool:
@@ -1088,6 +1211,60 @@ def _migrate_add_performance_fk_indexes(engine):
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
 
 
+# 与前端 FormDesignerTab.vue 的 DATE_FORMAT_OPTIONS 逐项对齐（小写键 → 规范写法）。
+# 旧数据曾由 docx_import_service 写入大写 YYYY-MM-DD，前端下拉只认小写选项。
+_DATE_FORMAT_CANONICALS = {
+    "日期": {
+        "yyyy-mm-dd": "yyyy-MM-dd",
+        "mm/dd/yyyy": "MM/dd/yyyy",
+        "dd/mmm/yyyy": "dd/MMM/yyyy",
+        "dd-mmm-yyyy": "dd-MMM-yyyy",
+        "yyyy/mm/dd": "yyyy/MM/dd",
+    },
+    "日期时间": {
+        "yyyy-mm-dd hh:mm:ss": "yyyy-MM-dd HH:mm:ss",
+        "yyyy-mm-dd hh:mm": "yyyy-MM-dd HH:mm",
+        "yyyy/mm/dd hh:mm:ss": "yyyy/MM/dd HH:mm:ss",
+        "dd/mm/yyyy hh:mm:ss": "dd/MM/yyyy HH:mm:ss",
+    },
+    "时间": {
+        "hh:mm:ss": "HH:mm:ss",
+        "hh:mm": "HH:mm",
+        "hh:mm:ss ap": "hh:mm:ss AP",
+        "hh:mm ap": "hh:mm AP",
+    },
+}
+
+
+def _migrate_normalize_date_formats(engine) -> None:
+    """把 field_definition.date_format 统一为前端下拉的规范写法。
+
+    大小写不敏感匹配（如旧数据 YYYY-MM-DD → yyyy-MM-dd）；匹配不上的值
+    原样保留，不猜测、不置空。幂等，可重复执行。
+    """
+    insp = inspect(engine)
+    if not insp.has_table("field_definition"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, field_type, date_format FROM field_definition "
+                "WHERE field_type IN ('日期', '日期时间', '时间') AND date_format IS NOT NULL"
+            )
+        ).fetchall()
+        changed = 0
+        for row_id, field_type, date_format in rows:
+            canonical = _DATE_FORMAT_CANONICALS.get(field_type, {}).get(date_format.lower())
+            if canonical is not None and canonical != date_format:
+                conn.execute(
+                    text("UPDATE field_definition SET date_format = :canonical WHERE id = :row_id"),
+                    {"canonical": canonical, "row_id": row_id},
+                )
+                changed += 1
+        if changed:
+            logger.info("迁移：已将 %d 个日期类字段的 date_format 统一为规范写法", changed)
+
+
 def init_db():
 
     engine = get_engine()
@@ -1096,7 +1273,7 @@ def init_db():
 
     _migrate_add_code_columns(engine)
 
-    _migrate_add_trailing_underscore(engine)
+    _migrate_drop_codelist_option_trailing_underscore(engine)
 
     _migrate_add_field_definition_checkbox_label(engine)
 
@@ -1132,7 +1309,11 @@ def init_db():
 
     _move_orphan_projects_to_recycle_bin(engine)
 
+    _normalize_log_row_presentation(engine)
+
     _migrate_add_performance_fk_indexes(engine)
+
+    _migrate_normalize_date_formats(engine)
 
 
 

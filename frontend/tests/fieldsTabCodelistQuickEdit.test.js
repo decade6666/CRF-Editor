@@ -47,10 +47,9 @@ test('quick edit failure refreshes to latest codelist data and reports the error
   assert.match(source, /已刷新为最新字典数据/)
 })
 
-test('add and edit dialogs render trailing-underscore toggle wired to toggleTrailingLine', () => {
+test('add and edit dialogs no longer render trailing-underscore toggles', () => {
   assert.match(source, /v-model="showQuickAddCodelist"/)
   assert.match(source, /v-model="showQuickEditCodelist"/)
-  assert.match(source, /function toggleTrailingLine\(row\)/)
-  const toggleMatches = source.match(/@change="\(\) => toggleTrailingLine\(row\)"/g) || []
-  assert.equal(toggleMatches.length, 2)
+  assert.doesNotMatch(source, /function toggleTrailingLine\(row\)/)
+  assert.doesNotMatch(source, /后加下划线/)
 })

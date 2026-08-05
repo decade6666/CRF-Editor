@@ -93,18 +93,17 @@ def create_codelist(
     *,
     name: str = "性别",
     code: str = "CL_SEX",
-    option_metadata: list[tuple[str | None, str, int]] | None = None,
+    option_metadata: list[tuple[str | None, str]] | None = None,
 ) -> CodeList:
     codelist = CodeList(project_id=project_id, name=name, code=code)
     session.add(codelist)
     session.flush()
 
-    for index, (option_code, decode, trailing_underscore) in enumerate(option_metadata or [], start=1):
+    for index, (option_code, decode) in enumerate(option_metadata or [], start=1):
         session.add(CodeListOption(
             codelist_id=codelist.id,
             code=option_code,
             decode=decode,
-            trailing_underscore=trailing_underscore,
             order_index=index,
         ))
     session.flush()
@@ -152,9 +151,9 @@ def build_template_db(
     tmp_path: Path,
     *,
     with_unit: bool,
-    with_trailing_underscore: bool = False,
+    with_choice_options: bool = False,
     codelist_name: str = "性别",
-    option_metadata: list[tuple[str | None, str, int]] | None = None,
+    option_metadata: list[tuple[str | None, str]] | None = None,
     paper_orientation: str = "auto",
     field_type: str | None = None,
     checkbox_label: str | None = None,
@@ -178,15 +177,15 @@ def build_template_db(
             template_session.flush()
             unit_id = unit.id
 
-        if with_trailing_underscore:
+        if with_choice_options:
             codelist = create_codelist(
                 template_session,
                 project.id,
                 name=codelist_name,
                 code="CL_SEX",
                 option_metadata=option_metadata or [
-                    ("1", "男", 1),
-                    ("2", "女", 0),
+                    ("1", "男"),
+                    ("2", "女"),
                 ],
             )
             codelist_id = codelist.id
@@ -196,7 +195,7 @@ def build_template_db(
             project.id,
             variable_name="TEMP_FIELD",
             label="模板字段",
-            field_type=field_type or ("单选" if with_trailing_underscore else "文本"),
+            field_type=field_type or ("单选" if with_choice_options else "文本"),
             unit_id=unit_id,
             codelist_id=codelist_id,
             checkbox_label=checkbox_label,
@@ -266,7 +265,7 @@ def test_get_template_form_fields_returns_structured_option_metadata(
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     service = ImportService(session)
 
@@ -275,11 +274,11 @@ def test_get_template_form_fields_returns_structured_option_metadata(
     assert len(fields) == 1
     options = fields[0]["options"]
     assert [
-        {key: option[key] for key in ("code", "decode", "trailing_underscore")}
+        {key: option[key] for key in ("code", "decode")}
         for option in options
     ] == [
-        {"code": "1", "decode": "男", "trailing_underscore": 1},
-        {"code": "2", "decode": "女", "trailing_underscore": 0},
+        {"code": "1", "decode": "男"},
+        {"code": "2", "decode": "女"},
     ]
 
 
@@ -330,7 +329,7 @@ def test_template_preview_and_import_discard_stale_checkbox_codelist(
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
         field_type="复选",
         checkbox_label="受试者已确认",
     )
@@ -628,11 +627,11 @@ def test_update_inline_mark_preserves_default_value_when_enabling(session: Sessi
     assert refreshed.inline_mark == 1
 
 
-def test_import_forms_preserves_trailing_underscore_metadata(tmp_path: Path, session: Session) -> None:
+def test_import_forms_preserves_choice_option_metadata(tmp_path: Path, session: Session) -> None:
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     target_project = create_project(session, name="目标项目")
     service = ImportService(session)
@@ -655,16 +654,15 @@ def test_import_forms_preserves_trailing_underscore_metadata(tmp_path: Path, ses
         CodeListOption.codelist_id == imported_codelist.id,
     ).order_by(CodeListOption.order_index, CodeListOption.id).all()
 
-    assert [option.decode for option in options] == ["男", "女"]
-    assert [option.trailing_underscore for option in options] == [1, 0]
+    assert [(option.code, option.decode) for option in options] == [("1", "男"), ("2", "女")]
 
 
 
-def test_imported_trailing_underscore_matches_export_semantics(tmp_path: Path, session: Session) -> None:
+def test_imported_choice_options_match_export_semantics(tmp_path: Path, session: Session) -> None:
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     target_project = create_project(session, name="导出目标项目")
     service = ImportService(session)
@@ -684,7 +682,7 @@ def test_imported_trailing_underscore_matches_export_semantics(tmp_path: Path, s
     ).one()
     exported_labels = ExportService(session)._get_option_labels(imported_field_definition)
 
-    assert exported_labels == ["男______", "女"]
+    assert exported_labels == ["男", "女"]
 
 
 
@@ -695,7 +693,7 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     target_project = create_project(session, name="同名字典目标项目")
     existing_codelist = create_codelist(
@@ -704,8 +702,8 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
         name="性别",
         code="CL_EXIST",
         option_metadata=[
-            ("1", "男", 1),
-            ("2", "女", 0),
+            ("1", "男"),
+            ("2", "女"),
         ],
     )
 
@@ -733,38 +731,37 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
 
     assert imported_field_definition.codelist_id == existing_codelist.id
     assert [option.decode for option in reused_options] == ["男", "女"]
-    assert [option.trailing_underscore for option in reused_options] == [1, 0]
-    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男______", "女"]
+    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男", "女"]
 
 
 @pytest.mark.parametrize(
     ("template_options", "existing_options"),
     [
         (
-            [("1", "男", 1), ("2", "女", 0)],
-            [("1", "男", 0), ("2", "女", 0)],
+            [("1", "男"), ("2", "女")],
+            [("1", "男性"), ("2", "女")],
         ),
         (
-            [("1", "男", 1), ("2", "女", 0)],
-            [("X", "男", 1), ("2", "女", 0)],
+            [("1", "男"), ("2", "女")],
+            [("X", "男"), ("2", "女")],
         ),
         (
-            [("1", "男", 1), ("2", "女", 0)],
-            [("2", "女", 0), ("1", "男", 1)],
+            [("1", "男"), ("2", "女")],
+            [("2", "女"), ("1", "男")],
         ),
     ],
-    ids=["trailing-underscore-mismatch", "code-mismatch", "order-mismatch"],
+    ids=["decode-mismatch", "code-mismatch", "order-mismatch"],
 )
 def test_import_forms_creates_import_suffixed_codelist_when_same_name_signature_conflicts(
     tmp_path: Path,
     session: Session,
-    template_options: list[tuple[str | None, str, int]],
-    existing_options: list[tuple[str | None, str, int]],
+    template_options: list[tuple[str | None, str]],
+    existing_options: list[tuple[str | None, str]],
 ) -> None:
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
         option_metadata=template_options,
     )
     target_project = create_project(session, name="冲突字典目标项目")
@@ -793,7 +790,7 @@ def test_import_forms_creates_import_suffixed_codelist_when_same_name_signature_
     original_options = session.query(CodeListOption).filter(
         CodeListOption.codelist_id == existing_codelist.id,
     ).order_by(CodeListOption.order_index, CodeListOption.id).all()
-    assert [(option.code, option.decode, option.trailing_underscore) for option in original_options] == existing_options
+    assert [(option.code, option.decode) for option in original_options] == existing_options
 
     imported_codelist = next(codelist for codelist in codelists if codelist.name == "性别（导入）")
     imported_options = session.query(CodeListOption).filter(
@@ -805,7 +802,7 @@ def test_import_forms_creates_import_suffixed_codelist_when_same_name_signature_
     ).one()
 
     assert imported_field_definition.codelist_id == imported_codelist.id
-    assert [(option.code, option.decode, option.trailing_underscore) for option in imported_options] == template_options
+    assert [(option.code, option.decode) for option in imported_options] == template_options
 
 
 def test_docx_import_creates_codelist_for_vertical_multiselect(session: Session) -> None:
@@ -832,7 +829,7 @@ def test_docx_import_creates_codelist_for_vertical_multiselect(session: Session)
 
 
 
-def test_docx_import_preserves_literal_trailing_underscore_text(session: Session) -> None:
+def test_docx_import_preserves_literal_option_text(session: Session) -> None:
     service = DocxImportService(session)
     project = create_project(session, name="DOCX尾线项目")
     field_info = build_docx_field_info(options=["男_", "女"])
@@ -850,7 +847,7 @@ def test_docx_import_preserves_literal_trailing_underscore_text(session: Session
     options = session.query(CodeListOption).filter(
         CodeListOption.codelist_id == field_definition.codelist_id,
     ).order_by(CodeListOption.order_index, CodeListOption.id).all()
-    assert [(option.decode, option.trailing_underscore) for option in options] == [("男_", 0), ("女", 0)]
+    assert [option.decode for option in options] == ["男_", "女"]
 
 
 
@@ -862,8 +859,8 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
         name="不良反应",
         code="CL_AE",
         option_metadata=[
-            ("1", "恶心", 0),
-            ("2", "呕吐", 0),
+            ("1", "恶心"),
+            ("2", "呕吐"),
         ],
     )
     field_definition = create_field_definition(
@@ -882,7 +879,7 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
 
 
 
-def test_docx_imported_literal_trailing_underscore_matches_export_semantics(session: Session) -> None:
+def test_docx_imported_literal_option_text_matches_export_semantics(session: Session) -> None:
     service = DocxImportService(session)
     project = create_project(session, name="DOCX导出项目")
     field_info = build_docx_field_info(field_type="单选", options=["男_", "女"])
@@ -967,7 +964,7 @@ def test_build_inline_table_model_preserves_row_alignment_and_label_override(ses
 
 
 
-def test_export_service_does_not_duplicate_semantic_trailing_underscore(session: Session) -> None:
+def test_export_service_preserves_literal_option_text(session: Session) -> None:
     project = create_project(session, name="下划线项目")
     codelist = create_codelist(
         session,
@@ -975,7 +972,7 @@ def test_export_service_does_not_duplicate_semantic_trailing_underscore(session:
         name="性别",
         code="CL_SEX",
         option_metadata=[
-            ("1", "男_", 1),
+            ("1", "男_"),
         ],
     )
     field_definition = create_field_definition(
@@ -999,7 +996,7 @@ def test_template_import_preview_contract_includes_default_inline_and_option_sem
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     service = ImportService(session)
 
@@ -1011,11 +1008,11 @@ def test_template_import_preview_contract_includes_default_inline_and_option_sem
     assert field["inline_mark"] == 1  # integer flag (Task 3.1: raw inline_mark)
     assert field["unit_symbol"] is None
     assert [
-        {key: option[key] for key in ("code", "decode", "trailing_underscore")}
+        {key: option[key] for key in ("code", "decode")}
         for option in field["options"]
     ] == [
-        {"code": "1", "decode": "男", "trailing_underscore": 1},
-        {"code": "2", "decode": "女", "trailing_underscore": 0},
+        {"code": "1", "decode": "男"},
+        {"code": "2", "decode": "女"},
     ]
 
 
@@ -1027,7 +1024,7 @@ def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
     template_path, form_id = build_template_db(
         tmp_path,
         with_unit=False,
-        with_trailing_underscore=True,
+        with_choice_options=True,
     )
     target_project = create_project(session, name="重复冲突目标项目")
     create_codelist(
@@ -1036,8 +1033,8 @@ def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
         name="性别",
         code="CL_EXIST",
         option_metadata=[
-            ("1", "男", 0),
-            ("2", "女", 0),
+            ("1", "男"),
+            ("2", "女"),
         ],
     )
     create_codelist(
@@ -1046,8 +1043,8 @@ def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
         name="性别（导入）",
         code="CL_EXIST_IMP",
         option_metadata=[
-            ("1", "男", 0),
-            ("2", "女", 0),
+            ("1", "男"),
+            ("2", "女"),
         ],
     )
 
@@ -1063,14 +1060,16 @@ def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
     codelists = session.query(CodeList).filter(
         CodeList.project_id == target_project.id,
     ).order_by(CodeList.id).all()
-    imported_codelist = next(codelist for codelist in codelists if codelist.name == "性别（导入2）")
     imported_field_definition = session.query(FieldDefinition).filter(
         FieldDefinition.project_id == target_project.id,
         FieldDefinition.label == "模板字段",
     ).one()
 
-    assert [codelist.name for codelist in codelists] == ["性别", "性别（导入）", "性别（导入2）"]
-    assert imported_field_definition.codelist_id == imported_codelist.id
+    # 目标库已有「性别（导入）」且签名一致：import_forms 的冲突路径会复用同名
+    # 「性别（导入）」而非继续递增后缀（命名冲突后先查 target 库内同名）。
+    names = [codelist.name for codelist in codelists]
+    assert names == ["性别", "性别（导入）"], f"实际: {names}"
+    assert imported_field_definition.codelist_id == 1
 
 
 # =============================================================================

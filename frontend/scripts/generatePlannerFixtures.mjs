@@ -42,7 +42,6 @@ const choiceField = (label, options, extras = {}) => ({
     label,
     options: options.map((o) => ({
       decode: o.decode,
-      trailingUnderscore: Boolean(o.trailing),
       order_index: o.order_index ?? 0,
     })),
   },
@@ -145,14 +144,14 @@ const cases = [
 
   // ── inline ──
   {
-    name: 'inline_choice_trailing_underscore',
+    name: 'inline_choice_multi_option',
     kind: 'inline',
-    description: '单选 + trailing_underscore → atom 权重含 FILL_LINE_WEIGHT',
+    description: '单选多选项 → atom 权重仅由 marker + label 决定',
     fields: [
       choiceField('性别', [
-        { decode: '男', trailing: true },
-        { decode: '女', trailing: true },
-        { decode: '其他', trailing: true },
+        { decode: '男' },
+        { decode: '女' },
+        { decode: '其他' },
       ]),
     ],
   },

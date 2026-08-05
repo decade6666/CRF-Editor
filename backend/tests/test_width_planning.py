@@ -84,29 +84,17 @@ class TestTextWeight:
 
 
 class TestChoiceAtomWeight:
-    """选项原子权重计算测试"""
+    """选项原子权重计算测试（marker + label）"""
 
-    def test_choice_atom_without_trailing(self):
-        """无尾部填写线的选项原子权重"""
-        # 符号 + 标签；marker-label 内部无空格
-        weight = compute_choice_atom_weight("", False)
+    def test_choice_atom_empty_label(self):
+        """空标签：仅 marker 权重"""
+        weight = compute_choice_atom_weight("")
         assert weight == 1
 
-        # 符号 + 标签 = 1 + 4 = 5（标签"选项"）
-        weight = compute_choice_atom_weight("选项", False)
+    def test_choice_atom_with_label(self):
+        """符号 + 标签 = 1 + 4 = 5（标签"选项"）"""
+        weight = compute_choice_atom_weight("选项")
         assert weight == 5
-
-    def test_choice_atom_with_trailing(self):
-        """有尾部填写线的选项原子权重"""
-        # 符号 + 标签 + 填写线 = 1 + 4 + 6 = 11（标签"选项"）
-        weight = compute_choice_atom_weight("选项", True)
-        assert weight == 11
-
-    def test_trailing_adds_constant_weight(self):
-        """尾部填写线增加固定权重"""
-        without_trailing = compute_choice_atom_weight("测试", False)
-        with_trailing = compute_choice_atom_weight("测试", True)
-        assert with_trailing - without_trailing == 6  # FILL_LINE_WEIGHT
 
 
 @pytest.mark.parametrize(
@@ -114,7 +102,7 @@ class TestChoiceAtomWeight:
     [
         # 空复选文本回退默认字符 ✔（atom 权重 2），被 FILL_LINE_WEIGHT 最小保护抬到 6
         (None, 6),
-        ("本人已确认", compute_choice_atom_weight("本人已确认", False)),
+        ("本人已确认", compute_choice_atom_weight("本人已确认")),
     ],
 )
 def test_checkbox_control_weight_uses_marker_and_resolved_label(
@@ -465,7 +453,6 @@ def _stub_from_dict(data: dict):
                 options=[
                     SimpleNamespace(
                         decode=o.get("decode"),
-                        trailing_underscore=1 if o.get("trailingUnderscore") else 0,
                         order_index=o.get("order_index", 0),
                         id=idx,
                     )

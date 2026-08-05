@@ -194,9 +194,9 @@ def test_split_multiselect_vertical_three_options():
         "label": "症状",
         "field_type": "多选",
         "options": [
-            {"decode": "头痛", "trailing_underscore": 0},
-            {"decode": "发热", "trailing_underscore": 0},
-            {"decode": "咳嗽", "trailing_underscore": 0},
+            {"decode": "头痛"},
+            {"decode": "发热"},
+            {"decode": "咳嗽"},
         ],
     }
     out = _split_multiselect_field(field)

@@ -81,6 +81,7 @@ async function update() {
 }
 
 const selUnits = ref([])
+const unitsRowClassName = ({ row }) => (selUnits.value.some((u) => u.id === row.id) ? 'is-selected-row' : '')
 async function batchDelUnits() {
   try {
     const ids = selUnits.value.map(r => r.id)
@@ -143,6 +144,7 @@ const {
     </div>
 
     <el-table ref="unitsTableRef" :data="visibleUnits" size="small" border height="100%" row-key="id"
+      :row-class-name="unitsRowClassName"
       @selection-change="r => selUnits = r">
       <el-table-column width="32" v-if="!isFiltered">
         <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>

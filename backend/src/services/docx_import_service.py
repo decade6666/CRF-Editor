@@ -66,28 +66,33 @@ def _choice_option_decode(option: Any) -> str:
     return str(option or "").strip()
 
 
-def _infer_trailing_underscore(option_text: str) -> int:
+_OPTION_DESCRIPTION_TAIL_PUNCT = "，,、：:；;"
+_TRAILING_UNDERSCORE_RE = re.compile(r"[_＿]+$")
+
+
+def _split_option_trailing_underscore(option_text: str) -> tuple[str, bool]:
     stripped = option_text.strip()
     if not stripped:
-        return 0
-    if re.search(r"[_＿]+$", stripped):
-        return 1
-    if any(keyword in stripped for keyword in ("请描述", "请说明", "请解释", "请注明", "其他")):
-        return 1
-    return 0
+        return "", False
+    if not _TRAILING_UNDERSCORE_RE.search(stripped):
+        return stripped, False
+    decode = _TRAILING_UNDERSCORE_RE.sub("", stripped).strip()
+    return decode, bool(decode)
 
 
 def _build_choice_options(text: str, marker: str) -> List[dict]:
     options: List[dict] = []
-    for option_text in re.split(re.escape(marker), text):
+    for src_index, option_text in enumerate(re.split(re.escape(marker), text)):
         raw = option_text.strip()
         if not raw:
             continue
-        trailing = _infer_trailing_underscore(raw)
-        decode = raw.rstrip("_＿") if trailing else raw
+        decode, needs_description = _split_option_trailing_underscore(raw)
         if not decode.strip():
             continue
-        options.append({"decode": decode, "trailing_underscore": trailing})
+        option = {"decode": decode, "_src_order": src_index}
+        if needs_description:
+            option["needs_description"] = True
+        options.append(option)
     return options
 
 
@@ -96,17 +101,6 @@ def _choice_layout(has_vertical_layout: bool) -> tuple[str, str]:
     if has_vertical_layout:
         return "单选（纵向）", "多选（纵向）"
     return "单选", "多选"
-
-
-def _normalize_choice_metadata(option: Any) -> Optional[tuple[str, int]]:
-    decode = _choice_option_decode(option)
-    if not decode:
-        return None
-    if isinstance(option, dict):
-        trailing = int(option.get("trailing_underscore", 0) or 0)
-    else:
-        trailing = 0
-    return decode, trailing
 
 
 def _normalize_binary_choice_order(label: str, options: List[dict]) -> List[dict]:
@@ -469,14 +463,14 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
     if has_date and has_time:
         colon_count = text.count(":") + text.count("：")
         if has_vertical_layout:
-            return "日期", {"date_format": "YYYY-MM-DD"}
+            return "日期", {"date_format": "yyyy-MM-dd"}
         if colon_count >= 2:
             return "日期时间", {"date_format": "yyyy-MM-dd HH:mm:ss"}
         return "日期时间", {"date_format": "yyyy-MM-dd HH:mm"}
 
     # 日期: |__|__|__|__|年|__|__|月|__|__|日
     if has_date:
-        return "日期", {"date_format": "YYYY-MM-DD"}
+        return "日期", {"date_format": "yyyy-MM-dd"}
 
     # 时间: |__|__|:|__|__| 或含"时""分"的格式（必须在数值检测之前）
     if has_time:
@@ -1127,94 +1121,83 @@ def _truncate_label(label: str, max_len: int = 255) -> str:
 
 
 
-def _split_multiselect_field(field: dict) -> List[dict]:
+def _expand_underscore_option_fields(fields: List[dict]) -> List[dict]:
 
+    """把带尾部下划线的选项拆成独立的文本描述字段。"""
+
+    expanded: List[dict] = []
+
+    for field in fields or []:
+
+        if not isinstance(field, dict):
+
+            expanded.append(field)
+            continue
+
+        options = field.get("options")
+        if not isinstance(options, list):
+            expanded.append(field)
+            continue
+
+        description_entries: List[tuple[int, str]] = []
+        cleaned_options: List[Any] = []
+        for option in options:
+            if isinstance(option, dict):
+                decode = _choice_option_decode(option)
+                cleaned_option = {k: v for k, v in option.items() if k not in ("needs_description", "_src_order")}
+                if option.get("needs_description") and decode:
+                    stem = decode.rstrip(_OPTION_DESCRIPTION_TAIL_PUNCT) or decode
+                    description_entries.append(
+                        (option.get("_src_order", 0), _truncate_label(f"{stem}描述"))
+                    )
+                cleaned_options.append(cleaned_option)
+            else:
+                cleaned_options.append(option)
+
+        current_field = {**field, "options": cleaned_options}
+        expanded.append(current_field)
+
+        for _, label in sorted(description_entries, key=lambda entry: entry[0]):
+            description_field = {"label": label, "field_type": "文本"}
+            if field.get("inline_mark"):
+                description_field["inline_mark"] = True
+            expanded.append(description_field)
+
+    return expanded
+
+
+
+
+
+def _split_multiselect_field(field: dict) -> List[dict]:
     """将单个多选字段拆为 标签+复选 或 内联复选 序列。
 
-
-
     非多选字段原样返回。确定性纯函数，preview/execute 共用。
-
     """
-
     if not isinstance(field, dict):
-
         return [field]
-
     if field.get("type") == "log_row":
-
         return [field]
-
     field_type = field.get("field_type")
-
     if not is_multiselect_field_type(field_type):
-
         return [field]
-
-
-
     decodes = _option_decodes(field)
-
     stem = (field.get("label") or "").strip() or "未命名"
-
     is_inline = bool(field.get("inline_mark"))
-
-
-
     if not decodes:
-
         if is_inline:
-
-            return [{
-
-                "label": _truncate_label(stem),
-
-                "field_type": "文本",
-
-                "inline_mark": True,
-
-            }]
-
-        return [{"label": _truncate_label(stem), "field_type": "标签"}]
-
-
-
+            return [{"label": stem, "field_type": "文本", "inline_mark": True}]
+        return [{"label": stem, "field_type": "标签"}]
     if is_inline:
-
-        result: List[dict] = []
-
+        out = []
         for decode in decodes:
-
-            result.append({
-
-                "label": _truncate_label(f"{stem}-{decode}"),
-
-                "field_type": "复选",
-
-                "inline_mark": True,
-
-            })
-
-        return result
-
-
-
-    result = [{"label": _truncate_label(stem), "field_type": "标签"}]
-
+            label = _truncate_label(f"{stem}-{decode}")
+            out.append({"label": label, "field_type": "复选", "inline_mark": True})
+        return out
+    out = [{"label": stem, "field_type": "标签"}]
     for decode in decodes:
-
-        result.append({
-
-            "label": _truncate_label(decode),
-
-            "field_type": "复选",
-
-        })
-
-    return result
-
-
-
+        out.append({"label": decode, "field_type": "复选"})
+    return out
 
 
 def _split_multiselect_fields(fields: List[dict]) -> List[dict]:
@@ -1507,6 +1490,7 @@ class DocxImportService:
                 fields = _parse_horizontal_table(table)
             else:
                 fields = _parse_simple_table(table)
+            fields = _expand_underscore_option_fields(fields)
 
             next_index = child_index + 1
             note_fields: List[dict] = []
@@ -2031,12 +2015,9 @@ class DocxImportService:
         if field_type in ("单选", "多选", "单选（纵向）", "多选（纵向）") and options:
 
             normalized_options = [
-                metadata
-                for metadata in (
-                    _normalize_choice_metadata(option)
-                    for option in options
-                )
-                if metadata is not None
+                decode
+                for decode in (_choice_option_decode(option) for option in options)
+                if decode
             ]
 
             if normalized_options:
@@ -2069,7 +2050,7 @@ class DocxImportService:
                         s.flush()
                     codelist_id = new_cl.id
                     existing_codelists[cl_name] = codelist_id
-                    for i, (opt_text, trailing_underscore) in enumerate(normalized_options, start=1):
+                    for i, opt_text in enumerate(normalized_options, start=1):
 
                         s.add(CodeListOption(
 
@@ -2078,8 +2059,6 @@ class DocxImportService:
                             code=f"C.{i}",
 
                             decode=opt_text,
-
-                            trailing_underscore=trailing_underscore,
 
                             order_index=i,
 

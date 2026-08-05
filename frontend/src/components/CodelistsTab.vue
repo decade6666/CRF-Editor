@@ -30,7 +30,7 @@ const visibleOptions = computed(() =>
 const showAddCl = ref(false)
 const showAddOpt = ref(false)
 const clForm = reactive({ name: '', code: '', description: '' })
-const optForm = reactive({ code: '', decode: '', trailing_underscore: 0 })
+const optForm = reactive({ code: '', decode: '' })
 
 const codelistsTableRef = ref(null)
 const optionsTableRef = ref(null)
@@ -175,6 +175,7 @@ async function batchDelCl() {
 }
 
 const selOpts = ref([])
+const optionsRowClassName = ({ row }) => (selOpts.value.some((o) => o.id === row.id) ? 'is-selected-row' : '')
 async function batchDelOpt() {
   try {
     if (!selOpts.value.length) return ElMessage.warning('请先选择要删除的选项')
@@ -185,14 +186,9 @@ async function batchDelOpt() {
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
-const addOptTrailingLine = computed({
-  get: () => optForm.trailing_underscore === 1,
-  set: (val) => { optForm.trailing_underscore = val ? 1 : 0 },
-})
-
 function openAddOpt() {
   const n = selected.value?.options?.length || 0
-  optForm.code = `C.${n + 1}`; optForm.decode = ''; optForm.trailing_underscore = 0
+  optForm.code = `C.${n + 1}`; optForm.decode = ''
   showAddOpt.value = true
 }
 
@@ -202,7 +198,7 @@ async function addOpt() {
   if (!optForm.decode.trim()) return ElMessage.warning('请输入标签')
   try {
     await api.post(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options`, { ...optForm })
-    showAddOpt.value = false; optForm.code = ''; optForm.decode = ''; optForm.trailing_underscore = 0
+    showAddOpt.value = false; optForm.code = ''; optForm.decode = ''
     const id = selected.value.id; await reload(); selected.value = codelists.value.find(c => c.id === id) || null
   } catch (e) { ElMessage.error(e.message) }
 }
@@ -240,15 +236,11 @@ async function updateCl() {
 }
 
 const showEditOpt = ref(false)
-const editOptForm = reactive({ code: '', decode: '', trailing_underscore: 0 })
+const editOptForm = reactive({ code: '', decode: '' })
 const editOptTarget = ref(null)
-const editOptTrailingLine = computed({
-  get: () => editOptForm.trailing_underscore === 1,
-  set: (val) => { editOptForm.trailing_underscore = val ? 1 : 0 },
-})
 
 function openEditOpt(o) {
-  Object.assign(editOptForm, { code: o.code || '', decode: o.decode || '', trailing_underscore: o.trailing_underscore || 0 })
+  Object.assign(editOptForm, { code: o.code || '', decode: o.decode || '' })
   editOptTarget.value = o; showEditOpt.value = true
 }
 
@@ -360,6 +352,7 @@ function openAddCl() {
         style="width:100%"
         height="100%"
         row-key="id"
+        :row-class-name="optionsRowClassName"
         @selection-change="r => selOpts = r"
       >
         <el-table-column width="32" v-if="!isOptionsFiltered">
@@ -395,11 +388,6 @@ function openAddCl() {
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" width="100" show-overflow-tooltip />
         <el-table-column prop="decode" label="标签" show-overflow-tooltip />
-        <el-table-column label="后加下划线" width="110">
-          <template #default="{ row }">
-            <el-checkbox :model-value="row.trailing_underscore === 1" disabled />
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button size="small" link @click="openEditOpt(row)">编辑</el-button>
@@ -427,7 +415,6 @@ function openAddCl() {
       <el-form :model="optForm" label-width="100px">
         <el-form-item v-if="editMode" label="OID"><el-input v-model="optForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="optForm.decode" /></el-form-item>
-        <el-form-item label="后加下划线"><el-checkbox v-model="addOptTrailingLine" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAddOpt = false">取消</el-button>
@@ -453,7 +440,6 @@ function openAddCl() {
       <el-form :model="editOptForm" label-width="100px">
         <el-form-item v-if="editMode" label="OID"><el-input v-model="editOptForm.code" /></el-form-item>
         <el-form-item label="标签"><el-input v-model="editOptForm.decode" /></el-form-item>
-        <el-form-item label="后加下划线"><el-checkbox v-model="editOptTrailingLine" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEditOpt = false">取消</el-button>

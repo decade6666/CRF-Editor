@@ -62,6 +62,7 @@ import {
 } from '../composables/useCRFRenderer';
 import {
   buildFormPropState,
+  normalizeDateFormat,
   normalizeHexColorInput,
   sameFormPropState,
   syncFieldTypeSpecificProps,
@@ -644,9 +645,10 @@ async function onSwitchFormFromDropdown(formId) {
   }
 }
 
-async function onCanvasBlankClick(event) {
+// 点击设计器空白处回到表单属性：字段列表容器（onCanvasBlankClick）与
+// designer-shell / 弹窗标题栏（onDesignerBlankClick）共用同一守卫链。
+async function returnToFormProperties() {
   if (!selectedFieldId.value) return;
-  if (event?.target?.closest?.('.ff-item')) return;
   if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
@@ -660,6 +662,38 @@ async function onCanvasBlankClick(event) {
   }
   resetFieldPropAutoSaveState();
   syncFormPropEditor(selectedForm.value);
+}
+
+async function onCanvasBlankClick(event) {
+  if (event?.target?.closest?.('.ff-item')) return;
+  await returnToFormProperties();
+}
+
+// 除三张卡片、各类控件、字段条目与分隔条以外，设计器主体/标题栏空白都回到表单属性。
+// .fd-canvas-list 由 onCanvasBlankClick 处理，排除以免事件冒泡导致双弹保存确认。
+const DESIGNER_BLANK_EXCLUDE_SELECTOR = [
+  '.designer-preview-pane',
+  '.designer-editor-card',
+  '.designer-notes-card',
+  'button',
+  'input',
+  'textarea',
+  '.el-select',
+  '.el-input',
+  '.el-input-number',
+  '.el-radio',
+  '.el-checkbox',
+  '.el-switch',
+  '.ff-item',
+  '.fd-item',
+  '.pane-v-resizer',
+  '.fd-panel-resizer',
+  '.fd-canvas-list',
+].join(',');
+
+async function onDesignerBlankClick(event) {
+  if (event?.target?.closest?.(DESIGNER_BLANK_EXCLUDE_SELECTOR)) return;
+  await returnToFormProperties();
 }
 
 // 表单字段操作
@@ -739,7 +773,6 @@ function snapshotFieldPropState(ff) {
   if (!ff) return null;
   const fd = ff.field_definition || {};
   return {
-    is_log_row: !!ff.is_log_row,
     label_override: ff.label_override ?? null,
     default_value: ff.default_value || null,
     bg_color: ff.bg_color ?? null,
@@ -781,13 +814,8 @@ async function reloadAfterReplay(formId, { defs = false, focusFieldId = null } =
 // 回放一份属性状态（字段定义 + 实例 + 颜色），undo / redo 共用。
 async function applyFieldPropState(ctx, state) {
   const { formId, projectId, ffId, fieldDefinitionId } = ctx;
-  if (state.is_log_row) {
-    await api.put(`/api/form-fields/${ffId}`, { label_override: state.label_override });
-  } else {
-    await api.put(`/api/projects/${projectId}/field-definitions/${fieldDefinitionId}`, { ...state.fd });
-    await api.put(`/api/form-fields/${ffId}`, { default_value: state.default_value });
-  }
-  // 颜色与标签样式对日志行与普通字段都适用，与正向保存 saveFieldProp 的无条件 PATCH 对齐。
+  await api.put(`/api/projects/${projectId}/field-definitions/${fieldDefinitionId}`, { ...state.fd });
+  await api.put(`/api/form-fields/${ffId}`, { default_value: state.default_value });
   await api.patch(`/api/form-fields/${ffId}/colors`, {
     bg_color: state.bg_color,
     text_color: state.text_color,
@@ -1313,12 +1341,12 @@ function getScopedDefaultValue(ff, singleLine = false) {
   return normalizeDefaultValue(ff.default_value, singleLine);
 }
 
-function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
+function renderCellHtml(ff, fillLineChars = null) {
   const previewField = getPreviewField(ff);
   if (!previewField) return '<span class="fill-line"></span>';
   const defaultValue = getScopedDefaultValue(ff, false);
   if (defaultValue) return toHtml(defaultValue);
-  return renderCtrlHtml(previewField, fillLineChars, columnCm);
+  return renderCtrlHtml(previewField, fillLineChars);
 }
 
 // normal 表 control 列宽（cm）：按整张表单的 render groups + 纸张方向解析（显式
@@ -1337,10 +1365,9 @@ function normalFillChars(groupIndex, group, scope) {
   return columnCm == null ? null : computeFillLineCharCount(columnCm);
 }
 
-function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
+function getInlineRows(fields, fillCharsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null;
-    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null;
     const defaultValue = getScopedDefaultValue(ff);
     if (defaultValue) {
       const lines = normalizeDefaultValue(defaultValue).split('\n');
@@ -1348,13 +1375,12 @@ function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
       return {
         lines: lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(ff.field_definition, fillChars, columnCm)),
+        fallback: toHtml(renderCtrl(ff.field_definition, fillChars)),
       };
     }
     // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），
-    // 使纵向选项尾线按 .choice-group--vertical .choice-atom .fill-line 的 flex 规则填满剩余宽、不溢出；
     // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
-    const ctrl = renderCtrlHtml(getPreviewField(ff), fillChars, columnCm);
+    const ctrl = renderCtrlHtml(getPreviewField(ff), fillChars);
     return { lines: [ctrl], repeat: true, fallback: ctrl };
   });
   const maxRows = Math.max(1, ...cols.filter((c) => !c.repeat).map((c) => c.lines.length));
@@ -1775,7 +1801,7 @@ let notesPendingSave = null;
 let notesSavePromise = null;
 let notesAutoSaveErrorShown = false;
 const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''));
-const HEADER_NOTES_MAX_LENGTH = 20;
+const HEADER_NOTES_MAX_LENGTH = 60;
 const headerDesignNotesSummary = computed(() => {
   const raw = previewDesignNotesText.value.replace(/\s+/g, ' ').trim();
   if (!raw) return '';
@@ -1932,6 +1958,7 @@ const quickEditProp = reactive({
 });
 function openQuickEdit(ff) {
   if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
+  if (ff?.is_log_row || ff?.field_definition?.field_type === '日志行') return;
   recordPerfEvent({
     type: 'instant',
     name: 'designer_edit_label',
@@ -2122,33 +2149,30 @@ function normalizeEditorDefaultValue() {
 
 function currentEditorPropState() {
   const ff = getSelectedFormField();
-  if (!ff || selectedFieldId.value === DRAFT_FIELD_ID) return null;
-  const isLogRow = Boolean(ff.is_log_row);
-  const labelOverride = isLogRow && ff.label_override == null && editProp.label === '以下为log行'
-    ? null
-    : editProp.label;
+  if (!ff || ff.is_log_row || selectedFieldId.value === DRAFT_FIELD_ID) return null;
   const normalizedFieldType = editProp.field_type || null;
   const normalizedCheckboxLabel = normalizedFieldType === '复选' ? (editProp.checkbox_label ?? null) : null;
   const normalizedCodelistId = isChoiceField(normalizedFieldType) ? editProp.codelist_id : null;
   const normalizedUnitId = ['文本', '数值'].includes(normalizedFieldType) ? (editProp.unit_id ?? null) : null;
   return {
-    is_log_row: isLogRow,
-    label_override: isLogRow ? (labelOverride ?? null) : (ff.label_override ?? null),
-    default_value: isLogRow ? null : normalizeEditorDefaultValue(),
+    label_override: ff.label_override ?? null,
+    default_value: normalizeEditorDefaultValue(),
     bg_color: editProp.bg_color ?? null,
     text_color: editProp.text_color ?? null,
     label_bold: editProp.label_bold ? 1 : 0,
     label_font_size: editProp.label_font_size === 'default' ? null : editProp.label_font_size,
     fd: {
-      label: isLogRow ? null : (editProp.label ?? null),
-      variable_name: isLogRow ? null : (editProp.variable_name ?? null),
-      field_type: isLogRow ? null : normalizedFieldType,
-      integer_digits: isLogRow || normalizedFieldType !== '数值' ? null : editProp.integer_digits,
-      decimal_digits: isLogRow || normalizedFieldType !== '数值' ? null : editProp.decimal_digits,
-      date_format: isLogRow || !DATE_FORMAT_OPTIONS[normalizedFieldType] ? null : editProp.date_format,
-      checkbox_label: isLogRow ? null : normalizedCheckboxLabel,
-      codelist_id: isLogRow ? null : normalizedCodelistId,
-      unit_id: isLogRow ? null : normalizedUnitId,
+      label: editProp.label ?? null,
+      variable_name: editProp.variable_name ?? null,
+      field_type: normalizedFieldType,
+      integer_digits: normalizedFieldType !== '数值' ? null : editProp.integer_digits,
+      decimal_digits: normalizedFieldType !== '数值' ? null : editProp.decimal_digits,
+      date_format: !DATE_FORMAT_OPTIONS[normalizedFieldType]
+        ? null
+        : normalizeDateFormat(normalizedFieldType, editProp.date_format, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS),
+      checkbox_label: normalizedCheckboxLabel,
+      codelist_id: normalizedCodelistId,
+      unit_id: normalizedUnitId,
     },
   };
 }
@@ -2268,12 +2292,11 @@ async function saveSelectedFieldProp() {
   let sessionId = null;
   isSavingFieldProp.value = true;
   try {
-    if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id) {
+    if (isChoiceField(snapshot.field_type) && !snapshot.codelist_id) {
       ElMessage.warning('单选/多选字段必须选择选项字典');
       return false;
     }
     if (
-      !ff.is_log_row &&
       isMultiselectFieldType(snapshot.field_type) &&
       !allowsMultiselect(projectDbType.value)
     ) {
@@ -2281,7 +2304,6 @@ async function saveSelectedFieldProp() {
       return false;
     }
     if (
-      !ff.is_log_row &&
       !['标签', '日志行'].includes(snapshot.field_type) &&
       !isValidRequiredOid(snapshot.variable_name)
     ) {
@@ -2345,7 +2367,7 @@ function selectField(ff) {
   selectedFieldId.value = ff.id;
   if (ff.is_log_row) {
     Object.assign(editProp, {
-      label: ff.label_override || '以下为log行',
+      label: '以下为log行',
       variable_name: '',
       field_type: '日志行',
       integer_digits: null,
@@ -2356,16 +2378,15 @@ function selectField(ff) {
       unit_id: null,
       default_value: '',
       inline_mark: 0,
-      bg_color: ff.bg_color || null,
-      text_color: ff.text_color || null,
-      label_bold: ff.label_bold === 0 ? 0 : 1,
-      label_font_size: ff.label_font_size || 'default',
+      bg_color: null,
+      text_color: null,
+      label_bold: 1,
+      label_font_size: 'default',
     });
-    customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some((o) => o.value === ff.bg_color) ? ff.bg_color : '';
-    customTextColorInput.value =
-      ff.text_color && !TEXT_COLOR_OPTIONS.some((o) => o.value === ff.text_color) ? ff.text_color : '';
-    lastHydratedFieldPropDraftKey = getFieldPropSnapshotKey(buildFieldPropSnapshot(ff.id));
-    syncFieldPropBaselineFromEditor();
+    customBgColorInput.value = '';
+    customTextColorInput.value = '';
+    fieldPropBaseline.value = null;
+    lastHydratedFieldPropDraftKey = '';
     isHydratingFieldProp = false;
     return;
   }
@@ -2380,11 +2401,11 @@ function selectField(ff) {
     label: fd.label || '',
     variable_name: fd.variable_name || '',
     field_type: fd.field_type || '文本',
-    integer_digits: fd.integer_digits,
-    decimal_digits: fd.decimal_digits,
-    date_format: fd.date_format,
+    integer_digits: fd.integer_digits ?? null,
+    decimal_digits: fd.decimal_digits ?? null,
+    date_format: fd.date_format ?? null,
     checkbox_label: fd.checkbox_label ?? null,
-    codelist_id: fd.codelist_id,
+    codelist_id: fd.codelist_id ?? null,
     unit_id: fd.unit_id ?? null,
     default_value: ff.default_value || '',
     inline_mark: ff.inline_mark || 0,
@@ -2393,6 +2414,9 @@ function selectField(ff) {
     label_bold: ff.label_bold === 0 ? 0 : 1,
     label_font_size: ff.label_font_size || 'default',
   });
+  // 同步归一类型专属属性：让异步 flush:pre 的 field_type watcher 变成幂等空操作，
+  // 避免基线快照之后再改写 editProp 造成假脏态。
+  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, editProp.field_type, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
   customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some((o) => o.value === ff.bg_color) ? ff.bg_color : '';
   customTextColorInput.value =
     ff.text_color && !TEXT_COLOR_OPTIONS.some((o) => o.value === ff.text_color) ? ff.text_color : '';
@@ -2410,43 +2434,35 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   const formId = historyContext?.formId;
   const projectId = snapshot.projectId;
   if (!ff || !formId || projectId !== fieldPropProjectId.value) throw new Error('字段属性保存上下文已变更');
-  if (!ff.is_log_row && isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
+  if (isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
     throw new Error('单选/多选字段必须选择选项字典');
   const propEditFieldId = ff.id;
   const propEditDefinitionId = ff.field_definition_id;
   const beforePropState = snapshotFieldPropState(ff);
-  if (ff.is_log_row) {
-    const updated = await api.put(`/api/form-fields/${ff.id}`, { label_override: snapshot.label });
-    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-    syncSelectedField(updated, { syncEditor: false });
-    api.invalidateCache(`/api/forms/${formId}/fields`);
-  } else {
-    const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark));
-    const normalizedDefaultValue = supportsDefaultValue
-      ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark)
-      : '';
-    const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, {
-      label: snapshot.label,
-      variable_name: snapshot.variable_name,
-      field_type: snapshot.field_type,
-      integer_digits: snapshot.integer_digits,
-      decimal_digits: snapshot.decimal_digits,
-      date_format: snapshot.date_format,
-      checkbox_label: snapshot.checkbox_label ?? null,
-      codelist_id: snapshot.codelist_id,
-      unit_id: snapshot.unit_id ?? null,
-    });
-    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-    let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } };
-    syncSelectedField(currentField, { syncEditor: false });
-    api.invalidateCache(`/api/forms/${formId}/fields`);
-    const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue });
-    if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-    currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition };
-    syncSelectedField(currentField, { syncEditor: false });
-    // 字段定义已更新，刷新左侧字段库（日志行分支只改实例 label_override，不影响字段库）
-    refreshKey.value++;
-  }
+  const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark));
+  const normalizedDefaultValue = supportsDefaultValue
+    ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark)
+    : '';
+  const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, {
+    label: snapshot.label,
+    variable_name: snapshot.variable_name,
+    field_type: snapshot.field_type,
+    integer_digits: snapshot.integer_digits,
+    decimal_digits: snapshot.decimal_digits,
+    date_format: snapshot.date_format,
+    checkbox_label: snapshot.checkbox_label ?? null,
+    codelist_id: snapshot.codelist_id,
+    unit_id: snapshot.unit_id ?? null,
+  });
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
+  let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } };
+  syncSelectedField(currentField, { syncEditor: false });
+  api.invalidateCache(`/api/forms/${formId}/fields`);
+  const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue });
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
+  currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition };
+  syncSelectedField(currentField, { syncEditor: false });
+  refreshKey.value++;
   const baseField = formFields.value.find((f) => f.id === ff.id) || ff;
   const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, {
     bg_color: snapshot.bg_color,
@@ -2758,7 +2774,6 @@ function quickAddOptRow() {
     id: null,
     code: quickOptCode.value.trim() || `C.${n + 1}`,
     decode: quickOptDecode.value.trim(),
-    trailing_underscore: 0,
   });
   quickOptCode.value = `C.${n + 2}`;
   quickOptDecode.value = '';
@@ -2801,7 +2816,6 @@ async function quickAddCodelist() {
     ...opt,
     code: String(opt.code ?? '').trim(),
     decode: String(opt.decode ?? '').trim(),
-    trailing_underscore: opt.trailing_underscore || 0,
   }));
   const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
@@ -2819,7 +2833,6 @@ async function quickAddCodelist() {
       options: normalizedOptions.map((opt, index) => ({
         code: opt.code,
         decode: opt.decode,
-        trailing_underscore: opt.trailing_underscore || 0,
         order_index: index + 1,
       })),
     });
@@ -2852,7 +2865,6 @@ function openQuickEditCodelist() {
     id: o.id,
     code: o.code,
     decode: o.decode,
-    trailing_underscore: o.trailing_underscore || 0,
   }));
   quickEditOptCode.value = `C.${(cl.options || []).length + 1}`;
   quickEditOptDecode.value = '';
@@ -2865,7 +2877,6 @@ function quickEditAddOptRow() {
     id: null,
     code: quickEditOptCode.value.trim() || `C.${n + 1}`,
     decode: quickEditOptDecode.value.trim(),
-    trailing_underscore: 0,
   });
   quickEditOptCode.value = `C.${n + 2}`;
   quickEditOptDecode.value = '';
@@ -2879,9 +2890,6 @@ async function quickEditDelOptRow(idx) {
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
   }
-}
-function toggleTrailingLine(row) {
-  row.trailing_underscore = row.trailing_underscore ? 0 : 1;
 }
 function closeQuickEditCodelist() {
   showQuickEditCodelist.value = false;
@@ -2902,7 +2910,6 @@ async function quickSaveCodelist() {
     ...opt,
     code: String(opt.code ?? '').trim(),
     decode: String(opt.decode ?? '').trim(),
-    trailing_underscore: opt.trailing_underscore || 0,
   }));
   const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
@@ -2928,7 +2935,6 @@ async function quickSaveCodelist() {
         id: opt.id,
         code: opt.code,
         decode: opt.decode,
-        trailing_underscore: opt.trailing_underscore || 0,
       })),
     });
 
@@ -3715,7 +3721,7 @@ function openAddForm() {
                             <td class="wp-ctrl row-resize-anchor" :style="getFormFieldPreviewStyle(ff)">
                               <span
                                 v-html="
-                                  renderCellHtml(ff, normalFillChars(gi, gv, 'main'), normalColumnCm(gi, gv, 'main'))
+                                  renderCellHtml(ff, normalFillChars(gi, gv, 'main'))
                                 "
                               ></span>
                               <span
@@ -3898,7 +3904,8 @@ function openAddForm() {
       class="designer-dialog"
     >
       <template #header="{ titleId, titleClass }">
-        <div class="designer-dialog-header">
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank header click returns to form props -->
+        <div class="designer-dialog-header" @click="onDesignerBlankClick">
           <div class="designer-dialog-header-main">
             <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">
               <span class="designer-dialog-title-prefix">设计：</span>
@@ -3933,7 +3940,8 @@ function openAddForm() {
           </div>
         </div>
       </template>
-      <div class="designer-shell">
+      <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank designer click returns to form props -->
+      <div class="designer-shell" @click="onDesignerBlankClick">
         <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
           <div class="designer-pane-toolbar">
@@ -4642,7 +4650,6 @@ function openAddForm() {
                                             renderCellHtml(
                                               ff,
                                               normalFillChars(gi, gv, 'designer'),
-                                              normalColumnCm(gi, gv, 'designer'),
                                             )
                                           "
                                         ></span>
@@ -4905,108 +4912,15 @@ function openAddForm() {
               </div>
             </div>
             <div v-else class="designer-editor-scroll">
-              <el-form
+              <div
                 v-if="editProp.field_type === '日志行'"
-                :model="editProp"
-                label-width="88px"
-                size="small"
-                data-test="designer-log-property-form"
-                :disabled="designerHistory.busy.value"
+                class="designer-readonly-hint"
+                data-test="designer-log-property-readonly"
               >
-                <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
-                <el-form-item label="底纹颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
-                      @click="
-                        editProp.bg_color = null;
-                        customBgColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in BG_COLOR_OPTIONS.slice(1)"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.bg_color === opt.value && !customBgColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择底纹颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.bg_color = opt.value;
-                        customBgColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customBgColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomBgColor"
-                    >
-                      <template #prefix
-                        ><span :style="customBgColorInput ? 'color:#' + customBgColorInput : ''">■</span></template
-                      >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="文字颜色">
-                  <div class="color-picker">
-                    <button
-                      type="button"
-                      class="color-option color-option-default"
-                      :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
-                      @click="
-                        editProp.text_color = null;
-                        customTextColorInput = '';
-                      "
-                    >
-                      默认
-                    </button>
-                    <button
-                      v-for="opt in TEXT_COLOR_OPTIONS"
-                      :key="opt.value"
-                      type="button"
-                      class="color-option"
-                      :class="{ 'color-selected': editProp.text_color === opt.value && !customTextColorInput }"
-                      :style="{ background: '#' + opt.value }"
-                      :aria-label="`选择文字颜色：${opt.label}`"
-                      :title="opt.label"
-                      @click="
-                        editProp.text_color = opt.value;
-                        customTextColorInput = '';
-                      "
-                    ></button>
-                    <el-input
-                      v-model="customTextColorInput"
-                      placeholder="自定义HEX"
-                      size="small"
-                      style="width: 90px; margin-left: 4px"
-                      @input="applyCustomTextColor"
-                    >
-                      <template #prefix
-                        ><span :style="customTextColorInput ? 'color:#' + customTextColorInput : ''">■</span></template
-                      >
-                    </el-input>
-                  </div>
-                </el-form-item>
-                <el-form-item label="标签加粗">
-                  <el-switch v-model="editProp.label_bold" :active-value="1" :inactive-value="0" />
-                </el-form-item>
-                <el-form-item label="标签字号">
-                  <el-radio-group v-model="editProp.label_font_size" size="small">
-                    <el-radio-button label="large">大</el-radio-button>
-                    <el-radio-button label="default">默认</el-radio-button>
-                    <el-radio-button label="small">小</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-              </el-form>
+                「以下为log行」为固定样式的结构提示行，不支持编辑属性。
+              </div>
+              <template v-else>
               <el-form
-                v-else
                 :model="editProp"
                 label-width="88px"
                 size="small"
@@ -5265,6 +5179,7 @@ function openAddForm() {
                   保存
                 </el-button>
               </div>
+              </template>
             </div>
           </div>
           <button
@@ -5446,11 +5361,6 @@ function openAddForm() {
         <el-table-column prop="decode" label="标签">
           <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
         </el-table-column>
-        <el-table-column label="后加下划线" width="110" align="center">
-          <template #default="{ row }"
-            ><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)"
-          /></template>
-        </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ $index }"
             ><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template
@@ -5493,11 +5403,6 @@ function openAddForm() {
         </el-table-column>
         <el-table-column prop="decode" label="标签">
           <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="后加下划线" width="110" align="center">
-          <template #default="{ row }"
-            ><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)"
-          /></template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ $index }"
@@ -5611,8 +5516,8 @@ function openAddForm() {
   cursor: pointer;
 }
 .ff-item.ff-selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
 }
 .drag-handle {
   cursor: move;
@@ -5930,9 +5835,9 @@ function openAddForm() {
 }
 
 .fd-canvas-header-notes {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 240px;
+  max-width: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5945,6 +5850,8 @@ function openAddForm() {
   padding: 0 6px;
   line-height: 18px;
   cursor: help;
+  /* 右侧预留位：后续在顶栏加元素只需改这一个变量，不用再动布局 */
+  margin-right: var(--notes-reserve, 96px);
 }
 
 .designer-empty-state {
@@ -5953,6 +5860,13 @@ function openAddForm() {
   align-items: center;
   justify-content: center;
   color: var(--color-text-muted);
+}
+
+.designer-readonly-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 12px;
 }
 
 .designer-editor-scroll {

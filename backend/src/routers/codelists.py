@@ -80,7 +80,6 @@ def create_codelist(project_id: int, data: CodeListCreate, session: Session = De
             codelist_id=cl.id,
             code=item.code,
             decode=item.decode,
-            trailing_underscore=item.trailing_underscore,
             order_index=index,
         )
         session.add(opt)
@@ -116,7 +115,6 @@ def copy_codelist(project_id: int, cl_id: int, session: Session = Depends(get_se
             codelist_id=new_cl.id,
             code=opt.code,
             decode=opt.decode,
-            trailing_underscore=opt.trailing_underscore,
             order_index=opt.order_index,
         )
         session.add(copied)
@@ -177,14 +175,12 @@ def replace_codelist_snapshot(project_id: int, cl_id: int, data: CodeListSnapsho
             opt = existing_by_id[item.id]
             opt.code = item.code
             opt.decode = item.decode
-            opt.trailing_underscore = item.trailing_underscore
             opt.order_index = index
         else:
             opt = CodeListOption(
                 codelist_id=cl.id,
                 code=item.code,
                 decode=item.decode,
-                trailing_underscore=item.trailing_underscore,
                 order_index=index,
             )
             session.add(opt)

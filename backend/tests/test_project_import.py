@@ -702,8 +702,7 @@ def test_import_rejects_legacy_form_field_schema(client, engine, tmp_path):
             codelist_id INTEGER NOT NULL,
             code TEXT NOT NULL,
             decode TEXT NOT NULL,
-            order_index INTEGER NOT NULL,
-            trailing_underscore TEXT
+            order_index INTEGER NOT NULL
         );
         CREATE TABLE unit (
             id INTEGER PRIMARY KEY,
@@ -1104,8 +1103,7 @@ def test_import_rejects_db_missing_project_orm_columns(client, engine, tmp_path)
             codelist_id INTEGER NOT NULL,
             code TEXT,
             decode TEXT NOT NULL,
-            order_index INTEGER,
-            trailing_underscore INTEGER NOT NULL DEFAULT 0
+            order_index INTEGER
         );
         CREATE TABLE unit (
             id INTEGER PRIMARY KEY,

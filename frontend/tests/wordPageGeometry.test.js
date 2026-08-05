@@ -139,10 +139,9 @@ test('whole-cell fill-line stretches to fill its column in preview (adaptive und
     /\.word-page \.wp-ctrl > span > \.fill-line:only-child[^{]*\{[^}]*min-width:\s*0\s*!important/s,
     'whole-cell fill-line must override inline em min-width with min-width:0 !important',
   )
-  // 选项尾部填写线（.choice-atom 内）保持原契约，不被整格规则影响
+  // 选项尾部填写线已随「后加下划线」属性移除，整格规则不再需要区分 choice-atom 内填写线
   const choiceFill = extractRuleBody(css, '.word-page .choice-atom .fill-line')
-  assert.ok(choiceFill && /align-self:\s*flex-end/.test(choiceFill),
-    'trailing .choice-atom .fill-line must keep align-self: flex-end')
+  assert.equal(choiceFill, null, 'choice-atom .fill-line rules must be gone')
 })
 
 test('shared A4 page class fixes VisitsTab preview to 21cm/29.7cm (parity with designer)', () => {

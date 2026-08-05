@@ -270,21 +270,11 @@ def test_export_text_field_fill_line_scales_with_column_width(
 
 
 
-def test_export_choice_trailing_fill_line_scales_with_column_width(
+def test_export_choice_options_render_without_fill_suffix(
     session: Session,
     tmp_path: Path,
 ) -> None:
     from src.models.codelist import CodeList, CodeListOption
-    from src.services.width_planning import (
-        CELL_HPAD_CM,
-        FILL_LINE_SAFETY_CM,
-        UNDERSCORE_CHAR_CM,
-        compute_choice_atom_weight,
-        compute_choice_trailing_fill_char_count,
-        compute_horizontal_choice_trailing_fill_chars,
-        compute_fill_line_char_count,
-        plan_normal_table_width,
-    )
 
     project = create_project(session)
     form = create_form(session, project.id, name="选择表", order_index=1)
@@ -295,8 +285,8 @@ def test_export_choice_trailing_fill_line_scales_with_column_width(
     session.add(codelist)
     session.flush()
     session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", trailing_underscore=1, order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", trailing_underscore=0, order_index=2),
+        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
     ])
     session.flush()
 
@@ -309,30 +299,13 @@ def test_export_choice_trailing_fill_line_scales_with_column_width(
     )
     choice.codelist_id = codelist.id
     session.flush()
-    choice_field = create_form_field(session, form.id, choice.id, order_index=1)
+    create_form_field(session, form.id, choice.id, order_index=1)
 
     doc = export_document(session, project.id, tmp_path)
     fill_cell_text = doc.tables[2].cell(0, 1).text
 
-    widths = plan_normal_table_width([choice_field], available_cm=14.66)
-    full_line_count = compute_fill_line_char_count(widths[1])
-    # 横向单选：尾线按扣除所有选项 marker+label+分隔符后的剩余宽度计算
-    expected = compute_horizontal_choice_trailing_fill_chars(
-        widths[1], [("有尾线", True), ("无尾线", False)]
-    )
-
-    usable_cm = widths[1] - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
-    # 整行（两个选项 marker+label + 分隔符 + 尾线）估算宽度不超过列宽预算 → 不换行
-    line_chars = (
-        math.ceil(compute_choice_atom_weight("有尾线", False))
-        + math.ceil(compute_choice_atom_weight("无尾线", False))
-        + 2
-        + expected
-    )
-
-    assert fill_cell_text == f"○有尾线{'_' * expected}  ○无尾线"
-    assert 6 < expected < full_line_count
-    assert line_chars * UNDERSCORE_CHAR_CM <= usable_cm
+    assert fill_cell_text == "○有尾线  ○无尾线"
+    assert "_" not in fill_cell_text
     assert "\n" not in fill_cell_text
 
 

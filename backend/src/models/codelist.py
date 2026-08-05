@@ -51,7 +51,6 @@ class CodeListOption(Base):
     )
     code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     decode: Mapped[str] = mapped_column(String(255), nullable=False)
-    trailing_underscore: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # 关系
