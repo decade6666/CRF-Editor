@@ -4904,8 +4904,9 @@ function openAddForm() {
                 </el-button>
               </div>
             </div>
-            <div v-else-if="editProp.field_type === '日志行'" class="designer-editor-scroll">
+            <div v-else class="designer-editor-scroll">
               <el-form
+                v-if="editProp.field_type === '日志行'"
                 :model="editProp"
                 label-width="88px"
                 size="small"
@@ -5004,9 +5005,8 @@ function openAddForm() {
                   </el-radio-group>
                 </el-form-item>
               </el-form>
-            </div>
-            <div v-else class="designer-editor-scroll">
               <el-form
+                v-else
                 :model="editProp"
                 label-width="88px"
                 size="small"
@@ -5245,30 +5245,26 @@ function openAddForm() {
                   保存
                 </el-button>
               </div>
-            </div>
-            <div
-              v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"
-              class="designer-draft-actions designer-editor-actions"
-              data-test="designer-property-actions"
-            >
-              <el-button
-                size="small"
-                data-test="designer-property-cancel"
-                :disabled="!isFieldPropDirty || designerHistory.busy.value || isSavingFieldProp"
-                @click="cancelSelectedFieldProp"
-              >
-                取消
-              </el-button>
-              <el-button
-                type="primary"
-                size="small"
-                data-test="designer-property-save"
-                :loading="isSavingFieldProp"
-                :disabled="!isFieldPropDirty || designerHistory.busy.value"
-                @click="saveSelectedFieldProp"
-              >
-                保存
-              </el-button>
+              <div v-else class="designer-draft-actions" data-test="designer-property-actions">
+                <el-button
+                  size="small"
+                  data-test="designer-property-cancel"
+                  :disabled="!isFieldPropDirty || designerHistory.busy.value || isSavingFieldProp"
+                  @click="cancelSelectedFieldProp"
+                >
+                  取消
+                </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  data-test="designer-property-save"
+                  :loading="isSavingFieldProp"
+                  :disabled="!isFieldPropDirty || designerHistory.busy.value"
+                  @click="saveSelectedFieldProp"
+                >
+                  保存
+                </el-button>
+              </div>
             </div>
           </div>
           <button
@@ -5975,12 +5971,6 @@ function openAddForm() {
 
 .designer-draft-actions .el-button--primary {
   min-width: 88px;
-}
-
-/* 持久化字段（含日志行）共用的保存/取消栏：位于滚动区外、卡片底部 */
-.designer-editor-actions {
-  padding: 6px;
-  border-top: 1px solid var(--color-border);
 }
 
 .designer-notes-editor {

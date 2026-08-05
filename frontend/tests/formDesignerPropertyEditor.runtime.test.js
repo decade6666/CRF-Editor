@@ -340,49 +340,39 @@ test('FormDesignerTab guards OID charset on form/field/option submit paths', () 
 })
 
 test('log row property panel shares the persisted-field cancel/save action bar', () => {
-  // log 行分支与普通字段分支共用同一组「取消/保存」：按钮栏提升为三分支 div 的
-  // 兄弟节点（位于滚动区外、卡片底部），全文件只允许存在一处 designer-property-actions，
-  // 禁止复制粘贴回归。
+  // log 行与普通字段仍共用同一组「取消/保存」，但位置回到滚动区内，紧跟字段表单末尾，
+  // 视觉上与草稿按钮一致；全文件仍只允许存在一处 designer-property-actions。
   const actionBarCount = (formDesignerSource.match(/data-test="designer-property-actions"/g) || []).length
   assert.equal(actionBarCount, 1, 'designer-property-actions must exist exactly once')
+  assert.doesNotMatch(formDesignerSource, /designer-editor-actions/)
 
-  // 兄弟位置契约：按钮栏出现在普通字段分支（v-else）之后、卡片底部的 pane-v-resizer 之前，
-  // 即不嵌套在任一 designer-editor-scroll 分支内，两个字段分支都能落到它。
-  const siblingSection = formDesignerSource.match(
-    /<div v-else class="designer-editor-scroll">([\s\S]*?)data-test="designer-property-actions"([\s\S]*?)pane-v-resizer/,
+  const fieldEditorSection = formDesignerSource.match(
+    /<div v-else class="designer-editor-scroll">([\s\S]*?)^ {12}<\/div>/m,
   )
-  assert.ok(
-    siblingSection,
-    'action bar must sit after the normal-field branch and before the pane resizer, as a card-level sibling',
-  )
+  assert.ok(fieldEditorSection, 'field editor scroll section should exist')
 
-  const [, branchBody, afterBar] = siblingSection
-  // 分支结构保持原样：log 行仍为 v-else-if（兄弟栏对两分支一视同仁，无需改写分支条件）。
+  const [, fieldEditorBody] = fieldEditorSection
   assert.match(
-    formDesignerSource,
-    /v-else-if="editProp\.field_type === '日志行'"[\s\S]*?<div v-else class="designer-editor-scroll">/,
-    'log row branch keeps v-else-if before the normal-field v-else branch',
+    fieldEditorBody,
+    /<el-form[\s\S]*v-if="editProp\.field_type === '日志行'"[\s\S]*data-test="designer-log-property-form"/,
+    'log row editor should be the first form inside the shared scroll section',
   )
-  assert.doesNotMatch(
-    branchBody,
-    /data-test="designer-property-actions"/,
-    'action bar must not be nested inside the normal-field branch body',
-  )
-
-  // 公共按钮栏：非草稿的持久化字段（含 log 行）选中时出现，带卡片底部 footer 样式。
-  // 栏的 v-if 与 class 位于 data-test 属性之前，因此落在 branchBody 尾部。
   assert.match(
-    branchBody,
-    /v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"[\s\S]*class="designer-draft-actions designer-editor-actions"[\s\S]*$|class="designer-draft-actions designer-editor-actions"[\s\S]*v-if="selectedFieldId && selectedFieldId !== DRAFT_FIELD_ID"/,
-    'shared action bar should sit outside the scroll area with a footer class',
+    fieldEditorBody,
+    /<el-form[\s\S]*v-else[\s\S]*data-test="designer-field-property-form"/,
+    'normal field editor should be the v-else form inside the shared scroll section',
   )
-  // 门控与 handler 与普通字段原有契约一致。
   assert.match(
-    afterBar,
+    fieldEditorBody,
+    /data-test="designer-draft-save"[\s\S]*<div v-else class="designer-draft-actions"[\s\S]*data-test="designer-property-actions"/,
+    'persisted-field action bar should live inside the scroll area after the draft actions branch',
+  )
+  assert.match(
+    fieldEditorBody,
     /data-test="designer-property-cancel"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value \|\| isSavingFieldProp"[\s\S]*@click="cancelSelectedFieldProp"/,
   )
   assert.match(
-    afterBar,
+    fieldEditorBody,
     /data-test="designer-property-save"[\s\S]*:loading="isSavingFieldProp"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value"[\s\S]*@click="saveSelectedFieldProp"/,
   )
 })
