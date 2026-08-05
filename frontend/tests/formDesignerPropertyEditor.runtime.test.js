@@ -148,7 +148,7 @@ test('field definition payload keeps cleared unit as null', () => {
 
 test('property editor exposes explicit dirty state helpers and keeps drafts clean', () => {
   assert.match(formDesignerSource, /const fieldPropBaseline = ref\(null\)/)
-  assert.match(formDesignerSource, /function currentEditorPropState\(\) \{[\s\S]*label_override: isLogRow \? \(labelOverride \?\? null\) : \(ff\.label_override \?\? null\)/)
+  assert.match(formDesignerSource, /function currentEditorPropState\(\) \{[\s\S]*if \(!ff \|\| ff\.is_log_row \|\| selectedFieldId\.value === DRAFT_FIELD_ID\) return null;/)
   assert.match(formDesignerSource, /function syncFieldPropBaselineFromEditor\(\) \{[\s\S]*fieldPropBaseline\.value = selectedFieldId\.value === DRAFT_FIELD_ID \? null : currentEditorPropState\(\)/)
   assert.match(formDesignerSource, /const isFieldPropDirty = computed\(\(\) => \{[\s\S]*selectedFieldId\.value === DRAFT_FIELD_ID[\s\S]*!sameFieldPropState\(fieldPropBaseline\.value, currentState\)/)
   assert.match(formDesignerSource, /syncFieldPropBaselineFromEditor\(\)/)
@@ -253,45 +253,12 @@ test('property editor cancel restores selected field from baseline without reque
   assert.match(body, /if \(ff\) selectField\(ff\)/)
 })
 
-test('saveFieldProp refreshes the field library only after a field definition update', () => {
-  // 修改字段定义（非日志行分支）保存成功后必须 bump refreshKey 触发左侧字段库重载；
-  // 日志行分支只改实例 label_override，不改字段定义，不应触发字段库刷新。
+test('saveFieldProp always follows the field-definition update path and refreshes the field library', () => {
   const body = functionBody('saveFieldProp')
 
-  // 定位 `if (ff.is_log_row) { ... } else { ... }`，分别提取两分支
-  const ifStart = body.indexOf('if (ff.is_log_row)')
-  assert.notEqual(ifStart, -1, 'should locate the log-row branch')
-  const ifBraceOpen = body.indexOf('{', ifStart)
-  let depth = 0
-  let ifBraceClose = -1
-  for (let index = ifBraceOpen; index < body.length; index += 1) {
-    if (body[index] === '{') depth += 1
-    if (body[index] === '}') depth -= 1
-    if (depth === 0) {
-      ifBraceClose = index
-      break
-    }
-  }
-  assert.notEqual(ifBraceClose, -1, 'log-row branch should be balanced')
-  const logRowBranch = body.slice(ifBraceOpen + 1, ifBraceClose)
-
-  const elseStart = body.indexOf('else', ifBraceClose)
-  const elseBraceOpen = body.indexOf('{', elseStart)
-  depth = 0
-  let elseBraceClose = -1
-  for (let index = elseBraceOpen; index < body.length; index += 1) {
-    if (body[index] === '{') depth += 1
-    if (body[index] === '}') depth -= 1
-    if (depth === 0) {
-      elseBraceClose = index
-      break
-    }
-  }
-  assert.notEqual(elseBraceClose, -1, 'non-log-row branch should be balanced')
-  const definitionBranch = body.slice(elseBraceOpen + 1, elseBraceClose)
-
-  assert.match(definitionBranch, /refreshKey\.value\+\+/, 'field-definition update should bump refreshKey')
-  assert.doesNotMatch(logRowBranch, /refreshKey\.value\+\+/, 'log-row branch should not bump refreshKey')
+  assert.doesNotMatch(body, /if \(ff\.is_log_row\)/)
+  assert.match(body, /const updatedDefinition = await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`/)
+  assert.match(body, /refreshKey\.value\+\+/)
 })
 
 
@@ -354,18 +321,18 @@ test('log row property panel shares the persisted-field cancel/save action bar',
   const [, fieldEditorBody] = fieldEditorSection
   assert.match(
     fieldEditorBody,
-    /<el-form[\s\S]*v-if="editProp\.field_type === '日志行'"[\s\S]*data-test="designer-log-property-form"/,
-    'log row editor should be the first form inside the shared scroll section',
+    /data-test="designer-log-property-readonly"/,
+    'log row selection should render a readonly hint instead of an editable form',
   )
   assert.match(
     fieldEditorBody,
-    /<el-form[\s\S]*v-else[\s\S]*data-test="designer-field-property-form"/,
-    'normal field editor should be the v-else form inside the shared scroll section',
+    /<template v-else>[\s\S]*?<el-form[\s\S]*data-test="designer-field-property-form"/,
+    'normal field editor should live in the v-else template next to the log-row hint',
   )
   assert.match(
     fieldEditorBody,
     /data-test="designer-draft-save"[\s\S]*<div v-else class="designer-draft-actions"[\s\S]*data-test="designer-property-actions"/,
-    'persisted-field action bar should live inside the scroll area after the draft actions branch',
+    'persisted-field action bar should stay inside the scroll area and be skipped for log rows',
   )
   assert.match(
     fieldEditorBody,

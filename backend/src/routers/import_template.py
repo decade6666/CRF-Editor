@@ -71,7 +71,6 @@ class TemplateFieldOptionPreview(BaseModel):
     id: Optional[int] = None
     code: Optional[str] = None
     decode: str
-    trailing_underscore: int = 0
 
 
 class TemplateFieldDefinitionPreview(BaseModel):

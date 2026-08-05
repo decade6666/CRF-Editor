@@ -43,7 +43,7 @@ test('CodelistsTab option list uses Element Plus bordered table headers', () => 
   assert.match(optionTable, /<el-table[\s\S]*border/)
   assert.match(optionTable, /label="序号"/)
   assert.match(optionTable, /label="标签"/)
-  assert.match(optionTable, /label="后加下划线"/)
+  assert.doesNotMatch(optionTable, /label="后加下划线"/)
   assert.match(optionTable, /label="操作"/)
   assert.doesNotMatch(optionTable, /manual-list-header option-list-header/)
 })

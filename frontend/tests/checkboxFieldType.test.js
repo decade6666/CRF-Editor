@@ -58,7 +58,7 @@ test('checkbox planner uses the marker-and-text atom weight', () => {
       checkbox_label: '确认研究参与',
     },
   }
-  const expectedWeight = computeChoiceAtomWeight('确认研究参与', false)
+  const expectedWeight = computeChoiceAtomWeight('确认研究参与')
 
   assert.equal(computeFieldControlWeight(field), expectedWeight)
   assert.equal(buildNormalColumnDemands([field])[1].weight, expectedWeight)
@@ -118,8 +118,8 @@ test('all preview paths retain renderer data required for checkbox text', () => 
     visitsSource,
     /function toRendererField\(fd\) \{[\s\S]*?label: fd\.label,[\s\S]*?checkbox_label: fd\.checkbox_label/,
   )
-  assert.match(simulatedCrfFormSource, /return renderCtrlHtml\(field, fillLineChars, columnCm\)/)
-  assert.match(templatePreviewSource, /return renderCtrlHtml\(ff, fillLineChars, columnCm\)/)
+  assert.match(simulatedCrfFormSource, /return renderCtrlHtml\(field, fillLineChars\)/)
+  assert.match(templatePreviewSource, /return renderCtrlHtml\(ff, fillLineChars\)/)
 })
 
 test('planner fixture generator defines a checkbox case', () => {

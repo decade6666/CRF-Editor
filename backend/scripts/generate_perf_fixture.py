@@ -262,7 +262,6 @@ def _create_codelists(session: Session, project_id: int) -> list[CodeList]:
                     codelist_id=codelist.id,
                     code=f"PERF_OPT_{option_index:02d}",
                     decode=f"PERF_选项_{codelist_index:02d}_{option_index:02d}",
-                    trailing_underscore=1 if option_index % 5 == 0 else 0,
                     order_index=option_index,
                 )
             )

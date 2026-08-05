@@ -23,7 +23,6 @@ import {
   renderCtrlHtml,
   toHtml,
   computeFillLineCharCount,
-  computeChoiceTrailingFillCharCount,
 } from '../src/composables/useCRFRenderer.js'
 import {
   readColumnWidthRatios,
@@ -48,12 +47,12 @@ const UNDERSCORE_CHAR_CM = 0.19
 const CELL_HPAD_CM = 0.4
 const FILL_LINE_SAFETY_CM = 0.2
 
-function assertChoiceAtomFitsColumn(columnCm, label, trailingChars) {
-  const markerLabelChars = computeChoiceAtomWeight(label, false)
+function assertChoiceAtomFitsColumn(columnCm, label, fillChars) {
+  const markerLabelChars = computeChoiceAtomWeight(label)
   const usableCm = columnCm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
   assert.ok(
-    (markerLabelChars + trailingChars) * UNDERSCORE_CHAR_CM <= usableCm + 1e-9,
-    `label=${label}, columnCm=${columnCm}, trailingChars=${trailingChars}`,
+    (markerLabelChars + fillChars) * UNDERSCORE_CHAR_CM <= usableCm + 1e-9,
+    `label=${label}, columnCm=${columnCm}, fillChars=${fillChars}`,
   )
 }
 
@@ -85,17 +84,9 @@ test('9.2 normal_long_cjk_label_short_control: 10 个中文 label → label 列�
   assert.ok(shortFractions[0] < 0.5, `short label below 0.5, got ${shortFractions[0]}`)
 })
 
-test('9.3 inline_choice_with_trailing_underscore: trailing 增加 FILL_LINE_WEIGHT', () => {
-  const withTrailing = computeChoiceAtomWeight('是', true)
-  const withoutTrailing = computeChoiceAtomWeight('是', false)
-  // FILL_LINE_WEIGHT = 6
-  assert.equal(withTrailing - withoutTrailing, 6)
+test('9.3 inline_choice_atom_weight: choice atom 仅由 marker + label 决定', () => {
+  assert.equal(computeChoiceAtomWeight('是'), 3)
 
-  // buildInlineColumnDemands 对单选字段在 normalize 后传入 trailingUnderscore
-  // 兼容：useCRFRenderer 通过 normalizeChoiceOptions 读取 option.trailingUnderscore
-  // 直接调用 atom 权重函数已足够覆盖契约（trailing 注入 FILL_LINE_WEIGHT）。
-  // 同时确认在缺省 atom 时 fallback 到 FILL_LINE_WEIGHT，保证 inline 列对该字段
-  // 至少分配填写线宽度。
   const fields = [
     { field_definition: { field_type: '单选', label: 'X' } },
   ]
@@ -104,63 +95,30 @@ test('9.3 inline_choice_with_trailing_underscore: trailing 增加 FILL_LINE_WEIG
   assert.ok(demands[0].weight >= 6, `inline choice without options falls back to FILL_LINE_WEIGHT, got ${demands[0].weight}`)
 })
 
-test('9.3b preview_choice_trailing_underscore: HTML 路径按 marker+label 后剩余宽度缩短尾线', () => {
-  const columnCm = 5.0
-  const fillLineChars = computeFillLineCharCount(columnCm)
-  const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
+test('9.3b preview_choice_html_has_no_tail_fill_line', () => {
   const html = renderCtrlHtml({
     field_type: '单选',
     options: [
-      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
-      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+      { decode: '有尾线', order_index: 1 },
+      { decode: '无尾线', order_index: 2 },
     ],
-  }, fillLineChars, columnCm)
+  }, computeFillLineCharCount(5.0))
 
-  assert.equal(fillLineChars, 23)
-  assert.equal(trailingChars, 16)
   assert.match(html, /有尾线/)
-  assert.match(html, /min-width:8\.0em/)
-  assert.doesNotMatch(html, /min-width:11\.5em/)
-  assert.doesNotMatch(html, /gap:0\.2em/)
+  assert.match(html, /choice-label--aligned/)
+  assert.doesNotMatch(html, /fill-line/)
 })
 
-test('9.3b2 preview_choice_trailing_underscore: marker-label-tail 估算宽度不超过列宽', () => {
-  for (const columnCm of [5.0, 7.33, 10.0, 14.66]) {
-    const fullLineChars = computeFillLineCharCount(columnCm)
-    const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
-
-    assert.ok(trailingChars < fullLineChars, `columnCm=${columnCm}`)
-    assertChoiceAtomFitsColumn(columnCm, '有尾线', trailingChars)
-  }
-
-  assert.equal(computeChoiceTrailingFillCharCount(1.0, '有尾线'), 0)
-})
-
-test('9.3c preview_choice_trailing_underscore: plain-text 路径输出剩余宽度根数的 literal underscore', () => {
-  const columnCm = 5.0
-  const trailingChars = computeChoiceTrailingFillCharCount(columnCm, '有尾线')
+test('9.3c preview_choice_plain_text_has_no_literal_tail_underscore', () => {
   const text = renderCtrl({
     field_type: '单选',
     options: [
-      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
-      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
+      { decode: '有尾线', order_index: 1 },
+      { decode: '无尾线', order_index: 2 },
     ],
-  }, computeFillLineCharCount(columnCm), columnCm)
+  }, computeFillLineCharCount(5.0))
 
-  assert.equal(trailingChars, 16)
-  assert.equal(text, `○有尾线${'_'.repeat(trailingChars)}  ○无尾线`)
-})
-
-test('9.3c1 preview_choice_trailing_underscore: 无列宽上下文时回退 6 个 underscore', () => {
-  const text = renderCtrl({
-    field_type: '单选',
-    options: [
-      { decode: '有尾线', trailing_underscore: 1, order_index: 1 },
-      { decode: '无尾线', trailing_underscore: 0, order_index: 2 },
-    ],
-  })
-
-  assert.equal(text, '○有尾线______  ○无尾线')
+  assert.equal(text, '○有尾线  ○无尾线')
 })
 
 test('9.3c2 preview_choice_marker_label_spacing: default options have no internal marker-label space', () => {
@@ -792,8 +750,8 @@ test('16.1.5j visits normal choice preview preserves fillLineChars forwarding', 
   )
   assert.match(
     visitsSource,
-    /return renderCtrlHtml\(field, fillLineChars, columnCm\)/,
-    'VisitsTab renderCellHtml should forward fillLineChars and columnCm to all field types',
+    /return renderCtrlHtml\(field, fillLineChars\)/,
+    'VisitsTab renderCellHtml should forward fillLineChars to all field types',
   )
 })
 

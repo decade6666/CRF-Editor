@@ -141,16 +141,16 @@ def build_field_control_weight(form_field) -> float:
     field_type = getattr(field_def, "field_type", None)
     if field_type == "复选":
         return max(
-            compute_choice_atom_weight(resolve_checkbox_label(field_def), False),
+            compute_choice_atom_weight(resolve_checkbox_label(field_def)),
             FILL_LINE_WEIGHT,
         )
 
     if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
-        option_data = _get_option_data_for_width(field_def)
-        if not option_data:
+        option_labels = _get_option_labels_for_width(field_def)
+        if not option_labels:
             return FILL_LINE_WEIGHT
         return max(
-            max(compute_choice_atom_weight(opt_label, has_trailing) for opt_label, has_trailing in option_data),
+            max(compute_choice_atom_weight(opt_label) for opt_label in option_labels),
             FILL_LINE_WEIGHT,
         )
 
@@ -193,20 +193,14 @@ def build_inline_column_demands(
     return demands
 
 
-def _get_option_data_for_width(field_def) -> List[Tuple[str, bool]]:
-    """获取选项数据用于宽度计算（按 order_index 排序）。"""
+def _get_option_labels_for_width(field_def) -> List[str]:
+    """获取选项标签列表用于宽度计算（按 order_index 排序）。"""
     if not hasattr(field_def, "codelist") or not field_def.codelist:
         return []
     if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
         return []
-    # 按 order_index 排序，回退到 id
     options = sorted(
         field_def.codelist.options,
         key=lambda o: (o.order_index if o.order_index is not None else float('inf'), o.id or 0)
     )
-    result = []
-    for opt in options:
-        if not opt.decode:
-            continue
-        result.append((opt.decode, bool(getattr(opt, "trailing_underscore", 0))))
-    return result
+    return [opt.decode for opt in options if opt.decode]

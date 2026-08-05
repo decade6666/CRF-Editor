@@ -211,12 +211,7 @@ function normalizeQuickOptions(rows) {
     ...opt,
     code: String(opt.code ?? '').trim(),
     decode: String(opt.decode ?? '').trim(),
-    trailing_underscore: opt.trailing_underscore || 0,
   }))
-}
-
-function toggleTrailingLine(row) {
-  row.trailing_underscore = row.trailing_underscore ? 0 : 1
 }
 
 // 新增字典
@@ -245,7 +240,6 @@ function quickAddOptRow() {
     id: null,
     code: quickOptCode.value.trim() || `C.${n + 1}`,
     decode: quickOptDecode.value.trim(),
-    trailing_underscore: 0,
   })
   quickOptCode.value = `C.${n + 2}`
   quickOptDecode.value = ''
@@ -283,7 +277,6 @@ async function quickAddCodelist() {
       options: normalizedOptions.map((opt, index) => ({
         code: opt.code,
         decode: opt.decode,
-        trailing_underscore: opt.trailing_underscore || 0,
         order_index: index + 1,
       })),
     })
@@ -319,7 +312,6 @@ function openQuickEditCodelist() {
     id: o.id,
     code: o.code,
     decode: o.decode,
-    trailing_underscore: o.trailing_underscore || 0,
   }))
   quickEditOptCode.value = `C.${(cl.options || []).length + 1}`
   quickEditOptDecode.value = ''
@@ -333,7 +325,6 @@ function quickEditAddOptRow() {
     id: null,
     code: quickEditOptCode.value.trim() || `C.${n + 1}`,
     decode: quickEditOptDecode.value.trim(),
-    trailing_underscore: 0,
   })
   quickEditOptCode.value = `C.${n + 2}`
   quickEditOptDecode.value = ''
@@ -377,7 +368,6 @@ async function quickSaveCodelist() {
         id: opt.id,
         code: opt.code,
         decode: opt.decode,
-        trailing_underscore: opt.trailing_underscore || 0,
       })),
     })
     await reloadAfterCodelistChange()
@@ -523,9 +513,6 @@ async function quickSaveCodelist() {
         <el-table-column prop="decode" label="标签">
           <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
         </el-table-column>
-        <el-table-column label="后加下划线" width="110" align="center">
-          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
-        </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template>
         </el-table-column>
@@ -553,9 +540,6 @@ async function quickSaveCodelist() {
         </el-table-column>
         <el-table-column prop="decode" label="标签">
           <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="后加下划线" width="110" align="center">
-          <template #default="{ row }"><el-checkbox :model-value="row.trailing_underscore === 1" @change="() => toggleTrailingLine(row)" /></template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickEditDelOptRow($index)">删除</el-button></template>

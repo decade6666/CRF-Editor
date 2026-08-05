@@ -532,7 +532,7 @@ test('history-producing designer controls and property forms are disabled during
   assert.match(designerSource, /data-test="designer-copy-field"[\s\S]*?:disabled="copyingFieldIds\.has\(ff\.id\) \|\| designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-delete-field"[\s\S]*?:disabled="!isDraftField\(ff\) && designerHistory\.busy\.value"/)
   assert.match(designerSource, /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/)
-  assert.match(designerSource, /data-test="designer-log-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
+  assert.match(designerSource, /data-test="designer-log-property-readonly"/)
   assert.match(designerSource, /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-draft-save"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
 })

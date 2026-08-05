@@ -28,10 +28,8 @@ from src.services.order_service import OrderService
 class OptionMetadata(TypedDict):
     """选项结构化语义元数据。"""
 
-
     code: Optional[str]
     decode: str
-    trailing_underscore: int
 
 
 @dataclass(frozen=True)
@@ -473,19 +471,17 @@ class ImportService:
         return {
             "code": option.code,
             "decode": option.decode,
-            "trailing_underscore": option.trailing_underscore,
         }
 
 
     @classmethod
-    def _build_codelist_option_signature(cls, options: List[CodeListOption]) -> tuple[tuple[int, Optional[str], str, int], ...]:
-        """构建字典选项语义签名：顺序 + code + decode + trailing_underscore。"""
+    def _build_codelist_option_signature(cls, options: List[CodeListOption]) -> tuple[tuple[int, Optional[str], str], ...]:
+        """构建字典选项语义签名：顺序 + code + decode。"""
         return tuple(
             (
                 index,
                 metadata["code"],
                 metadata["decode"],
-                metadata["trailing_underscore"],
             )
             for index, metadata in enumerate(
                 (cls._serialize_option_metadata(option) for option in options),
@@ -939,7 +935,6 @@ class ImportService:
                     codelist_id=new_cl.id,
                     code=metadata["code"],
                     decode=metadata["decode"],
-                    trailing_underscore=metadata["trailing_underscore"],
                     order_index=idx,
                 ))
         return merged

@@ -19,7 +19,6 @@ class CodeListOptionSimple(BaseModel):
     id: int
     code: Optional[str] = None
     decode: str
-    trailing_underscore: int = 0
     model_config = {"from_attributes": True}
 
 

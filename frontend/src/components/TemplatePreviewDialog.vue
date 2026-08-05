@@ -63,7 +63,7 @@
                   <template v-for="ff in gv.fields" :key="ff.id">
                     <tr v-if="ff.field_definition?.field_type === '标签'"><td class="wp-structure-label--multiline" colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) }}</td></tr>
                     <tr v-else-if="ff.is_log_row || ff.field_definition?.field_type === '日志行'"><td colspan="2" :style="getFormFieldLabelPreviewStyle(ff, { structure: true })">{{ getFormFieldDisplayLabel(ff) || '以下为log行' }}</td></tr>
-                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff, normalFillChars(gv, gi), normalColumnCm(gv, gi))"></td></tr>
+                    <tr v-else><td class="wp-label" :style="getFormFieldLabelPreviewStyle(ff)">{{ getFormFieldDisplayLabel(ff) }}</td><td class="wp-ctrl" :style="getFormFieldPreviewStyle(ff)" v-html="renderCellHtml(ff, normalFillChars(gv, gi))"></td></tr>
                   </template>
                 </table>
                 <!-- inline 类型：横向表格 -->
@@ -212,10 +212,9 @@ function computeLabelValueSpans(N) {
 }
 
 // Task 3.3: 内联块多行渲染
-function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
+function getInlineRows(fields, fillCharsByCol = null) {
   const cols = fields.map((ff, i) => {
     const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
-    const columnCm = columnCmsByCol ? (columnCmsByCol[i] ?? null) : null
     const defaultValue = ff.default_value
     if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
       const lines = normalizeDefaultValue(defaultValue).split('\n')
@@ -223,10 +222,10 @@ function getInlineRows(fields, fillCharsByCol = null, columnCmsByCol = null) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: renderCtrlHtml(ff, fillChars, columnCm),
+        fallback: renderCtrlHtml(ff, fillChars),
       }
     }
-    const ctrl = renderCtrlHtml(ff, fillChars, columnCm)
+    const ctrl = renderCtrlHtml(ff, fillChars)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })
   const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
@@ -290,13 +289,13 @@ function getColumnFractions(g, groupIndex) {
 }
 
 // Task 3.3: 单元格渲染
-function renderCellHtml(ff, fillLineChars = null, columnCm = null) {
+function renderCellHtml(ff, fillLineChars = null) {
   if (!ff.field_definition) return '<span class="fill-line"></span>'
   const defaultValue = ff.default_value
   if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)) {
     return toHtml(normalizeDefaultValue(defaultValue, false))
   }
-  return renderCtrlHtml(ff, fillLineChars, columnCm)
+  return renderCtrlHtml(ff, fillLineChars)
 }
 
 // normal 表 control 列宽（cm）：使用模板表单真实纸张方向（form-fields 接口返回
