@@ -119,7 +119,7 @@ describe('FormDesignerTab R2: OID before label in property editor', () => {
   test('OID form-item appears before 字段标签 form-item in non-log-row branch', () => {
     // In the v-else branch (non-log-row), OID should come first
     const editorSection = formDesignerSource.match(
-      /<div v-else class="designer-editor-scroll">([\s\S]*?)<\/el-form>/,
+      /data-test="designer-field-property-form"([\s\S]*?)<\/el-form>/,
     );
     assert.ok(editorSection, 'designer-editor-scroll section should exist');
     const content = editorSection[1];
