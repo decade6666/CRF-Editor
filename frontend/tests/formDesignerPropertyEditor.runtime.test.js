@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { normalizeHexColorInput, syncFieldTypeSpecificProps } from '../src/composables/formDesignerPropertyEditor.js'
+import {
+  normalizeDateFormat,
+  normalizeHexColorInput,
+  syncFieldTypeSpecificProps,
+} from '../src/composables/formDesignerPropertyEditor.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
@@ -113,6 +117,22 @@ test('syncFieldTypeSpecificProps assigns default date format when current one is
   assert.equal(next.date_format, 'yyyy-MM-dd HH:mm')
 })
 
+test('normalizeDateFormat maps legacy uppercase and unknown values to a legal default, preserving explicit clears', () => {
+  assert.equal(normalizeDateFormat('日期', 'YYYY-MM-DD', DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), 'yyyy-MM-dd')
+  assert.equal(normalizeDateFormat('日期', 'yyyy-MM-dd', DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), 'yyyy-MM-dd')
+  assert.equal(normalizeDateFormat('日期', 'MM/dd/yyyy', DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), 'MM/dd/yyyy')
+  assert.equal(normalizeDateFormat('日期', null, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), 'yyyy-MM-dd')
+  assert.equal(normalizeDateFormat('日期', undefined, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), 'yyyy-MM-dd')
+  assert.equal(normalizeDateFormat('日期', '', DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), '')
+  assert.equal(normalizeDateFormat('文本', 'YYYY-MM-DD', DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS), null)
+})
+
+test('currentEditorPropState normalizes date_format the same way as syncFieldTypeSpecificProps', () => {
+  // 基线（hydration 后）与当前值口径必须一致，否则异步 field_type watcher 注入默认格式会误报脏态。
+  assert.match(formDesignerSource, /normalizeDateFormat\(normalizedFieldType, editProp\.date_format, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS\)/)
+  assert.match(formDesignerSource, /syncFieldTypeSpecificProps\(editProp, editProp\.field_type, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS\)/)
+})
+
 test('field definition payload keeps cleared unit as null', () => {
   assert.ok(buildFieldDefinitionPayload, 'should extract field definition payload builder from FormDesignerTab.vue')
 
@@ -163,6 +183,8 @@ test('property editor baseline normalization keeps stale type-specific values cl
     'DATE_FORMAT_OPTIONS',
     'isChoiceField',
     'normalizeEditorDefaultValue',
+    'normalizeDateFormat',
+    'DEFAULT_DATE_FORMATS',
     `${functionBody('currentEditorPropState')}`,
   )
   const DRAFT_FIELD_ID = '__draft__'
@@ -204,6 +226,8 @@ test('property editor baseline normalization keeps stale type-specific values cl
     DATE_FORMAT_OPTIONS,
     (fieldType) => ['单选', '多选', '单选（纵向）', '多选（纵向）'].includes(fieldType),
     normalizeEditorDefaultValue,
+    normalizeDateFormat,
+    DEFAULT_DATE_FORMATS,
   )
   const staleBaseline = {
     ...state,

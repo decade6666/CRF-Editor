@@ -62,6 +62,7 @@ import {
 } from '../composables/useCRFRenderer';
 import {
   buildFormPropState,
+  normalizeDateFormat,
   normalizeHexColorInput,
   sameFormPropState,
   syncFieldTypeSpecificProps,
@@ -644,9 +645,10 @@ async function onSwitchFormFromDropdown(formId) {
   }
 }
 
-async function onCanvasBlankClick(event) {
+// 点击设计器空白处回到表单属性：字段列表容器（onCanvasBlankClick）与
+// designer-shell / 弹窗标题栏（onDesignerBlankClick）共用同一守卫链。
+async function returnToFormProperties() {
   if (!selectedFieldId.value) return;
-  if (event?.target?.closest?.('.ff-item')) return;
   if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
@@ -660,6 +662,38 @@ async function onCanvasBlankClick(event) {
   }
   resetFieldPropAutoSaveState();
   syncFormPropEditor(selectedForm.value);
+}
+
+async function onCanvasBlankClick(event) {
+  if (event?.target?.closest?.('.ff-item')) return;
+  await returnToFormProperties();
+}
+
+// 除三张卡片、各类控件、字段条目与分隔条以外，设计器主体/标题栏空白都回到表单属性。
+// .fd-canvas-list 由 onCanvasBlankClick 处理，排除以免事件冒泡导致双弹保存确认。
+const DESIGNER_BLANK_EXCLUDE_SELECTOR = [
+  '.designer-preview-pane',
+  '.designer-editor-card',
+  '.designer-notes-card',
+  'button',
+  'input',
+  'textarea',
+  '.el-select',
+  '.el-input',
+  '.el-input-number',
+  '.el-radio',
+  '.el-checkbox',
+  '.el-switch',
+  '.ff-item',
+  '.fd-item',
+  '.pane-v-resizer',
+  '.fd-panel-resizer',
+  '.fd-canvas-list',
+].join(',');
+
+async function onDesignerBlankClick(event) {
+  if (event?.target?.closest?.(DESIGNER_BLANK_EXCLUDE_SELECTOR)) return;
+  await returnToFormProperties();
 }
 
 // 表单字段操作
@@ -1767,7 +1801,7 @@ let notesPendingSave = null;
 let notesSavePromise = null;
 let notesAutoSaveErrorShown = false;
 const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''));
-const HEADER_NOTES_MAX_LENGTH = 20;
+const HEADER_NOTES_MAX_LENGTH = 60;
 const headerDesignNotesSummary = computed(() => {
   const raw = previewDesignNotesText.value.replace(/\s+/g, ' ').trim();
   if (!raw) return '';
@@ -2133,7 +2167,9 @@ function currentEditorPropState() {
       field_type: normalizedFieldType,
       integer_digits: normalizedFieldType !== '数值' ? null : editProp.integer_digits,
       decimal_digits: normalizedFieldType !== '数值' ? null : editProp.decimal_digits,
-      date_format: !DATE_FORMAT_OPTIONS[normalizedFieldType] ? null : editProp.date_format,
+      date_format: !DATE_FORMAT_OPTIONS[normalizedFieldType]
+        ? null
+        : normalizeDateFormat(normalizedFieldType, editProp.date_format, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS),
       checkbox_label: normalizedCheckboxLabel,
       codelist_id: normalizedCodelistId,
       unit_id: normalizedUnitId,
@@ -2365,11 +2401,11 @@ function selectField(ff) {
     label: fd.label || '',
     variable_name: fd.variable_name || '',
     field_type: fd.field_type || '文本',
-    integer_digits: fd.integer_digits,
-    decimal_digits: fd.decimal_digits,
-    date_format: fd.date_format,
+    integer_digits: fd.integer_digits ?? null,
+    decimal_digits: fd.decimal_digits ?? null,
+    date_format: fd.date_format ?? null,
     checkbox_label: fd.checkbox_label ?? null,
-    codelist_id: fd.codelist_id,
+    codelist_id: fd.codelist_id ?? null,
     unit_id: fd.unit_id ?? null,
     default_value: ff.default_value || '',
     inline_mark: ff.inline_mark || 0,
@@ -2378,6 +2414,9 @@ function selectField(ff) {
     label_bold: ff.label_bold === 0 ? 0 : 1,
     label_font_size: ff.label_font_size || 'default',
   });
+  // 同步归一类型专属属性：让异步 flush:pre 的 field_type watcher 变成幂等空操作，
+  // 避免基线快照之后再改写 editProp 造成假脏态。
+  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, editProp.field_type, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
   customBgColorInput.value = ff.bg_color && !BG_COLOR_OPTIONS.some((o) => o.value === ff.bg_color) ? ff.bg_color : '';
   customTextColorInput.value =
     ff.text_color && !TEXT_COLOR_OPTIONS.some((o) => o.value === ff.text_color) ? ff.text_color : '';
@@ -3865,7 +3904,8 @@ function openAddForm() {
       class="designer-dialog"
     >
       <template #header="{ titleId, titleClass }">
-        <div class="designer-dialog-header">
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank header click returns to form props -->
+        <div class="designer-dialog-header" @click="onDesignerBlankClick">
           <div class="designer-dialog-header-main">
             <span :id="titleId" :class="[titleClass, 'designer-dialog-title']">
               <span class="designer-dialog-title-prefix">设计：</span>
@@ -3900,7 +3940,8 @@ function openAddForm() {
           </div>
         </div>
       </template>
-      <div class="designer-shell">
+      <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank designer click returns to form props -->
+      <div class="designer-shell" @click="onDesignerBlankClick">
         <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
           <div class="fd-library-header">字段库</div>
           <div class="designer-pane-toolbar">
@@ -5475,8 +5516,8 @@ function openAddForm() {
   cursor: pointer;
 }
 .ff-item.ff-selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
 }
 .drag-handle {
   cursor: move;
@@ -5794,9 +5835,9 @@ function openAddForm() {
 }
 
 .fd-canvas-header-notes {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 240px;
+  max-width: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5809,6 +5850,8 @@ function openAddForm() {
   padding: 0 6px;
   line-height: 18px;
   cursor: help;
+  /* 右侧预留位：后续在顶栏加元素只需改这一个变量，不用再动布局 */
+  margin-right: var(--notes-reserve, 96px);
 }
 
 .designer-empty-state {

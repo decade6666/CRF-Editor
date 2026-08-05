@@ -182,7 +182,7 @@ def test_date_not_overtrigger_as_datetime() -> None:
     field_type, config = M._detect_field_type(text)
 
     assert field_type == "日期"
-    assert config == {"date_format": "YYYY-MM-DD"}
+    assert config == {"date_format": "yyyy-MM-dd"}
 
 
 

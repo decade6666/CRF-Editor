@@ -175,6 +175,7 @@ async function batchDelCl() {
 }
 
 const selOpts = ref([])
+const optionsRowClassName = ({ row }) => (selOpts.value.some((o) => o.id === row.id) ? 'is-selected-row' : '')
 async function batchDelOpt() {
   try {
     if (!selOpts.value.length) return ElMessage.warning('请先选择要删除的选项')
@@ -351,6 +352,7 @@ function openAddCl() {
         style="width:100%"
         height="100%"
         row-key="id"
+        :row-class-name="optionsRowClassName"
         @selection-change="r => selOpts = r"
       >
         <el-table-column width="32" v-if="!isOptionsFiltered">

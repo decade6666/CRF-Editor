@@ -179,7 +179,7 @@ test('selectField keeps regular fields editable and resets log rows to readonly 
   assert.match(formDesignerSource, /fieldPropBaseline\.value = null;/)
   assert.match(
     formDesignerSource,
-    /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits,[\s\S]*decimal_digits: fd\.decimal_digits,[\s\S]*date_format: fd\.date_format,[\s\S]*codelist_id: fd\.codelist_id,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
+    /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits \?\? null,[\s\S]*decimal_digits: fd\.decimal_digits \?\? null,[\s\S]*date_format: fd\.date_format \?\? null,[\s\S]*codelist_id: fd\.codelist_id \?\? null,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
   )
   assert.match(
     formDesignerSource,

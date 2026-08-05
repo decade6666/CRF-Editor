@@ -189,9 +189,24 @@ test('canvas blank click clears field selection without stopping field-row click
   )
   const body = functionBody('onCanvasBlankClick')
   assert.match(body, /closest\?\.\(['"]\.ff-item['"]\)/)
-  assert.match(body, /resolveFieldPropLeave\(/)
-  assert.match(body, /selectedFieldId|resetFieldPropAutoSaveState/)
+  assert.match(body, /returnToFormProperties\(\)/)
   assert.doesNotMatch(body, /stopPropagation/)
+  const coreBody = functionBody('returnToFormProperties')
+  assert.match(coreBody, /resolveFieldPropLeave\(/)
+  assert.match(coreBody, /selectedFieldId|resetFieldPropAutoSaveState/)
+  assert.match(coreBody, /syncFormPropEditor\(selectedForm\.value\)/)
+})
+
+test('designer blank click switches to form properties except on cards, controls and items', () => {
+  const body = functionBody('onDesignerBlankClick')
+  assert.match(body, /closest\?\.\(DESIGNER_BLANK_EXCLUDE_SELECTOR\)/)
+  assert.match(body, /returnToFormProperties\(\)/)
+  assert.match(formDesignerSource, /class="designer-shell"[\s\S]*@click="onDesignerBlankClick"/)
+  assert.match(formDesignerSource, /class="designer-dialog-header"[\s\S]*@click="onDesignerBlankClick"/)
+  assert.match(
+    formDesignerSource,
+    /DESIGNER_BLANK_EXCLUDE_SELECTOR = \[[\s\S]*\.designer-preview-pane[\s\S]*\.designer-editor-card[\s\S]*\.designer-notes-card[\s\S]*\.fd-canvas-list/,
+  )
 })
 
 test('resolveFormPropLeave uses three-state save/discard/cancel semantics', () => {
