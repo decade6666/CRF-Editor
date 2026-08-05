@@ -589,9 +589,8 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 | Aspect | Preview (FE) | Export (BE) | Rule |
 |---|---|---|---|
-| Choice marker-label spacing | `○有尾线`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
+| Choice marker-label spacing | `○其他`, `□选项1` | same literal text in DOCX runs | No internal space between marker and label. |
 | Choice option separator | horizontal choices join with two ASCII spaces | same | The two spaces separate options, not marker and label. |
-| Trailing underscore | `label + "_".repeat(fillLineChars)` and `buildFillLineHtml(fillLineChars)` when a width-derived count is provided; fallback stays 6 `_` without column context | same count via `fill_line_chars`; fallback stays `label + "_" * 6` | No NBSP and no extra separator between label and underscores; width-aware callers must pass the same column-derived count as text fill-lines. |
 | Default text fill-line | `________________` (16 `_`) | `"_" * 16` | Character count stays 16. |
 | Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
 | Datetime placeholder | date + two ASCII spaces + time | same | Date/time separator is exactly two spaces. |
@@ -606,7 +605,6 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 | Condition | Expected Behavior |
 |---|---|
-| Choice option has `trailing_underscore=1` | Width-aware preview paths and export render marker + label with no internal space, then the same column-derived underscore count as text fill-lines; no-width fallback remains six trailing underscores. |
 | Horizontal choice has two options | Output is `○A  ○B` / `□A  □B`; there is no `○ A` or `□ A`. |
 | Text field has no default | Preview and export both use 16 underscores as the plain-text placeholder. |
 | Numeric field uses `integer_digits=3`, `decimal_digits=1` | Preview and export emit `|__||__||__|.|__|`. |
@@ -619,7 +617,6 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 ### 5. Good/Base/Bad Cases
 
-- **Good**: `单选` option `有尾线` with `trailing_underscore=1` renders as `○有尾线` followed by the column-derived underscore count in width-aware paths; no-width fallback remains `○有尾线______`.
 - **Good**: an interleaved form `normal A → inline B/C → normal D` appears in the same order in designer preview, visit preview, template preview, and exported DOCX.
 - **Base**: a plain text field with no default renders `________________` on both sides when no column-width context is provided.
 - **Base**: an empty default-control inline cell repeats its full field-specific placeholder on every generated inline row.
@@ -646,7 +643,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50): T
 
 ```python
 # export_service.py
-atom_text = label + " " + trailing_fill
+atom_text = "○ " + label
 ```
 
 ```javascript
@@ -654,14 +651,14 @@ atom_text = label + " " + trailing_fill
 return options.map(option => `○ ${option.text}`).join('  ')
 ```
 
-This renders `○ 有尾线` in preview and joins label/underscores with NBSP in export,
-while the strict table-text contract expects `○有尾线` followed immediately by the agreed underscore count.
+This renders `○ 其他` in preview and export, while the strict table-text contract
+expects `○其他` with no space between marker and label.
 
 #### Correct: keep only the option separator spaces
 
 ```python
 # export_service.py
-atom_text = label + "_" * WIDTH_OF_TRAILING_UNDERSCORE
+atom_text = "○" + label
 ```
 
 ```javascript
@@ -675,8 +672,8 @@ return options.map(option => '○' + option.text).join('  ')
 return { lines: ['______'], repeat: true, fallback: '______' }
 ```
 
-The six-underscore fallback only fits trailing choice options. It breaks empty text,
-numeric, date, datetime, and default choice controls.
+A fixed six-underscore fallback is far shorter than the whole-cell text fill-line
+(16) and breaks empty text, numeric, date, datetime, and default choice controls.
 
 #### Correct: preserve the full renderer fallback
 
@@ -875,52 +872,60 @@ const FormDesigner = defineAsyncComponent(() =>
 
 ---
 
-## Scenario: FormDesignerTab Shared Field-Property Action Bar
+## Scenario: FormDesignerTab Log-Row Readonly Property Pane
 
 ### 1. Scope / Trigger
 
 - Trigger: changing the persisted-field property editor in
   `frontend/src/components/FormDesignerTab.vue` — adding a new field-type
   branch, moving the 取消/保存 buttons, or adjusting the property pane layout.
-- The right property card now has two top-level branches:
+- The right property card has two top-level branches:
   `v-if="!selectedFieldId"` (form props) and `v-else` (shared field-editor
-  scroll area). Inside the shared field-editor branch, the two mutually
-  exclusive forms are `v-if="editProp.field_type === '日志行'"` (log row) and
-  `v-else` (normal fields). The draft row keeps its own local action buttons.
+  scroll area). Inside the shared field-editor branch, log rows render a
+  readonly hint **only** (`v-if="editProp.field_type === '日志行'"`,
+  `data-test="designer-log-property-readonly"`); the normal-field form
+  (`data-test="designer-field-property-form"`), the draft actions, and the
+  persisted-field actions all live inside one `<template v-else>`.
 
 ### 2. Contracts
 
 | Rule | Why |
 |---|---|
-| The persisted-field 取消/保存 bar appears **exactly once** inside the shared field-editor scroll section (`data-test="designer-property-actions"`, `v-else`, class `designer-draft-actions`) | Every persisted field type branch (log row included) must land on the same explicit save/cancel with identical dirty/busy gating; per-branch duplicates are forbidden |
-| The bar sits **inside the scroll flow**, after the two field-property forms and after the draft-action branch | Its visual position matches the draft-field editor: buttons stay directly under the last property item instead of being pinned to the card footer |
-| Shared nodes should stay in one scroll container, not be duplicated per branch or wrapped in `<template v-else>` only to move the buttons | Duplicating the bar risks drift between log rows and normal fields; template wrapping still causes whole-branch re-indentation and noisy whitespace diffs |
+| Log rows render no property form and no 取消/保存 buttons — only the readonly hint | 「以下为log行」是固定样式的结构提示行；`fieldPropBaseline` 置 null 使 log 行永不 dirty，保存/取消路径对 log 行不可达 |
+| `openQuickEdit` early-returns for log rows (`ff?.is_log_row \|\| ff?.field_definition?.field_type === '日志行'`) | 预览区双击快编对 log 行关闭；三处模板 `@dblclick` 不分散删，单点收口 |
+| The persisted-field 取消/保存 bar appears **exactly once** inside the shared field-editor scroll section (`data-test="designer-property-actions"`, `v-else`, class `designer-draft-actions`) | 持久化字段分支共享同一组显式保存/取消与脏态、busy 门控；不允许按分支复制按钮栏 |
+| The bar sits **inside the scroll flow**, after the field-property form and after the draft-action branch | 视觉位置与草稿字段编辑器一致：按钮直接跟在最后一个属性项下方 |
+| Shared nodes stay in one scroll container; branch switching uses `v-if` + `<template v-else>` | 避免整支重排；log 行提示与字段表单互斥且只渲染其一 |
 
 ### 3. Wrong vs Correct
 
 ```vue
-<!-- WRONG - duplicate action bars per branch -->
+<!-- WRONG - log row renders an editable form or duplicated action bars -->
 <div v-else class="designer-editor-scroll">
-  <el-form v-if="editProp.field_type === '日志行'">...</el-form>
-  <div class="designer-draft-actions"><el-button>取消</el-button><el-button>保存</el-button></div>
-  <el-form v-else>...</el-form>
-  <div class="designer-draft-actions"><el-button>取消</el-button><el-button>保存</el-button></div>
+  <el-form v-if="editProp.field_type === '日志行'" data-test="designer-log-property-form">...</el-form>
+  <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">...</div>
+  <div v-else class="designer-draft-actions" data-test="designer-property-actions">...</div>
 </div>
 
 <!-- WRONG - fixed footer bar drifts from the draft-field presentation -->
 <div v-else class="designer-editor-scroll">...field forms + draft actions...</div>
 <div class="designer-draft-actions designer-editor-actions">...persisted-field actions...</div>
 
-<!-- CORRECT - one shared in-flow bar inside the shared scroll container -->
+<!-- CORRECT - log row hint + v-else template for everything editable -->
 <div v-if="!selectedFieldId" class="designer-editor-scroll">...form props + its own actions...</div>
 <div v-else class="designer-editor-scroll">
-  <el-form v-if="editProp.field_type === '日志行'" data-test="designer-log-property-form">...</el-form>
-  <el-form v-else data-test="designer-field-property-form">...</el-form>
-  <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">...draft actions...</div>
-  <div v-else class="designer-draft-actions" data-test="designer-property-actions">
-    <el-button ...>取消</el-button>
-    <el-button ...>保存</el-button>
+  <div v-if="editProp.field_type === '日志行'" class="designer-readonly-hint"
+       data-test="designer-log-property-readonly">
+    「以下为log行」为固定样式的结构提示行，不支持编辑属性。
   </div>
+  <template v-else>
+    <el-form data-test="designer-field-property-form">...</el-form>
+    <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">...draft actions...</div>
+    <div v-else class="designer-draft-actions" data-test="designer-property-actions">
+      <el-button ...>取消</el-button>
+      <el-button ...>保存</el-button>
+    </div>
+  </template>
 </div>
 ```
 
@@ -928,7 +933,11 @@ const FormDesigner = defineAsyncComponent(() =>
 
 - `frontend/tests/formDesignerPropertyEditor.runtime.test.js` locks:
   `designer-property-actions` appears exactly once; `designer-editor-actions`
-  no longer exists; the action bar lives inside the shared `v-else`
-  scroll section after the draft-action branch; the log-row form keeps
-  `v-if`, the normal-field form keeps `v-else`; and the buttons keep their
-  exact `:disabled` / `:loading` / `@click` bindings.
+  no longer exists; `designer-log-property-form` appears zero times;
+  `designer-log-property-readonly` sits in the log-row branch; the
+  normal-field form lives inside the `<template v-else>`; and the buttons keep
+  their exact `:disabled` / `:loading` / `@click` bindings.
+- `frontend/tests/quickEditBehavior.test.js` locks: `openQuickEdit` early-
+  returns for log rows; `saveFieldProp` has no `is_log_row` branch.
+- `frontend/tests/designerNewFieldDraft.test.js` locks: the draft action bar
+  keeps the exact `v-if="selectedFieldId === DRAFT_FIELD_ID"` condition.

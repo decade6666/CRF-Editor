@@ -2,7 +2,7 @@
 
 验证字段更新契约：
 - 清空单位时显式提交 unit_id: null 能持久化为空
-- 相关列表接口返回 trailing_underscore，支持导入后预览语义
+- 相关列表接口返回精简后的选项结构，支持导入后预览语义
 """
 from __future__ import annotations
 
@@ -108,8 +108,8 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         session.add(codelist)
         session.flush()
         session.add_all([
-            CodeListOption(codelist_id=codelist.id, code="1", decode="男", trailing_underscore=1, order_index=1),
-            CodeListOption(codelist_id=codelist.id, code="2", decode="女", trailing_underscore=0, order_index=2),
+            CodeListOption(codelist_id=codelist.id, code="1", decode="男", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="女", order_index=2),
         ])
         session.flush()
         field_definition = FieldDefinition(
@@ -136,13 +136,13 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
 def choice_field_definition_id(client: TestClient, project_id: int, codelist_id: int, auth_token: str) -> int:
     option1_resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
-        json={"code": "1", "decode": "男", "trailing_underscore": 1},
+        json={"code": "1", "decode": "男"},
         headers=auth_headers(auth_token),
     )
     assert option1_resp.status_code == 201, option1_resp.text
     option2_resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
-        json={"code": "2", "decode": "女", "trailing_underscore": 0},
+        json={"code": "2", "decode": "女"},
         headers=auth_headers(auth_token),
     )
     assert option2_resp.status_code == 201, option2_resp.text
@@ -467,7 +467,7 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
 
 
 
-def test_form_fields_response_includes_trailing_underscore_for_choice_options(
+def test_form_fields_response_returns_choice_options_without_trailing_metadata(
     client: TestClient,
     form_id: int,
     choice_field_definition_id: int,
@@ -490,11 +490,11 @@ def test_form_fields_response_includes_trailing_underscore_for_choice_options(
 
     options = fields[0]["field_definition"]["codelist"]["options"]
     assert [option["decode"] for option in options] == ["男", "女"]
-    assert [option["trailing_underscore"] for option in options] == [1, 0]
+    assert all("trailing_underscore" not in option for option in options)
 
 
 
-def test_import_template_preview_response_includes_trailing_underscore(
+def test_import_template_preview_response_returns_options_without_trailing_metadata(
     client: TestClient,
     project_id: int,
     template_db_path: SimpleNamespace,
@@ -524,7 +524,7 @@ def test_import_template_preview_response_includes_trailing_underscore(
     assert len(payload["fields"]) == 1
     options = payload["fields"][0]["options"]
     assert [option["decode"] for option in options] == ["男", "女"]
-    assert [option["trailing_underscore"] for option in options] == [1, 0]
+    assert all("trailing_underscore" not in option for option in options)
 
 
 def test_patch_colors_can_clear_bg_and_set_text_black(

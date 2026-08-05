@@ -32,10 +32,10 @@ def _create_codelist(client: TestClient, project_id: int, auth_token: str) -> in
     return resp.json()["id"]
 
 
-def _add_option(client: TestClient, project_id: int, codelist_id: int, auth_token: str, code: str, decode: str, trailing_underscore: int, order_index: int):
+def _add_option(client: TestClient, project_id: int, codelist_id: int, auth_token: str, code: str, decode: str, order_index: int):
     resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
-        json={"code": code, "decode": decode, "trailing_underscore": trailing_underscore, "order_index": order_index},
+        json={"code": code, "decode": decode, "order_index": order_index},
         headers=auth_headers(auth_token),
     )
     assert resp.status_code == 201, resp.text
@@ -49,8 +49,8 @@ def test_replace_codelist_snapshot_preserves_description_and_replaces_options(
 ) -> None:
     project_id = _create_project(client, auth_token)
     codelist_id = _create_codelist(client, project_id, auth_token)
-    first = _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1, 1)
-    _add_option(client, project_id, codelist_id, auth_token, "2", "女", 0, 2)
+    first = _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1)
+    _add_option(client, project_id, codelist_id, auth_token, "2", "女", 2)
 
     resp = client.put(
         f"/api/projects/{project_id}/codelists/{codelist_id}/snapshot",
@@ -58,8 +58,8 @@ def test_replace_codelist_snapshot_preserves_description_and_replaces_options(
             "name": "性别字典",
             "description": "保留说明",
             "options": [
-                {"id": first["id"], "code": "1", "decode": "男性", "trailing_underscore": 1},
-                {"code": "3", "decode": "未知", "trailing_underscore": 0},
+                {"id": first["id"], "code": "1", "decode": "男性"},
+                {"code": "3", "decode": "未知"},
             ],
         },
         headers=auth_headers(auth_token),
@@ -69,9 +69,9 @@ def test_replace_codelist_snapshot_preserves_description_and_replaces_options(
     payload = resp.json()
     assert payload["name"] == "性别字典"
     assert payload["description"] == "保留说明"
-    assert [(opt["code"], opt["decode"], opt["trailing_underscore"], opt["order_index"]) for opt in payload["options"]] == [
-        ("1", "男性", 1, 1),
-        ("3", "未知", 0, 2),
+    assert [(opt["code"], opt["decode"], opt["order_index"]) for opt in payload["options"]] == [
+        ("1", "男性", 1),
+        ("3", "未知", 2),
     ]
 
     list_resp = client.get(
@@ -91,9 +91,9 @@ def test_replace_codelist_snapshot_preserves_description_and_replaces_options(
         assert codelist is not None
         assert codelist.description == "保留说明"
         options = session.query(CodeListOption).filter(CodeListOption.codelist_id == codelist_id).order_by(CodeListOption.order_index, CodeListOption.id).all()
-        assert [(opt.code, opt.decode, opt.trailing_underscore, opt.order_index) for opt in options] == [
-            ("1", "男性", 1, 1),
-            ("3", "未知", 0, 2),
+        assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
+            ("1", "男性", 1),
+            ("3", "未知", 2),
         ]
 
 
@@ -104,8 +104,8 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
 ) -> None:
     project_id = _create_project(client, auth_token)
     codelist_id = _create_codelist(client, project_id, auth_token)
-    first = _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1, 1)
-    second = _add_option(client, project_id, codelist_id, auth_token, "2", "女", 0, 2)
+    first = _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1)
+    second = _add_option(client, project_id, codelist_id, auth_token, "2", "女", 2)
 
     resp = client.put(
         f"/api/projects/{project_id}/codelists/{codelist_id}/snapshot",
@@ -113,9 +113,9 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
             "name": "错误提交",
             "description": "不应生效",
             "options": [
-                {"id": first["id"], "code": "1", "decode": "男", "trailing_underscore": 1},
-                {"id": second["id"], "code": "2", "decode": "女", "trailing_underscore": 0},
-                {"code": "1", "decode": "男", "trailing_underscore": 0},
+                {"id": first["id"], "code": "1", "decode": "男"},
+                {"id": second["id"], "code": "2", "decode": "女"},
+                {"code": "1", "decode": "男"},
             ],
         },
         headers=auth_headers(auth_token),
@@ -131,9 +131,9 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
     matched = next(item for item in list_resp.json() if item["id"] == codelist_id)
     assert matched["name"] == "性别"
     assert matched["description"] == "保留说明"
-    assert [(opt["code"], opt["decode"], opt["trailing_underscore"], opt["order_index"]) for opt in matched["options"]] == [
-        ("1", "男", 1, 1),
-        ("2", "女", 0, 2),
+    assert [(opt["code"], opt["decode"], opt["order_index"]) for opt in matched["options"]] == [
+        ("1", "男", 1),
+        ("2", "女", 2),
     ]
 
     with Session(engine) as session:
@@ -142,9 +142,9 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
         assert codelist.name == "性别"
         assert codelist.description == "保留说明"
         options = session.query(CodeListOption).filter(CodeListOption.codelist_id == codelist_id).order_by(CodeListOption.order_index, CodeListOption.id).all()
-        assert [(opt.code, opt.decode, opt.trailing_underscore, opt.order_index) for opt in options] == [
-            ("1", "男", 1, 1),
-            ("2", "女", 0, 2),
+        assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
+            ("1", "男", 1),
+            ("2", "女", 2),
         ]
 
 
@@ -155,8 +155,8 @@ def test_copy_codelist_duplicates_metadata_options_and_generates_unique_name(
 ) -> None:
     project_id = _create_project(client, auth_token)
     codelist_id = _create_codelist(client, project_id, auth_token)
-    _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1, 1)
-    _add_option(client, project_id, codelist_id, auth_token, "2", "女", 0, 2)
+    _add_option(client, project_id, codelist_id, auth_token, "1", "男", 1)
+    _add_option(client, project_id, codelist_id, auth_token, "2", "女", 2)
 
     first_resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/copy",
@@ -177,16 +177,16 @@ def test_copy_codelist_duplicates_metadata_options_and_generates_unique_name(
     assert first_copy["code"] != "CL_SEX"
     assert first_copy["description"] == "保留说明"
     assert first_copy["order_index"] == 2
-    assert [(opt["code"], opt["decode"], opt["trailing_underscore"], opt["order_index"]) for opt in first_copy["options"]] == [
-        ("1", "男", 1, 1),
-        ("2", "女", 0, 2),
+    assert [(opt["code"], opt["decode"], opt["order_index"]) for opt in first_copy["options"]] == [
+        ("1", "男", 1),
+        ("2", "女", 2),
     ]
 
     with Session(engine) as session:
         options = session.query(CodeListOption).filter(CodeListOption.codelist_id == first_copy["id"]).order_by(CodeListOption.order_index, CodeListOption.id).all()
-        assert [(opt.code, opt.decode, opt.trailing_underscore, opt.order_index) for opt in options] == [
-            ("1", "男", 1, 1),
-            ("2", "女", 0, 2),
+        assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
+            ("1", "男", 1),
+            ("2", "女", 2),
         ]
 
 
@@ -217,8 +217,8 @@ def test_create_codelist_with_options_is_atomic_when_option_conflicts(
             "code": "CL_SEX",
             "description": "保留说明",
             "options": [
-                {"code": "1", "decode": "男", "trailing_underscore": 1},
-                {"code": "1", "decode": "男", "trailing_underscore": 0},
+                {"code": "1", "decode": "男"},
+                {"code": "1", "decode": "男"},
             ],
         },
         headers=auth_headers(auth_token),

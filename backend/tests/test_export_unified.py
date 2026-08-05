@@ -700,7 +700,7 @@ def test_export_unified_table_has_table_level_borders(session: Session, tmp_path
         assert border.get(qn('w:sz')) == '4', f"{border_name} 边框宽度应为 4"
 
 
-# ========== Task 4.3: trailing_underscore 原子 token 测试 ==========
+# ========== Task 4.3: 选择项渲染回归测试 ==========
 
 
 def create_choice_field_def(
@@ -724,22 +724,12 @@ def create_choice_field_def(
 
 
 
-def test_export_inline_choice_trailing_fill_line_scales_with_column_width(
+def test_export_inline_choice_renders_plain_option_text(
     session: Session,
     tmp_path: Path,
 ) -> None:
-    """inline 选项尾线按列宽自适应，而不是固定 6 根。"""
+    """inline 单选不再附带尾部填写线。"""
     from src.models.codelist import CodeList, CodeListOption
-    from src.services.field_rendering import build_inline_column_demands, build_inline_table_model
-    from src.services.width_planning import (
-        CELL_HPAD_CM,
-        FILL_LINE_SAFETY_CM,
-        UNDERSCORE_CHAR_CM,
-        compute_choice_atom_weight,
-        compute_choice_trailing_fill_char_count,
-        compute_fill_line_char_count,
-        plan_inline_table_width,
-    )
 
     project, _ = create_minimal_project(session)
 
@@ -758,41 +748,25 @@ def test_export_inline_choice_trailing_fill_line_scales_with_column_width(
     codelist = CodeList(project_id=project.id, name="Inline选项", code="CL_INLINE")
     session.add(codelist)
     session.flush()
-    session.add(CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", trailing_underscore=1, order_index=1))
+    session.add(CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1))
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "Inline测试", codelist.id, "单选")
-    form_field = add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=1)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=1)
 
     session.commit()
 
-    output_path = tmp_path / "inline_choice_trailing.docx"
+    output_path = tmp_path / "inline_choice.docx"
     ExportService(session).export_project_to_word(project.id, str(output_path))
 
     doc = Document(str(output_path))
     inline_table = next((table for table in doc.tables[2:] if len(table.columns) == 1), None)
     assert inline_table is not None, "应存在 1 列 inline 表格"
-
-    headers, row_values, _ = build_inline_table_model([form_field])
-    col_widths = plan_inline_table_width(
-        headers,
-        row_values,
-        ExportService.PORTRAIT_CONTENT_WIDTH_CM,
-        semantic_demands=build_inline_column_demands([form_field]),
-    )
-    full_line_count = compute_fill_line_char_count(col_widths[0])
-    expected = compute_choice_trailing_fill_char_count(col_widths[0], "有尾线")
-
-    marker_label_count = math.ceil(compute_choice_atom_weight("有尾线", False))
-    usable_cm = col_widths[0] - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
-
-    assert inline_table.cell(1, 0).text == f"○有尾线{'_' * expected}"
-    assert 6 < expected < full_line_count
-    assert (marker_label_count + expected) * UNDERSCORE_CHAR_CM <= usable_cm
+    assert inline_table.cell(1, 0).text == "○有尾线"
 
 
-def test_export_choice_trailing_underscore_atom_token(session: Session, tmp_path: Path) -> None:
-    """验证 trailing_underscore 选项渲染为原子 token（文本 + 尾线不拆分）。"""
+def test_export_choice_options_render_in_order(session: Session, tmp_path: Path) -> None:
+    """普通单选按 order_index 渲染纯选项文本，不再拼接尾线。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -809,56 +783,31 @@ def test_export_choice_trailing_underscore_atom_token(session: Session, tmp_path
     session.add(vf)
     session.flush()
 
-    # 创建选项字典
     codelist = CodeList(project_id=project.id, name="诊断结果", code="CL_DIAG")
     session.add(codelist)
     session.flush()
 
-    # 选项1：有尾部填写线
-    opt1 = CodeListOption(
-        codelist_id=codelist.id, code="1", decode="确诊", trailing_underscore=1, order_index=1
-    )
-    # 选项2：无尾部填写线
-    opt2 = CodeListOption(
-        codelist_id=codelist.id, code="2", decode="疑似", trailing_underscore=0, order_index=2
-    )
-    # 选项3：有尾部填写线
-    opt3 = CodeListOption(
-        codelist_id=codelist.id, code="3", decode="排除", trailing_underscore=1, order_index=3
-    )
-    session.add_all([opt1, opt2, opt3])
+    session.add_all([
+        CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="疑似", order_index=2),
+        CodeListOption(codelist_id=codelist.id, code="3", decode="排除", order_index=3),
+    ])
     session.flush()
 
-    # 创建单选字段
     fd = create_choice_field_def(session, project.id, "诊断", codelist.id, "单选")
     add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
-    output_path = tmp_path / "choice_trailing.docx"
+    output_path = tmp_path / "choice_plain.docx"
     ExportService(session).export_project_to_word(project.id, str(output_path))
 
     doc = Document(str(output_path))
-
-    # 找到包含选择字段的表格
-    form_tables = doc.tables[2:]
-    assert len(form_tables) >= 1
-
-    # 获取选择字段单元格的文本
-    choice_cell = form_tables[0].cell(0, 1)  # 第一行第二列
+    choice_cell = doc.tables[2].cell(0, 1)
     cell_text = choice_cell.text
 
-    # 验证选项顺序：按 order_index 排序
-    assert "确诊" in cell_text
-    assert "疑似" in cell_text
-    assert "排除" in cell_text
-
-    # 验证 order_index 顺序：确诊在疑似前，疑似在排除前
-    idx1 = cell_text.find("确诊")
-    idx2 = cell_text.find("疑似")
-    idx3 = cell_text.find("排除")
-    assert idx1 < idx2, "确诊应在疑似前（order_index=1 vs 2）"
-    assert idx2 < idx3, "疑似应在排除前（order_index=2 vs 3）"
+    assert cell_text == "○确诊  ○疑似  ○排除"
+    assert "_" not in cell_text
 
 
 def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> None:
@@ -998,7 +947,7 @@ def test_export_unified_multi_blocks_share_table_level_width(session: Session, t
         assert w4 > w0, f"长标签列（slot 4）应比短标签列（slot 0）更宽: w0={w0}, w4={w4}"
 
 
-# ========== Task 4.3: trailing_underscore 横向与纵向原子 token 测试 ==========
+# ========== Task 4.3: 横向与纵向选择项相邻性测试 ==========
 
 
 def _assert_marker_runs_use_simsun(runs, marker: str) -> None:
@@ -1029,8 +978,8 @@ def test_export_choice_marker_stays_simsun_with_text_color(session: Session, tmp
     session.add(codelist)
     session.flush()
     session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="正常", trailing_underscore=0, order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="异常", trailing_underscore=0, order_index=2),
+        CodeListOption(codelist_id=codelist.id, code="1", decode="正常", order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="异常", order_index=2),
     ])
     session.flush()
 
@@ -1047,8 +996,8 @@ def test_export_choice_marker_stays_simsun_with_text_color(session: Session, tmp
     _assert_marker_runs_use_simsun(all_runs, "○")
 
 
-def test_export_horizontal_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
-    """验证横向单选 marker-label 与 label-fill 都没有内部空格。"""
+def test_export_horizontal_choice_marker_touches_label(session: Session, tmp_path: Path) -> None:
+    """验证横向单选 marker 与 label 没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -1069,53 +1018,34 @@ def test_export_horizontal_choice_trailing_touches_fill_line(session: Session, t
     session.add(codelist)
     session.flush()
 
-    opt1 = CodeListOption(
-        codelist_id=codelist.id, code="1", decode="有尾线", trailing_underscore=1, order_index=1
-    )
-    opt2 = CodeListOption(
-        codelist_id=codelist.id, code="2", decode="无尾线", trailing_underscore=0, order_index=2
-    )
-    session.add_all([opt1, opt2])
+    session.add_all([
+        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
+    ])
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "横向测试", codelist.id, "单选")
-    form_field = add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
-    output_path = tmp_path / "h_choice_nbsp.docx"
+    output_path = tmp_path / "h_choice_plain.docx"
     ExportService(session).export_project_to_word(project.id, str(output_path))
 
     doc = Document(str(output_path))
-    form_tables = doc.tables[2:]
-    assert len(form_tables) >= 1
-
-    from src.services.width_planning import (
-        compute_horizontal_choice_trailing_fill_chars,
-        plan_normal_table_width,
-    )
-
-    widths = plan_normal_table_width([form_field], available_cm=ExportService.PORTRAIT_CONTENT_WIDTH_CM)
-    # 横向单选：尾线按扣除所有选项 marker+label+分隔符后的剩余宽度计算
-    trailing_fill = "_" * compute_horizontal_choice_trailing_fill_chars(
-        widths[1], [("有尾线", True), ("无尾线", False)]
-    )
-
-    # 检查选择字段单元格内的 run 文本
-    choice_cell = form_tables[0].cell(0, 1)
+    choice_cell = doc.tables[2].cell(0, 1)
     all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
-    all_runs_text = [run.text for run in all_runs]
-    joined = "".join(all_runs_text)
+    joined = "".join(run.text for run in all_runs)
     _assert_marker_runs_use_simsun(all_runs, "○")
 
-    assert f"○有尾线{trailing_fill}" in joined, f"横向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
-    assert "○ 有尾线" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
-    assert f"有尾线\u00A0{trailing_fill}" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
-    assert "○无尾线" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
+    assert "○有尾线" in joined
+    assert "○ 有尾线" not in joined
+    assert "○无尾线" in joined
+    assert "_" not in joined
 
 
-def test_export_vertical_choice_trailing_touches_fill_line(session: Session, tmp_path: Path) -> None:
-    """验证纵向多选 marker-label 与 label-fill 都没有内部空格。"""
+def test_export_vertical_choice_marker_touches_label(session: Session, tmp_path: Path) -> None:
+    """验证纵向多选 marker 与 label 没有内部空格。"""
     from src.models.codelist import CodeList, CodeListOption
 
     project, _ = create_minimal_project(session)
@@ -1136,45 +1066,30 @@ def test_export_vertical_choice_trailing_touches_fill_line(session: Session, tmp
     session.add(codelist)
     session.flush()
 
-    opt1 = CodeListOption(
-        codelist_id=codelist.id, code="1", decode="确诊", trailing_underscore=1, order_index=1
-    )
-    opt2 = CodeListOption(
-        codelist_id=codelist.id, code="2", decode="排除", trailing_underscore=0, order_index=2
-    )
-    session.add_all([opt1, opt2])
+    session.add_all([
+        CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
+        CodeListOption(codelist_id=codelist.id, code="2", decode="排除", order_index=2),
+    ])
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "纵向测试", codelist.id, "多选（纵向）")
-    form_field = add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
+    add_field_to_form(session, form.id, fd.id, order_index=1, inline_mark=0)
 
     session.commit()
 
-    output_path = tmp_path / "v_choice_nbsp.docx"
+    output_path = tmp_path / "v_choice_plain.docx"
     ExportService(session).export_project_to_word(project.id, str(output_path))
 
     doc = Document(str(output_path))
-    form_tables = doc.tables[2:]
-    assert len(form_tables) >= 1
-
-    from src.services.width_planning import (
-        compute_choice_trailing_fill_char_count,
-        plan_normal_table_width,
-    )
-
-    widths = plan_normal_table_width([form_field], available_cm=ExportService.PORTRAIT_CONTENT_WIDTH_CM)
-    trailing_fill = "_" * compute_choice_trailing_fill_char_count(widths[1], "确诊")
-
-    choice_cell = form_tables[0].cell(0, 1)
+    choice_cell = doc.tables[2].cell(0, 1)
     all_runs = [run for para in choice_cell.paragraphs for run in para.runs]
-    all_runs_text = [run.text for run in all_runs]
-    joined = "".join(all_runs_text)
+    joined = "".join(run.text for run in all_runs)
     _assert_marker_runs_use_simsun(all_runs, "□")
 
-    assert f"□确诊{trailing_fill}" in joined, f"纵向选项 marker/label/fill 应相邻，实际: {repr(joined)}"
-    assert "□ 确诊" not in joined, f"marker 与 label 不应有内部空格，实际: {repr(joined)}"
-    assert f"确诊\u00A0{trailing_fill}" not in joined, f"label 与填写线不应使用 NBSP 分隔，实际: {repr(joined)}"
-    assert "□排除" in joined, f"无尾线选项 marker/label 应相邻，实际: {repr(joined)}"
+    assert "□确诊" in joined
+    assert "□ 确诊" not in joined
+    assert "□排除" in joined
+    assert "_" not in joined
 
 
 def test_export_vertical_choice_options_have_inter_option_gap(

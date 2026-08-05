@@ -41,8 +41,8 @@ def _create_full_project_graph(session: Session, owner_id: int) -> Project:
     session.add(codelist)
     session.flush()
 
-    opt1 = CodeListOption(codelist_id=codelist.id, code="1", decode="男", trailing_underscore=0, order_index=1)
-    opt2 = CodeListOption(codelist_id=codelist.id, code="2", decode="女", trailing_underscore=1, order_index=2)
+    opt1 = CodeListOption(codelist_id=codelist.id, code="1", decode="男", order_index=1)
+    opt2 = CodeListOption(codelist_id=codelist.id, code="2", decode="女", order_index=2)
     session.add_all([opt1, opt2])
     session.flush()
 

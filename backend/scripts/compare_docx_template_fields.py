@@ -22,15 +22,10 @@ def _normalize_options(options: list[Any] | None) -> list[dict[str, Any]]:
     for option in options or []:
         if isinstance(option, str):
             decode = option.strip()
-            trailing = 0
         else:
             decode = str((option or {}).get("decode", "")).strip()
-            trailing = int((option or {}).get("trailing_underscore", 0) or 0)
         if decode:
-            normalized.append({
-                "decode": decode,
-                "trailing_underscore": trailing,
-            })
+            normalized.append({"decode": decode})
     return normalized
 
 
@@ -82,11 +77,10 @@ def _load_template_forms(template_db_path: str) -> list[dict[str, Any]]:
                     options = [
                         {
                             "decode": option_row["decode"],
-                            "trailing_underscore": int(option_row["trailing_underscore"] or 0),
                         }
                         for option_row in conn.execute(
                             """
-                            SELECT decode, trailing_underscore
+                            SELECT decode
                             FROM codelist_option
                             WHERE codelist_id = ?
                             ORDER BY order_index, id
@@ -121,8 +115,6 @@ def _compare_form(parsed_form: dict[str, Any], template_form: dict[str, Any]) ->
     type_matches = 0
     option_compared = 0
     option_matches = 0
-    trailing_compared = 0
-    trailing_matches = 0
     mismatches: list[dict[str, Any]] = []
 
     for index in range(common_count):
@@ -141,8 +133,6 @@ def _compare_form(parsed_form: dict[str, Any], template_form: dict[str, Any]) ->
         template_options = _normalize_options(template_field.get("options"))
         parsed_decodes = [item["decode"] for item in parsed_options]
         template_decodes = [item["decode"] for item in template_options]
-        parsed_trailing = [item["trailing_underscore"] for item in parsed_options]
-        template_trailing = [item["trailing_underscore"] for item in template_options]
 
         if (
             parsed_field.get("field_type") in CHOICE_TYPES
@@ -151,15 +141,10 @@ def _compare_form(parsed_form: dict[str, Any], template_form: dict[str, Any]) ->
             or template_options
         ):
             option_compared += 1
-            trailing_compared += 1
             if parsed_decodes == template_decodes:
                 option_matches += 1
             else:
                 issues.append("options")
-            if parsed_trailing == template_trailing:
-                trailing_matches += 1
-            else:
-                issues.append("trailing_underscore")
 
         if issues:
             mismatches.append(
@@ -210,9 +195,6 @@ def _compare_form(parsed_form: dict[str, Any], template_form: dict[str, Any]) ->
         "option_matches": option_matches,
         "option_compared": option_compared,
         "option_match_rate": (option_matches / option_compared) if option_compared else None,
-        "trailing_matches": trailing_matches,
-        "trailing_compared": trailing_compared,
-        "trailing_match_rate": (trailing_matches / trailing_compared) if trailing_compared else None,
         "mismatches": mismatches,
     }
 

@@ -49,7 +49,7 @@ _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
     }),
     "codelist": frozenset({"id", "project_id", "name", "code", "description", "order_index"}),
     "codelist_option": frozenset({
-        "id", "codelist_id", "code", "decode", "order_index", "trailing_underscore"
+        "id", "codelist_id", "code", "decode", "order_index"
     }),
     "unit": frozenset({"id", "project_id", "symbol", "code", "order_index"}),
 }

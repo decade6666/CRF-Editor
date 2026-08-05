@@ -99,34 +99,12 @@ export function computeTextWeight(text) {
 /**
  * 计算 choice atom 的宽度权重
  * @param {string} label - 选项标签
- * @param {boolean} hasTrailing - 是否有尾部填写线
  * @returns {number} 权重
  */
-export function computeChoiceAtomWeight(label, hasTrailing) {
-  // 符号（○或□）；marker-label 内部无空格
+export function computeChoiceAtomWeight(label) {
   let weight = WEIGHT_ASCII
-  // 标签文本
   weight += computeTextWeight(label)
-  // 尾部填写线
-  if (hasTrailing) {
-    weight += FILL_LINE_WEIGHT
-  }
   return weight
-}
-
-export function computeChoiceTrailingFillCharCount(columnCm, label) {
-  const numericColumnCm = Number(columnCm)
-  if (!Number.isFinite(numericColumnCm)) return 0
-  const usable = numericColumnCm - CELL_HPAD_CM - FILL_LINE_SAFETY_CM
-  // marker + label 权重按整数字符权重契约（中文 2 / ASCII 1 / marker 1）向上取整，
-  // 与后端 compute_choice_trailing_fill_char_count 的 math.ceil 保持跨栈一致。
-  const markerLabelChars = Math.ceil(computeChoiceAtomWeight(label || '', false))
-  const remainingCm = usable - markerLabelChars * UNDERSCORE_CHAR_CM
-  if (remainingCm <= 0) return 0
-  return Math.max(
-    0,
-    Math.min(FILL_LINE_MAX_CHARS, Math.floor(remainingCm / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON)),
-  )
 }
 
 /**
@@ -186,7 +164,7 @@ export function computeFieldControlWeight(ff) {
 
   if (fieldType === '复选') {
     return Math.max(
-      computeChoiceAtomWeight(resolveCheckboxText(rendererField), false),
+      computeChoiceAtomWeight(resolveCheckboxText(rendererField)),
       FILL_LINE_WEIGHT,
     )
   }
@@ -195,7 +173,7 @@ export function computeFieldControlWeight(ff) {
     const options = normalizeChoiceOptions(rawOptions)
     if (!options.length) return FILL_LINE_WEIGHT
     return Math.max(
-      ...options.map(opt => computeChoiceAtomWeight(opt.text, opt.trailingUnderscore)),
+      ...options.map(opt => computeChoiceAtomWeight(opt.text)),
       FILL_LINE_WEIGHT,
     )
   }
@@ -404,7 +382,6 @@ function isVerticalChoice(fieldType) {
 }
 
 function normalizeChoiceOptions(rawOptions) {
-  // 先按 order_index 排序，缺失时回退到 id
   const sorted = [...(rawOptions || [])].sort((a, b) => {
     const orderA = a?.order_index ?? Infinity
     const orderB = b?.order_index ?? Infinity
@@ -414,11 +391,10 @@ function normalizeChoiceOptions(rawOptions) {
   return sorted
     .map(option => {
       if (typeof option === 'string') {
-        return { text: option, trailingUnderscore: false }
+        return { text: option }
       }
       return {
         text: option?.decode || '',
-        trailingUnderscore: Boolean(option?.trailing_underscore),
       }
     })
     .filter(option => option.text)
@@ -447,7 +423,7 @@ export function normalizeDefaultValue(defaultValue, singleLine = false) {
   return normalized.split(/\r?\n/, 1)[0]
 }
 
-function renderChoiceHtml(fieldType, rawOptions, fillLineChars = null, columnCm = null) {
+function renderChoiceHtml(fieldType, rawOptions) {
   const options = normalizeChoiceOptions(rawOptions)
   if (!options.length) {
     return toHtml(renderCtrl({ field_type: fieldType, options: [] }))
@@ -455,32 +431,14 @@ function renderChoiceHtml(fieldType, rawOptions, fillLineChars = null, columnCm 
 
   const symbol = getChoiceSymbol(fieldType)
   const vertical = isVerticalChoice(fieldType)
-  const numericColumnCm = columnCm == null ? null : Number(columnCm)
-  const trailingFillChars = fillLineChars == null ? null : Number(fillLineChars)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
-  // 纵向：每个选项作为块级 choice-atom 独占一行，由 .choice-group--vertical 的
-  // margin-top 提供选项间距（与 Word 导出的段前间距同值，见 main.css / export_service）。
-  // 横向：分隔符用普通空格（可断），配合 .choice-group 的 word-spacing 留白，
-  // 使横向多选项在窄单元格内能在选项之间折行，避免挤出框线（marker-label 内部仍不断行）。
   const groupClass = vertical ? 'choice-group choice-group--vertical' : 'choice-group'
   const separator = vertical ? '' : ' '
 
   return `<span class="${groupClass}">${options.map(option => {
     const labelHtml = escapeHtml(option.text)
-    const optionTextHtml = option.trailingUnderscore
-      ? `<span class="choice-label">${labelHtml}</span>`
-      : `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
-    const choiceFillChars = option.trailingUnderscore
-      ? (
-        numericColumnCm != null
-          ? computeChoiceTrailingFillCharCount(numericColumnCm, option.text)
-          : (trailingFillChars == null ? 6 : Math.max(0, trailingFillChars - Math.ceil(computeChoiceAtomWeight(option.text, false))))
-      )
-      : 0
-    const suffixHtml = choiceFillChars > 0
-      ? buildFillLineHtml(choiceFillChars, 0)
-      : ''
-    return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}${suffixHtml}</span>`
+    const optionTextHtml = `<span class="choice-label choice-label--aligned" style="--choice-label-min:${maxLabelLength}ch">${labelHtml}</span>`
+    return `<span class="choice-atom"><span class="choice-marker">${symbol}</span>${optionTextHtml}</span>`
   }).join(separator)}</span>`
 }
 
@@ -514,10 +472,10 @@ export function toHtml(text) {
  * @param {Object} field - 扁平形态字段对象
  * @returns {string} HTML 字符串
  */
-export function renderCtrlHtml(field, fillLineChars = null, columnCm = null) {
+export function renderCtrlHtml(field, fillLineChars = null) {
   if (!field) return ''
   if (isChoiceField(field.field_type)) {
-    return renderChoiceHtml(field.field_type, field.options, fillLineChars, columnCm)
+    return renderChoiceHtml(field.field_type, field.options)
   }
   return toHtml(renderCtrl(field, fillLineChars))
 }
@@ -533,18 +491,10 @@ export function renderCtrlHtml(field, fillLineChars = null, columnCm = null) {
  * @param {string} field.date_format - 日期格式
  * @returns {string} 渲染后的控件字符串
  */
-export function renderCtrl(field, fillLineChars = null, columnCm = null) {
+export function renderCtrl(field, fillLineChars = null) {
   if (!field) return LEGACY_FILL_LINE
   const fillLine = fillLineChars ? '_'.repeat(fillLineChars) : LEGACY_FILL_LINE
-  const trailingFillChars = fillLineChars == null ? null : Number(fillLineChars)
-  const numericColumnCm = columnCm == null ? null : Number(columnCm)
-  const opts = normalizeChoiceOptions(field.options).map(option => {
-    if (!option.trailingUnderscore) return option.text
-    const choiceFillChars = numericColumnCm != null
-      ? computeChoiceTrailingFillCharCount(numericColumnCm, option.text)
-      : (trailingFillChars == null ? 6 : Math.max(0, trailingFillChars - Math.ceil(computeChoiceAtomWeight(option.text, false))))
-    return `${option.text}${'_'.repeat(choiceFillChars)}`
-  })
+  const opts = normalizeChoiceOptions(field.options).map(option => option.text)
   const unit = field.unit_symbol ? ' ' + field.unit_symbol : ''
 
   function boxes(n, repeated = false) {

@@ -251,7 +251,6 @@ class ProjectCloneService:
                         codelist_id=new_codelist.id,
                         code=option.code,
                         decode=option.decode,
-                        trailing_underscore=option.trailing_underscore,
                         order_index=opt_idx,
                     ))
 

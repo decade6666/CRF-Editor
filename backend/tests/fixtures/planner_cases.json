@@ -168,9 +168,9 @@
       ]
     },
     {
-      "name": "inline_choice_trailing_underscore",
+      "name": "inline_choice_multi_option",
       "kind": "inline",
-      "description": "单选 + trailing_underscore → atom 权重含 FILL_LINE_WEIGHT",
+      "description": "单选多选项 → atom 权重仅由 marker + label 决定",
       "fields": [
         {
           "label_override": null,
@@ -183,17 +183,14 @@
             "options": [
               {
                 "decode": "男",
-                "trailingUnderscore": true,
                 "order_index": 0
               },
               {
                 "decode": "女",
-                "trailingUnderscore": true,
                 "order_index": 0
               },
               {
                 "decode": "其他",
-                "trailingUnderscore": true,
                 "order_index": 0
               }
             ]

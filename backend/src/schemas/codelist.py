@@ -7,7 +7,6 @@ from ._common import optional_oid_validator
 class CodeListOptionCreate(BaseModel):
     code: Optional[str] = None
     decode: str
-    trailing_underscore: int = 0
     order_index: Optional[int] = Field(None, ge=1)
 
     _validate_code = optional_oid_validator("code")
@@ -16,7 +15,6 @@ class CodeListOptionCreate(BaseModel):
 class CodeListOptionUpdate(BaseModel):
     code: Optional[str] = None
     decode: Optional[str] = None
-    trailing_underscore: Optional[int] = None
     order_index: Optional[int] = Field(None, ge=1)
 
     _validate_code = optional_oid_validator("code")
@@ -26,7 +24,6 @@ class CodeListOptionBatchUpdate(BaseModel):
     id: Optional[int] = None
     code: Optional[str] = None
     decode: str
-    trailing_underscore: int = 0
 
     _validate_code = optional_oid_validator("code")
 
@@ -36,7 +33,6 @@ class CodeListOptionResponse(BaseModel):
     codelist_id: int
     code: Optional[str] = None
     decode: str
-    trailing_underscore: int = 0
     order_index: Optional[int] = Field(None, ge=1)
 
     model_config = {"from_attributes": True}

@@ -364,14 +364,7 @@ body {
 .word-page .choice-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 /* 对齐用 min-width 上限需扣除 marker 宽度（约 1 个符号宽），否则 marker+label 会溢出单元格右框线 */
 .word-page .choice-label--aligned { display: inline-block; min-width: min(var(--choice-label-min), calc(100% - 1.25em)); }
-/* 尾部填写线仍贴单元格底边，与文字基线底对齐 */
-.word-page .choice-atom .fill-line { vertical-align: bottom; align-self: flex-end; }
-/* 纵向选项尾线：填满 marker+label 之后的剩余宽度（视觉自适应至单元格右边线，不溢出）。
-   覆盖 buildFillLineHtml 写入的行内 min-width(em)；导出与预览 JSON 的真实下划线根数不变，strict parity 不受影响。 */
-.word-page .choice-group--vertical .choice-atom .fill-line { flex: 1 1 0; min-width: 0 !important; }
-
 /* 整格填写线：作为单元格唯一内容时，在预览中按列宽填满（视觉自适应，不溢出）。
-   仅作用于单元格直属、唯一子级的填写线；选项尾部 .choice-atom 内的填写线不受影响。
    注意：导出与预览 JSON 仍按字符根数（compute_fill_line_char_count / computeFillLineCharCount）
    渲染真实下划线以保持严格 parity；此处仅修正流式预览页 em 估算与列宽不匹配导致的视觉溢出。 */
 .word-page .wp-ctrl > span:has(> .fill-line:only-child),

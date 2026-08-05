@@ -284,8 +284,8 @@ test('choice marker stays on first line and labels never overflow the cell borde
     mainCssSource,
     /\.word-page \.choice-label--aligned \{[^}]*min-width: min\(var\(--choice-label-min\), calc\(100% - 1\.25em\)\);[^}]*\}/s,
   )
-  // 尾部填写线仍底对齐
-  assert.match(mainCssSource, /\.word-page \.choice-atom \.fill-line \{[^}]*align-self: flex-end;[^}]*\}/s);
+  // 选项尾部填写线已随「后加下划线」属性移除，choice-atom 内不再渲染 .fill-line
+  assert.doesNotMatch(mainCssSource, /\.word-page \.choice-atom \.fill-line/);
   // 回归②：横向分隔符为可断空格（非 &nbsp;），配合 choice-group 的 word-spacing 留白
   assert.match(useCRFRendererSource, /const separator = vertical \? '' : ' '/);
   assert.doesNotMatch(useCRFRendererSource, /const separator = vertical \? '<br>' : '&nbsp;&nbsp;'/);

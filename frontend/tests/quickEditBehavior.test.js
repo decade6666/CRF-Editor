@@ -153,7 +153,7 @@ test('property editor aligns bg default swatch with text default swatch and remo
   assert.doesNotMatch(formDesignerSource, /const TEXT_COLOR_OPTIONS = \[[\s\S]*\{ value: '000000', label: '黑色' \}/)
   assert.match(
     formDesignerSource,
-    /data-test="designer-log-property-form"[\s\S]*label="底纹颜色"[\s\S]*class="color-option color-option-default"[\s\S]*editProp\.bg_color = null[\s\S]*customBgColorInput = ''/,
+    /data-test="designer-log-property-readonly"[\s\S]*不支持编辑属性/,
   )
   assert.match(
     formDesignerSource,
@@ -171,11 +171,12 @@ test('property editor aligns bg default swatch with text default swatch and remo
 })
 
 
-test('selectField keeps regular fields and log rows editable', () => {
+test('selectField keeps regular fields editable and resets log rows to readonly defaults', () => {
   assert.match(
     formDesignerSource,
-    /field_type: '日志行',[\s\S]*integer_digits: null,[\s\S]*decimal_digits: null,[\s\S]*date_format: null,[\s\S]*codelist_id: null,[\s\S]*unit_id: null,[\s\S]*default_value: '',[\s\S]*inline_mark: 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
+    /field_type: '日志行',[\s\S]*integer_digits: null,[\s\S]*decimal_digits: null,[\s\S]*date_format: null,[\s\S]*codelist_id: null,[\s\S]*unit_id: null,[\s\S]*default_value: '',[\s\S]*inline_mark: 0,[\s\S]*bg_color: null,[\s\S]*text_color: null,[\s\S]*label_bold: 1,[\s\S]*label_font_size: 'default'/,
   )
+  assert.match(formDesignerSource, /fieldPropBaseline\.value = null;/)
   assert.match(
     formDesignerSource,
     /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits,[\s\S]*decimal_digits: fd\.decimal_digits,[\s\S]*date_format: fd\.date_format,[\s\S]*codelist_id: fd\.codelist_id,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
@@ -226,7 +227,7 @@ test('quick add codelist dialog template aligns with edit dialog', () => {
   assert.match(formDesignerSource, /v-model="quickCodelistDescription"/)
   assert.match(formDesignerSource, /v-model="row.code"/)
   assert.match(formDesignerSource, /v-model="row.decode"/)
-  assert.match(formDesignerSource, /row.trailing_underscore === 1/)
+  assert.doesNotMatch(formDesignerSource, /row\.trailing_underscore === 1/)
   assert.match(formDesignerSource, /@click="quickDelOptRow\(\$index\)"/)
   assert.match(formDesignerSource, /quickAddCodelistSaving/)
   assert.match(formDesignerSource, /:loading="quickAddCodelistSaving"/)
@@ -239,7 +240,7 @@ test('quick add codelist saves description and options in a single request', () 
   assert.match(formDesignerSource, /quickAddCodelistSaving = ref\(false\)/)
   assert.match(
     formDesignerSource,
-    /quickCodelistOpts\.value\.push\(\{[\s\S]*id: null,[\s\S]*code: quickOptCode\.value\.trim\(\) \|\| `C\.\$\{n \+ 1\}`[\s\S]*decode: quickOptDecode\.value\.trim\(\)[\s\S]*trailing_underscore: 0[\s\S]*\}\)/,
+    /quickCodelistOpts\.value\.push\(\{[\s\S]*id: null,[\s\S]*code: quickOptCode\.value\.trim\(\) \|\| `C\.\$\{n \+ 1\}`[\s\S]*decode: quickOptDecode\.value\.trim\(\)[\s\S]*\}\)/,
   )
   assert.match(formDesignerSource, /quickAddCodelistSaving\.value = false/)
   assert.match(formDesignerSource, /quickCodelistDescription\.value = ''/)
@@ -325,7 +326,7 @@ test('property editor save uses shared multi-form impact warning and context gua
   assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('字段属性保存上下文已变更'\)/)
   assert.match(
     formDesignerSource,
-    /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\)[\s\S]*throw new Error\('单选\/多选字段必须选择选项字典'\)/,
+    /if \(isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\)[\s\S]*throw new Error\('单选\/多选字段必须选择选项字典'\)/,
   )
   assert.match(formDesignerSource, /if \(sessionId == null \|\| sessionId === fieldPropSaveSession\) isSavingFieldProp\.value = false/)
   assert.doesNotMatch(formDesignerSource, /editProp\.default_value = normalizedDefaultValue/)
@@ -361,7 +362,7 @@ test('property editor dirty leave guard uses save, discard, and close states', (
 
 
 test('missing codelist validation blocks explicit property save', () => {
-  assert.match(formDesignerSource, /if \(!ff\.is_log_row && isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\) \{[\s\S]*ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)[\s\S]*return false/)
+  assert.match(formDesignerSource, /if \(isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id\) \{[\s\S]*ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)[\s\S]*return false/)
 })
 
 

@@ -146,7 +146,7 @@ function controlCellHtml(field) {
   const controlFrac = columnFractions.value[1]
   const columnCm = controlFrac * resolvedAvailableCm.value
   const fillLineChars = computeFillLineCharCount(columnCm)
-  return renderCtrlHtml(field, fillLineChars, columnCm)
+  return renderCtrlHtml(field, fillLineChars)
 }
 
 // 计算 normal 表两列比例：优先读取设计器当前 field-id key，旧 group-index key 仅作兼容兜底。
