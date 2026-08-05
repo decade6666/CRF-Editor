@@ -3,15 +3,17 @@ import { isChoiceField } from './useCRFRenderer.js'
 const UNIT_FIELD_TYPES = ['文本', '数值']
 const DATE_FIELD_TYPES = ['日期', '日期时间', '时间']
 
+export function normalizeDateFormat(fieldType, value, dateFormatOptions, defaultDateFormats) {
+  if (!DATE_FIELD_TYPES.includes(fieldType)) return null
+  if (value === '') return ''
+  const opts = dateFormatOptions[fieldType] || []
+  return opts.includes(value) ? value : (defaultDateFormats[fieldType] ?? null)
+}
+
 export function syncFieldTypeSpecificProps(editProp, newType, dateFormatOptions, defaultDateFormats) {
   const next = { ...editProp }
 
-  if (DATE_FIELD_TYPES.includes(newType)) {
-    const opts = dateFormatOptions[newType] || []
-    if (!opts.includes(next.date_format)) next.date_format = defaultDateFormats[newType]
-  } else {
-    next.date_format = null
-  }
+  next.date_format = normalizeDateFormat(newType, next.date_format, dateFormatOptions, defaultDateFormats)
 
   if (!isChoiceField(newType)) next.codelist_id = null
   if (!UNIT_FIELD_TYPES.includes(newType)) next.unit_id = null

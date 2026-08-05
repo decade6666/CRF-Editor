@@ -1211,6 +1211,60 @@ def _migrate_add_performance_fk_indexes(engine):
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
 
 
+# 与前端 FormDesignerTab.vue 的 DATE_FORMAT_OPTIONS 逐项对齐（小写键 → 规范写法）。
+# 旧数据曾由 docx_import_service 写入大写 YYYY-MM-DD，前端下拉只认小写选项。
+_DATE_FORMAT_CANONICALS = {
+    "日期": {
+        "yyyy-mm-dd": "yyyy-MM-dd",
+        "mm/dd/yyyy": "MM/dd/yyyy",
+        "dd/mmm/yyyy": "dd/MMM/yyyy",
+        "dd-mmm-yyyy": "dd-MMM-yyyy",
+        "yyyy/mm/dd": "yyyy/MM/dd",
+    },
+    "日期时间": {
+        "yyyy-mm-dd hh:mm:ss": "yyyy-MM-dd HH:mm:ss",
+        "yyyy-mm-dd hh:mm": "yyyy-MM-dd HH:mm",
+        "yyyy/mm/dd hh:mm:ss": "yyyy/MM/dd HH:mm:ss",
+        "dd/mm/yyyy hh:mm:ss": "dd/MM/yyyy HH:mm:ss",
+    },
+    "时间": {
+        "hh:mm:ss": "HH:mm:ss",
+        "hh:mm": "HH:mm",
+        "hh:mm:ss ap": "hh:mm:ss AP",
+        "hh:mm ap": "hh:mm AP",
+    },
+}
+
+
+def _migrate_normalize_date_formats(engine) -> None:
+    """把 field_definition.date_format 统一为前端下拉的规范写法。
+
+    大小写不敏感匹配（如旧数据 YYYY-MM-DD → yyyy-MM-dd）；匹配不上的值
+    原样保留，不猜测、不置空。幂等，可重复执行。
+    """
+    insp = inspect(engine)
+    if not insp.has_table("field_definition"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, field_type, date_format FROM field_definition "
+                "WHERE field_type IN ('日期', '日期时间', '时间') AND date_format IS NOT NULL"
+            )
+        ).fetchall()
+        changed = 0
+        for row_id, field_type, date_format in rows:
+            canonical = _DATE_FORMAT_CANONICALS.get(field_type, {}).get(date_format.lower())
+            if canonical is not None and canonical != date_format:
+                conn.execute(
+                    text("UPDATE field_definition SET date_format = :canonical WHERE id = :row_id"),
+                    {"canonical": canonical, "row_id": row_id},
+                )
+                changed += 1
+        if changed:
+            logger.info("迁移：已将 %d 个日期类字段的 date_format 统一为规范写法", changed)
+
+
 def init_db():
 
     engine = get_engine()
@@ -1258,6 +1312,8 @@ def init_db():
     _normalize_log_row_presentation(engine)
 
     _migrate_add_performance_fk_indexes(engine)
+
+    _migrate_normalize_date_formats(engine)
 
 
 

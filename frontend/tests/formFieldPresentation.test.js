@@ -451,7 +451,7 @@ test('notes autosave failures keep main preview on persisted notes', () => {
 });
 
 test('form designer surfaces header notes summary and paper orientation controls', () => {
-  assert.match(formDesignerSource, /const HEADER_NOTES_MAX_LENGTH = 20/);
+  assert.match(formDesignerSource, /const HEADER_NOTES_MAX_LENGTH = 60/);
   assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => \{/);
   assert.match(formDesignerSource, /raw\.length > HEADER_NOTES_MAX_LENGTH/);
   assert.match(formDesignerSource, /data-test="canvas-notes-summary"/);

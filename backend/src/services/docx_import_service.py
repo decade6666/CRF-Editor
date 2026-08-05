@@ -463,14 +463,14 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
     if has_date and has_time:
         colon_count = text.count(":") + text.count("：")
         if has_vertical_layout:
-            return "日期", {"date_format": "YYYY-MM-DD"}
+            return "日期", {"date_format": "yyyy-MM-dd"}
         if colon_count >= 2:
             return "日期时间", {"date_format": "yyyy-MM-dd HH:mm:ss"}
         return "日期时间", {"date_format": "yyyy-MM-dd HH:mm"}
 
     # 日期: |__|__|__|__|年|__|__|月|__|__|日
     if has_date:
-        return "日期", {"date_format": "YYYY-MM-DD"}
+        return "日期", {"date_format": "yyyy-MM-dd"}
 
     # 时间: |__|__|:|__|__| 或含"时""分"的格式（必须在数值检测之前）
     if has_time:
