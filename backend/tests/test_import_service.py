@@ -55,8 +55,14 @@ def create_project(session: Session, name: str = "项目") -> Project:
     return project
 
 
-def create_form(session: Session, project_id: int, name: str = "筛选表") -> Form:
-    form = Form(project_id=project_id, name=name, code=f"{name}_CODE")
+def create_form(
+    session: Session,
+    project_id: int,
+    name: str = "筛选表",
+    *,
+    code: str | None = None,
+) -> Form:
+    form = Form(project_id=project_id, name=name, code=code or f"{name}_CODE")
     session.add(form)
     session.flush()
     return form
@@ -157,6 +163,9 @@ def build_template_db(
     paper_orientation: str = "auto",
     field_type: str | None = None,
     checkbox_label: str | None = None,
+    form_code: str | None = None,
+    unit_code: str = "ZHI",
+    codelist_code: str = "CL_SEX",
 ) -> tuple[Path, int]:
     db_path = tmp_path / ("template_with_unit.db" if with_unit else "template_without_unit.db")
     engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
@@ -165,14 +174,14 @@ def build_template_db(
 
     with session_factory() as template_session:
         project = create_project(template_session, name="模板项目")
-        form = create_form(template_session, project.id, name="模板表单")
+        form = create_form(template_session, project.id, name="模板表单", code=form_code)
         form.paper_orientation = paper_orientation
         template_session.flush()
         unit_id = None
         codelist_id = None
 
         if with_unit:
-            unit = Unit(project_id=project.id, symbol="支", code="ZHI")
+            unit = Unit(project_id=project.id, symbol="支", code=unit_code)
             template_session.add(unit)
             template_session.flush()
             unit_id = unit.id
@@ -182,7 +191,7 @@ def build_template_db(
                 template_session,
                 project.id,
                 name=codelist_name,
-                code="CL_SEX",
+                code=codelist_code,
                 option_metadata=option_metadata or [
                     ("1", "男"),
                     ("2", "女"),
@@ -1831,3 +1840,387 @@ def test_execute_import_route_returns_400_on_invalid_annotation_positions(
 
     assert exc_info.value.status_code == 400
     assert "annotation_positions" in str(exc_info.value.detail)
+
+
+# ----------------------------------------------------------------------
+# 模板导入 OID 保留：表单 / 码表 / 单位
+# ----------------------------------------------------------------------
+
+
+def test_import_forms_preserves_source_form_codelist_and_unit_oids(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=True,
+        with_choice_options=True,
+        form_code="DM",
+        unit_code="MG",
+        codelist_code="CL_SEX",
+    )
+    target_project = create_project(session, name="OID保留目标项目")
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    imported_form = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported_form.code == "DM"
+    imported_unit = session.query(Unit).filter(Unit.project_id == target_project.id).one()
+    assert imported_unit.code == "MG"
+    imported_codelist = session.query(CodeList).filter(
+        CodeList.project_id == target_project.id
+    ).one()
+    assert imported_codelist.code == "CL_SEX"
+
+
+@pytest.mark.parametrize("empty", [None, "", "   "])
+def test_import_forms_mints_oid_when_source_is_empty(
+    tmp_path: Path,
+    session: Session,
+    empty: str | None,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=True,
+        with_choice_options=True,
+    )
+    conn = sqlite3.connect(str(template_path))
+    try:
+        conn.execute("UPDATE form SET code=? WHERE id=?", (empty, form_id))
+        conn.execute("UPDATE unit SET code=? WHERE symbol='支'", (empty,))
+        conn.execute("UPDATE codelist SET code=? WHERE name='性别'", (empty,))
+        conn.commit()
+    finally:
+        conn.close()
+    target_project = create_project(session, name="空OID目标项目")
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    imported_form = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported_form.code.startswith("FORM_")
+    imported_unit = session.query(Unit).filter(Unit.project_id == target_project.id).one()
+    assert imported_unit.code.startswith("UNIT_")
+    imported_codelist = session.query(CodeList).filter(
+        CodeList.project_id == target_project.id
+    ).one()
+    assert imported_codelist.code.startswith("CL_")
+
+
+def test_import_forms_suffixes_form_code_when_target_already_uses_it(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False, form_code="DM")
+    target_project = create_project(session, name="表单冲突目标项目")
+    create_form(session, target_project.id, name="别的表单", code="DM")
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    imported = session.query(Form).filter(
+        Form.project_id == target_project.id,
+        Form.name == "模板表单",
+    ).one()
+    assert imported.code == "DM_IMP"
+    existing = session.query(Form).filter(
+        Form.project_id == target_project.id,
+        Form.name == "别的表单",
+    ).one()
+    assert existing.code == "DM"
+
+
+def test_import_forms_suffixes_unit_code_when_symbol_differs_but_code_collides(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=True, unit_code="MG")
+    target_project = create_project(session, name="单位冲突目标项目")
+    session.add(Unit(project_id=target_project.id, symbol="kg", code="MG"))
+    session.flush()
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    units = session.query(Unit).filter(Unit.project_id == target_project.id).all()
+    by_symbol = {unit.symbol: unit.code for unit in units}
+    assert by_symbol["支"] == "MG_IMP"
+    assert by_symbol["kg"] == "MG"
+
+
+def test_import_forms_suffixes_codelist_code_when_target_code_collides(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=False,
+        with_choice_options=True,
+        codelist_code="CL_SEX",
+    )
+    target_project = create_project(session, name="码表冲突目标项目")
+    create_codelist(
+        session,
+        target_project.id,
+        name="其他字典",
+        code="CL_SEX",
+        option_metadata=[("1", "X"), ("2", "Y")],
+    )
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    codelists = session.query(CodeList).filter(CodeList.project_id == target_project.id).all()
+    by_name = {codelist.name: codelist.code for codelist in codelists}
+    assert by_name["性别"] == "CL_SEX_IMP"
+    assert by_name["其他字典"] == "CL_SEX"
+
+
+def test_import_forms_keeps_reused_unit_code_untouched(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=True, unit_code="ZHI")
+    target_project = create_project(session, name="单位复用目标项目")
+    session.add(Unit(project_id=target_project.id, symbol="支", code="TARGET_UNIT"))
+    session.flush()
+
+    summary = ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    units = session.query(Unit).filter(Unit.project_id == target_project.id).all()
+    assert len(units) == 1
+    assert units[0].code == "TARGET_UNIT"
+    assert summary["merged_units"] == 1
+
+
+def test_import_forms_keeps_reused_codelist_code_untouched(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=False,
+        with_choice_options=True,
+        codelist_code="CL_SEX",
+    )
+    target_project = create_project(session, name="码表复用目标项目")
+    create_codelist(
+        session,
+        target_project.id,
+        name="性别",
+        code="CL_EXIST",
+        option_metadata=[("1", "男"), ("2", "女")],
+    )
+
+    summary = ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    codelists = session.query(CodeList).filter(CodeList.project_id == target_project.id).all()
+    assert len(codelists) == 1
+    assert codelists[0].code == "CL_EXIST"
+    assert summary["merged_codelists"] == 1
+
+
+def test_import_forms_renamed_form_keeps_source_code_when_code_is_free(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False, form_code="DM")
+    target_project = create_project(session, name="改名目标项目")
+    create_form(session, target_project.id, name="模板表单", code="OTHER")
+
+    summary = ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    assert summary["renamed_forms"] == ["模板表单 → 模板表单_导入"]
+    imported = session.query(Form).filter(
+        Form.project_id == target_project.id,
+        Form.name == "模板表单_导入",
+    ).one()
+    assert imported.code == "DM"
+
+
+def test_import_forms_twice_into_same_project_suffixes_form_oid(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(
+        tmp_path,
+        with_unit=True,
+        with_choice_options=True,
+        form_code="DM",
+    )
+    target_project = create_project(session, name="重复导入目标项目")
+    service = ImportService(session)
+
+    service.import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+    service.import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    forms = session.query(Form).filter(Form.project_id == target_project.id).order_by(Form.id).all()
+    assert [form.name for form in forms] == ["模板表单", "模板表单_导入"]
+    assert [form.code for form in forms] == ["DM", "DM_IMP"]
+    units = session.query(Unit).filter(Unit.project_id == target_project.id).all()
+    assert len(units) == 1
+    assert units[0].code == "ZHI"
+    codelists = session.query(CodeList).filter(
+        CodeList.project_id == target_project.id
+    ).all()
+    assert len(codelists) == 1
+    assert codelists[0].code == "CL_SEX"
+
+
+def test_import_forms_preserves_non_ascii_source_oid_without_charset_validation(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False)
+    target_project = create_project(session, name="非ASCII目标项目")
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.code == "模板表单_CODE"
+
+
+def test_import_forms_strips_surrounding_whitespace_from_source_oid(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    template_path, form_id = build_template_db(tmp_path, with_unit=False, form_code="DM")
+    conn = sqlite3.connect(str(template_path))
+    try:
+        conn.execute("UPDATE form SET code='  DM  ' WHERE id=?", (form_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    target_project = create_project(session, name="空白目标项目")
+
+    ImportService(session).import_forms(
+        target_project.id,
+        str(template_path),
+        source_project_id=1,
+        form_ids=[form_id],
+    )
+    session.commit()
+
+    imported = session.query(Form).filter(Form.project_id == target_project.id).one()
+    assert imported.code == "DM"
+
+
+def test_import_forms_dedupes_intra_batch_unit_codes_across_source_projects(
+    tmp_path: Path,
+    session: Session,
+) -> None:
+    db_path = tmp_path / "template_multi_project.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with session_factory() as template_session:
+        project1 = create_project(template_session, name="模板项目A")
+        project2 = create_project(template_session, name="模板项目B")
+        form = create_form(template_session, project1.id, name="跨项目单位表单", code="DM")
+        unit_a = Unit(project_id=project1.id, symbol="支", code="MG")
+        template_session.add(unit_a)
+        unit_b = Unit(project_id=project2.id, symbol="盒", code="MG")
+        template_session.add(unit_b)
+        template_session.flush()
+        field_a = create_field_definition(
+            template_session,
+            project1.id,
+            variable_name="FIELD_A",
+            unit_id=unit_a.id,
+        )
+        field_b = create_field_definition(
+            template_session,
+            project1.id,
+            variable_name="FIELD_B",
+            unit_id=unit_b.id,
+        )
+        create_form_field(template_session, form.id, field_a.id)
+        create_form_field(template_session, form.id, field_b.id)
+        template_session.commit()
+    engine.dispose()
+
+    target_project = create_project(session, name="跨项目单位目标项目")
+    ImportService(session).import_forms(
+        target_project.id,
+        str(db_path),
+        source_project_id=project1.id,
+        form_ids=[form.id],
+    )
+    session.commit()
+
+    units = session.query(Unit).filter(Unit.project_id == target_project.id).all()
+    assert sorted(unit.code for unit in units) == ["MG", "MG_IMP"]
+
+
+def test_resolve_import_code_ladder() -> None:
+    resolve = ImportService._resolve_import_code
+
+    assert resolve(set(), "A", "FORM") == "A"
+    assert resolve({"A"}, "A", "FORM") == "A_IMP"
+    assert resolve({"A", "A_IMP"}, "A", "FORM") == "A_IMP2"
+    assert resolve({"UNIT_XXX"}, "UNIT_XXX", "UNIT") == "UNIT_XXX_IMP"
+    assert resolve(set(), None, "FORM").startswith("FORM_")
+    assert resolve(set(), "   ", "CL").startswith("CL_")

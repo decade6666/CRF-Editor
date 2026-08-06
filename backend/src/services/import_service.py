@@ -1,11 +1,14 @@
 """模板导入服务 - 从外部 .db 文件导入表单到当前项目"""
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 from sqlalchemy import bindparam, create_engine, event, select, text
@@ -512,6 +515,46 @@ class ImportService:
         return f"{base}_IMP{idx}"
 
 
+    @staticmethod
+    def _make_unique_code(existing: set[str], base: str) -> str:
+        """生成不冲突的 OID：base_IMP → base_IMP2 → ..."""
+        candidate = f"{base}_IMP"
+        if candidate not in existing:
+            return candidate
+        idx = 2
+        while f"{base}_IMP{idx}" in existing:
+            idx += 1
+        return f"{base}_IMP{idx}"
+
+
+    @staticmethod
+    def _resolve_import_code(
+        existing_codes: set[str],
+        source_code: Optional[str],
+        prefix: str,
+    ) -> str:
+        """模板导入 OID 落库策略（表单 / 字典 / 单位共用）。
+
+        源 OID 非空 → strip 后原样保留；为空 / 纯空白 → 按仓库约定新铸；
+        与目标项目内既有 OID 冲突 → 追加 _IMP 去重。
+
+        不做 OID_PATTERN 字符集校验：模板导入直接构造 ORM 绕过 Create/Update
+        schema，与 project_import_service 的既有语义保持一致（校验只在编辑边界生效）。
+        返回值必然非空且不在 existing_codes 中；调用方负责把返回值加入 existing_codes。
+        """
+        base = source_code.strip() if isinstance(source_code, str) else ""
+        if not base:
+            code = generate_code(prefix)
+            while code in existing_codes:
+                code = generate_code(prefix)
+            return code
+        if base in existing_codes:
+            resolved = ImportService._make_unique_code(existing_codes, base)
+            logger.info("模板导入 OID 冲突去重: %s → %s", base, resolved)
+            return resolved
+        return base
+
+
     # ------------------------------------------------------------------
     # 核心导入方法
     # ------------------------------------------------------------------
@@ -660,21 +703,24 @@ class ImportService:
 
 
         # ---- 1. 構建目標庫已有數據緩存 ----
-        existing_forms = {
-            f.name for f in s.scalars(
-                select(Form).where(Form.project_id == target_project_id)
-            ).all()
-        }
-        existing_units = {
-            u.symbol: u.id for u in s.scalars(
-                select(Unit).where(Unit.project_id == target_project_id)
-            ).all()
-        }
-        existing_codelists = {
-            c.name: c.id for c in s.scalars(
-                select(CodeList).where(CodeList.project_id == target_project_id)
-            ).all()
-        }
+        target_forms = s.scalars(
+            select(Form).where(Form.project_id == target_project_id)
+        ).all()
+        existing_forms = {f.name for f in target_forms}
+        existing_form_codes = {f.code for f in target_forms if f.code}
+
+        target_units = s.scalars(
+            select(Unit).where(Unit.project_id == target_project_id)
+        ).all()
+        existing_units = {u.symbol: u.id for u in target_units}
+        existing_unit_codes = {u.code for u in target_units if u.code}
+
+        target_codelists = s.scalars(
+            select(CodeList).where(CodeList.project_id == target_project_id)
+        ).all()
+        existing_codelists = {c.name: c.id for c in target_codelists}
+        existing_codelist_codes = {c.code for c in target_codelists if c.code}
+
         existing_field_vars = {
             fd.variable_name for fd in s.scalars(
                 select(FieldDefinition).where(
@@ -748,6 +794,7 @@ class ImportService:
         summary["merged_units"] = self._merge_units(
             tmpl, s, target_project_id,
             needed_unit_ids, existing_units, unit_id_map,
+            existing_codes=existing_unit_codes,
         )
 
 
@@ -755,6 +802,7 @@ class ImportService:
         summary["merged_codelists"] = self._merge_codelists(
             tmpl, s, target_project_id,
             needed_codelist_ids, existing_codelists, codelist_id_map,
+            existing_codes=existing_codelist_codes,
         )
 
 
@@ -791,10 +839,15 @@ class ImportService:
                     f"模板表单 {sf.name} 的 annotation_positions 数据非法: {exc}"
                 ) from exc
 
+            new_code = self._resolve_import_code(
+                existing_form_codes, sf.code, "FORM"
+            )
+            existing_form_codes.add(new_code)
+
             new_form = Form(
                 project_id=target_project_id,
                 name=new_name,
-                code=generate_code("FORM"),
+                code=new_code,
                 domain=sf.domain,
                 order_index=max_form_order + form_idx,
                 paper_orientation=sf.paper_orientation,
@@ -849,6 +902,8 @@ class ImportService:
         needed_ids: set,
         existing: Dict[str, int],
         id_map: Dict[int, int],
+        *,
+        existing_codes: set[str],
     ) -> int:
         """合并 Unit：同 symbol 复用，不同则新建"""
         count = 0
@@ -870,10 +925,14 @@ class ImportService:
                 id_map[src_unit.id] = existing[src_unit.symbol]
             else:
                 counter += 1
+                new_code = ImportService._resolve_import_code(
+                    existing_codes, src_unit.code, "UNIT"
+                )
+                existing_codes.add(new_code)
                 new_unit = Unit(
                     project_id=target_project_id,
                     symbol=src_unit.symbol,
-                    code=generate_code("UNIT"),
+                    code=new_code,
                     order_index=max_unit_order + counter,
                 )
                 s.add(new_unit)
@@ -892,6 +951,8 @@ class ImportService:
         needed_ids: set,
         existing: Dict[str, int],
         id_map: Dict[int, int],
+        *,
+        existing_codes: set[str],
     ) -> int:
         """合并 Codelist：同名且语义签名一致时复用，否则按导入后缀新建。"""
         merged = 0
@@ -919,10 +980,14 @@ class ImportService:
                 new_name = src_cl.name
 
 
+            new_code = ImportService._resolve_import_code(
+                existing_codes, src_cl.code, "CL"
+            )
+            existing_codes.add(new_code)
             new_cl = CodeList(
                 project_id=target_project_id,
                 name=new_name,
-                code=generate_code("CL"),
+                code=new_code,
                 description=src_cl.description,
             )
             s.add(new_cl)
