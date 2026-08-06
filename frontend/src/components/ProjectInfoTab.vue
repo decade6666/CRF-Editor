@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, getAuthHeaders } from '../composables/useApi'
+import { api, getAuthHeaders, apiUrl } from '../composables/useApi'
 
 const DEFAULT_SCREENING_NUMBER_FORMAT = 'S|__|__||__|__|__|'
 
@@ -18,7 +18,7 @@ async function fetchLogo(projectId) {
   if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
   if (!projectId) return
   try {
-    const r = await fetch(`/api/projects/${projectId}/logo`, { headers: getAuthHeaders() })
+    const r = await fetch(apiUrl(`/api/projects/${projectId}/logo`), { headers: getAuthHeaders() })
     if (r.ok) logoUrl.value = URL.createObjectURL(await r.blob())
   } catch (_error) { /* 无logo或加载失败，保持null */ }
 }
@@ -65,7 +65,7 @@ async function uploadLogo(e) {
   if (!file) return
   const fd = new FormData()
   fd.append('file', file)
-  const r = await fetch(`/api/projects/${props.project.id}/logo`, { method: 'POST', body: fd, headers: getAuthHeaders() })
+  const r = await fetch(apiUrl(`/api/projects/${props.project.id}/logo`), { method: 'POST', body: fd, headers: getAuthHeaders() })
   if (r.ok) {
     const d = await r.json()
     skipFormReset.value = true

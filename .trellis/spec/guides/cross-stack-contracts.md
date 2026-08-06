@@ -458,6 +458,26 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 
 ---
 
+### 9. API Base Path (Subpath Deployment)
+
+**Contract ID**: `api-base-path`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **Files** | `backend/main.py` (zero-aware — only `/`, `/assets/*`, `/api/*`) | `frontend/vite.config.js`, `frontend/src/composables/useApi.js`, `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/ProjectInfoTab.vue`, `frontend/src/components/DocxScreenshotPanel.vue` |
+| **Purpose** | Serve the app at a subpath (e.g. `/crf/`) without backend changes | Prefix all asset and API requests with the deploy base at build time / fetch boundary |
+
+**Contract Rules**:
+
+1. **Build**: `frontend/vite.config.js` reads `VITE_BASE_PATH` (default `/`) and normalizes it into `base` (`/crf` → `/crf/`). Lazy-loaded chunk URLs are baked from `base` at build time; default builds stay root-relative so the desktop package (`backend/crf.spec` snapshots `frontend/dist`) keeps working.
+2. **Runtime prefix**: `useApi.js` exports `apiUrl(path)` and applies the prefix **only at the 6 `fetch()` boundaries** (`get` / `cachedGet` / `post` / `put` / `patch` / `del`). Cache keys, `_pending`, `invalidateCache(prefix)` and `_autoInvalidate` keep the **raw `/api/...` paths** — never prefix the cache layer.
+3. **Bypass sites**: any code that bypasses `useApi.js` (bare `fetch('/api/...')`, `el-upload :action`, blob-download helpers) must wrap with `apiUrl(...)`: `App.vue` (Word export fetch, `_blobDownload`, `import/auto` fetch, el-upload `:action`), `LoginView.vue` (login fetch), `ProjectInfoTab.vue` (Logo GET/POST), `DocxScreenshotPanel.vue` (`pageUrl`). Guarded by `frontend/tests/basePathDeployment.test.js`.
+4. **Reverse proxy**: nginx must strip the prefix before reaching the backend — `location /crf/ { proxy_pass http://127.0.0.1:8888/; }` (the trailing slash is required) plus `location = /crf { return 301 /crf/; }`. See `deploy/nginx/crf-editor.conf.example`.
+5. **Dev proxy**: `server.proxy` in `vite.config.js` follows the base (`/api` vs `/crf/api` + `rewrite`), so both modes work in `npm run dev`.
+6. **Desktop**: packaging must use a default root-path build; subpath builds are opt-in and documented in README (中/EN).
+
+---
+
 ### 7. Form Paper Orientation
 
 **Contract ID**: `form-paper-orientation`
@@ -658,6 +678,7 @@ When creating a new cross-stack contract:
 | Auth Token | `services/auth_service.py` | `App.vue` | None |
 | Preview / Export Parity | `services/export_service.py`, `services/width_planning.py`, `services/word_table_parity.py` | `useCRFRenderer.js`, `formFieldPresentation.js`, preview components, `styles/main.css` | Strict comparator JSON + exported `.docx` |
 | Form Paper Orientation | `models/form.py`, `schemas/form.py`, `database.py`, `routers/forms.py`, `services/export_service.py` (+ clone/import) | `components/FormDesignerTab.vue`, `components/VisitsTab.vue` | None |
+| API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 8 bypass call sites | `frontend/tests/basePathDeployment.test.js` |
 
 ---
 

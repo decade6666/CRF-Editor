@@ -47,7 +47,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
-import { api, getAuthHeaders } from '../composables/useApi';
+import { api, getAuthHeaders, apiUrl } from '../composables/useApi';
 
 const props = defineProps({
   tempId: { type: String, default: '' },
@@ -239,7 +239,7 @@ async function poll() {
 }
 
 function pageUrl(page) {
-  return `/api/projects/${props.projectId}/import-docx/${encodeURIComponent(props.tempId)}/screenshots/pages/${page}`;
+  return apiUrl(`/api/projects/${props.projectId}/import-docx/${encodeURIComponent(props.tempId)}/screenshots/pages/${page}`);
 }
 
 // 截图页端点需要 JWT 鉴权，而 <img src> 请求不携带 Authorization 头，

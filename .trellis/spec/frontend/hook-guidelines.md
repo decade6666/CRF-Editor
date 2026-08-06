@@ -243,8 +243,8 @@ export function useApi() {
       return pending.get(endpoint)
     }
 
-    // Fetch
-    const promise = fetch(`/api${endpoint}`)
+    // Fetch (wrap with apiUrl so the deployment prefix is preserved)
+    const promise = fetch(apiUrl(`/api${endpoint}`))
       .then(res => res.json())
       .then(data => {
         cache.set(endpoint, { data, timestamp: Date.now() })
@@ -257,7 +257,7 @@ export function useApi() {
   }
 
   async function post(endpoint, body, options = {}) {
-    const response = await fetch(`/api${endpoint}`, {
+    const response = await fetch(apiUrl(`/api${endpoint}`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -330,6 +330,8 @@ const projects = await response.json()
 const { get } = useApi()
 const projects = await get('/projects')
 ```
+
+> **Subpath rule**: if you must bypass `useApi.js` (bare `fetch`, `el-upload :action`, blob downloads), wrap the URL with `apiUrl()` from `useApi.js` — otherwise the request drops the deployment prefix (e.g. `/crf/`) and 404s or crosses into another site under subpath deployment. Example: `await fetch(apiUrl('/api/auth/login'))`. Guarded by `tests/basePathDeployment.test.js`.
 
 ### Error Handling
 

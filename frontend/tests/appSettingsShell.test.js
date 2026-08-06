@@ -152,7 +152,7 @@ test('login view restores and persists the last username', () => {
 test('login view uses account password login and preserves username memory', () => {
   assert.match(loginSource, /const username = ref\(localStorage\.getItem\('crf_last_username'\) \|\| ''\)/);
   assert.match(loginSource, /const password = ref\(''\)/);
-  assert.match(loginSource, /fetch\('\/api\/auth\/login'/);
+  assert.match(loginSource, /fetch\(apiUrl\('\/api\/auth\/login'/);
   assert.match(
     loginSource,
     /body: JSON\.stringify\(\{[\s\S]*username: username\.value\.trim\(\),[\s\S]*password: password\.value/s,
