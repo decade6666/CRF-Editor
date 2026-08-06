@@ -620,6 +620,28 @@ if (fieldType === '复选') return `□${checkboxLabel || label || ''}`
 
 ---
 
+### 10. OID / Identifier Charset Validation
+
+# Backend (schemas/_common.py + schemas/codelist.py)
+# Frontend (composables/oidValidation.js)
+
+OID 字符集校验是一份**作用域契约**：只有「机器标识」类字段受 `^[A-Za-z0-9._-]+$` 约束，「人读」类字段不约束。
+
+| 字段 | 校验 | 说明 |
+|------|------|------|
+| `form.code` | 严格（可选） | Create/Update schema，空/空白→None |
+| `field_definition.variable_name` | 严格（Create 必填 / Update 可选） | 进入 `annotation_positions` 的 key，**必须保留严格校验** |
+| `codelist.code` | 严格（可选） | 码表级 OID |
+| `codelist_option.code` | **自由文本**（仅 strip + 空→None） | 与标签 `decode` 一致不限制字符内容 |
+
+自由文本语义由 `normalize_optional_free_code` / `optional_free_code_validator`（后端）承载，前端选项级不调用 `isValidOptionalOid`。
+
+**Common Mistake：直接删掉选项 code 的 validator**。`mode="before"` validator 同时承担 `str()` 转型、`.strip()`、`""→None` 三项职责：
+- `.strip()` 保护三元组唯一约束 `(codelist_id, code, decode)` 不产生肉眼相同的重复行；
+- `""→None` 保持 SQLite 中 NULL（互不冲突）语义，且 `import_service._build_codelist_option_signature` 的 `(index, code, decode)` 模板导入去重签名依赖 `None` vs `""` 的可区分性——直接删会导致重复导入产生「名称（导入）」副本。
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code
@@ -679,6 +701,7 @@ When creating a new cross-stack contract:
 | Preview / Export Parity | `services/export_service.py`, `services/width_planning.py`, `services/word_table_parity.py` | `useCRFRenderer.js`, `formFieldPresentation.js`, preview components, `styles/main.css` | Strict comparator JSON + exported `.docx` |
 | Form Paper Orientation | `models/form.py`, `schemas/form.py`, `database.py`, `routers/forms.py`, `services/export_service.py` (+ clone/import) | `components/FormDesignerTab.vue`, `components/VisitsTab.vue` | None |
 | API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 8 bypass call sites | `frontend/tests/basePathDeployment.test.js` |
+| OID / Identifier Charset | `schemas/_common.py`, `schemas/codelist.py` | `composables/oidValidation.js` | None |
 
 ---
 

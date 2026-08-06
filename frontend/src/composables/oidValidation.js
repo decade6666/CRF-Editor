@@ -1,6 +1,7 @@
 // OID 字符集前端校验（req2）
 // 契约与后端 backend/src/schemas/_common.py 对齐：OID 只允许字母、数字、`.`、`_`、`-`。
 // 可选字段空/空白视为未设（放行）；必填字段去空白后不得为空。
+// 注意：码表「选项」的 code 为自由文本（与标签一致，不限制字符内容），不适用本模块。
 
 export const OID_PATTERN = /^[A-Za-z0-9._-]+$/;
 export const OID_ERROR = 'OID 只允许由字母、数字、“-”、“_”和“.”组成';

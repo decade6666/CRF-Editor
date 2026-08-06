@@ -2820,9 +2820,6 @@ async function quickAddCodelist() {
   const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
 
-  const badOidOptionIndex = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code));
-  if (badOidOptionIndex !== -1) return ElMessage.warning(OID_ERROR);
-
   quickAddCodelistSaving.value = true;
   try {
     quickCodelistName.value = savedName;
@@ -2913,9 +2910,6 @@ async function quickSaveCodelist() {
   }));
   const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
   if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
-
-  const badOidOptionIndex = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code));
-  if (badOidOptionIndex !== -1) return ElMessage.warning(OID_ERROR);
 
   quickEditCodelistSaving.value = true;
   try {

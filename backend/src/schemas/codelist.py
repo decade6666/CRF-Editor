@@ -1,7 +1,7 @@
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-from ._common import optional_oid_validator
+from ._common import optional_free_code_validator, optional_oid_validator
 
 
 class CodeListOptionCreate(BaseModel):
@@ -9,7 +9,7 @@ class CodeListOptionCreate(BaseModel):
     decode: str
     order_index: Optional[int] = Field(None, ge=1)
 
-    _validate_code = optional_oid_validator("code")
+    _validate_code = optional_free_code_validator("code")
 
 
 class CodeListOptionUpdate(BaseModel):
@@ -17,7 +17,7 @@ class CodeListOptionUpdate(BaseModel):
     decode: Optional[str] = None
     order_index: Optional[int] = Field(None, ge=1)
 
-    _validate_code = optional_oid_validator("code")
+    _validate_code = optional_free_code_validator("code")
 
 
 class CodeListOptionBatchUpdate(BaseModel):
@@ -25,7 +25,7 @@ class CodeListOptionBatchUpdate(BaseModel):
     code: Optional[str] = None
     decode: str
 
-    _validate_code = optional_oid_validator("code")
+    _validate_code = optional_free_code_validator("code")
 
 
 class CodeListOptionResponse(BaseModel):

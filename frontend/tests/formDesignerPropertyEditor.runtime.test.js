@@ -297,8 +297,9 @@ test('normalizeHexColorInput rejects invalid values', () => {
   assert.equal(normalizeHexColorInput('fff;display:none'), null)
 })
 
-test('FormDesignerTab guards OID charset on form/field/option submit paths', () => {
-  // req2：表单 OID / 字段 variable_name / 内联字典选项 code 保存前须做字符集校验并内联报错
+test('FormDesignerTab guards OID charset on form/field submit paths (option codes exempt)', () => {
+  // req2：表单 OID / 字段 variable_name 保存前须做字符集校验并内联报错；
+  // 内联字典选项 code 为自由文本（与标签一致），不再做字符集校验
   assert.match(
     formDesignerSource,
     /import \{ isValidOptionalOid, isValidRequiredOid, OID_ERROR \} from '..\/composables\/oidValidation'/,
@@ -322,12 +323,10 @@ test('FormDesignerTab guards OID charset on form/field/option submit paths', () 
   assert.match(saveProp, /ElMessage\.warning\(OID_ERROR\)/)
 
   const quickAdd = functionBody('quickAddCodelist')
-  assert.match(quickAdd, /!isValidOptionalOid\(opt\.code\)/)
-  assert.match(quickAdd, /ElMessage\.warning\(OID_ERROR\)/)
+  assert.doesNotMatch(quickAdd, /isValidOptionalOid\(opt\.code\)/)
 
   const quickSave = functionBody('quickSaveCodelist')
-  assert.match(quickSave, /!isValidOptionalOid\(opt\.code\)/)
-  assert.match(quickSave, /ElMessage\.warning\(OID_ERROR\)/)
+  assert.doesNotMatch(quickSave, /isValidOptionalOid\(opt\.code\)/)
 })
 
 test('log row property panel shares the persisted-field cancel/save action bar', () => {

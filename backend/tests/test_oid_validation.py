@@ -2,7 +2,8 @@
 
 契约：OID 只允许由字母、数字、`.`、`_`、`-` 组成（`^[A-Za-z0-9._-]+$`）。
 - 必填 `variable_name`（字段定义 Create）：空值 / 非法字符被拒。
-- 可选 OID 字段（字段定义 Update、表单 code、码表 code、选项 code）：空 / 空白归一为未设（None），有值才校验字符集。
+- 可选 OID 字段（字段定义 Update、表单 code、码表 code）：空 / 空白归一为未设（None），有值才校验字符集。
+- 码表选项 code 为自由文本（与标签一致）：不做字符集校验，仅去空白并归一空值为 None。
 - 仅在写入边界（Create/Update schema）拦截，不做存量迁移。
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ from src.schemas.codelist import (
     CodeListOptionCreate,
     CodeListOptionUpdate,
     CodeListOptionBatchUpdate,
+    CodeListSnapshotUpdate,
 )
 
 
@@ -117,9 +119,6 @@ def test_codelist_code_optional_empty_becomes_none(model_cls, required) -> None:
     [
         (CodeListCreate, {"name": "码表"}),
         (CodeListUpdate, {}),
-        (CodeListOptionCreate, {"decode": "解码"}),
-        (CodeListOptionUpdate, {}),
-        (CodeListOptionBatchUpdate, {"decode": "解码"}),
     ],
 )
 @pytest.mark.parametrize("oid", ["中文", "a/b", "a b"])
@@ -130,7 +129,44 @@ def test_codelist_code_rejects_invalid(model_cls, required, oid: str) -> None:
 
 def test_codelist_code_accepts_valid() -> None:
     assert CodeListCreate(name="码表", code="LB-1").code == "LB-1"
-    assert CodeListOptionCreate(decode="解码", code="OPT_1").code == "OPT_1"
+
+
+# --------- 码表选项 code（自由文本，仅 strip + 空→None）---------
+
+FREE_CODES = ["中文", "a/b", "a b", "≥3 分", "选项（1）", "1.5 分及以上"]
+
+OPTION_MODEL_CLASSES = [
+    (CodeListOptionCreate, {"decode": "解码"}),
+    (CodeListOptionUpdate, {}),
+    (CodeListOptionBatchUpdate, {"decode": "解码"}),
+]
+
+
+@pytest.mark.parametrize("model_cls,required", OPTION_MODEL_CLASSES)
+@pytest.mark.parametrize("code", FREE_CODES)
+def test_codelist_option_code_accepts_free_text(model_cls, required, code: str) -> None:
+    assert model_cls(code=code, **required).code == code
+
+
+@pytest.mark.parametrize("model_cls,required", OPTION_MODEL_CLASSES)
+def test_codelist_option_code_strips_whitespace(model_cls, required) -> None:
+    model = model_cls(code="  中文  ", **required)
+    assert model.code == "中文"
+
+
+@pytest.mark.parametrize("model_cls,required", OPTION_MODEL_CLASSES)
+def test_codelist_option_code_coerces_non_string(model_cls, required) -> None:
+    model = model_cls(code=1, **required)
+    assert model.code == "1"
+
+
+def test_codelist_snapshot_accepts_free_option_code() -> None:
+    snapshot = CodeListSnapshotUpdate(
+        name="码表",
+        options=[{"code": "中文（1）", "decode": "男"}, {"code": "≥3 分", "decode": "女"}],
+    )
+    assert snapshot.options[0].code == "中文（1）"
+    assert snapshot.options[1].code == "≥3 分"
 
 
 # --------- 路由层 422（代表性端点）---------
@@ -185,3 +221,51 @@ def test_route_codelist_rejects_invalid_code(client, project_id, auth_token) -> 
         headers=auth_headers(auth_token),
     )
     assert resp.status_code == 422, resp.text
+
+
+@pytest.fixture
+def codelist_id(client: TestClient, project_id: int, auth_token: str) -> int:
+    resp = client.post(
+        f"/api/projects/{project_id}/codelists",
+        json={"name": "选项码表", "code": "CL_FREE"},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def test_route_codelist_option_accepts_free_code(client, project_id, codelist_id, auth_token) -> None:
+    resp = client.post(
+        f"/api/projects/{project_id}/codelists/{codelist_id}/options",
+        json={"code": "中文（1）", "decode": "男"},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["code"] == "中文（1）"
+
+
+def test_route_codelist_option_empty_code_becomes_null(client, project_id, codelist_id, auth_token) -> None:
+    resp = client.post(
+        f"/api/projects/{project_id}/codelists/{codelist_id}/options",
+        json={"code": "", "decode": "空编码"},
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["code"] is None
+
+
+def test_route_codelist_snapshot_accepts_free_code(client, project_id, codelist_id, auth_token) -> None:
+    resp = client.put(
+        f"/api/projects/{project_id}/codelists/{codelist_id}/snapshot",
+        json={
+            "name": "选项码表",
+            "options": [
+                {"code": "≥3 分", "decode": "男"},
+                {"code": "a/b", "decode": "女"},
+            ],
+        },
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+    codes = {opt["code"] for opt in resp.json()["options"]}
+    assert codes == {"≥3 分", "a/b"}

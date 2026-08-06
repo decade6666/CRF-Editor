@@ -194,7 +194,6 @@ function openAddOpt() {
 
 async function addOpt() {
   if (!optForm.code.trim()) return ElMessage.warning('请输入编码值')
-  if (!isValidOptionalOid(optForm.code)) return ElMessage.warning(OID_ERROR)
   if (!optForm.decode.trim()) return ElMessage.warning('请输入标签')
   try {
     await api.post(`/api/projects/${props.projectId}/codelists/${selected.value.id}/options`, { ...optForm })
@@ -246,7 +245,6 @@ function openEditOpt(o) {
 
 async function updateOpt() {
   if (!editOptForm.code.trim()) return ElMessage.warning('请输入编码值')
-  if (!isValidOptionalOid(editOptForm.code)) return ElMessage.warning(OID_ERROR)
   if (!editOptForm.decode.trim()) return ElMessage.warning('请输入标签')
   try {
     const refs = await api.get(`/api/projects/${props.projectId}/codelists/${selected.value.id}/references`)
