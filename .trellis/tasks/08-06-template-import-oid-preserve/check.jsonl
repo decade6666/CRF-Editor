@@ -1,0 +1,4 @@
+{"file": "backend/src/services/import_service.py", "reason": "实现主体：_make_unique_code/_resolve_import_code 与三个写入点"}
+{"file": "backend/tests/test_import_service.py", "reason": "回归主体：约 13 个新用例锁定 OID 复制/铸新/_IMP 去重/复用分支"}
+{"file": "backend/src/services/project_clone_service.py", "reason": "对照实现：clone 逐字复制全部 OID，模板导入需与其对齐"}
+{"file": "backend/src/routers/import_template.py", "reason": "路由层：except Exception 吞 IntegrityError → 500，去重必须前置"}
