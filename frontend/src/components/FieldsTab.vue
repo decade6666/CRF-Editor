@@ -10,7 +10,7 @@ import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibilit
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
-import { OID_ERROR, isValidOptionalOid, isValidRequiredOid } from '../composables/oidValidation.js'
+import { OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
 
@@ -233,7 +233,6 @@ function openQuickAddCodelist() {
   showQuickAddCodelist.value = true
 }
 function quickAddOptRow() {
-  if (editMode.value && !isValidOptionalOid(quickOptCode.value)) return ElMessage.warning(OID_ERROR)
   if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickCodelistOpts.value.length
   quickCodelistOpts.value.push({
@@ -266,8 +265,6 @@ async function quickAddCodelist() {
   const normalizedOptions = normalizeQuickOptions(quickCodelistOpts.value)
   const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
   if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
-  const invalidOidIdx = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code))
-  if (invalidOidIdx !== -1) return ElMessage.warning(OID_ERROR)
 
   quickAddCodelistSaving.value = true
   try {
@@ -318,7 +315,6 @@ function openQuickEditCodelist() {
   showQuickEditCodelist.value = true
 }
 function quickEditAddOptRow() {
-  if (editMode.value && !isValidOptionalOid(quickEditOptCode.value)) return ElMessage.warning(OID_ERROR)
   if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签')
   const n = quickEditCodelistOpts.value.length
   quickEditCodelistOpts.value.push({
@@ -351,8 +347,6 @@ async function quickSaveCodelist() {
   const normalizedOptions = normalizeQuickOptions(quickEditCodelistOpts.value)
   const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
   if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
-  const invalidOidIdx = normalizedOptions.findIndex((opt) => !isValidOptionalOid(opt.code))
-  if (invalidOidIdx !== -1) return ElMessage.warning(OID_ERROR)
 
   quickEditCodelistSaving.value = true
   try {
