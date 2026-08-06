@@ -201,6 +201,8 @@ python main.py
 
 After starting, open `http://localhost:8888` in your browser to access the web interface.
 
+> To deploy the frontend under a subpath (e.g. `/crf/`, sharing a domain with other sites), build with a subpath base instead: `cd frontend && VITE_BASE_PATH=/crf/ npm run build`, and strip the `/crf/` prefix in the Nginx reverse proxy before forwarding to the backend. Default builds only serve root-path `/assets/...`; desktop packaging must use a default build (see the Option 3 warning).
+
 When `CRF_ENV=production` is set, uvicorn automatically disables hot reload (suitable for long-running processes); for background execution with automatic startup on boot, use the "Production Deployment (Linux / systemd)" section below.
 
 When `CRF_ENV=production` is set:
@@ -234,6 +236,8 @@ python app_launcher.py
 ```
 
 The desktop entry launches the local backend, opens the browser automatically, and keeps a tray icon running.
+
+> ⚠️ Before packaging, build the frontend with the **default root path** (i.e. `cd frontend && npm run build`, without `VITE_BASE_PATH`). The desktop entry serves static files from `http://127.0.0.1:8888/` directly; a subpath build would make the page request `/crf/assets/...` and render blank.
 
 ### Login and Admin Migration Notes
 
@@ -340,11 +344,34 @@ Keep `CRF_SERVER_HOST=0.0.0.0` in `/etc/crf-editor/crf-editor.env`, allow `CRF_S
 
 > Note: whichever option you use, stop any manually started instance (`nohup` / `python main.py`) before enabling the service, or you will hit a port conflict.
 
+**Subpath deployment (shared domain, e.g. `/crf/`)**
+
+When the domain root is occupied by another site and CRF must live under a subpath:
+
+1. Build the frontend with the subpath base (lazy-loaded chunks need the `/crf/` prefix, otherwise they fall through to same-named resources on the root-path site):
+   ```bash
+   cd frontend && VITE_BASE_PATH=/crf/ npm run build
+   ```
+2. In Nginx, follow the "Subpath deployment" comment block at the end of `deploy/nginx/crf-editor.conf.example`:
+   ```nginx
+   location = /crf { return 301 /crf/; }          # redirect the bare path to the trailing slash
+   location /crf/ {
+       proxy_pass http://127.0.0.1:8888/;         # trailing slash required: strips the /crf/ prefix
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       client_max_body_size 100m;
+       proxy_read_timeout 600s;
+   }
+   ```
+   All API requests also carry the `/crf/api/...` prefix and reach the backend at `/api/...` after the prefix is stripped — no backend change is needed. Do not also point a root-path `location /` at CRF on the same domain, or resources will cross-talk.
+
+   > Security note: `localStorage` is isolated by origin (scheme + host + port), not by path. Any other site on the same domain root can read CRF's `crf_token` login token. Before subpath deployment, ensure same-domain sites are trusted, or prefer a dedicated subdomain.
+
 ### Upgrade Flow
 
 ```bash
 git pull
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run build   # for subpath deployment: VITE_BASE_PATH=/crf/ npm run build
 cd ../backend && <venv-python> -m pip install -r backend/requirements.txt
 sudo systemctl restart crf-editor
 ```

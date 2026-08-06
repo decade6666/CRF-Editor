@@ -27,7 +27,7 @@ import {
   UploadFilled,
 } from '@element-plus/icons-vue';
 import draggable from 'vuedraggable';
-import { api, toggleSelectAll, getAuthHeaders } from './composables/useApi';
+import { api, toggleSelectAll, getAuthHeaders, apiUrl } from './composables/useApi';
 import {
   buildAiOverridesPayload,
   getAcceptedSuggestionsForForm,
@@ -345,7 +345,7 @@ async function exportWord(annotated = false) {
     const forms = formDesignerTabRef.value?.getForms?.() || [];
     const columnWidthOverrides = collectColumnWidthOverrides(forms);
 
-    const response = await fetch(`/api/projects/${selectedProject.value.id}/export/word`, {
+    const response = await fetch(apiUrl(`/api/projects/${selectedProject.value.id}/export/word`), {
       method: 'POST',
       headers: {
         ...getAuthHeaders(),
@@ -386,7 +386,7 @@ function onExportCommand(command) {
 }
 
 async function _blobDownload(url, fallbackFilename) {
-  const response = await fetch(url, { headers: getAuthHeaders() });
+  const response = await fetch(apiUrl(url), { headers: getAuthHeaders() });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || '未知错误');
@@ -457,7 +457,7 @@ async function handleImportProject(e) {
   try {
     const form = new FormData();
     form.append('file', file);
-    const resp = await fetch('/api/projects/import/auto', {
+    const resp = await fetch(apiUrl('/api/projects/import/auto'), {
       method: 'POST',
       headers: getAuthHeaders(),
       body: form,
@@ -1360,7 +1360,7 @@ function startResize(e) {
         <div v-if="importWordStep === 1">
           <el-upload
             drag
-            :action="'/api/projects/' + selectedProject.id + '/import-docx/preview'"
+            :action="apiUrl('/api/projects/' + selectedProject.id + '/import-docx/preview')"
             :headers="getAuthHeaders()"
             :show-file-list="false"
             accept=".docx"

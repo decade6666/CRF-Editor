@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { apiUrl } from '../composables/useApi'
 
 const emit = defineEmits(['login-success'])
 
@@ -30,7 +31,7 @@ async function handleLogin() {
   }
   loading.value = true
   try {
-    const r = await fetch('/api/auth/login', {
+    const r = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -201,6 +201,8 @@ python main.py
 
 服务启动后访问 `http://localhost:8888` 打开 Web 界面。
 
+> 若要把前端部署到子路径（如 `/crf/`，与其它站点共享域名），需改用子路径 base 构建：`cd frontend && VITE_BASE_PATH=/crf/ npm run build`，并在 Nginx 反代层把 `/crf/` 前缀剥掉后转发给后端。默认构建产物只走根路径 `/assets/...`，桌面版打包必须使用默认构建（见「方式三」警告）。
+
 设置 `CRF_ENV=production` 时，uvicorn 自动关闭热重载（适合长期运行）；需要「后台运行 + 开机自启」时请使用下面的「生产部署（Linux / systemd）」章节。
 
 如果设置了 `CRF_ENV=production`：
@@ -234,6 +236,8 @@ python app_launcher.py
 ```
 
 桌面入口会在本地启动后端服务、自动打开浏览器，并保持系统托盘图标运行。
+
+> ⚠️ 打包前必须使用**默认根路径**构建前端（即 `cd frontend && npm run build`，不带 `VITE_BASE_PATH`）。桌面版通过 `http://127.0.0.1:8888/` 直接访问后端托管的静态文件，若误用子路径产物，页面会因请求 `/crf/assets/...` 而白屏。
 
 ### 登录与管理员迁移说明
 
@@ -340,11 +344,34 @@ sudo systemctl enable --now crf-editor
 
 > 提示：无论哪种方式，若之前用 `nohup` / `python main.py` 手动启动过实例，请先停掉再启用服务，否则会端口冲突。
 
+**子路径部署（共享域名，例如 `/crf/`）**
+
+当域名根路径已被其它站点占用、CRF 只能挂在子路径时：
+
+1. 构建前端时带上子路径 base（懒加载资源才会带 `/crf/` 前缀，否则会串到根路径站点的同名资源）：
+   ```bash
+   cd frontend && VITE_BASE_PATH=/crf/ npm run build
+   ```
+2. Nginx 参考 `deploy/nginx/crf-editor.conf.example` 末尾的「子路径部署」注释段：
+   ```nginx
+   location = /crf { return 301 /crf/; }          # 裸路径重定向到带尾斜杠
+   location /crf/ {
+       proxy_pass http://127.0.0.1:8888/;         # 末尾斜杠「/」必需：剥掉 /crf/ 前缀再转发
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       client_max_body_size 100m;
+       proxy_read_timeout 600s;
+   }
+   ```
+   前端所有 API 请求也会带 `/crf/api/...` 前缀，同样被该 location 剥掉前缀后到达后端 `/api/...`，后端无需任何改动；也不要再配置同域根路径的 `location /` 指向 CRF，避免资源串站。
+   
+   > 安全注意：`localStorage` 按「域名 + 端口」隔离、不按路径。若同域名根路径运行着其它站点，它能读取 CRF 的 `crf_token` 登录令牌。子路径部署前请确认同域其它站点可信，或改用独立子域名部署。
+
 ### 升级流程
 
 ```bash
 git pull
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run build   # 子路径部署时改为：VITE_BASE_PATH=/crf/ npm run build
 cd ../backend && <venv-python> -m pip install -r backend/requirements.txt
 sudo systemctl restart crf-editor
 ```

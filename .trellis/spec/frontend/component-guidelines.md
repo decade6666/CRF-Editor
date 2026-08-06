@@ -356,7 +356,7 @@ async function fetchLogo(projectId) {
   // Always release the previous blob first
   if (logoUrl.value) { URL.revokeObjectURL(logoUrl.value); logoUrl.value = null }
   if (!projectId) return               // guard: no project → stay null
-  const r = await fetch(`/api/projects/${projectId}/logo`, { headers: getAuthHeaders() })
+  const r = await fetch(apiUrl(`/api/projects/${projectId}/logo`), { headers: getAuthHeaders() })
   if (r.ok) logoUrl.value = URL.createObjectURL(await r.blob())
   // on error: logoUrl stays null → UI shows "上传Logo" button
 }

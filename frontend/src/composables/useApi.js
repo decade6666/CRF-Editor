@@ -24,12 +24,32 @@ async function _parseError(r) {
 
 const _REFRESHED_TOKEN_HEADER = 'x-refreshed-token';
 
+// ── 部署 base ──
+// Vite 构建期注入 BASE_URL（等于 vite.config.js 的 base，默认 '/'）。
+// node --test 直接 import 本模块时 import.meta.env 不存在 → 退回根路径，apiUrl 为恒等函数。
+
+// 工厂：'/' 或相对 base（如 './'）→ 恒等；'/crf/' → 前缀 '/crf'
+export function makeApiUrl(base) {
+  const _basePrefix = /^\/.+/.test(String(base)) ? String(base).replace(/\/+$/, '') : '';
+  // 给同源 API 路径补部署前缀：'/api/x' → '/crf/api/x'；根路径部署下原样返回
+  return function apiUrl(path) {
+    if (!_basePrefix || typeof path !== 'string') return path;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith('//')) return path;
+    if (!path.startsWith('/')) return path;
+    if (path === _basePrefix || path.startsWith(_basePrefix + '/')) return path;
+    return _basePrefix + path;
+  };
+}
+
+const _viteEnv = typeof import.meta !== 'undefined' && import.meta ? import.meta.env : undefined;
+const apiUrl = makeApiUrl((_viteEnv && _viteEnv.BASE_URL) || '/');
+
 function _getAuthHeaders() {
   const token = localStorage.getItem('crf_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export { _getAuthHeaders as getAuthHeaders };
+export { _getAuthHeaders as getAuthHeaders, apiUrl };
 
 function _storeRefreshedToken(r) {
   const refreshedToken = r.headers.get(_REFRESHED_TOKEN_HEADER);
@@ -108,7 +128,7 @@ async function _safeJsonParse(r) {
 // API 请求工具
 export const api = {
   async get(url) {
-    const r = await fetch(url, { headers: _getAuthHeaders() });
+    const r = await fetch(apiUrl(url), { headers: _getAuthHeaders() });
     await _checkStatus(r);
     return _safeJsonParse(r);
   },
@@ -121,7 +141,7 @@ export const api = {
     // Promise去重：同一URL并发只发一次请求
     if (_pending.has(url)) return _pending.get(url);
 
-    const p = fetch(url, { headers: _getAuthHeaders() })
+    const p = fetch(apiUrl(url), { headers: _getAuthHeaders() })
       .then(async (r) => {
         await _checkStatus(r);
         const data = await _safeJsonParse(r);
@@ -140,7 +160,7 @@ export const api = {
   invalidateCache,
   clearAllCache,
   async post(url, data) {
-    const r = await fetch(url, {
+    const r = await fetch(apiUrl(url), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
@@ -150,7 +170,7 @@ export const api = {
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async put(url, data) {
-    const r = await fetch(url, {
+    const r = await fetch(apiUrl(url), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
@@ -160,7 +180,7 @@ export const api = {
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async patch(url, data, options = {}) {
-    const r = await fetch(url, {
+    const r = await fetch(apiUrl(url), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
       body: JSON.stringify(data),
@@ -173,7 +193,7 @@ export const api = {
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async del(url) {
-    const r = await fetch(url, { method: 'DELETE', headers: _getAuthHeaders() });
+    const r = await fetch(apiUrl(url), { method: 'DELETE', headers: _getAuthHeaders() });
     await _checkStatus(r);
     _autoInvalidate(url);
   },
