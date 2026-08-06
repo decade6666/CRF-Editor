@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "数据库写入约定：跨路径 copy 契约（checkbox_label 已记载），本任务在此新增 OID (code) copy contract 小节"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "跨栈契约：OID_PATTERN 仅编辑边界生效（2026-07-14），确认导入路径不做字符集复校的既有语义"}

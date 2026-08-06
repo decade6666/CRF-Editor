@@ -192,6 +192,56 @@ source_defs = _load_template_field_definitions(
 # Legacy fallback supplies checkbox_label=None in memory; template stays immutable.
 ```
 
+### Scenario: OID (`code`) Copy Contract
+
+#### 1. Scope / Trigger
+
+- The OID surface is `form.code`, `field_definition.variable_name`, `codelist.code`, `codelist_option.code`, `unit.code` (plus `visit.code`). `Form` / `CodeList` / `Unit` all carry `UniqueConstraint("project_id", "code")`; `FieldDefinition` carries `UniqueConstraint("project_id", "variable_name")`.
+- Copy paths that must preserve OIDs verbatim: project clone (`project_clone_service.py`), project `.db` import / merge (delegates to clone), and **template library import** (`import_service.py`).
+- Routers mint a fresh OID only when the caller supplies none: `if not dump.get("code"): dump["code"] = generate_code(PREFIX)` (`routers/forms.py`, `routers/codelists.py`, `routers/units.py`, `routers/visits.py`).
+
+#### 2. Signatures
+
+```python
+# backend/src/utils.py
+generate_code(prefix: str) -> str
+# Returns f"{prefix}_{YYYYMMDDHHmmss}_{6 random A-Z0-9}"
+
+# backend/src/services/import_service.py
+_make_unique_code(existing: set[str], base: str) -> str
+# base_IMP → base_IMP2 → ... (same ladder as _make_unique_var, independently evolved)
+
+_resolve_import_code(existing_codes: set[str], source_code: Optional[str], prefix: str) -> str
+# Non-empty source → strip and copy verbatim; empty/whitespace → mint; collision → _IMP ladder.
+```
+
+#### 3. Contracts
+
+- Template import must preserve a non-empty source `code` verbatim (after `strip()`), mint only when empty, and dedupe with the `_IMP` ladder inside the target project — never rely on `IntegrityError` catch to resolve collisions (the route's `except Exception` would surface an opaque 500).
+- The caller must add the resolved code to `existing_codes` before/at write so intra-batch collisions (units/codelists are selected without a `project_id` filter, so cross-source-project duplicates are possible) cannot violate the unique constraint.
+- The codelist/unit **reuse** branches (symbol match; name + option signature match) must never overwrite the target's existing OID — no new row is constructed there.
+- **No charset re-validation on import**: `OID_PATTERN = ^[A-Za-z0-9._-]+$` (`schemas/_common.py`) is enforced only at Create/Update schema boundaries (edit-time only, no migration); clone/project/template import may carry legacy non-conforming OIDs.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| Source `code` non-empty, target free | Copied verbatim (whitespace stripped). |
+| Source `code` empty / whitespace / NULL | New `PREFIX_<ts>_<rand>` minted. |
+| Source `code` collides with target | `base_IMP` → `base_IMP2` → …; existing row untouched. |
+| Same template imported twice | First pass copies OIDs; second pass reuses units/codelists by signature and suffixes form OID; never raises `IntegrityError`. |
+| Legacy source with non-ASCII `code` | Imported as-is (no charset validation on import paths). |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: a template with `form.code="DM"`, `unit.code="MG"`, `codelist.code="CL_SEX"` imports those exact values into an empty target project; re-importing suffixes colliding ones with `_IMP`.
+- **Base**: source OID is NULL → freshly minted; a target row is reused → its existing OID stays.
+- **Bad**: dropping the source OID and always minting (the pre-fix behavior), or letting a `UniqueConstraint` violation surface as an opaque 500.
+
+#### 6. Tests Required
+
+- `backend/tests/test_import_service.py`: OID preservation / empty-mint / `_IMP` ladder for form, unit, codelist; reuse branches keep target OIDs; double-import does not raise; whitespace strip; non-ASCII passthrough; intra-batch dedup across source projects; pure `test_resolve_import_code_ladder`.
+
 ### Scenario: Adding a New `form_field` Column
 
 #### 1. Scope / Trigger
