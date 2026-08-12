@@ -23,9 +23,9 @@ graph TD
     B --> B6["tests (49)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (24)"];
+    C --> C2["src/composables (26)"];
     C --> C3["src/styles"];
-    C --> C4["tests (55)"];
+    C --> C4["tests (56)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -36,7 +36,7 @@ graph TD
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
 | backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (55 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (55 files, including 54 `.test.js`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (56 files, including 55 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
@@ -136,6 +136,7 @@ sudo bash deploy/install-service.sh uninstall
 - Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log
+- `2026-08-12` (task `designer-header-notes-linebreak`): 表单设计器顶栏「设计备注」换行显示修复。根因 `headerDesignNotesSummary` 用 `\s+ → ' '` 把换行压成空格，悬浮提示走 `el-tooltip :content` 纯文本节点也会折叠换行。抽纯函数到新 `frontend/src/composables/designNotesSummary.js`（`summarizeDesignNotes` 多行只取第一条非空行、有后续内容补 `…`、首行超 60 字截断；`normalizeDesignNotesTooltip` 统一 CRLF、去掉首尾空白行、保留行内缩进），两处 `el-tooltip`（主画布顶栏 + 全屏设计器「实时预览」标题栏）改用 `popper-class="fd-notes-tooltip"` + `#content` 插槽，样式写入非 scoped `<style>`（`white-space: pre-wrap`、max-width 420px、max-height 40vh 滚动）；顶栏 chip 单行省略号布局与高度不变。新增 `designNotesSummary.test.js`（10 例），同步 `formFieldPresentation.test.js` 源码级断言。前端全量 539 passed，lint 0 errors，build OK；浏览器实机验证：顶栏只显示第一行、浮窗按原文分行（含开头空白行剥离、内部空行保留）、高度未撑高。后端零改动。
 - `2026-08-12` (task `admin-recycle-cleanup`): 管理员用户管理页与回收站自动清理联动改造。后端新增 `recycle_bin` 配置、`project_size_service.py` / `project_purge_service.py` / `recycle_bin_cleanup_service.py` / `background_jobs.py`，在 `main.py` lifespan 中启动/停止进程内回收站清理循环（`CRF_DISABLE_BACKGROUND_JOBS` 用于测试隔离），并提供 `GET/PUT /api/admin/recycle-bin/cleanup-policy` 与 `POST /api/admin/recycle-bin/cleanup/preview`。回收站列表响应新增 `estimated_size_bytes`，清理规则同时支持年龄（`day/month/year`，30/365 常量）与总估算大小（`MB/GB`）阈值，并带 `min_retain_hours` 保护。前端 `AdminView.vue` 删除「密码状态」列，把三条批量入口收敛为单一 `项目列表` 弹窗，回收站新增大小列与清理策略弹窗；`App.vue` 新增 `.admin-shell` 半宽居中。README 中英、`config.yaml.example`、`.claude/index.json`、backend/frontend/root CLAUDE、以及 `.trellis/spec`（database-guidelines / cross-stack-contracts §11 / component-guidelines）同步更新。前端全量 `node --test tests/*.test.js` 535 passed；lint 0 errors / 2395 existing prettier warnings；后端定向回归全部通过。
 - `2026-08-06` (task `codelist-option-oid-free`): 字典选项 OID 放开字符集限制（与标签一致）。后端：`_common.py` 新增 `normalize_optional_free_code` / `optional_free_code_validator`（仅 `str()` 转型 + strip + 空/空白→None，不做字符集校验），`codelist.py` 三个选项级 schema 的 `code` 切换过去；码表级 / 表单 / 字段 `variable_name` 严格校验不变。前端：删除 8 处选项级 `isValidOptionalOid` 守卫（CodelistsTab / FieldsTab / FormDesignerTab），保留非空与完整性检查。README 中英、`.trellis/spec/guides/cross-stack-contracts.md`（新增 §10 OID/Identifier 作用域契约，含「直接删 validator 会破坏导入去重签名」告诫）、模块 CLAUDE.md 同步。后端 748 passed / 4 xfailed，前端 530 passed，lint 0 errors。
 - `2026-08-06` (task `template-import-oid-preserve`): 模板库导入保留表单 / 选项(码表) / 单位的 OID。修复 `import_service.py` 三个写入点（表单、单位、码表）丢弃源 `code`、改用 `generate_code()` 现铸的问题：新增共用 helper `_resolve_import_code` / `_make_unique_code`——源 OID 非空则 strip 后逐字复制、为空才铸新、与目标项目既有 OID 冲突时按 `base_IMP` → `base_IMP2` 阶梯前置去重（三个实体各自的 `UniqueConstraint(project_id, code)` 由集合边写边加保证，避免裸改导致重复导入时 `IntegrityError` 被路由吞成 500）。码表 / 单位复用分支（symbol 命中、名称+选项签名一致）不覆盖目标已有 OID；表单 code 去重与 `_导入` 改名相互独立。两个取舍：不做 OID 字符集复校（与 clone / project import 一致，`OID_PATTERN` 仅编辑边界生效）、strip 首尾空白（与 `normalize_optional_oid` 一致）。`test_import_service.py` 新增 15 例（OID 保留 / 空铸新 / `_IMP` 阶梯 / 复用保持 / 重复导入 / 非 ASCII 透传 / 空白剥离 / 跨源项目批内去重 / 纯函数阶梯）；后端 744 passed / 4 xfailed。文档同步：`.trellis/spec/backend/database-guidelines.md` 新增「OID (`code`) Copy Contract」小节。

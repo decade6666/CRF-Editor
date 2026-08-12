@@ -81,6 +81,7 @@ import { confirmDelete } from '../composables/projectDeleteConfirmation';
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability';
+import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composables/designNotesSummary';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
@@ -1801,13 +1802,9 @@ let notesPendingSave = null;
 let notesSavePromise = null;
 let notesAutoSaveErrorShown = false;
 const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''));
-const HEADER_NOTES_MAX_LENGTH = 60;
-const headerDesignNotesSummary = computed(() => {
-  const raw = previewDesignNotesText.value.replace(/\s+/g, ' ').trim();
-  if (!raw) return '';
-  return raw.length > HEADER_NOTES_MAX_LENGTH ? raw.slice(0, HEADER_NOTES_MAX_LENGTH) + '…' : raw;
-});
-const headerDesignNotesTooltip = computed(() => previewDesignNotesText.value);
+// 顶栏空间有限：摘要有换行时只显示第一行（有后续内容补省略号），完整原文交给悬浮提示按原样分行
+const headerDesignNotesSummary = computed(() => summarizeDesignNotes(previewDesignNotesText.value));
+const headerDesignNotesTooltip = computed(() => normalizeDesignNotesTooltip(previewDesignNotesText.value));
 
 watch(
   () => selectedForm.value?.id,
@@ -3276,8 +3273,11 @@ function openAddForm() {
               v-if="headerDesignNotesSummary"
               effect="dark"
               placement="bottom"
-              :content="headerDesignNotesTooltip"
+              popper-class="fd-notes-tooltip"
             >
+              <template #content>
+                <div class="fd-notes-tooltip-content">{{ headerDesignNotesTooltip }}</div>
+              </template>
               <span class="fd-canvas-header-notes" data-test="canvas-notes-summary">{{
                 headerDesignNotesSummary
               }}</span>
@@ -4147,8 +4147,11 @@ function openAddForm() {
                   v-if="headerDesignNotesSummary"
                   effect="dark"
                   placement="bottom"
-                  :content="headerDesignNotesTooltip"
+                  popper-class="fd-notes-tooltip"
                 >
+                  <template #content>
+                    <div class="fd-notes-tooltip-content">{{ headerDesignNotesTooltip }}</div>
+                  </template>
                   <span class="fd-canvas-header-notes" data-test="designer-canvas-notes-summary">{{
                     headerDesignNotesSummary
                   }}</span>
@@ -5438,6 +5441,17 @@ function openAddForm() {
   padding: 0;
   height: calc(100vh - 54px);
   overflow: hidden;
+}
+/* 设计备注悬浮提示：popper 被 teleport 到 body，须用全局类；pre-wrap 让完整原文按换行分行 */
+.fd-notes-tooltip {
+  max-width: 420px;
+}
+.fd-notes-tooltip .fd-notes-tooltip-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 </style>
 

@@ -33,6 +33,10 @@ const simulatedCrfSource = readFileSync(
 );
 const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
 
+function countMatches(source, pattern) {
+  return (source.match(pattern) || []).length;
+}
+
 test('SimulatedCRFForm drives label bold from shared helper and drops hardcoded font-weight', () => {
   // 标签单元格走共享标签样式 helper（label_bold/label_font_size），不再由 CSS 硬编码加粗
   assert.match(simulatedCrfSource, /getFormFieldLabelPreviewStyle/);
@@ -402,7 +406,7 @@ test('notes autosave failures keep main preview on persisted notes', () => {
     formDesignerSource,
     /const previewDesignNotesText = computed\(\(\) => String\(selectedForm\.value\?\.design_notes \?\? ''\)\)/,
   );
-  assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => \{/);
+  assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => summarizeDesignNotes\(previewDesignNotesText\.value\)\)/);
   assert.match(formDesignerSource, /let notesPendingSave = null/);
   assert.match(formDesignerSource, /let notesSavePromise = null/);
   assert.match(formDesignerSource, /function buildDesignNotesSaveSnapshot\(/);
@@ -451,11 +455,19 @@ test('notes autosave failures keep main preview on persisted notes', () => {
 });
 
 test('form designer surfaces header notes summary and paper orientation controls', () => {
-  assert.match(formDesignerSource, /const HEADER_NOTES_MAX_LENGTH = 60/);
-  assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => \{/);
-  assert.match(formDesignerSource, /raw\.length > HEADER_NOTES_MAX_LENGTH/);
+  // 备注摘要/悬浮提示纯函数抽到 designNotesSummary.js；顶栏只显示第一行，浮窗按原文分行
+  assert.match(formDesignerSource, /import \{ summarizeDesignNotes, normalizeDesignNotesTooltip \} from '\.\.\/composables\/designNotesSummary'/);
+  assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => summarizeDesignNotes\(previewDesignNotesText\.value\)\)/);
+  assert.match(formDesignerSource, /const headerDesignNotesTooltip = computed\(\(\) => normalizeDesignNotesTooltip\(previewDesignNotesText\.value\)\)/);
+  assert.doesNotMatch(formDesignerSource, /replace\(\\s\+\/g, ' '\)/);
+  assert.doesNotMatch(formDesignerSource, /HEADER_NOTES_MAX_LENGTH/);
   assert.match(formDesignerSource, /data-test="canvas-notes-summary"/);
   assert.match(formDesignerSource, /data-test="designer-canvas-notes-summary"/);
+  assert.equal(countMatches(formDesignerSource, /popper-class="fd-notes-tooltip"/g), 2);
+  assert.equal(countMatches(formDesignerSource, /<template #content>/g), 2);
+  assert.doesNotMatch(formDesignerSource, /:content="headerDesignNotesTooltip"/);
+  assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*white-space: pre-wrap;/s);
+  assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*max-height: 40vh;[^}]*overflow-y: auto;/s);
   assert.match(formDesignerSource, /const LEGACY_FORCE_LANDSCAPE_KEY = 'crf_forceLandscape'/);
   assert.match(formDesignerSource, /const LEGACY_FORCE_LANDSCAPE_MIGRATED_KEY = 'crf_forceLandscape_migrated_v1'/);
   assert.match(formDesignerSource, /async function migrateLegacyForceLandscape\(projectId\)/);
