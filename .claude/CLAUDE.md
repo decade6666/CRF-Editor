@@ -16,16 +16,16 @@
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (12)"];
-    B --> B2["src/services (15)"];
+    B --> B2["src/services (18)"];
     B --> B3["src/models (10)"];
     B --> B4["src/schemas (6)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (46)"];
+    B --> B6["tests (49)"];
     A --> C["frontend"];
     C --> C1["src/components (13)"];
-    C --> C2["src/composables (23)"];
+    C --> C2["src/composables (26)"];
     C --> C3["src/styles"];
-    C --> C4["tests (51)"];
+    C --> C4["tests (56)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,8 +35,8 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (52 files) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (53 files, including 52 `.test.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (55 files) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (56 files, including 55 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
@@ -44,6 +44,7 @@ graph TD
 - Management of projects, visits, forms, fields, units, and option dictionaries; the codelist-free single checkbox field (`复选`) has an optional field-definition `checkbox_label` and falls back to the default character `✔` when empty
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
+- Admin recycle bin with estimated-size display, configurable age/size auto-cleanup policy, preview-before-save dry-run, and an in-process background cleanup loop
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel, and default-off AI review suggestions that can be accepted per suggestion / per form / globally before import
 - Form designer real-time preview, full-screen form-switch dropdown and inline form-property editing (OID / name / paper orientation), field instance quick edit/copy with no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
@@ -104,6 +105,7 @@ sudo bash deploy/install-service.sh uninstall
 - Strict preview/export parity: the frontend `frontend/src/styles/main.css` `.wp-form-title` must keep `text-align: left`; `backend/src/services/word_table_parity.py` and `backend/scripts/compare_word_table_parity.py` are used to compare the form / row / cell text of the browser preview JSON and the exported `.docx`; see `.trellis/spec/guides/cross-stack-contracts.md` §5.
 - aCRF annotation geometry and persistence: backend `backend/src/services/export_service.py`, `backend/src/schemas/form.py` (shared parse/serialize/canonicalize helpers), `backend/src/routers/forms.py` (create/update/copy), `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/import_service.py` (template import passthrough + mixed-column legacy read-only fallback), and frontend `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue` must evolve together; `Form.annotation_positions` string storage is canonicalized on every write path so copy/clone/project `.db` import/template import clamp + canonicalize instead of storing raw out-of-range values; see `.trellis/spec/guides/cross-stack-contracts.md` §6.
 - API base path (subpath deployment): the frontend `frontend/vite.config.js` reads `VITE_BASE_PATH` (default `/`) into `base`; when non-root, all assets and API calls carry the prefix (`/crf/assets/...`, `/crf/api/...`). The runtime prefix is applied only at the `useApi.js` fetch boundary via the exported `apiUrl()` (cache keys / `invalidateCache` stay on raw paths), and the 8 bypass sites (`App.vue` export/import/_blobDownload/el-upload action, `LoginView.vue`, `ProjectInfoTab.vue` logo, `DocxScreenshotPanel.vue` pageUrl) must keep using `apiUrl()`. The backend stays zero-aware: nginx must strip the prefix (`location /crf/ { proxy_pass http://127.0.0.1:8888/; }`, trailing slash required). Desktop packaging requires a default (root) build; subpath builds are opt-in. Guarded by `frontend/tests/basePathDeployment.test.js`.
+- Recycle-bin cleanup contract: backend `backend/src/config.py`, `backend/src/routers/admin.py`, `backend/src/services/project_size_service.py`, `backend/src/services/recycle_bin_cleanup_service.py`, `backend/src/background_jobs.py` and frontend `frontend/src/components/AdminView.vue`, `frontend/src/composables/byteSize.js` must evolve together. Shared canonical unit values are `day/month/year` and `MB/GB`; `month=30` days, `year=365` days. Response field `estimated_size_bytes` is an estimate, not the real SQLite-file delta, and the frontend must keep the estimate labeling/help text. See `.trellis/spec/guides/cross-stack-contracts.md` §11.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, and other cases.
@@ -134,6 +136,8 @@ sudo bash deploy/install-service.sh uninstall
 - Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log
+- `2026-08-12` (task `designer-header-notes-linebreak`): 表单设计器顶栏「设计备注」换行显示修复。根因 `headerDesignNotesSummary` 用 `\s+ → ' '` 把换行压成空格，悬浮提示走 `el-tooltip :content` 纯文本节点也会折叠换行。抽纯函数到新 `frontend/src/composables/designNotesSummary.js`（`summarizeDesignNotes` 多行只取第一条非空行、有后续内容补 `…`、首行超 60 字截断；`normalizeDesignNotesTooltip` 统一 CRLF、去掉首尾空白行、保留行内缩进），两处 `el-tooltip`（主画布顶栏 + 全屏设计器「实时预览」标题栏）改用 `popper-class="fd-notes-tooltip"` + `#content` 插槽，样式写入非 scoped `<style>`（`white-space: pre-wrap`、max-width 420px、max-height 40vh 滚动）；顶栏 chip 单行省略号布局与高度不变。新增 `designNotesSummary.test.js`（10 例），同步 `formFieldPresentation.test.js` 源码级断言。前端全量 539 passed，lint 0 errors，build OK；浏览器实机验证：顶栏只显示第一行、浮窗按原文分行（含开头空白行剥离、内部空行保留）、高度未撑高。后端零改动。
+- `2026-08-12` (task `admin-recycle-cleanup`): 管理员用户管理页与回收站自动清理联动改造。后端新增 `recycle_bin` 配置、`project_size_service.py` / `project_purge_service.py` / `recycle_bin_cleanup_service.py` / `background_jobs.py`，在 `main.py` lifespan 中启动/停止进程内回收站清理循环（`CRF_DISABLE_BACKGROUND_JOBS` 用于测试隔离），并提供 `GET/PUT /api/admin/recycle-bin/cleanup-policy` 与 `POST /api/admin/recycle-bin/cleanup/preview`。回收站列表响应新增 `estimated_size_bytes`，清理规则同时支持年龄（`day/month/year`，30/365 常量）与总估算大小（`MB/GB`）阈值，并带 `min_retain_hours` 保护。前端 `AdminView.vue` 删除「密码状态」列，把三条批量入口收敛为单一 `项目列表` 弹窗，回收站新增大小列与清理策略弹窗；`App.vue` 新增 `.admin-shell` 半宽居中。README 中英、`config.yaml.example`、`.claude/index.json`、backend/frontend/root CLAUDE、以及 `.trellis/spec`（database-guidelines / cross-stack-contracts §11 / component-guidelines）同步更新。前端全量 `node --test tests/*.test.js` 535 passed；lint 0 errors / 2395 existing prettier warnings；后端定向回归全部通过。
 - `2026-08-06` (task `codelist-option-oid-free`): 字典选项 OID 放开字符集限制（与标签一致）。后端：`_common.py` 新增 `normalize_optional_free_code` / `optional_free_code_validator`（仅 `str()` 转型 + strip + 空/空白→None，不做字符集校验），`codelist.py` 三个选项级 schema 的 `code` 切换过去；码表级 / 表单 / 字段 `variable_name` 严格校验不变。前端：删除 8 处选项级 `isValidOptionalOid` 守卫（CodelistsTab / FieldsTab / FormDesignerTab），保留非空与完整性检查。README 中英、`.trellis/spec/guides/cross-stack-contracts.md`（新增 §10 OID/Identifier 作用域契约，含「直接删 validator 会破坏导入去重签名」告诫）、模块 CLAUDE.md 同步。后端 748 passed / 4 xfailed，前端 530 passed，lint 0 errors。
 - `2026-08-06` (task `template-import-oid-preserve`): 模板库导入保留表单 / 选项(码表) / 单位的 OID。修复 `import_service.py` 三个写入点（表单、单位、码表）丢弃源 `code`、改用 `generate_code()` 现铸的问题：新增共用 helper `_resolve_import_code` / `_make_unique_code`——源 OID 非空则 strip 后逐字复制、为空才铸新、与目标项目既有 OID 冲突时按 `base_IMP` → `base_IMP2` 阶梯前置去重（三个实体各自的 `UniqueConstraint(project_id, code)` 由集合边写边加保证，避免裸改导致重复导入时 `IntegrityError` 被路由吞成 500）。码表 / 单位复用分支（symbol 命中、名称+选项签名一致）不覆盖目标已有 OID；表单 code 去重与 `_导入` 改名相互独立。两个取舍：不做 OID 字符集复校（与 clone / project import 一致，`OID_PATTERN` 仅编辑边界生效）、strip 首尾空白（与 `normalize_optional_oid` 一致）。`test_import_service.py` 新增 15 例（OID 保留 / 空铸新 / `_IMP` 阶梯 / 复用保持 / 重复导入 / 非 ASCII 透传 / 空白剥离 / 跨源项目批内去重 / 纯函数阶梯）；后端 744 passed / 4 xfailed。文档同步：`.trellis/spec/backend/database-guidelines.md` 新增「OID (`code`) Copy Contract」小节。
 - `2026-08-06` (task `frontend-base-path`): 前端支持子路径部署（`/crf/`）。`vite.config.js` 改函数式 config，读 `VITE_BASE_PATH`（默认 `/`）归一化为 `base`，dev proxy key 跟随 base 并在子路径模式加 `rewrite` 剥前缀；`useApi.js` 新增导出 `apiUrl()`（基于 `import.meta.env.BASE_URL`，Node 直接 import 时兜底为恒等），仅包 6 处 `fetch` 边界，缓存 key / `invalidateCache` 保持裸路径；8 处绕过 useApi 的直连点显式包裹（`App.vue` Word 导出 / `_blobDownload` / 项目导入 / el-upload `:action`，`LoginView.vue` 登录，`ProjectInfoTab.vue` Logo 读写，`DocxScreenshotPanel.vue` `pageUrl`）。后端零改动：nginx `location /crf/ { proxy_pass http://127.0.0.1:8888/; }`（尾斜杠剥前缀）。新增 `frontend/tests/basePathDeployment.test.js`（8 例），同步 `appSettingsShell.test.js` 登录断言；README 中英新增子路径部署小节 + 桌面版打包必须默认 base 警告；`deploy/nginx/crf-editor.conf.example` 追加子路径注释段。前端 528 passed，lint 0 errors，默认与 `/crf/` 双构建产物验证通过，后端 729 passed / 4 xfailed。
