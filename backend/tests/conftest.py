@@ -1,9 +1,14 @@
 """共享测试夹具。"""
 
+import os
 import sys
 import warnings
 from pathlib import Path
 from unittest.mock import patch
+
+# 后台任务开关必须在 import main 之前设置：TestClient 会真实执行 lifespan，
+# 若不禁用，循环会连真实 crf_editor.db 执行不可逆删除。
+os.environ.setdefault("CRF_DISABLE_BACKGROUND_JOBS", "1")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,6 +72,9 @@ def client(engine):
          patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.project_purge_service.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.project_size_service.get_config", return_value=_TEST_CONFIG), \
+         patch("src.services.recycle_bin_cleanup_service.get_config", return_value=_TEST_CONFIG), \
          patch("main.init_db"):
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c

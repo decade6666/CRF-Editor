@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.config import AuthConfig, ServerConfig, get_runtime_env, load_config, update_config
+from src.config import AppConfig, RecycleBinConfig
 
 
 def test_yaml_server_port_overrides_model_default(tmp_path: Path) -> None:
@@ -141,3 +142,70 @@ def test_update_config_does_not_persist_env_only_secret(tmp_path: Path, monkeypa
     assert updated.auth.secret_key == "env-only-secret"
     assert updated.server.host == "127.0.0.1"
     assert "env-only-secret" not in content
+
+
+def test_recycle_bin_defaults_are_disabled() -> None:
+    cfg = AppConfig().recycle_bin
+    assert cfg.age.enabled is False
+    assert cfg.size.enabled is False
+    assert cfg.interval_minutes == 60
+    assert cfg.min_retain_hours == 24
+    assert cfg.age.value == 30
+    assert cfg.age.unit == "day"
+    assert cfg.size.value == 500
+    assert cfg.size.unit == "MB"
+
+
+def test_recycle_bin_yaml_overrides_defaults(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "recycle_bin:\n"
+        "  interval_minutes: 15\n"
+        "  min_retain_hours: 72\n"
+        "  age:\n"
+        "    enabled: true\n"
+        "    value: 2\n"
+        "    unit: year\n"
+        "  size:\n"
+        "    enabled: true\n"
+        "    value: 3\n"
+        "    unit: GB\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file)
+
+    assert config.recycle_bin.interval_minutes == 15
+    assert config.recycle_bin.min_retain_hours == 72
+    assert config.recycle_bin.age.enabled is True
+    assert config.recycle_bin.age.value == 2
+    assert config.recycle_bin.age.unit == "year"
+    assert config.recycle_bin.size.enabled is True
+    assert config.recycle_bin.size.value == 3
+    assert config.recycle_bin.size.unit == "GB"
+
+
+def test_recycle_bin_rejects_invalid_unit_at_load(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "recycle_bin:\n"
+        "  age:\n"
+        "    unit: week\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        load_config(config_file)
+
+
+def test_recycle_bin_rejects_zero_value(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "recycle_bin:\n"
+        "  size:\n"
+        "    value: 0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="大于等于 1"):
+        load_config(config_file)

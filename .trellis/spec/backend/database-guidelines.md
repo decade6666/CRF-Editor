@@ -27,6 +27,40 @@ PRAGMA synchronous = NORMAL     # Balance safety and performance
 
 ## Session Patterns
 
+### Background Jobs Must Not Reuse Request-Scoped Dependencies
+
+Background jobs (for example the recycle-bin cleanup loop) must create their own SQLAlchemy session from `Session(get_engine())` inside the worker thread / task. Do **not** call FastAPI request-scoped dependencies such as `get_session()` / `get_read_session()` from a background task.
+
+Why:
+
+- request-scoped dependencies are designed for HTTP lifecycle management, not long-lived loops
+- `TestClient(app)` executes `lifespan`, so an accidentally started background job can reach the real configured database during tests
+- background tasks should control their own transaction boundaries explicitly (for example one recycled project per transaction during hard-delete cleanup)
+
+Rules:
+
+1. Background loops create their own session inside the execution function.
+2. Blocking SQLite I/O should run via `asyncio.to_thread(...)` (or equivalent) so the event loop stays responsive.
+3. Tests must provide an env/flag guard to disable background jobs before importing `main`.
+
+### `deleted_at` Time Semantics
+
+`project.deleted_at` is written with `datetime.now()` (naive local wall-clock time). Cleanup cutoffs that compare against `deleted_at` must use the same naive-local convention.
+
+Do **not** compare `deleted_at` to `datetime.now(timezone.utc)` or any aware datetime; SQLite `DateTime` storage in this project discards tzinfo, and mixing aware/naive values will shift the effective cutoff by the local UTC offset.
+
+### One Project Per Transaction for Hard Delete Cleanup
+
+The recycle-bin hard-delete cleanup loop must commit one recycled project at a time:
+
+- build the candidate list first
+- before deleting each project, re-check that `deleted_at IS NOT NULL` (the project may have been restored after planning)
+- purge the project graph + logo file
+- `commit()`
+- on per-project failure, `rollback()` and continue with the next candidate
+
+This keeps WAL write-lock windows short and guarantees the process cannot leave a half-deleted project graph if the app crashes mid-loop.
+
 ### Write Operations (with transaction)
 
 ```python

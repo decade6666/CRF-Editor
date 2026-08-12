@@ -141,11 +141,22 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    # 启动后台任务（回收站定时清理）；测试环境通过 CRF_DISABLE_BACKGROUND_JOBS 关闭
+    from src.background_jobs import start_background_jobs, stop_background_jobs
+
+    start_background_jobs(app)
+
     try:
 
         yield
 
     finally:
+
+        # 先停止后台任务，再清理截图缓存，避免 shutdown 期间启动新的清理循环
+        try:
+            await stop_background_jobs(app)
+        except Exception as e:
+            logging.getLogger("src.main").warning("停止后台任务失败: %s", e)
 
         logger = logging.getLogger("src.main")
 

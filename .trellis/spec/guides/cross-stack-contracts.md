@@ -642,6 +642,49 @@ OID 字符集校验是一份**作用域契约**：只有「机器标识」类字
 
 ---
 
+### 11. Recycle-Bin Cleanup Policy
+
+**Contract ID**: `recycle-bin-cleanup-policy`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **File** | `backend/src/config.py`, `backend/src/routers/admin.py`, `backend/src/services/recycle_bin_cleanup_service.py` | `frontend/src/components/AdminView.vue` |
+| **Purpose** | Persist policy, run cleanup, expose preview/stats | Configure policy, show preview, display recycle-bin estimated size |
+
+**Shared Canonical Values**:
+
+```python
+# Backend (config.py)
+DAYS_PER_MONTH = 30
+DAYS_PER_YEAR = 365
+RecycleBinAgeUnit = {"day", "month", "year"}
+RecycleBinSizeUnit = {"MB", "GB"}
+```
+
+```javascript
+// Frontend (AdminView.vue select values)
+['day', 'month', 'year']
+['MB', 'GB']
+```
+
+**Contract Rules**:
+1. Age units are canonicalized as `day` / `month` / `year`; size units as `MB` / `GB`.
+2. `month` is exactly 30 days and `year` is exactly 365 days on both stacks; no calendar-month / leap-year logic.
+3. Recycle-bin rows expose `estimated_size_bytes`; the frontend must label it as an estimate (`大小（估算）`).
+4. The size estimate is not the real SQLite-file delta; UX copy and docs must say so.
+5. Frontend policy forms must use the canonical values above; only the user-facing labels may be Chinese (`天/月/年`).
+6. The backend tuning constant `ROW_OVERHEAD_BYTES` belongs to the estimate algorithm contract; if it changes materially, docs/tests should be updated together.
+
+**Synchronization Checklist**:
+- [ ] Keep `RecycleBinAgeUnit` / `RecycleBinSizeUnit` values aligned with the frontend `el-option value`s
+- [ ] Keep `DAYS_PER_MONTH=30` / `DAYS_PER_YEAR=365` aligned in backend logic and frontend help text
+- [ ] Keep `estimated_size_bytes` field name aligned across backend response models and frontend table rendering
+- [ ] Keep preview/save endpoints aligned: `/api/admin/recycle-bin/cleanup-policy`, `/api/admin/recycle-bin/cleanup/preview`
+- [ ] Run backend tests: `test_recycle_bin_cleanup.py`, `test_recycle_bin_policy_api.py`
+- [ ] Run frontend tests: `adminViewStructure.test.js`, `recycleBinCleanupPolicy.test.js`, `byteSize.test.js`
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code
