@@ -15,11 +15,13 @@ test('AdminView uses a single user management workspace', () => {
   assert.match(adminViewSource, /回收站/)
 })
 
-test('AdminView keeps batch project actions inside user management actions', () => {
-  assert.match(adminViewSource, /@click="openBatchMove\(row\)"/)
-  assert.match(adminViewSource, /@click="openBatchCopy\(row\)"/)
-  assert.match(adminViewSource, /@click="openBatchDelete\(row\)"/)
+test('AdminView keeps batch project actions inside a single project list dialog', () => {
+  assert.match(adminViewSource, /@click="openProjectList\(row\)"/)
+  assert.match(adminViewSource, /项目列表/)
+  assert.match(adminViewSource, /v-model="showProjectList"/)
   assert.match(adminViewSource, /@selection-change="onProjectSelectionChange"/)
+  assert.match(adminViewSource, /type="selection"/)
+  assert.match(adminViewSource, /v-if="needsTargetUser"/)
 })
 
 test('AdminView highlights admin users and restricts admin-only actions', () => {
@@ -35,9 +37,7 @@ test('AdminView highlights admin users and restricts admin-only actions', () => 
   assert.equal(/v-if=|v-show=/.test(renameButtonTag), false)
   assert.equal(/v-if=|v-show=/.test(resetPasswordButtonTag), false)
 
-  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchMove\(row\)"/)
-  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchCopy\(row\)"/)
-  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openBatchDelete\(row\)"/)
+  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openProjectList\(row\)"/)
   assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="deleteUser\(row\)"/)
   assert.match(adminViewSource, /@click="deleteUser\(row\)"[^\n>]*:disabled="row\.project_count > 0"/)
 })
@@ -45,6 +45,7 @@ test('AdminView highlights admin users and restricts admin-only actions', () => 
 test('admin shell mounts AdminView directly without normal workspace content', () => {
   assert.match(appSource, /<template v-else-if="isAdmin">/)
   assert.match(appSource, /<div class="admin-shell">[\s\S]*<AdminView @logout="logout" \/>/)
+  assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*50%[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
   assert.doesNotMatch(appSource, /showAdmin = true/)
   assert.doesNotMatch(appSource, /<el-dialog v-model="showAdmin"/)
 })
@@ -54,12 +55,12 @@ test('AdminView uses /api/admin routes for admin API calls', () => {
   assert.equal(/api\.(?:get|post|patch|put|del)\((`|'|")\/admin\//.test(adminViewSource), false)
 
   const adminApiBaseCalls = [...adminViewSource.matchAll(/api\.(?:get|post|patch|put|del)\(`\$\{adminApiBase\}\//g)]
-  assert.ok(adminApiBaseCalls.length >= 9)
+  assert.ok(adminApiBaseCalls.length >= 12)
 })
 
-test('AdminView shows password state column and password reset entry', () => {
-  assert.match(adminViewSource, /label="密码状态"/)
-  assert.match(adminViewSource, /row\.has_password \? '已设密码' : '未设密码'/)
+test('AdminView drops password state column but keeps password reset entry', () => {
+  assert.doesNotMatch(adminViewSource, /label="密码状态"/)
+  assert.doesNotMatch(adminViewSource, /has_password/)
   assert.match(adminViewSource, /@click="openResetPassword\(row\)"/)
   assert.match(adminViewSource, /api\.put\(`\$\{adminApiBase\}\/users\/\$\{passwordForm\.id\}\/password`/)
 })
@@ -68,6 +69,15 @@ test('AdminView requires password when creating a user', () => {
   assert.match(adminViewSource, /label="初始密码"/)
   assert.match(adminViewSource, /if \(!userForm\.id && !userForm\.password\)/)
   assert.match(adminViewSource, /password: userForm\.password/)
+})
+
+test('AdminView shows recycle bin size and cleanup policy entry points', () => {
+  assert.match(adminViewSource, /estimated_size_bytes/)
+  assert.match(adminViewSource, /大小（估算）/)
+  assert.match(adminViewSource, /清理策略/)
+  assert.match(adminViewSource, /recycle-bin\/cleanup-policy/)
+  assert.match(adminViewSource, /recycle-bin\/cleanup\/preview/)
+  assert.match(adminViewSource, /label="操作" width="300"/)
 })
 
 test('App.vue shows copy button without hover condition', () => {

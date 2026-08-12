@@ -1873,6 +1873,13 @@ function startResize(e) {
   min-height: 0;
 }
 
+.admin-shell {
+  width: 50%;
+  min-width: 600px;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
 .main-content-tabs :deep(.el-tabs__header) {
   margin-bottom: 0;
   padding-left: 20px;
