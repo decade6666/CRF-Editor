@@ -77,7 +77,8 @@ test('AdminView shows recycle bin size and cleanup policy entry points', () => {
   assert.match(adminViewSource, /清理策略/)
   assert.match(adminViewSource, /recycle-bin\/cleanup-policy/)
   assert.match(adminViewSource, /recycle-bin\/cleanup\/preview/)
-  assert.match(adminViewSource, /label="操作" width="300"/)
+  assert.match(adminViewSource, /label="用户名" width="160"/)
+  assert.match(adminViewSource, /label="操作" width="360"/)
 })
 
 test('App.vue shows copy button without hover condition', () => {
