@@ -141,6 +141,28 @@ Contracts:
 
 ---
 
+### Admin Workspace Width Constraint
+
+The admin workspace root in `App.vue` uses `.admin-shell` to constrain the whole content block (title + actions + user table) to half width and center it:
+
+```css
+.admin-shell {
+  width: 50%;
+  min-width: 600px;
+  max-width: 100%;
+  margin-inline: auto;
+}
+```
+
+Contracts:
+
+- Keep the entire admin content block centered as one unit; do not constrain only the table while leaving the header full-width.
+- Do not add body-cell alignment overrides (`td`, `.cell`) under `.admin-shell`; global `tableHeaderStyle.test.js` locks the Element Plus table-header fill/centering contract, while body cells keep the Element Plus default left alignment.
+- If admin table columns change, recalculate the fixed-width total before changing the shell width/min-width, so narrow viewports do not pick up horizontal scrollbars.
+- Dialogs in `AdminView.vue` use `append-to-body` and must stay visually independent of the half-width shell.
+
+---
+
 ## Styling Patterns
 
 ### Scoped CSS

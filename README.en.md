@@ -165,6 +165,17 @@ auth:
   secret_key: change-this-dev-only-secret  # JWT secret, dev only; production must use CRF_AUTH_SECRET_KEY
   algorithm: HS256                     # JWT algorithm, default HS256
   access_token_expire_minutes: 60      # Token TTL in minutes, 1-60, default 30
+recycle_bin:
+  interval_minutes: 60                 # Cleanup polling interval in minutes, 1-1440, default 60
+  min_retain_hours: 24                 # Minimum retain window for size cleanup in hours, 0 disables the guard
+  age:
+    enabled: false                     # Enable age-based cleanup, default false
+    value: 30                          # Threshold, >=1, default 30
+    unit: day                          # day / month / year; month=30 days, year=365 days
+  size:
+    enabled: false                     # Enable recycle-bin total estimated-size cleanup, default false
+    value: 500                         # Threshold, >=1, default 500
+    unit: MB                           # MB / GB; size is estimated, not the real DB-file delta
 ```
 
 For public deployment, prefer the `CRF_*` environment variables listed in the root `.env.example`, especially:
@@ -182,6 +193,21 @@ In production mode, the backend now applies the following default hardening:
 - login and high-cost import endpoints are protected by a single-node in-memory rate limiter
 - project logos reject SVG/XML on upload and block historical unsafe logo reads
 - `template_path` must stay inside the allowlisted directories and end with `.db`
+
+### Recycle-Bin Auto Cleanup
+
+The admin workspace recycle bin now supports configurable auto-cleanup policies (disabled by default; stored under the root `config.yaml` `recycle_bin` section):
+
+- **Age rule**: permanently delete recycled projects whose `deleted_at` is older than N days / months / years (`month=30 days`, `year=365 days`; no calendar-month / leap-year math)
+- **Size rule**: when the **total estimated size** of all projects in the recycle bin exceeds N MB / GB, permanently delete the oldest-deleted projects one by one until the total falls back under the threshold
+- **Minimum retain window**: the size rule can additionally protect recently deleted projects for a configured number of hours; `0` disables this guard
+- **Preview before save**: admins can run a dry preview to see which projects would be removed before enabling or saving a policy
+
+Notes:
+
+- The displayed "size" is an estimate derived from the project graph and logo files; it is **not** the true on-disk SQLite file delta
+- Auto cleanup performs **irreversible hard deletes**; use the preview and confirmation flow before enabling it
+- The cleanup loop is an **in-process single-instance background task**; like the login/import rate limiter, it is not intended for multi-instance deployments sharing one SQLite database
 
 ## Usage
 

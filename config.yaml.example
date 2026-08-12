@@ -54,3 +54,16 @@ auth:
   secret_key: change-this-dev-only-secret
   algorithm: HS256                     # JWT 算法，默认 HS256
   access_token_expire_minutes: 60      # 令牌有效期（分钟），取值 1-60，默认 30
+
+# 回收站自动清理（仅从 config.yaml 读取；不支持同名 CRF_* 环境变量覆盖，避免 UI 与实际行为不一致）
+recycle_bin:
+  interval_minutes: 60                 # 巡检间隔（分钟），取值 1-1440，默认 60
+  min_retain_hours: 24                 # 容量清理的最短保留时间（小时），0 表示关闭保护，默认 24
+  age:
+    enabled: false                     # 是否启用按删除时间清理，默认 false
+    value: 30                          # 清理阈值，取值 >=1，默认 30
+    unit: day                          # day / month / year；month=30天，year=365天
+  size:
+    enabled: false                     # 是否启用按回收站总估算大小清理，默认 false
+    value: 500                         # 清理阈值，取值 >=1，默认 500
+    unit: MB                           # MB / GB；大小为估算值，不等于数据库文件实际增量
