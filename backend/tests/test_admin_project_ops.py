@@ -204,6 +204,8 @@ def test_recycle_bin_returns_deleted_projects_with_owner_fields(client, engine):
     assert payload[0]['owner_username'] == 'owner_user'
     assert payload[0]['screening_number_format'] == 'SCR-RECYCLE'
     assert payload[0]['deleted_at'] is not None
+    assert 'estimated_size_bytes' in payload[0]
+    assert payload[0]['estimated_size_bytes'] >= 0
 
 
 def test_restore_renames_on_conflict_and_appends_to_owner_tail(client, engine):

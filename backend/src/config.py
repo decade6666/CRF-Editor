@@ -155,6 +155,75 @@ class DocxScreenshotConfig(BaseModel):
     )
 
 
+# 回收站自动清理：月按 30 天、年按 365 天计算，不做日历月 / 闰年。
+DAYS_PER_MONTH = 30
+DAYS_PER_YEAR = 365
+
+
+class RecycleBinAgeUnit(str, Enum):
+    DAY = "day"
+    MONTH = "month"
+    YEAR = "year"
+
+
+class RecycleBinSizeUnit(str, Enum):
+    MB = "MB"
+    GB = "GB"
+
+
+class RecycleBinAgeRule(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    enabled: bool = False
+    value: int = 30
+    unit: RecycleBinAgeUnit = Field(default=RecycleBinAgeUnit.DAY, validate_default=True)
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("recycle_bin.age.value 必须大于等于 1")
+        return value
+
+
+class RecycleBinSizeRule(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+    enabled: bool = False
+    value: int = 500
+    unit: RecycleBinSizeUnit = Field(default=RecycleBinSizeUnit.MB, validate_default=True)
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("recycle_bin.size.value 必须大于等于 1")
+        return value
+
+
+class RecycleBinConfig(BaseModel):
+    interval_minutes: int = 60
+    min_retain_hours: int = 24
+    age: RecycleBinAgeRule = RecycleBinAgeRule()
+    size: RecycleBinSizeRule = RecycleBinSizeRule()
+
+    @field_validator("interval_minutes")
+    @classmethod
+    def validate_interval_minutes(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("recycle_bin.interval_minutes 必须大于等于 1")
+        if value > 1440:
+            raise ValueError("recycle_bin.interval_minutes 不能超过 1440")
+        return value
+
+    @field_validator("min_retain_hours")
+    @classmethod
+    def validate_min_retain_hours(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("recycle_bin.min_retain_hours 不能小于 0")
+        return value
+
+
 class AppConfig(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     storage: StorageConfig = StorageConfig()
@@ -164,6 +233,7 @@ class AppConfig(BaseModel):
     auth: AuthConfig = AuthConfig()
     admin: AdminConfig = AdminConfig()
     docx_screenshot: DocxScreenshotConfig = DocxScreenshotConfig()
+    recycle_bin: RecycleBinConfig = RecycleBinConfig()
 
     @property
     def db_path(self) -> str:

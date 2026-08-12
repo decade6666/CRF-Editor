@@ -4,14 +4,14 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.config import get_config
+from src.config import get_config, update_config
 from src.database import get_session
 from src.dependencies import get_current_user, require_admin
 from src.models.project import Project
@@ -20,6 +20,8 @@ from src.services.project_import_service import (
     DatabaseMergeService,
     ProjectDbImportService,
 )
+from src.services.project_size_service import estimate_recycled_project_sizes
+from src.services.recycle_bin_cleanup_service import build_cleanup_plan
 from src.services.user_admin_service import UserAdminService
 
 router = APIRouter(tags=["admin"])
@@ -50,6 +52,7 @@ from src.services.project_clone_service import ProjectCloneService
 class RecycleBinProjectResponse(ProjectResponse):
     owner_id: Optional[int] = None
     owner_username: Optional[str] = None
+    estimated_size_bytes: int = 0
 
 
 @router.get("/admin/projects/recycle-bin", response_model=List[RecycleBinProjectResponse])
@@ -66,11 +69,13 @@ def list_recycle_bin(
         .order_by(Project.deleted_at.desc(), Project.id.desc())
     )
     rows = session.execute(stmt).all()
+    sizes = estimate_recycled_project_sizes(session)
     return [
         RecycleBinProjectResponse(
             **ProjectResponse.model_validate(project).model_dump(),
             owner_id=project.owner_id,
             owner_username=username,
+            estimated_size_bytes=sizes.get(project.id, 0),
         )
         for project, username in rows
     ]
@@ -172,21 +177,15 @@ def hard_delete_project(
     _: User = Depends(require_admin),
 ):
     """彻底删除项目。"""
+    from src.services.project_purge_service import purge_project
+
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
     if project.deleted_at is None:
         raise HTTPException(400, "仅可彻底删除回收站中的项目")
 
-    logo_path = None
-    if project.company_logo_path:
-        logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
-
-    session.delete(project)
-    session.flush()
-
-    if logo_path and logo_path.exists():
-        logo_path.unlink()
+    purge_project(session, project)
 
 
 class BatchCopyRequest(BaseModel):
@@ -259,7 +258,135 @@ def batch_move_projects(
     return {"status": "success"}
 
 
-# ── 用户管理 ────────────────────────────────────────────────
+# ── 回收站清理策略 ─────────────────────────────────────────
+
+
+class CleanupRuleAge(BaseModel):
+    enabled: bool = False
+    value: int = Field(ge=1)
+    unit: Literal["day", "month", "year"] = "day"
+
+
+class CleanupRuleSize(BaseModel):
+    enabled: bool = False
+    value: int = Field(ge=1)
+    unit: Literal["MB", "GB"] = "MB"
+
+
+class CleanupPolicyUpdateRequest(BaseModel):
+    interval_minutes: int = Field(ge=1, le=1440)
+    min_retain_hours: int = Field(ge=0)
+    age: CleanupRuleAge
+    size: CleanupRuleSize
+
+
+class CleanupPolicyResponse(CleanupPolicyUpdateRequest):
+    total_estimated_size_bytes: int = 0
+    recycled_project_count: int = 0
+
+
+class CleanupPreviewItem(BaseModel):
+    id: int
+    name: str
+    owner_username: Optional[str] = None
+    deleted_at: datetime
+    estimated_size_bytes: int
+    matched_rules: List[str]
+
+
+def _stats_response(session: Session, policy_values: dict) -> CleanupPolicyResponse:
+    sizes = estimate_recycled_project_sizes(session)
+    return CleanupPolicyResponse(
+        interval_minutes=policy_values["interval_minutes"],
+        min_retain_hours=policy_values["min_retain_hours"],
+        age=CleanupRuleAge(**policy_values["age"]),
+        size=CleanupRuleSize(**policy_values["size"]),
+        total_estimated_size_bytes=sum(sizes.values()),
+        recycled_project_count=len(sizes),
+    )
+
+
+@router.get("/admin/recycle-bin/cleanup-policy", response_model=CleanupPolicyResponse)
+def get_cleanup_policy(
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """读取回收站清理策略及当前回收站统计。"""
+    cfg = get_config()
+    policy = cfg.recycle_bin
+    return _stats_response(
+        session,
+        {
+            "interval_minutes": policy.interval_minutes,
+            "min_retain_hours": policy.min_retain_hours,
+            "age": {
+                "enabled": policy.age.enabled,
+                "value": policy.age.value,
+                "unit": policy.age.unit,
+            },
+            "size": {
+                "enabled": policy.size.enabled,
+                "value": policy.size.value,
+                "unit": policy.size.unit,
+            },
+        },
+    )
+
+
+@router.put("/admin/recycle-bin/cleanup-policy", response_model=CleanupPolicyResponse)
+def update_cleanup_policy(
+    payload: CleanupPolicyUpdateRequest,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """更新回收站清理策略并写入 config.yaml；下一轮循环自动生效。"""
+    values = payload.model_dump(mode="json")
+    update_config({"recycle_bin": values})
+    session.expire_all()
+    return _stats_response(session, values)
+
+
+@router.post("/admin/recycle-bin/cleanup/preview", response_model=List[CleanupPreviewItem])
+def preview_cleanup(
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """试运行清理策略：返回将被清理的项目列表，不执行删除。"""
+    from src.services.project_size_service import estimate_project_sizes
+
+    plan = build_cleanup_plan(session)
+    targets = plan.all_target_ids
+    if not targets:
+        return []
+    sizes = estimate_project_sizes(session, list(targets))
+    # 取项目名与所有者
+    rows = session.execute(
+        select(Project, User.username)
+        .outerjoin(User, User.id == Project.owner_id)
+        .where(Project.id.in_(list(targets)))
+    ).all()
+    info = {}
+    for project, username in rows:
+        info[project.id] = (project.name, username, project.deleted_at)
+    result: List[CleanupPreviewItem] = []
+    for pid in targets:
+        name, owner_username, deleted_at = info.get(pid, ("?", None, None))
+        if deleted_at is None:
+            continue
+        cleanup_deleted_at = deleted_at
+        if hasattr(cleanup_deleted_at, "tzinfo") and cleanup_deleted_at.tzinfo is not None:
+            cleanup_deleted_at = cleanup_deleted_at.replace(tzinfo=None)
+        result.append(
+            CleanupPreviewItem(
+                id=pid,
+                name=name,
+                owner_username=owner_username,
+                deleted_at=cleanup_deleted_at,
+                estimated_size_bytes=sizes.get(pid, 0),
+                matched_rules=plan.matched_rules_for(pid),
+            )
+        )
+    return result
 
 
 class UserCreateRequest(BaseModel):
