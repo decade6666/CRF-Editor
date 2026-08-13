@@ -181,6 +181,7 @@
       "composables": [
         "frontend/src/composables/acrfAnnotationGeometry.js",
         "frontend/src/composables/byteSize.js",
+        "frontend/src/composables/designNotesSummary.js",
         "frontend/src/composables/docxAiSuggestionOverrides.js",
         "frontend/src/composables/exportDownloadState.js",
         "frontend/src/composables/fieldDefinitionVisibility.js",

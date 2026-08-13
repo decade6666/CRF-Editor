@@ -5843,7 +5843,8 @@ function openAddForm() {
 }
 
 .fd-canvas-header-notes {
-  flex: 1 1 auto;
+  /* 摘要已收敛为「只取第一行」，框宽跟随文字；min-width: 0 + ellipsis 保证空间不足时仍可收缩省略 */
+  flex: 0 1 auto;
   min-width: 0;
   max-width: none;
   overflow: hidden;
