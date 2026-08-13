@@ -473,9 +473,11 @@ test('form designer surfaces header notes summary and paper orientation controls
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*flex: 0 1 auto;/s);
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*min-width: 0;[\s\S]*max-width: none;/s);
   // 暗色顶栏 --color-primary-subtle / --color-bg-hover / --color-border 几乎同色，
-  // chip 必须用卡片底 + 实线边才能和表单名分开（禁止 dashed / hover 底复发）
+  // chip 必须用卡片底 + 掺主色实线边 + 胶囊圆角才能和表单名分开（禁止 dashed / hover 底复发）
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*background: var\(--color-bg-card\);/s);
-  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*border: 1px solid var\(--color-border\);/s);
+  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*border: 1px solid color-mix\(in srgb, var\(--color-primary\) 35%, var\(--color-border\)\);/s);
+  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*border-radius: 999px;/s);
+  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*color: var\(--color-text-secondary\);/s);
   assert.doesNotMatch(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*border: 1px dashed/s);
   assert.doesNotMatch(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*background: var\(--color-bg-hover\)/s);
   assert.match(formDesignerSource, /const LEGACY_FORCE_LANDSCAPE_KEY = 'crf_forceLandscape'/);

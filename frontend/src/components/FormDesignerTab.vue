@@ -5852,12 +5852,13 @@ function openAddForm() {
   white-space: nowrap;
   font-size: 12px;
   font-weight: normal;
-  color: var(--color-text-muted);
-  /* 卡片底 + 实线边：暗色顶栏 primary-subtle / hover / border 几乎同色，虚线框会融进背景 */
+  color: var(--color-text-secondary);
+  /* 独立胶囊：卡片底 + 掺主色实线边 + 阴影，暗色顶栏 primary-subtle/hover/border 几乎同色时仍一眼可见 */
   background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  padding: 0 10px;
   line-height: 18px;
   cursor: help;
   /* 右侧预留位：后续在顶栏加元素只需改这一个变量，不用再动布局 */
