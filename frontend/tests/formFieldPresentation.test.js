@@ -468,6 +468,10 @@ test('form designer surfaces header notes summary and paper orientation controls
   assert.doesNotMatch(formDesignerSource, /:content="headerDesignNotesTooltip"/);
   assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*white-space: pre-wrap;/s);
   assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*max-height: 40vh;[^}]*overflow-y: auto;/s);
+  // 顶栏 chip 摘要已收敛为「只取第一行」，框宽必须跟随文字（flex 0 1 auto + min-width:0），
+  // 否则 08-05 的「撑满自适应」规则会让短摘要撑出一个大空框（flex: 1 1 auto 回归守卫）
+  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*flex: 0 1 auto;/s);
+  assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*min-width: 0;[\s\S]*max-width: none;/s);
   assert.match(formDesignerSource, /const LEGACY_FORCE_LANDSCAPE_KEY = 'crf_forceLandscape'/);
   assert.match(formDesignerSource, /const LEGACY_FORCE_LANDSCAPE_MIGRATED_KEY = 'crf_forceLandscape_migrated_v1'/);
   assert.match(formDesignerSource, /async function migrateLegacyForceLandscape\(projectId\)/);
