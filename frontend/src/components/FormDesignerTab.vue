@@ -5853,8 +5853,9 @@ function openAddForm() {
   font-size: 12px;
   font-weight: normal;
   color: var(--color-text-muted);
-  background: var(--color-bg-hover);
-  border: 1px dashed var(--color-border);
+  /* 卡片底 + 实线边：暗色顶栏 primary-subtle / hover / border 几乎同色，虚线框会融进背景 */
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 0 6px;
   line-height: 18px;
