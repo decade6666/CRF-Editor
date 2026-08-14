@@ -63,6 +63,24 @@ const INSTANCE_KEYS = [
   'inline_mark', 'bg_color', 'text_color', 'label_bold', 'label_font_size',
 ]
 
+// 草稿链接候选时的定义级差异键：is_multi_record/table_type 是保留结构键，不参与差异判断
+export const DRAFT_DEFINITION_DIFF_KEYS = [
+  'variable_name', 'label', 'field_type', 'checkbox_label',
+  'integer_digits', 'decimal_digits', 'date_format',
+  'codelist_id', 'unit_id',
+]
+
+/**
+ * 判定草稿保存时「链接候选后是否改了定义级属性」：候选快照与编辑态在
+ * DRAFT_DEFINITION_DIFF_KEYS 上逐键一致视为无差异。无候选快照视为无差异（纯绑定）。
+ */
+export function sameDraftDefinitionPayload(editorState = {}, candidateDefinitionPayload = null) {
+  if (candidateDefinitionPayload == null) return true
+  return DRAFT_DEFINITION_DIFF_KEYS.every(
+    (key) => (editorState[key] ?? null) === (candidateDefinitionPayload[key] ?? null),
+  )
+}
+
 /** 从字段定义快照中提取完整 definition payload（创建/恢复/共享更新共用）。 */
 export function buildDefinitionPayload(definition = {}) {
   const payload = {}
@@ -146,21 +164,36 @@ export function buildBindingProfileCommand({
   return command
 }
 
-/** 新增草稿命令：绑定既有定义（OID 未改），或创建/恢复定义并绑定（含选候选后改 OID 的分叉）。 */
+/**
+ * 新增草稿命令：绑定既有定义（OID 未改），或创建/恢复定义并绑定（含选候选后改 OID 的分叉）。
+ * candidateDefinitionPayload 为点击候选时的定义快照；草稿内对定义级属性（9 键）的修改
+ * 会随保存一起 update_shared 到候选定义，避免草稿修改丢失。
+ */
 export function buildFieldProfileCommand({
   editorState,
   selectedDefinitionId = null,
   candidateOid = null,
   preferredDefinitionId = null,
+  candidateDefinitionPayload = null,
 }) {
   const instance = buildInstanceUpsert(editorState)
   const isCandidateAttach =
     selectedDefinitionId != null && (candidateOid == null || editorState.variable_name === candidateOid)
   if (isCandidateAttach) {
-    return {
+    const command = {
       binding: { mode: 'existing', target_field_definition_id: selectedDefinitionId },
       instance: { mode: 'upsert', upsert: instance },
     }
+    if (!sameDraftDefinitionPayload(editorState, candidateDefinitionPayload)) {
+      command.definition_operation = {
+        operation: 'update_shared',
+        update_shared: {
+          target_definition_id: selectedDefinitionId,
+          definition: buildDefinitionPayload({ ...candidateDefinitionPayload, ...editorState }),
+        },
+      }
+    }
+    return command
   }
   return {
     definition_operation: {
