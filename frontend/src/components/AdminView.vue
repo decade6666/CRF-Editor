@@ -5,12 +5,14 @@ import { DeleteFilled } from '@element-plus/icons-vue'
 import { api } from '../composables/useApi'
 import { formatBytes } from '../composables/byteSize'
 import { confirmDelete, confirmFinalProjectDelete } from '../composables/projectDeleteConfirmation'
+import OrganizationPresetsDialog from './OrganizationPresetsDialog.vue'
 
 const adminApiBase = '/api/admin'
 
 const users = ref([])
 const loadingUsers = ref(false)
 const showRecycleBin = ref(false)
+const showOrgPresets = ref(false)
 const recycleBinProjects = ref([])
 const loadingRecycle = ref(false)
 
@@ -386,8 +388,11 @@ onMounted(() => {
         <el-button type="primary" @click="openAddUser">新增用户</el-button>
         <el-button @click="loadUsers" :loading="loadingUsers">刷新</el-button>
         <el-button @click="openRecycleBin">回收站</el-button>
+        <el-button @click="showOrgPresets = true">机构预设</el-button>
       </div>
     </div>
+
+    <OrganizationPresetsDialog v-model="showOrgPresets" />
 
     <el-table :data="users" v-loading="loadingUsers" border stripe>
       <el-table-column prop="id" label="ID" width="70" />

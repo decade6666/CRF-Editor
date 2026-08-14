@@ -512,14 +512,19 @@ def test_admin_cleanup_screenshots_requires_admin(client: TestClient) -> None:
 
 
 def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.routers import projects as projects_router
+    from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
-    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+    monkeypatch.setattr(storage, "get_config", lambda: fake_config)
 
     png_bytes = b"\x89PNG\r\n\x1a\nrest-of-png"
-    resp = client.post(
-        f"/api/projects/{owned_form_graph.project_id}/logo",
+    import json as _json
+    resp = client.put(
+        f"/api/projects/{owned_form_graph.project_id}/profile",
+        data={
+            "metadata": _json.dumps({"name": "通用表单", "version": "2.0"}),
+            "logo_action": "upload",
+        },
         files={"file": ("logo.fake", png_bytes, "image/png")},
         headers=auth_headers(owned_form_graph.alice_token),
     )
@@ -530,14 +535,19 @@ def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine
 
 
 def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.routers import projects as projects_router
+    from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
-    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+    monkeypatch.setattr(storage, "get_config", lambda: fake_config)
 
     svg_bytes = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
-    resp = client.post(
-        f"/api/projects/{owned_form_graph.project_id}/logo",
+    import json as _json
+    resp = client.put(
+        f"/api/projects/{owned_form_graph.project_id}/profile",
+        data={
+            "metadata": _json.dumps({"name": "通用表单", "version": "2.0"}),
+            "logo_action": "upload",
+        },
         files={"file": ("logo.png", svg_bytes, "image/png")},
         headers=auth_headers(owned_form_graph.alice_token),
     )
@@ -547,10 +557,10 @@ def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, 
 
 
 def test_get_logo_rejects_historical_svg_file(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.routers import projects as projects_router
+    from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
-    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+    monkeypatch.setattr(storage, "get_config", lambda: fake_config)
 
     logos_dir = tmp_path / "logos"
     logos_dir.mkdir(parents=True, exist_ok=True)
@@ -572,10 +582,10 @@ def test_get_logo_rejects_historical_svg_file(client: TestClient, engine, owned_
 
 
 def test_get_logo_rejects_non_bitmap_content_under_safe_extension(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from src.routers import projects as projects_router
+    from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
-    monkeypatch.setattr(projects_router, "get_config", lambda: fake_config)
+    monkeypatch.setattr(storage, "get_config", lambda: fake_config)
 
     logos_dir = tmp_path / "logos"
     logos_dir.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,9 @@ test('AdminView uses a single user management workspace', () => {
   assert.equal(adminViewSource.includes('<el-tab-pane'), false)
   assert.match(adminViewSource, /@click="openRecycleBin"/)
   assert.match(adminViewSource, /回收站/)
+  assert.match(adminViewSource, /@click="showOrgPresets = true"/)
+  assert.match(adminViewSource, /机构预设/)
+  assert.match(adminViewSource, /<OrganizationPresetsDialog v-model="showOrgPresets" \/>/)
 })
 
 test('AdminView keeps batch project actions inside a single project list dialog', () => {

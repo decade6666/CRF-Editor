@@ -122,7 +122,7 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
     )
 
     with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.routers.projects.get_config", return_value=test_config):
+         patch("src.services.logo_storage_service.get_config", return_value=test_config):
         resp = client.post("/api/projects/1/copy", headers=auth_headers(token))
 
     assert resp.status_code == 201, resp.text
@@ -222,7 +222,7 @@ def test_copy_project_discards_stale_checkbox_codelist(client, engine, tmp_path:
         storage=StorageConfig(upload_path=str(tmp_path)),
     )
     with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.routers.projects.get_config", return_value=test_config):
+         patch("src.services.logo_storage_service.get_config", return_value=test_config):
         response = client.post("/api/projects/1/copy", headers=auth_headers(token))
 
     assert response.status_code == 201, response.text
@@ -281,7 +281,7 @@ def test_copy_project_rolls_back_when_logo_copy_fails(client, engine, tmp_path: 
     )
 
     with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.routers.projects.get_config", return_value=test_config), \
+         patch("src.services.logo_storage_service.get_config", return_value=test_config), \
          patch("src.services.project_clone_service.shutil.copy2", side_effect=OSError("copy failed")):
         resp = client.post("/api/projects/1/copy", headers=auth_headers(token))
 

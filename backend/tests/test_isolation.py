@@ -30,14 +30,16 @@ def test_user_b_cannot_get_user_a_project(client: TestClient):
 
 
 def test_user_b_cannot_update_user_a_project(client: TestClient):
+    import json as _json
+
     token_a = login_as(client, "alice")
     token_b = login_as(client, "bob")
 
     project_id = _create_project(client, token_a, "A项目")
 
     r = client.put(
-        f"/api/projects/{project_id}",
-        json={"name": "hijack", "version": "1.0"},
+        f"/api/projects/{project_id}/profile",
+        data={"metadata": _json.dumps({"name": "hijack", "version": "1.0"}), "logo_action": "keep"},
         headers=auth_headers(token_b),
     )
     assert r.status_code == 403
