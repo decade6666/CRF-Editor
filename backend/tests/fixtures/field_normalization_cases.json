@@ -1,0 +1,23 @@
+[
+  { "field_type": "复选", "inline_mark": 0, "default_value": "任意值", "default_supported": false, "expected_default_value": null, "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "复选", "inline_mark": 1, "default_value": "任意值", "default_supported": false, "expected_default_value": null, "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "文本", "inline_mark": 0, "default_value": "第一行\n第二行", "default_supported": true, "expected_default_value": "第一行", "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "文本", "inline_mark": 1, "default_value": "第一行\n第二行", "default_supported": true, "expected_default_value": "第一行\n第二行", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "数值", "inline_mark": 0, "default_value": "12\n34", "default_supported": true, "expected_default_value": "12", "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "数值", "inline_mark": 1, "default_value": "12\n34", "default_supported": true, "expected_default_value": "12\n34", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "日期", "inline_mark": 0, "default_value": "2026-01-01", "default_supported": false, "expected_default_value": null, "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "日期", "inline_mark": 1, "default_value": "2026-01-01", "default_supported": true, "expected_default_value": "2026-01-01", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "日期时间", "inline_mark": 1, "default_value": "2026-01-01 10:00:00", "default_supported": true, "expected_default_value": "2026-01-01 10:00:00", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "时间", "inline_mark": 1, "default_value": "10:00:00", "default_supported": true, "expected_default_value": "10:00:00", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "单选", "inline_mark": 0, "default_value": "A", "default_supported": false, "expected_default_value": null, "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "单选", "inline_mark": 1, "default_value": "A", "default_supported": true, "expected_default_value": "A", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "多选", "inline_mark": 1, "default_value": "A,B", "default_supported": true, "expected_default_value": "A,B", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "单选（纵向）", "inline_mark": 1, "default_value": "B", "default_supported": true, "expected_default_value": "B", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "多选（纵向）", "inline_mark": 1, "default_value": "C", "default_supported": true, "expected_default_value": "C", "expected_inline": 1, "inline_allowed": true },
+  { "field_type": "文本", "inline_mark": 0, "default_value": "  ", "default_supported": true, "expected_default_value": "  ", "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "文本", "inline_mark": 0, "default_value": null, "default_supported": true, "expected_default_value": null, "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "文本", "inline_mark": 0, "default_value": "", "default_supported": true, "expected_default_value": null, "expected_inline": 0, "inline_allowed": true },
+  { "field_type": "标签", "inline_mark": 0, "default_value": "x", "default_supported": false, "expected_default_value": null, "expected_inline": 0, "inline_allowed": false },
+  { "field_type": "标签", "inline_mark": 1, "default_value": "x", "default_supported": true, "expected_default_value": null, "expected_inline": 0, "inline_allowed": false },
+  { "field_type": "日志行", "inline_mark": 1, "default_value": "x", "default_supported": true, "expected_default_value": null, "expected_inline": 0, "inline_allowed": false }
+]

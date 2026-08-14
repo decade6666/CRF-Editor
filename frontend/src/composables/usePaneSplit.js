@@ -15,7 +15,9 @@ function readStoredRatio(storageKey, defaultRatio, min, max) {
   const storage = getStorage();
   if (!storage) return clampRatio(defaultRatio, min, max);
   try {
-    const storedRatio = Number(storage.getItem(storageKey));
+    const raw = storage.getItem(storageKey);
+    if (raw === null || raw === '') return clampRatio(defaultRatio, min, max);
+    const storedRatio = Number(raw);
     if (!Number.isFinite(storedRatio)) return clampRatio(defaultRatio, min, max);
     return clampRatio(storedRatio, min, max);
   } catch {
@@ -23,8 +25,9 @@ function readStoredRatio(storageKey, defaultRatio, min, max) {
   }
 }
 
-export function usePaneSplit(storageKey, defaultRatio, { min = 0.12, max = 0.88 } = {}) {
+export function usePaneSplit(storageKey, defaultRatio, { min = 0.12, max = 0.88, axis = 'vertical' } = {}) {
   const ratio = ref(readStoredRatio(storageKey, defaultRatio, min, max));
+  const isHorizontal = axis === 'horizontal';
 
   watch(ratio, (nextRatio) => {
     if (!storageKey) return;
@@ -40,17 +43,20 @@ export function usePaneSplit(storageKey, defaultRatio, { min = 0.12, max = 0.88 
   function startResize(event) {
     if (typeof document === 'undefined') return;
     const container = event.currentTarget?.parentElement;
-    const height = container?.getBoundingClientRect?.().height;
-    if (!Number.isFinite(height) || height <= 0) return;
+    const rect = container?.getBoundingClientRect?.();
+    if (!rect) return;
+    const size = isHorizontal ? rect.width : rect.height;
+    if (!Number.isFinite(size) || size <= 0) return;
 
     event.preventDefault?.();
 
-    const startY = event.clientY;
+    const startCoord = isHorizontal ? event.clientX : event.clientY;
     const startRatio = ratio.value;
     const previousUserSelect = document.body?.style?.userSelect ?? '';
 
     function onMove(moveEvent) {
-      ratio.value = clampRatio(startRatio + (moveEvent.clientY - startY) / height, min, max);
+      const moveCoord = isHorizontal ? moveEvent.clientX : moveEvent.clientY;
+      ratio.value = clampRatio(startRatio + (moveCoord - startCoord) / size, min, max);
     }
 
     function onUp() {

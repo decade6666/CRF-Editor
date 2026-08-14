@@ -332,14 +332,15 @@ test('label preview rows preserve multiline text through dedicated class', () =>
 test('designer preview uses full-width static layout without scale logic', () => {
   assert.match(formDesignerSource, /renderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
   assert.match(formDesignerSource, /designerRenderGroups\.value\.some\(\(g\) => g\.type === 'unified' \|\| \(g\.type === 'inline' && g\.fields\.length > 4\)\)/);
-  assert.match(formDesignerSource, /class="designer-workspace-bottom"[\s\S]*class="designer-preview-pane"/);
+  // 两栏布局：预览独占右列（grid-area: preview），不再嵌在 workspace-bottom 或 side-pane 内
+  assert.match(formDesignerSource, /class="designer-preview-pane"/);
+  assert.doesNotMatch(formDesignerSource, /designer-workspace-bottom/);
   assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/);
   assert.match(
     formDesignerSource,
-    /\.designer-shell \{[\s\S]*grid-template-rows: minmax\(0, 1fr\);[\s\S]*overflow: hidden;/,
+    /\.designer-shell \{[\s\S]*grid-template-columns: var\(--main-first[\s\S]*overflow: hidden;/,
   );
-  assert.match(formDesignerSource, /\.designer-workspace-bottom \{[\s\S]*display: flex;[\s\S]*overflow: hidden;/);
-  assert.match(formDesignerSource, /\.designer-preview-pane \{[\s\S]*flex: 1;/);
+  assert.match(formDesignerSource, /\.designer-preview-pane \{[\s\S]*grid-area: preview;/);
   assert.doesNotMatch(formDesignerSource, /const previewScale = ref\(1\)/);
   assert.doesNotMatch(formDesignerSource, /Math\.min\(availableWidth \/ pageWidth, availableHeight \/ pageHeight, 1\)/);
   assert.doesNotMatch(formDesignerSource, /ref="previewViewportRef"/);
@@ -401,49 +402,29 @@ test('template preview keeps multiline inline default values as multiple rows', 
 });
 
 
-test('notes autosave failures keep main preview on persisted notes', () => {
+test('design notes use an explicit save/cancel dialog with no autosave', () => {
   assert.match(
     formDesignerSource,
     /const previewDesignNotesText = computed\(\(\) => String\(selectedForm\.value\?\.design_notes \?\? ''\)\)/,
   );
   assert.match(formDesignerSource, /const headerDesignNotesSummary = computed\(\(\) => summarizeDesignNotes\(previewDesignNotesText\.value\)\)/);
-  assert.match(formDesignerSource, /let notesPendingSave = null/);
-  assert.match(formDesignerSource, /let notesSavePromise = null/);
-  assert.match(formDesignerSource, /function buildDesignNotesSaveSnapshot\(/);
-  assert.match(formDesignerSource, /async function persistDesignNotesSnapshot\(snapshot\)/);
-  assert.match(
-    formDesignerSource,
-    /async function flushDesignNotesSave\(snapshot = buildDesignNotesSaveSnapshot\(\)\)/,
-  );
-  assert.match(
-    formDesignerSource,
-    /while \(notesPendingSave\) \{[\s\S]*await persistDesignNotesSnapshot\(queuedSave\)/s,
-  );
-  assert.match(formDesignerSource, /if \(!notesPendingSave\) notesPendingSave = queuedSave/);
-  assert.match(formDesignerSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/);
-  assert.match(
-    formDesignerSource,
-    /async function selectForm\(nextForm\) \{[\s\S]*await flushDesignNotesSave\(buildDesignNotesSaveSnapshot\(\{ form: currentForm \}\)\)[\s\S]*formsTableRef\.value\?\.setCurrentRow\(currentForm\)/s,
-  );
-  assert.match(
-    formDesignerSource,
-    /const flushSnapshot = buildDesignNotesSaveSnapshot\(\{ projectId: previousProjectId \}\)/,
-  );
+  // 500ms 防抖与自动保存路径已移除：无计时器、无 pending 队列、无 selectForm 离开 flush
+  assert.doesNotMatch(formDesignerSource, /notesTimer/);
+  assert.doesNotMatch(formDesignerSource, /notesPendingSave/);
+  assert.doesNotMatch(formDesignerSource, /flushDesignNotesSave/);
+  assert.doesNotMatch(formDesignerSource, /onNotesInput/);
+  // 备注入口：属性卡底部左侧图标按钮 → 独立草稿弹窗（确定保存/取消丢弃）
+  assert.match(formDesignerSource, /data-test="designer-notes-button"/);
+  assert.match(formDesignerSource, /@click="openNotesDialog"/);
+  assert.match(formDesignerSource, /<DesignNotesDialog[\s\S]*?v-model="showNotesDialog"/);
+  assert.match(formDesignerSource, /const showNotesDialog = ref\(false\)/);
+  assert.match(formDesignerSource, /function onNotesDialogSaved\(\{ formId, designNotes \}\)/);
+  // 旧卡片式备注与字段库布局已移除
+  assert.doesNotMatch(formDesignerSource, /designer-notes-card/);
+  assert.doesNotMatch(formDesignerSource, /designer-side-pane/);
+  assert.doesNotMatch(formDesignerSource, /\.fd-library/);
+  assert.doesNotMatch(formDesignerSource, /designer-library-pane/);
   assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/);
-  assert.match(
-    formDesignerSource,
-    /class="designer-side-pane"[\s\S]*class="designer-editor-card"[\s\S]*class="designer-notes-card"/,
-  );
-  assert.match(
-    formDesignerSource,
-    /\.designer-library-pane \{[\s\S]*min-height: 0;[\s\S]*height: 100%;[\s\S]*overflow: hidden;/,
-  );
-  assert.match(formDesignerSource, /\.fd-library \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
-  assert.match(formDesignerSource, /\.fd-library-list \{[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/);
-  assert.match(formDesignerSource, /<div class="designer-notes-editor">/);
-  assert.match(formDesignerSource, /v-model="formDesignNotes"/);
-  assert.match(formDesignerSource, /class="designer-notes-input"/);
-  assert.match(formDesignerSource, /@input="onNotesInput"/);
   // 行内预览与模态设计器预览统一使用 A4 缩放几何（form-designer-word-page + designer-scaled-word-page）
   assert.match(formDesignerSource, /'form-designer-word-page'/);
   assert.match(formDesignerSource, /'designer-scaled-word-page'/);
@@ -462,9 +443,10 @@ test('form designer surfaces header notes summary and paper orientation controls
   assert.doesNotMatch(formDesignerSource, /replace\(\\s\+\/g, ' '\)/);
   assert.doesNotMatch(formDesignerSource, /HEADER_NOTES_MAX_LENGTH/);
   assert.match(formDesignerSource, /data-test="canvas-notes-summary"/);
-  assert.match(formDesignerSource, /data-test="designer-canvas-notes-summary"/);
-  assert.equal(countMatches(formDesignerSource, /popper-class="fd-notes-tooltip"/g), 2);
-  assert.equal(countMatches(formDesignerSource, /<template #content>/g), 2);
+  // 全屏「实时预览」标题栏不再显示备注摘要（入口收敛到表单属性动作栏的备注弹窗）
+  assert.doesNotMatch(formDesignerSource, /data-test="designer-canvas-notes-summary"/);
+  assert.equal(countMatches(formDesignerSource, /popper-class="fd-notes-tooltip"/g), 1);
+  assert.equal(countMatches(formDesignerSource, /<template #content>/g), 1);
   assert.doesNotMatch(formDesignerSource, /:content="headerDesignNotesTooltip"/);
   assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*white-space: pre-wrap;/s);
   assert.match(formDesignerSource, /\.fd-notes-tooltip \.fd-notes-tooltip-content \{[^}]*max-height: 40vh;[^}]*overflow-y: auto;/s);

@@ -12,7 +12,19 @@ import {
   defineExpose,
 } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Check, Delete, DocumentCopy, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
+import {
+  Check,
+  Delete,
+  DocumentAdd,
+  DocumentCopy,
+  EditPen,
+  Grid,
+  InfoFilled,
+  Memo,
+  Plus,
+  RefreshLeft,
+  RefreshRight,
+} from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
 import { useSortableTable } from '../composables/useSortableTable';
@@ -61,12 +73,26 @@ import {
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer';
 import {
+  buildBindingProfileCommand,
+  buildDefinitionPayload,
+  buildEditorStateFromSnapshot,
+  buildFieldProfileCommand,
+  buildDeleteProfileCommand,
   buildFormPropState,
+  buildInstanceOnlyProfileCommand,
+  buildInstanceUpsert,
   normalizeDateFormat,
   normalizeHexColorInput,
+  resolveSharedWriteTarget,
   sameFormPropState,
   syncFieldTypeSpecificProps,
 } from '../composables/formDesignerPropertyEditor';
+import {
+  buildAutocompleteCandidates,
+  CANDIDATE_STATE_ADDED,
+  findOidConflict,
+  hydrateEditorFromCandidate,
+} from '../composables/fieldDefinitionAutocomplete';
 import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline';
 import {
   buildFormDesignerRenderGroups,
@@ -82,6 +108,7 @@ import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit';
 import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability';
 import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composables/designNotesSummary';
+import DesignNotesDialog from './DesignNotesDialog.vue';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
 const refreshKey = inject('refreshKey', ref(0));
@@ -670,12 +697,11 @@ async function onCanvasBlankClick(event) {
   await returnToFormProperties();
 }
 
-// 除三张卡片、各类控件、字段条目与分隔条以外，设计器主体/标题栏空白都回到表单属性。
+// 除两张卡片、各类控件、字段条目与分隔条以外，设计器主体/标题栏空白都回到表单属性。
 // .fd-canvas-list 由 onCanvasBlankClick 处理，排除以免事件冒泡导致双弹保存确认。
 const DESIGNER_BLANK_EXCLUDE_SELECTOR = [
   '.designer-preview-pane',
   '.designer-editor-card',
-  '.designer-notes-card',
   'button',
   'input',
   'textarea',
@@ -686,9 +712,8 @@ const DESIGNER_BLANK_EXCLUDE_SELECTOR = [
   '.el-checkbox',
   '.el-switch',
   '.ff-item',
-  '.fd-item',
   '.pane-v-resizer',
-  '.fd-panel-resizer',
+  '.pane-h-resizer',
   '.fd-canvas-list',
 ].join(',');
 
@@ -774,8 +799,10 @@ function snapshotFieldPropState(ff) {
   if (!ff) return null;
   const fd = ff.field_definition || {};
   return {
+    required: ff.required ?? 0,
     label_override: ff.label_override ?? null,
     default_value: ff.default_value || null,
+    inline_mark: ff.inline_mark ?? 0,
     bg_color: ff.bg_color ?? null,
     text_color: ff.text_color ?? null,
     label_bold: ff.label_bold ?? 1,
@@ -812,18 +839,74 @@ async function reloadAfterReplay(formId, { defs = false, focusFieldId = null } =
   }
 }
 
-// 回放一份属性状态（字段定义 + 实例 + 颜色），undo / redo 共用。
-async function applyFieldPropState(ctx, state) {
-  const { formId, projectId, ffId, fieldDefinitionId } = ctx;
-  await api.put(`/api/projects/${projectId}/field-definitions/${fieldDefinitionId}`, { ...state.fd });
-  await api.put(`/api/form-fields/${ffId}`, { default_value: state.default_value });
-  await api.patch(`/api/form-fields/${ffId}/colors`, {
-    bg_color: state.bg_color,
-    text_color: state.text_color,
-    label_bold: state.label_bold,
-    label_font_size: state.label_font_size,
-  });
-  await reloadAfterReplay(formId, { defs: true, focusFieldId: ffId });
+// 原子回放：一次 binding-profile 请求完成定义/绑定/实例/清理，undo / redo 共用。
+async function replayBindingProfile(historyContext, ffId, command, { focusFieldId = ffId } = {}) {
+  const result = await api.put(`/api/form-fields/${ffId}/binding-profile`, command);
+  await reloadAfterReplay(historyContext?.formId, { defs: true, focusFieldId });
+  return result;
+}
+
+// 撤销/重做属性编辑：共享更新 / 候选换绑 / OID 分叉三类命令按需重建。
+// - shared：update_shared 同一目标定义（before/after 快照）
+// - rebind：换绑候选定义；undo 同时恢复候选共享快照并绑回原定义
+// - fork：redo 复用 preferred 定义（OID 冲突时后端 409，回放失败保栈）；undo 绑回原定义并清理分叉定义
+function buildFieldPropReplayCommand({
+  entryType,
+  writtenDefinitionId,
+  originalDefinitionId = null,
+  originalDefinitionOid = null,
+  candidateBeforePayload = null,
+  snapshot,
+}) {
+  const editorState = buildEditorStateFromSnapshot(snapshot);
+  if (entryType === 'shared') {
+    return buildBindingProfileCommand({
+      currentDefinitionId: writtenDefinitionId,
+      currentDefinitionOid: snapshot.fd.variable_name,
+      editorState,
+    });
+  }
+  if (entryType === 'rebind-undo') {
+    // 恢复候选共享快照 + 绑回原定义（候选快照 OID 与现状一致时后端才接受）
+    return {
+      definition_operation: {
+        operation: 'update_shared',
+        update_shared: { target_definition_id: writtenDefinitionId, definition: candidateBeforePayload },
+      },
+      binding: { mode: 'existing', target_field_definition_id: originalDefinitionId },
+      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
+    };
+  }
+  if (entryType === 'rebind-redo') {
+    return {
+      definition_operation: {
+        operation: 'update_shared',
+        update_shared: {
+          target_definition_id: writtenDefinitionId,
+          definition: buildDefinitionPayload(snapshot.fd),
+        },
+      },
+      binding: { mode: 'existing', target_field_definition_id: writtenDefinitionId },
+      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
+    };
+  }
+  if (entryType === 'fork-undo') {
+    return {
+      definition_operation: { operation: 'none' },
+      binding: { mode: 'existing', target_field_definition_id: originalDefinitionId },
+      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
+      cleanup_definition_id: writtenDefinitionId,
+    };
+  }
+  if (entryType === 'fork-redo') {
+    return buildBindingProfileCommand({
+      currentDefinitionId: originalDefinitionId,
+      currentDefinitionOid: originalDefinitionOid,
+      editorState,
+      preferredDefinitionId: writtenDefinitionId,
+    });
+  }
+  throw new Error('未知的属性回放类型');
 }
 
 // 记录一次排序命令（拖拽与键盘排序共用）。
@@ -864,46 +947,6 @@ function handleUndo() {
 }
 function handleRedo() {
   if (designerHistory.canRedo.value) void runHistory('redo');
-}
-
-async function addField(fd) {
-  if (designerHistory.busy.value || isReordering.value) return;
-  if (!selectedForm.value) return ElMessage.warning('请先选择表单');
-  const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '添加字段' });
-  if (!canLeaveFieldProp) return;
-  const historyContext = captureDesignerHistoryContext();
-  if (hasDraft.value) {
-    const proceed = await confirmDiscardDraft();
-    if (!isCurrentDesignerHistoryContext(historyContext)) return;
-    if (!proceed) return;
-  }
-  if (isReordering.value) return;
-  const formId = historyContext.formId;
-  beginFieldMembershipMutation();
-  try {
-    const created = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: fd.id });
-    api.invalidateCache(`/api/forms/${formId}/fields`);
-    if (!isCurrentDesignerHistoryContext(historyContext)) return;
-    if (isReordering.value) return;
-    await loadFormFields(formId);
-    recordDesignerHistory(historyContext, {
-      label: '新增字段',
-      ids: { ffId: created.id, fdId: fd.id },
-      undo: async (ids) => {
-        await api.del(`/api/form-fields/${ids.ffId}`);
-        await reloadAfterReplay(formId);
-      },
-      redo: async (ids, { remapId }) => {
-        const recreated = await api.post(`/api/forms/${formId}/fields`, { field_definition_id: ids.fdId });
-        remapId(ids.ffId, recreated.id);
-        await reloadAfterReplay(formId);
-      },
-    });
-  } catch (e) {
-    ElMessage.error(e.message);
-  } finally {
-    endFieldMembershipMutation();
-  }
 }
 
 // 从字段定义复制接口的完整响应构造重做快照，避免丢失 checkbox_label 等定义属性。
@@ -1288,16 +1331,60 @@ async function handleFieldKeydown(event, field, index) {
   }
 }
 
-const usedDefIds = computed(() => new Set(formFields.value.map((f) => f.field_definition_id)));
-
-// 字段库搜索
-const fieldSearch = ref('');
-const filteredFieldDefs = computed(() =>
-  rankFuzzyMatches(fieldDefs.value.filter(isVisibleInFieldLibrary), fieldSearch.value, (fd) => [
-    fd.label,
-    fd.variable_name,
-  ]),
+// 字段库自动完成：OID / 字段标签两个输入框共用同一套候选（模糊搜索 + 当前/已添加状态）。
+const formFieldDefinitionIds = computed(() =>
+  formFields.value.map((f) => f.field_definition_id).filter((id) => id != null),
 );
+// 点击候选后才设置；手输同名 OID 不自动换绑。
+const selectedDefinitionId = ref(null);
+const candidateOid = ref(null);
+// 点击候选时的候选定义快照（撤销候选换绑时需要恢复其共享内容）。
+let candidateBeforeDefinition = null;
+
+function buildOidCandidates(keyword) {
+  const ff = getSelectedFormField();
+  return buildAutocompleteCandidates({
+    definitions: fieldDefs.value.filter(isVisibleInFieldLibrary),
+    keyword,
+    currentDefinitionId: ff?.field_definition_id ?? null,
+    formFieldDefinitionIds: formFieldDefinitionIds.value,
+    excludeOwnFormFieldId: ff?.field_definition_id ?? null,
+  });
+}
+
+// el-autocomplete 的 fetch-suggestions 接口（两个输入框共用同一套字段库候选）。
+function fetchFieldDefSuggestions(queryString, callback) {
+  callback(buildOidCandidates(queryString));
+}
+
+// 明确点击候选：丢弃当前未保存属性编辑，用候选定义重建编辑态（实例覆盖保留）。
+function selectAutocompleteCandidate(item) {
+  if (!item || item.state === CANDIDATE_STATE_ADDED) return;
+  const ff = getSelectedFormField();
+  const definition = item.definition;
+  selectedDefinitionId.value = definition.id;
+  candidateOid.value = definition.variable_name;
+  candidateBeforeDefinition = buildDefinitionPayload(definition);
+  const currentInlineMark = ff?.inline_mark ? 1 : 0;
+  const inlineAllowed = canToggleInline({ ...ff, field_definition: definition });
+  const normalizedInlineMark = inlineAllowed ? currentInlineMark : 0;
+  const supportsDefaultValue = isDefaultValueSupported(definition.field_type, Boolean(normalizedInlineMark));
+  const normalizedDefaultValue = supportsDefaultValue
+    ? normalizeDefaultValue(ff?.default_value || '', !normalizedInlineMark)
+    : null;
+  Object.assign(
+    editProp,
+    hydrateEditorFromCandidate({
+      editor: editProp,
+      definition,
+      instance: ff || {},
+      normalizedDefaultValue,
+      normalizedInlineMark,
+    }),
+  );
+  if (isDraftField(ff)) applyEditorToDraft();
+  // 基线不回写：保存基线仍是原字段状态，「取消」可完整恢复原绑定与属性。
+}
 
 // 渲染逻辑
 function renderCtrl(fd, fillLineChars = null) {
@@ -1765,100 +1852,39 @@ function refreshDesignerPreviewOverrides() {
   refreshPreviewOverrideState(designerRenderGroupsView.value, 'designer');
 }
 
-const libraryWidth = ref(parseInt(localStorage.getItem('crf_libraryWidth')) || 240);
-const isLibResizing = ref(false);
-watch(libraryWidth, (v) => localStorage.setItem('crf_libraryWidth', v));
-function startLibResize(e) {
-  isLibResizing.value = true;
-  const startX = e.clientX,
-    startW = libraryWidth.value;
-  function onMove(e) {
-    libraryWidth.value = Math.max(140, Math.min(400, startW + e.clientX - startX));
-  }
-  function onUp() {
-    isLibResizing.value = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  }
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-}
-
-const previewPaneWidth = 460;
-const propWidth = computed(() => previewPaneWidth);
-
-// 纵向可拖拽分栏比例（全局持久化，不 scope 到 formId）
-const { ratio: sideRatio, startResize: startSideResize } = usePaneSplit('crf:designer:side-split', 0.7); // 属性:备注 = 7:3
-const { ratio: workspaceRatio, startResize: startWorkspaceResize } = usePaneSplit(
-  'crf:designer:workspace-split',
+// 两栏布局：外层左右 38/62（横向拖拽），左栏字段列表/属性卡 50/50（纵向拖拽）。
+// 比例注入 CSS 变量，窄屏（≤1100px）由媒体查询整体改为上下堆叠。
+const { ratio: mainSplitRatio, startResize: startMainSplitResize } = usePaneSplit(
+  'crf:designer:main-split',
+  0.38,
+  { axis: 'horizontal', min: 0.2, max: 0.8 },
+);
+const { ratio: leftSplitRatio, startResize: startLeftSplitResize } = usePaneSplit(
+  'crf:designer:left-split',
   0.5,
-); // 字段列表:预览 = 5:5
-const sideRows = computed(() => `${sideRatio.value}fr 6px ${1 - sideRatio.value}fr`);
-const workspaceRows = computed(() => `${workspaceRatio.value}fr 6px ${1 - workspaceRatio.value}fr`);
+);
+const mainSplitStyle = computed(() => ({
+  '--main-first': `${mainSplitRatio.value}fr`,
+  '--main-second': `${1 - mainSplitRatio.value}fr`,
+}));
+const leftSplitStyle = computed(() => ({
+  '--left-first': `${leftSplitRatio.value}fr`,
+  '--left-second': `${1 - leftSplitRatio.value}fr`,
+}));
 
-const formDesignNotes = ref('');
-let notesTimer = null;
-let notesPendingSave = null;
-let notesSavePromise = null;
-let notesAutoSaveErrorShown = false;
+// 设计备注弹窗：独立草稿，「确定」一次保存 /「取消」丢弃，无自动保存、无防抖。
+const showNotesDialog = ref(false);
 const previewDesignNotesText = computed(() => String(selectedForm.value?.design_notes ?? ''));
 // 顶栏空间有限：摘要有换行时只显示第一行（有后续内容补省略号），完整原文交给悬浮提示按原样分行
 const headerDesignNotesSummary = computed(() => summarizeDesignNotes(previewDesignNotesText.value));
 const headerDesignNotesTooltip = computed(() => normalizeDesignNotesTooltip(previewDesignNotesText.value));
 
-watch(
-  () => selectedForm.value?.id,
-  (formId) => {
-    clearTimeout(notesTimer);
-    notesAutoSaveErrorShown = false;
-    const current = forms.value.find((f) => f.id === formId) || selectedForm.value;
-    formDesignNotes.value = current?.design_notes || '';
-  },
-);
-
-function buildDesignNotesSaveSnapshot({
-  form = selectedForm.value,
-  projectId = props.projectId,
-  notes = formDesignNotes.value,
-} = {}) {
-  if (!form?.id) return null;
-  return { formId: form.id, projectId, notes: String(notes ?? '') };
+function openNotesDialog() {
+  showNotesDialog.value = true;
 }
 
-async function persistDesignNotesSnapshot(snapshot) {
-  await api.put(`/api/forms/${snapshot.formId}`, { design_notes: snapshot.notes });
-  mergeFormIntoState({ id: snapshot.formId, design_notes: snapshot.notes });
-  api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`);
-  notesAutoSaveErrorShown = false;
-}
-
-async function flushDesignNotesSave(snapshot = buildDesignNotesSaveSnapshot()) {
-  clearTimeout(notesTimer);
-  if (snapshot) notesPendingSave = snapshot;
-  if (!notesPendingSave && !notesSavePromise) return true;
-  if (notesSavePromise) return notesSavePromise;
-  notesSavePromise = (async () => {
-    try {
-      while (notesPendingSave) {
-        const queuedSave = notesPendingSave;
-        notesPendingSave = null;
-        try {
-          await persistDesignNotesSnapshot(queuedSave);
-        } catch (e) {
-          if (!notesAutoSaveErrorShown) {
-            ElMessage.error(`设计备注保存失败：${e.message}`);
-            notesAutoSaveErrorShown = true;
-          }
-          if (!notesPendingSave) notesPendingSave = queuedSave;
-          break;
-        }
-      }
-      return !notesPendingSave;
-    } finally {
-      notesSavePromise = null;
-    }
-  })();
-  return notesSavePromise;
+function onNotesDialogSaved({ formId, designNotes }) {
+  mergeFormIntoState({ id: formId, design_notes: designNotes });
 }
 
 // el-table 的 @current-change 在 :data（filteredForms 每次返回新数组）重算或程序化
@@ -1902,12 +1928,6 @@ async function selectForm(nextForm) {
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
   }
-  const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot({ form: currentForm }));
-  if (!isFormSelectionAttemptCurrent(selectionAttempt, selectionSession, projectId)) return;
-  if (!flushSucceeded && currentForm?.id) {
-    formsTableRef.value?.setCurrentRow(currentForm);
-    return;
-  }
   const canLeaveFieldProp = await resolveFieldPropLeave({
     resetOptions: { preserveEditor: true },
     actionText: '切换表单',
@@ -1930,14 +1950,6 @@ async function selectForm(nextForm) {
   selectedForm.value = nextForm || null;
   syncFormPropEditor(selectedForm.value);
   markPerfEnd(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
-}
-
-function onNotesInput() {
-  notesAutoSaveErrorShown = false;
-  clearTimeout(notesTimer);
-  notesTimer = setTimeout(() => {
-    void flushDesignNotesSave();
-  }, 500);
 }
 
 // 快速编辑
@@ -1988,25 +2000,35 @@ async function saveQuickEdit() {
     const normalizedDefaultValue = supportsDefaultValue
       ? normalizeDefaultValue(quickEditProp.default_value, !quickEditProp.inline_mark)
       : '';
-    const payload = {
-      label_override: quickEditProp.label,
-      bg_color: quickEditProp.bg_color || null,
-      text_color: quickEditProp.text_color || null,
-      inline_mark: quickEditProp.inline_mark ? 1 : 0,
-      default_value: normalizedDefaultValue || null,
-      label_bold: quickEditProp.label_bold,
-      label_font_size: quickEditProp.label_font_size === 'default' ? null : quickEditProp.label_font_size,
-    };
-    const updated = await api.put(`/api/form-fields/${fieldId}`, payload);
+    const command = buildInstanceOnlyProfileCommand({
+      instance: {
+        label_override: quickEditProp.label,
+        bg_color: quickEditProp.bg_color || null,
+        text_color: quickEditProp.text_color || null,
+        inline_mark: quickEditProp.inline_mark ? 1 : 0,
+        default_value: normalizedDefaultValue || null,
+        label_bold: quickEditProp.label_bold,
+        label_font_size: quickEditProp.label_font_size === 'default' ? null : quickEditProp.label_font_size,
+      },
+    });
+    const updated = await api.put(`/api/form-fields/${fieldId}/binding-profile`, command);
+    const updatedField = updated.form_field ?? null;
     api.invalidateCache(`/api/forms/${formId}/fields`);
     // 写成功先失效缓存；仅当 formId+session 仍匹配当前设计器上下文时才改本地 UI。
     if (!isCurrentDesignerHistoryContext(historyContext)) return;
     const sourceField = formFields.value.find((field) => field.id === fieldId) || quickEditField.value;
-    const currentField = {
-      ...sourceField,
-      ...updated,
-      field_definition: sourceField.field_definition,
-    };
+    const currentField = updatedField
+      ? { ...sourceField, ...updatedField }
+      : {
+          ...sourceField,
+          label_override: quickEditProp.label,
+          bg_color: quickEditProp.bg_color || null,
+          text_color: quickEditProp.text_color || null,
+          inline_mark: quickEditProp.inline_mark ? 1 : 0,
+          default_value: normalizedDefaultValue || null,
+          label_bold: quickEditProp.label_bold,
+          label_font_size: quickEditProp.label_font_size === 'default' ? null : quickEditProp.label_font_size,
+        };
     quickEditField.value = currentField;
     syncSelectedField(currentField, { syncEditor: false });
     if (!isReordering.value) {
@@ -2039,9 +2061,10 @@ async function toggleInline(ff) {
   try {
     await confirmFormChange();
     if (!isCurrentDesignerHistoryContext(historyContext) || isReordering.value) return;
-    await api.patch(`/api/form-fields/${ff.id}/inline-mark`, {
-      inline_mark: nextInlineMark,
-    });
+    await api.put(
+      `/api/form-fields/${ff.id}/binding-profile`,
+      buildInstanceOnlyProfileCommand({ instance: { inline_mark: nextInlineMark } }),
+    );
     api.invalidateCache(`/api/forms/${formId}/fields`);
     // 写成功先失效缓存；session 已变则停止 UI 提交（缓存已为下次加载准备好）。
     if (!isCurrentDesignerHistoryContext(historyContext)) return;
@@ -2246,6 +2269,9 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   fieldPropSaveSession += 1;
   isSavingFieldProp.value = false;
   fieldPropBaseline.value = null;
+  selectedDefinitionId.value = null;
+  candidateOid.value = null;
+  candidateBeforeDefinition = null;
   if (!preserveEditor) {
     selectedFieldId.value = null;
     Object.assign(editProp, {
@@ -2271,9 +2297,9 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   }
 }
 
-async function confirmFieldReferenceImpact(ff) {
-  if (!ff || ff.is_log_row || !ff.field_definition_id) return true;
-  const refs = await api.get(`/api/field-definitions/${ff.field_definition_id}/references`);
+async function confirmFieldReferenceImpact(definitionId) {
+  if (!definitionId) return true;
+  const refs = await api.get(`/api/field-definitions/${definitionId}/references`);
   if (countDistinctForms(refs) <= 1) return true;
   const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' });
   await ElMessageBox.confirm(`修改将影响以下表单：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
@@ -2307,7 +2333,25 @@ async function saveSelectedFieldProp() {
       ElMessage.warning(OID_ERROR);
       return false;
     }
-    await confirmFieldReferenceImpact(ff);
+    // 手输 OID 命中其他现有定义但未明确点击候选：阻止并提示（后端唯一约束兜底）
+    const oidConflict = findOidConflict(
+      fieldDefs.value.filter(isVisibleInFieldLibrary),
+      snapshot.variable_name,
+      ff.field_definition_id,
+    );
+    if (oidConflict && selectedDefinitionId.value !== oidConflict.id) {
+      ElMessage.warning('该OID已在字段库中存在，请从候选中选择或修改OID');
+      return false;
+    }
+    // 影响确认只针对真正被 update_shared 写入的目标定义（换绑=候选；分叉=无需确认）
+    const sharedWriteTarget = resolveSharedWriteTarget({
+      currentDefinitionId: ff.field_definition_id,
+      currentDefinitionOid: ff.field_definition?.variable_name ?? null,
+      editorState: snapshot,
+      selectedDefinitionId: selectedDefinitionId.value,
+      candidateOid: candidateOid.value,
+    });
+    await confirmFieldReferenceImpact(sharedWriteTarget);
     fieldPropSaveSession += 1;
     sessionId = fieldPropSaveSession;
     await saveFieldProp(snapshot, sessionId);
@@ -2362,6 +2406,9 @@ watch(currentFieldPropDraftKey, (draftKey) => {
 function selectField(ff) {
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
+  selectedDefinitionId.value = null;
+  candidateOid.value = null;
+  candidateBeforeDefinition = null;
   if (ff.is_log_row) {
     Object.assign(editProp, {
       label: '以下为log行',
@@ -2434,15 +2481,16 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
   if (isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
     throw new Error('单选/多选字段必须选择选项字典');
   const propEditFieldId = ff.id;
-  const propEditDefinitionId = ff.field_definition_id;
+  const originalDefinitionId = ff.field_definition_id;
+  const originalDefinitionOid = ff.field_definition?.variable_name ?? null;
   const beforePropState = snapshotFieldPropState(ff);
   const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark));
   const normalizedDefaultValue = supportsDefaultValue
     ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark)
-    : '';
-  const updatedDefinition = await api.put(`/api/projects/${projectId}/field-definitions/${ff.field_definition_id}`, {
-    label: snapshot.label,
+    : null;
+  const editorState = {
     variable_name: snapshot.variable_name,
+    label: snapshot.label,
     field_type: snapshot.field_type,
     integer_digits: snapshot.integer_digits,
     decimal_digits: snapshot.decimal_digits,
@@ -2450,42 +2498,73 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
     checkbox_label: snapshot.checkbox_label ?? null,
     codelist_id: snapshot.codelist_id,
     unit_id: snapshot.unit_id ?? null,
-  });
-  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-  let currentField = { ...ff, field_definition: { ...ff.field_definition, ...updatedDefinition } };
-  syncSelectedField(currentField, { syncEditor: false });
-  api.invalidateCache(`/api/forms/${formId}/fields`);
-  const updatedField = await api.put(`/api/form-fields/${ff.id}`, { default_value: normalizedDefaultValue });
-  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-  currentField = { ...currentField, ...updatedField, field_definition: currentField.field_definition };
-  syncSelectedField(currentField, { syncEditor: false });
-  refreshKey.value++;
-  const baseField = formFields.value.find((f) => f.id === ff.id) || ff;
-  const updatedColors = await api.patch(`/api/form-fields/${ff.id}/colors`, {
-    bg_color: snapshot.bg_color,
-    text_color: snapshot.text_color,
+    required: ff.required ?? 0,
+    label_override: ff.label_override ?? null,
+    help_text: ff.help_text ?? null,
+    default_value: normalizedDefaultValue,
+    inline_mark: snapshot.inline_mark ? 1 : 0,
+    bg_color: snapshot.bg_color ?? null,
+    text_color: snapshot.text_color ?? null,
     label_bold: snapshot.label_bold,
     label_font_size: snapshot.label_font_size,
+  };
+  // 一次原子请求：共享更新 / 候选换绑 / OID 分叉 + 实例更新
+  const command = buildBindingProfileCommand({
+    currentDefinitionId: originalDefinitionId,
+    currentDefinitionOid: originalDefinitionOid,
+    editorState,
+    selectedDefinitionId: selectedDefinitionId.value,
+    candidateOid: candidateOid.value,
   });
+  const result = await api.put(`/api/form-fields/${propEditFieldId}/binding-profile`, command);
   if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-  syncSelectedField(
-    { ...baseField, ...updatedColors, field_definition: baseField.field_definition },
-    { syncEditor: false },
-  );
+  api.invalidateCache(`/api/forms/${formId}/fields`);
+  api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
+  refreshKey.value++;
   if (!isReordering.value) {
     await loadFormFields();
+  }
+  if (!isCurrentDesignerHistoryContext(historyContext)) return;
+  const candidateBeforePayload = candidateBeforeDefinition;
+  selectedDefinitionId.value = null;
+  candidateOid.value = null;
+  candidateBeforeDefinition = null;
+  if (selectedFieldId.value === propEditFieldId) {
+    const fresh = formFields.value.find((f) => f.id === propEditFieldId);
+    if (fresh && !isFieldPropDirty.value) selectField(fresh);
   }
   const afterField = formFields.value.find((f) => f.id === propEditFieldId);
   const afterPropState = snapshotFieldPropState(afterField);
   if (afterPropState && beforePropState && !sameFieldPropState(beforePropState, afterPropState)) {
+    const isFork = command.definition_operation.operation === 'create_or_restore';
+    const isRebind = command.binding.mode === 'existing' && command.definition_operation.operation === 'update_shared';
+    const writtenDefinitionId = result.final_definition_id ?? originalDefinitionId;
     recordDesignerHistory(historyContext, {
-      label: '编辑属性',
-      ids: { ffId: propEditFieldId, fdId: propEditDefinitionId },
+      label: isFork ? 'OID 分叉' : isRebind ? '换绑字段' : '编辑属性',
+      ids: { ffId: propEditFieldId, fdId: writtenDefinitionId, origFdId: originalDefinitionId },
       undo: async (ids) => {
-        await applyFieldPropState({ formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId }, beforePropState);
+        const undoCommand = buildFieldPropReplayCommand({
+          entryType: isFork ? 'fork-undo' : isRebind ? 'rebind-undo' : 'shared',
+          writtenDefinitionId: ids.fdId,
+          originalDefinitionId: ids.origFdId,
+          originalDefinitionOid,
+          candidateBeforePayload,
+          snapshot: beforePropState,
+        });
+        const replayResult = await replayBindingProfile(historyContext, ids.ffId, undoCommand);
+        if (replayResult?.cleanup?.retained_in_use) {
+          ElMessage.warning('字段定义已被其他表单引用，已保留定义');
+        }
       },
       redo: async (ids) => {
-        await applyFieldPropState({ formId, projectId, ffId: ids.ffId, fieldDefinitionId: ids.fdId }, afterPropState);
+        const redoCommand = buildFieldPropReplayCommand({
+          entryType: isFork ? 'fork-redo' : isRebind ? 'rebind-redo' : 'shared',
+          writtenDefinitionId: ids.fdId,
+          originalDefinitionId: ids.origFdId,
+          originalDefinitionOid,
+          snapshot: afterPropState,
+        });
+        await replayBindingProfile(historyContext, ids.ffId, redoCommand);
       },
     });
   }
@@ -2596,8 +2675,8 @@ async function newField() {
   selectField(draft);
 }
 
-// 保存草稿：依次 POST 建定义 + 建实例，成功后移除草稿并用真实记录刷新；失败保留草稿与编辑内容。
-// 返回 true 表示保存成功。
+// 保存草稿：一次 field-profile 原子请求（建定义/绑定候选 + 建实例），
+// 成功后移除草稿并用真实记录刷新；失败保留草稿与编辑内容。返回 true 表示保存成功。
 async function saveDraftField() {
   if (designerHistory.busy.value || isReordering.value) return false;
   const draft = formFields.value.find(isDraftField);
@@ -2616,28 +2695,51 @@ async function saveDraftField() {
     ElMessage.error('当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型');
     return false;
   }
+  // 手输 OID 命中其他现有定义但未明确点击候选：阻止并提示
+  const oidConflict = findOidConflict(
+    fieldDefs.value.filter(isVisibleInFieldLibrary),
+    fd.variable_name,
+    null,
+  );
+  if (oidConflict && selectedDefinitionId.value !== oidConflict.id) {
+    ElMessage.error('该OID已在字段库中存在，请从候选中选择或修改OID');
+    return false;
+  }
   if (isReordering.value) return false;
   savingDraft.value = true;
   beginFieldMembershipMutation();
   try {
-    const definitionPayload = {
-      ...buildFieldDefinitionCreatePayload(fd),
-      checkbox_label: fd.checkbox_label ?? null,
-    };
     const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
-    const instancePayload = {
-      default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : '',
+    const editorState = {
+      variable_name: fd.variable_name ?? '',
+      label: fd.label ?? '',
+      field_type: fd.field_type ?? '文本',
+      integer_digits: fd.integer_digits ?? null,
+      decimal_digits: fd.decimal_digits ?? null,
+      date_format: fd.date_format ?? null,
+      checkbox_label: fd.checkbox_label ?? null,
+      codelist_id: fd.codelist_id ?? null,
+      unit_id: fd.unit_id ?? null,
+      required: draft.required ?? 0,
+      label_override: draft.label_override ?? null,
+      help_text: draft.help_text ?? null,
+      default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : null,
       inline_mark: draft.inline_mark ? 1 : 0,
       bg_color: draft.bg_color ?? null,
       text_color: draft.text_color ?? null,
       label_bold: draft.label_bold ?? 1,
       label_font_size: draft.label_font_size ?? null,
     };
-    const createdFd = await api.post(`/api/projects/${projectId}/field-definitions`, definitionPayload);
-    const createdFf = await api.post(`/api/forms/${formId}/fields`, {
-      field_definition_id: createdFd.id,
-      ...instancePayload,
+    const command = buildFieldProfileCommand({
+      editorState,
+      selectedDefinitionId: selectedDefinitionId.value,
+      candidateOid: candidateOid.value,
     });
+    const result = await api.post(`/api/forms/${formId}/field-profile`, command);
+    const createdFfId = result.form_field_id ?? result.form_field?.id;
+    const createdFdId = result.final_definition_id;
+    // 只有本次新建的定义才能随撤销清理；绑定既有候选时不得删除候选定义。
+    const definitionCreated = Boolean(result.definition_created);
     api.invalidateCache(`/api/forms/${formId}/fields`);
     api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
     if (!isCurrentDesignerHistoryContext(historyContext)) return true;
@@ -2647,33 +2749,35 @@ async function saveDraftField() {
     await loadFieldDefs();
     if (!isCurrentDesignerHistoryContext(historyContext)) return true;
     if (isReordering.value) return true;
-    const realFf = formFields.value.find((f) => f.id === createdFf.id);
+    const realFf = formFields.value.find((f) => f.id === createdFfId);
     if (realFf) selectField(realFf);
-    // 保存即一次「新建字段」，入撤销栈；撤销对称删除实例与定义（定义被其他表单引用则降级保留）。
+    // 保存即一次「新建字段」，入撤销栈；撤销=删除实例+条件清理定义，重做=复用原定义或按原快照重建。
     recordDesignerHistory(historyContext, {
       label: '新建字段',
-      ids: { ffId: createdFf.id, fdId: createdFd.id },
+      ids: { ffId: createdFfId, fdId: createdFdId },
       undo: async (ids) => {
-        await api.del(`/api/form-fields/${ids.ffId}`);
-        try {
-          await api.del(`/api/field-definitions/${ids.fdId}`);
-        } catch (err) {
-          if (Number(err?.status ?? err?.response?.status) === 409) {
-            ElMessage.warning('字段定义已被其他表单引用，已保留定义');
-          } else {
-            throw err;
-          }
+        const deleteCommand = buildDeleteProfileCommand({
+          cleanupDefinitionId: definitionCreated ? ids.fdId : null,
+        });
+        const replayResult = await replayBindingProfile(historyContext, ids.ffId, deleteCommand);
+        if (replayResult?.cleanup?.retained_in_use) {
+          ElMessage.warning('字段定义已被其他表单引用，已保留定义');
         }
-        await reloadAfterReplay(formId, { defs: true });
       },
       redo: async (ids, { remapId }) => {
-        const recreatedFd = await api.post(`/api/projects/${projectId}/field-definitions`, definitionPayload);
-        remapId(ids.fdId, recreatedFd.id);
-        const recreatedFf = await api.post(`/api/forms/${formId}/fields`, {
-          field_definition_id: recreatedFd.id,
-          ...instancePayload,
+        const redoResult = await api.post(`/api/forms/${formId}/field-profile`, {
+          ...command,
+          definition_operation: {
+            operation: 'create_or_restore',
+            create_or_restore: {
+              definition: buildDefinitionPayload(editorState),
+              preferred_definition_id: ids.fdId,
+            },
+          },
+          binding: { mode: 'operation_result' },
         });
-        remapId(ids.ffId, recreatedFf.id);
+        remapId(ids.ffId, redoResult.form_field_id ?? redoResult.form_field?.id);
+        remapId(ids.fdId, redoResult.final_definition_id ?? ids.fdId);
         await reloadAfterReplay(formId, { defs: true });
       },
     });
@@ -3072,9 +3176,6 @@ watch(
     invalidateFormSelectionSession();
     const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
     if (!annotationFlushSucceeded) return;
-    const flushSnapshot = buildDesignNotesSaveSnapshot({ projectId: previousProjectId });
-    const flushSucceeded = await flushDesignNotesSave(flushSnapshot);
-    if (!flushSucceeded && selectedForm.value?.id) return;
     const canLeaveFieldProp = await resolveFieldPropLeave({
       resetOptions: { preserveEditor: true },
       actionText: '切换项目',
@@ -3110,8 +3211,6 @@ async function resolveDesignerLeave({ actionText }) {
   }
   const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
   if (!annotationFlushSucceeded && selectedForm.value?.id) return false;
-  const flushSucceeded = await flushDesignNotesSave(buildDesignNotesSaveSnapshot());
-  if (!flushSucceeded && selectedForm.value?.id) return false;
   const canLeaveFieldProp = await resolveFieldPropLeave({ resetOptions: { preserveEditor: true }, actionText });
   if (!canLeaveFieldProp) return false;
   return resolveFormPropLeave({ actionText });
@@ -3943,121 +4042,69 @@ function openAddForm() {
         </div>
       </template>
       <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank designer click returns to form props -->
-      <div class="designer-shell" @click="onDesignerBlankClick">
-        <div class="fd-library designer-library-pane" :style="{ width: libraryWidth + 'px' }">
-          <div class="fd-library-header">字段库</div>
-          <div class="designer-pane-toolbar">
-            <el-input v-model="fieldSearch" placeholder="搜索..." size="small" clearable />
-          </div>
-          <div class="fd-library-list">
-            <button
-              v-for="fd in filteredFieldDefs"
-              :key="fd.id"
-              type="button"
-              class="fd-item"
-              data-test="designer-field-library-add"
-              :disabled="designerHistory.busy.value"
-              :class="{ 'fd-item--acrf': showAcrfAnnotations }"
-              :style="usedDefIds.has(fd.id) ? 'opacity:0.4' : ''"
-              @click="addField(fd)"
-            >
-              <template v-if="showAcrfAnnotations">
-                <div class="fd-item-content">
-                  <div class="fd-item-lines">
-                    <el-tooltip
-                      :content="fd.variable_name || '—'"
-                      placement="top"
-                      :show-after="300"
-                      :disabled="!fd.variable_name"
-                      ><span class="fd-item-oid">{{ fd.variable_name || '—' }}</span></el-tooltip
-                    >
-                    <el-tooltip :content="fd.label" placement="bottom" :show-after="300" :disabled="!fd.label"
-                      ><span class="fd-item-label">{{ fd.label }}</span></el-tooltip
-                    >
-                  </div>
-                  <span class="fd-item-type">{{ fd.field_type }}</span>
-                </div>
-              </template>
-              <template v-else>
-                <el-tooltip :content="fd.label" placement="top" :show-after="300" :disabled="!fd.label"
-                  ><span
-                    style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
-                    >{{ fd.label }}</span
-                  ></el-tooltip
-                ><span style="color: var(--color-text-muted); font-size: 11px; flex-shrink: 0">{{ fd.field_type }}</span>
-              </template>
-            </button>
-          </div>
-        </div>
-        <button type="button" class="fd-panel-resizer" aria-label="调整字段库宽度" @mousedown="startLibResize"></button>
-        <div class="designer-workspace" :style="{ gridTemplateRows: workspaceRows }">
-          <div class="designer-workspace-top">
+      <div class="designer-shell" :style="{ ...mainSplitStyle, ...leftSplitStyle }" @click="onDesignerBlankClick">
             <div class="fd-canvas designer-fields-panel">
               <div class="fd-canvas-header">
-                <el-button
-                  size="small"
-                  type="primary"
-                  data-test="designer-new-field"
-                  aria-label="新建字段"
-                  title="新建字段"
-                  :disabled="designerHistory.busy.value || isReordering.value"
-                  @click="newField"
-                  ><el-icon aria-hidden="true"><Plus /></el-icon></el-button
-                ><el-button
-                  v-if="hasDraft"
-                  size="small"
-                  type="success"
-                  data-test="designer-save-draft"
-                  aria-label="保存新增字段"
-                  title="保存新增字段"
-                  :loading="savingDraft"
-                  :disabled="designerHistory.busy.value"
-                  @click="saveDraftField"
-                  ><el-icon aria-hidden="true"><Check /></el-icon></el-button
-                ><el-button
-                  size="small"
-                  data-test="designer-add-log-row"
-                  aria-label="添加“以下为log行”提示"
-                  title="添加“以下为log行”提示"
-                  :disabled="designerHistory.busy.value"
-                  @click="addLogRow"
-                  >log</el-button
-                ><el-button
-                  size="small"
-                  data-test="designer-undo"
-                  aria-label="撤回"
-                  title="撤回"
-                  :disabled="!designerHistory.canUndo.value"
-                  :loading="designerHistory.busy.value"
-                  @click="handleUndo"
-                  ><el-icon aria-hidden="true"
-                    ><svg viewBox="0 0 24 24">
-                      <path
-                        fill="currentColor"
-                        d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"
-                      /></svg></el-icon></el-button
-                ><el-button
-                  size="small"
-                  data-test="designer-redo"
-                  aria-label="恢复"
-                  title="恢复"
-                  :disabled="!designerHistory.canRedo.value"
-                  :loading="designerHistory.busy.value"
-                  @click="handleRedo"
-                  ><el-icon aria-hidden="true"
-                    ><svg viewBox="0 0 24 24">
-                      <path
-                        fill="currentColor"
-                        d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"
-                      /></svg></el-icon></el-button
-                ><el-button
-                  v-if="selectedIds.length"
-                  type="danger"
-                  size="small"
-                  data-test="designer-batch-delete"
-                  :disabled="designerHistory.busy.value"
-                  @click="batchDelete"
-                  >批量删除({{ selectedIds.length }})</el-button
+                <el-tooltip content="新建字段" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    type="primary"
+                    data-test="designer-new-field"
+                    aria-label="新建字段"
+                    :disabled="designerHistory.busy.value || isReordering.value"
+                    @click="newField"
+                    ><el-icon aria-hidden="true"><Plus /></el-icon></el-button
+                  ></el-tooltip
+                ><el-tooltip v-if="hasDraft" content="保存新增字段" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    type="success"
+                    data-test="designer-save-draft"
+                    aria-label="保存新增字段"
+                    :loading="savingDraft"
+                    :disabled="designerHistory.busy.value"
+                    @click="saveDraftField"
+                    ><el-icon aria-hidden="true"><Check /></el-icon></el-button
+                  ></el-tooltip
+                ><el-tooltip content="添加“以下为log行”提示" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    data-test="designer-add-log-row"
+                    aria-label="添加“以下为log行”提示"
+                    :disabled="designerHistory.busy.value"
+                    @click="addLogRow"
+                    ><el-icon aria-hidden="true"><DocumentAdd /></el-icon></el-button
+                  ></el-tooltip
+                ><el-tooltip content="撤回" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    data-test="designer-undo"
+                    aria-label="撤回"
+                    :disabled="!designerHistory.canUndo.value"
+                    :loading="designerHistory.busy.value"
+                    @click="handleUndo"
+                    ><el-icon aria-hidden="true"><RefreshLeft /></el-icon></el-button
+                  ></el-tooltip
+                ><el-tooltip content="恢复" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    data-test="designer-redo"
+                    aria-label="恢复"
+                    :disabled="!designerHistory.canRedo.value"
+                    :loading="designerHistory.busy.value"
+                    @click="handleRedo"
+                    ><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button
+                  ></el-tooltip
+                ><el-tooltip content="批量删除" placement="top" :show-after="300"
+                  ><el-button
+                    type="danger"
+                    size="small"
+                    data-test="designer-batch-delete"
+                    aria-label="批量删除"
+                    :disabled="designerHistory.busy.value || !selectedIds.length"
+                    @click="batchDelete"
+                    ><el-icon aria-hidden="true"><Delete /></el-icon></el-button
+                  ></el-tooltip
                 ><span style="color: var(--color-text-muted); font-size: 12px; margin-left: auto"
                   >共 {{ designerVisibleFields.length }} 个字段</span
                 >
@@ -4116,55 +4163,48 @@ function openAddForm() {
                       draggable="false"
                       :aria-label="'切换 ' + getFormFieldDisplayLabel(ff) + ' 的横向表格标记'"
                       @click.stop="toggleInline(ff)"
-                      >⊞</el-button
+                      ><el-icon aria-hidden="true"><Grid /></el-icon></el-button
                     ></el-tooltip
-                  ><el-button
+                  ><el-tooltip
                     v-if="!isDraftField(ff)"
-                    size="small"
-                    link
-                    data-test="designer-copy-field"
-                    draggable="false"
-                    :disabled="copyingFieldIds.has(ff.id) || designerHistory.busy.value"
-                    :aria-label="'复制 ' + getFormFieldDisplayLabel(ff)"
-                    @click.stop="copyFormField(ff)"
-                    >复制</el-button
-                  ><el-button
-                    type="danger"
-                    size="small"
-                    link
-                    data-test="designer-delete-field"
-                    draggable="false"
-                    :disabled="!isDraftField(ff) && designerHistory.busy.value"
-                    @click.stop="removeField(ff)"
-                    >删除</el-button>
+                    :content="'复制 ' + getFormFieldDisplayLabel(ff)"
+                    placement="top"
+                    :show-after="300"
+                    ><el-button
+                      size="small"
+                      link
+                      data-test="designer-copy-field"
+                      draggable="false"
+                      :disabled="copyingFieldIds.has(ff.id) || designerHistory.busy.value"
+                      :aria-label="'复制 ' + getFormFieldDisplayLabel(ff)"
+                      @click.stop="copyFormField(ff)"
+                      ><el-icon aria-hidden="true"><DocumentCopy /></el-icon></el-button
+                    ></el-tooltip
+                  ><el-tooltip
+                    :content="'删除 ' + getFormFieldDisplayLabel(ff)"
+                    placement="top"
+                    :show-after="300"
+                    ><el-button
+                      type="danger"
+                      size="small"
+                      link
+                      data-test="designer-delete-field"
+                      draggable="false"
+                      :disabled="!isDraftField(ff) && designerHistory.busy.value"
+                      @click.stop="removeField(ff)"
+                      ><el-icon aria-hidden="true"><Delete /></el-icon></el-button
+                    ></el-tooltip>
                 </div>
               </div>
             </div>
-          </div>
           <button
             type="button"
-            class="pane-v-resizer"
-            aria-label="调整字段列表与预览高度"
-            @mousedown="startWorkspaceResize"
+            class="pane-v-resizer designer-left-resizer"
+            aria-label="调整字段列表与属性编辑高度"
+            @mousedown="startLeftSplitResize"
           ></button>
-          <div class="designer-workspace-bottom">
-            <div class="designer-preview-pane">
-              <div class="designer-section-title">
-                <span>实时预览</span>
-                <el-tooltip
-                  v-if="headerDesignNotesSummary"
-                  effect="dark"
-                  placement="bottom"
-                  popper-class="fd-notes-tooltip"
-                >
-                  <template #content>
-                    <div class="fd-notes-tooltip-content">{{ headerDesignNotesTooltip }}</div>
-                  </template>
-                  <span class="fd-canvas-header-notes" data-test="designer-canvas-notes-summary">{{
-                    headerDesignNotesSummary
-                  }}</span>
-                </el-tooltip>
-              </div>
+          <div class="designer-preview-pane">
+              <div class="designer-section-title"><span>实时预览</span></div>
               <div class="designer-preview-viewport">
                 <div class="designer-preview-stage">
                   <div class="designer-preview-page">
@@ -4866,9 +4906,12 @@ function openAddForm() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-        <div class="designer-side-pane" :style="{ width: propWidth + 'px', gridTemplateRows: sideRows }">
+          <button
+            type="button"
+            class="pane-h-resizer"
+            aria-label="调整左右分栏宽度"
+            @mousedown="startMainSplitResize"
+          ></button>
           <div class="designer-editor-card">
             <div class="designer-section-title">{{ selectedFieldId ? '字段属性' : '表单属性' }}</div>
             <div v-if="!selectedFieldId" class="designer-editor-scroll" data-test="designer-form-property-form">
@@ -4895,26 +4938,6 @@ function openAddForm() {
                   </el-radio-group>
                 </el-form-item>
               </el-form>
-              <div class="designer-draft-actions" data-test="designer-form-property-actions">
-                <el-button
-                  size="small"
-                  data-test="designer-form-property-cancel"
-                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || isSavingFormProp"
-                  @click="cancelFormProp"
-                >
-                  取消
-                </el-button>
-                <el-button
-                  type="primary"
-                  size="small"
-                  data-test="designer-form-property-save"
-                  :loading="isSavingFormProp"
-                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
-                  @click="saveFormProp"
-                >
-                  保存
-                </el-button>
-              </div>
             </div>
             <div v-else class="designer-editor-scroll">
               <div
@@ -4932,15 +4955,71 @@ function openAddForm() {
                 data-test="designer-field-property-form"
                 :disabled="designerHistory.busy.value"
               >
-                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID"
-                  ><el-input v-model="editProp.variable_name"
-                /></el-form-item>
-                <el-form-item label="字段标签"
-                  ><el-input
+                <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID">
+                  <el-autocomplete
+                    v-model="editProp.variable_name"
+                    :fetch-suggestions="fetchFieldDefSuggestions"
+                    :trigger-on-focus="false"
+                    placeholder="输入OID搜索字段库"
+                    style="width: 100%"
+                    data-test="designer-field-oid-autocomplete"
+                    @select="selectAutocompleteCandidate"
+                  >
+                    <template #default="{ item }">
+                      <div
+                        class="fd-autocomplete-item"
+                        :class="{ 'is-added': item.state === CANDIDATE_STATE_ADDED }"
+                        :aria-disabled="item.state === CANDIDATE_STATE_ADDED"
+                      >
+                        <span class="fd-autocomplete-oid">{{ item.definition.variable_name }}</span>
+                        <span class="fd-autocomplete-label">{{ item.definition.label }}</span>
+                        <span class="fd-autocomplete-type">{{ item.definition.field_type }}</span>
+                        <span v-if="item.state === CANDIDATE_STATE_CURRENT" class="fd-autocomplete-state"
+                          >当前字段</span
+                        >
+                        <span v-else-if="item.state === CANDIDATE_STATE_ADDED" class="fd-autocomplete-state"
+                          >已添加</span
+                        >
+                      </div>
+                    </template>
+                  </el-autocomplete>
+                </el-form-item>
+                <el-form-item label="字段标签">
+                  <el-input
+                    v-if="editProp.field_type === '标签'"
                     v-model="editProp.label"
-                    :type="editProp.field_type === '标签' ? 'textarea' : 'text'"
-                    :autosize="editProp.field_type === '标签' ? { minRows: 2, maxRows: 4 } : undefined"
-                /></el-form-item>
+                    type="textarea"
+                    :autosize="{ minRows: 2, maxRows: 4 }"
+                  />
+                  <el-autocomplete
+                    v-else
+                    v-model="editProp.label"
+                    :fetch-suggestions="fetchFieldDefSuggestions"
+                    :trigger-on-focus="false"
+                    placeholder="输入标签搜索字段库"
+                    style="width: 100%"
+                    data-test="designer-field-label-autocomplete"
+                    @select="selectAutocompleteCandidate"
+                  >
+                    <template #default="{ item }">
+                      <div
+                        class="fd-autocomplete-item"
+                        :class="{ 'is-added': item.state === CANDIDATE_STATE_ADDED }"
+                        :aria-disabled="item.state === CANDIDATE_STATE_ADDED"
+                      >
+                        <span class="fd-autocomplete-oid">{{ item.definition.variable_name }}</span>
+                        <span class="fd-autocomplete-label">{{ item.definition.label }}</span>
+                        <span class="fd-autocomplete-type">{{ item.definition.field_type }}</span>
+                        <span v-if="item.state === CANDIDATE_STATE_CURRENT" class="fd-autocomplete-state"
+                          >当前字段</span
+                        >
+                        <span v-else-if="item.state === CANDIDATE_STATE_ADDED" class="fd-autocomplete-state"
+                          >已添加</span
+                        >
+                      </div>
+                    </template>
+                  </el-autocomplete>
+                </el-form-item>
                 <el-form-item label="字段类型">
                   <el-select v-model="editProp.field_type" style="width: 100%">
                     <el-option
@@ -5149,7 +5228,40 @@ function openAddForm() {
                   </el-radio-group>
                 </el-form-item>
               </el-form>
-              <div v-if="selectedFieldId === DRAFT_FIELD_ID" class="designer-draft-actions">
+              </template>
+            </div>
+            <div class="designer-editor-actions">
+              <template v-if="!selectedFieldId">
+                <el-tooltip content="设计备注" placement="top" :show-after="300"
+                  ><el-button
+                    size="small"
+                    data-test="designer-notes-button"
+                    aria-label="设计备注"
+                    @click="openNotesDialog"
+                    ><el-icon aria-hidden="true"><Memo /></el-icon></el-button
+                  ></el-tooltip
+                ><span class="designer-editor-actions-spacer"></span>
+                <el-button
+                  size="small"
+                  data-test="designer-form-property-cancel"
+                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || isSavingFormProp"
+                  @click="cancelFormProp"
+                >
+                  取消
+                </el-button>
+                <el-button
+                  type="primary"
+                  size="small"
+                  data-test="designer-form-property-save"
+                  :loading="isSavingFormProp"
+                  :disabled="!isFormPropDirty || designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
+                  @click="saveFormProp"
+                >
+                  保存
+                </el-button>
+              </template>
+              <template v-else-if="selectedFieldId === DRAFT_FIELD_ID">
+                <span class="designer-editor-actions-spacer"></span>
                 <el-button size="small" data-test="designer-draft-cancel" @click="removeDraftFromState">
                   取消
                 </el-button>
@@ -5163,8 +5275,9 @@ function openAddForm() {
                 >
                   保存
                 </el-button>
-              </div>
-              <div v-else class="designer-draft-actions" data-test="designer-property-actions">
+              </template>
+              <template v-else-if="editProp.field_type !== '日志行'">
+                <span class="designer-editor-actions-spacer"></span>
                 <el-button
                   size="small"
                   data-test="designer-property-cancel"
@@ -5183,33 +5296,19 @@ function openAddForm() {
                 >
                   保存
                 </el-button>
-              </div>
               </template>
             </div>
           </div>
-          <button
-            type="button"
-            class="pane-v-resizer"
-            aria-label="调整属性编辑与设计备注高度"
-            @mousedown="startSideResize"
-          ></button>
-          <div class="designer-notes-card">
-            <div class="designer-section-title">设计备注</div>
-            <div class="designer-notes-editor">
-              <el-input
-                v-model="formDesignNotes"
-                type="textarea"
-                :autosize="false"
-                class="designer-notes-input"
-                @input="onNotesInput"
-              />
-            </div>
-          </div>
-        </div>
       </div>
     </el-dialog>
 
     <!-- 各类弹窗 -->
+    <DesignNotesDialog
+      v-model="showNotesDialog"
+      :form="selectedForm"
+      :project-id="props.projectId"
+      @saved="onNotesDialogSaved"
+    />
     <el-dialog v-model="showAddForm" title="新建表单" width="360px">
       <el-form label-width="80px">
         <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" /></el-form-item>
@@ -5543,86 +5642,6 @@ function openAddForm() {
   flex: 1;
   font-size: 13px;
 }
-.fd-library {
-  border: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-.fd-library-header {
-  padding: 8px;
-  background: var(--color-bg-hover);
-  font-weight: bold;
-  font-size: 13px;
-}
-.fd-library-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-.fd-item {
-  width: 100%;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  font-size: 12px;
-  box-sizing: border-box;
-  text-align: left;
-}
-.fd-item:hover {
-  background: var(--color-bg-hover);
-}
-.fd-item--acrf {
-  padding: 4px 10px;
-}
-.fd-item-content {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  gap: 6px;
-}
-.fd-item-lines {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.fd-item-oid {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-.fd-item-label {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
-.fd-item-type {
-  flex-shrink: 0;
-  align-self: center;
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-.fd-panel-resizer {
-  width: 4px;
-  cursor: col-resize;
-  background: transparent;
-  transition: background 0.2s;
-}
-.fd-panel-resizer:hover {
-  background: var(--color-primary-subtle);
-}
 .choice-codelist-row {
   display: flex;
   align-items: center;
@@ -5677,12 +5696,55 @@ function openAddForm() {
 
 .designer-shell {
   display: grid;
-  grid-template-columns: auto 4px minmax(320px, 1fr) 460px;
-  grid-template-rows: minmax(0, 1fr);
+  /* 比例经 inline :style 注入 CSS 变量（可拖拽分栏，usePaneSplit 持久化） */
+  grid-template-columns: var(--main-first, 0.38fr) 6px var(--main-second, 0.62fr);
+  grid-template-rows: var(--left-first, 0.5fr) 6px var(--left-second, 0.5fr);
+  grid-template-areas:
+    'fields hresizer preview'
+    'lresizer hresizer preview'
+    'editor hresizer preview';
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--color-bg-body);
+}
+
+.designer-fields-panel {
+  grid-area: fields;
+}
+
+.designer-left-resizer {
+  grid-area: lresizer;
+}
+
+.pane-h-resizer {
+  grid-area: hresizer;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.pane-h-resizer:hover {
+  background: var(--color-primary-subtle);
+}
+
+/* 窄屏（约 1100px 以下）退化为上下堆叠：字段列表 + 属性在上，预览在下，隐藏横向拖拽条 */
+@media (max-width: 1100px) {
+  .designer-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 42vh) 6px minmax(220px, 30vh) minmax(300px, auto);
+    grid-template-areas:
+      'fields'
+      'lresizer'
+      'editor'
+      'preview';
+    overflow-y: auto;
+  }
+  .pane-h-resizer {
+    display: none;
+  }
 }
 
 .designer-dialog-header {
@@ -5740,45 +5802,6 @@ function openAddForm() {
   caret-color: transparent;
 }
 
-.designer-library-pane {
-  min-width: 220px;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  border: none;
-  border-right: 1px solid var(--color-border);
-  border-radius: 0;
-}
-
-.designer-pane-toolbar {
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.designer-workspace {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  /* grid-template-rows 由 workspaceRows 计算并经 inline :style 注入（可拖拽分栏） */
-  row-gap: 0;
-  padding: 8px;
-}
-
-.designer-workspace-top,
-.designer-workspace-bottom {
-  min-height: 0;
-}
-
-.designer-workspace-bottom {
-  display: flex;
-  overflow: hidden;
-  min-height: 200px;
-}
-
-.designer-workspace-top {
-  padding: 0;
-}
-
 .designer-fields-panel {
   height: 100%;
   border: 1px solid var(--color-border);
@@ -5791,27 +5814,14 @@ function openAddForm() {
   padding: 4px;
 }
 
-.designer-side-pane {
-  min-width: 460px;
-  max-width: 460px;
-  min-height: 0;
-  display: grid;
-  /* grid-template-rows 由 sideRows 计算并经 inline :style 注入（可拖拽分栏） */
-  row-gap: 0;
-  padding: 8px;
-  border-left: 1px solid var(--color-border);
-  background: var(--color-bg-hover);
-}
-
 .designer-editor-card,
-.designer-notes-card,
 .designer-preview-pane,
 .designer-preview-viewport {
   min-height: 0;
 }
 
-.designer-editor-card,
-.designer-notes-card {
+.designer-editor-card {
+  grid-area: editor;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -5821,10 +5831,6 @@ function openAddForm() {
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
-}
-
-.designer-notes-card {
-  min-height: 120px;
 }
 
 .pane-v-resizer {
@@ -5895,39 +5901,71 @@ function openAddForm() {
   padding: 6px;
 }
 
-.designer-draft-actions {
+/* 固定底部动作栏：滚动区之外，与卡片标题同框 */
+.designer-editor-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
-  padding-top: 4px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  flex-shrink: 0;
 }
 
-.designer-draft-actions .el-button--primary {
+.designer-editor-actions-spacer {
+  flex: 1;
+}
+
+.designer-editor-actions .el-button--primary {
   min-width: 88px;
 }
 
-.designer-notes-editor {
-  flex: 1;
-  min-height: 0;
+/* 字段库自动完成候选条目：OID + 标签 + 类型 + 状态 */
+.fd-autocomplete-item {
   display: flex;
-  padding: 6px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  line-height: 1.4;
 }
 
-.designer-notes-input {
+.fd-autocomplete-item.is-added {
+  opacity: 0.55;
+}
+
+.fd-autocomplete-oid {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fd-autocomplete-label {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
 }
 
-.designer-notes-input :deep(.el-textarea),
-.designer-notes-input :deep(.el-textarea__inner) {
-  height: 100%;
+.fd-autocomplete-type {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
 }
 
-.designer-notes-input :deep(.el-textarea__inner) {
-  resize: none;
+.fd-autocomplete-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-primary);
 }
 
 .designer-preview-pane {
-  flex: 1;
+  grid-area: preview;
   min-height: 0;
   display: flex;
   flex-direction: column;

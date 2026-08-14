@@ -33,27 +33,25 @@ test('newField 只构造本地草稿，不发任何网络请求', () => {
   assert.match(body, /confirmDiscardDraft\(\)/)
 })
 
-test('saveDraftField 先建定义后建实例并替换草稿、入撤销栈', () => {
+test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤销栈', () => {
   const body = fnBody('saveDraftField')
-  const defPost = body.indexOf('/api/projects/${projectId}/field-definitions`')
-  const ffPost = body.indexOf('/api/forms/${formId}/fields`')
-  assert.ok(defPost > -1, '应 POST 字段定义')
-  assert.match(body, /const definitionPayload = \{[\s\S]*?\.\.\.buildFieldDefinitionCreatePayload\(fd\),[\s\S]*?checkbox_label: fd\.checkbox_label \?\? null/)
-  assert.match(body, /const createdFd = await api\.post\(`\/api\/projects\/\$\{projectId\}\/field-definitions`, definitionPayload\)/)
-  assert.ok(ffPost > -1, '应 POST 字段实例')
-  assert.ok(defPost < ffPost, '应先建定义再建实例')
-  // 实例创建携带 field_definition_id 与实例属性
-  assert.match(body, /field_definition_id: createdFd\.id/)
-  assert.match(body, /\.\.\.instancePayload/)
-  assert.match(body, /label_bold: draft\.label_bold \?\? 1/)
-  assert.match(body, /label_font_size: draft\.label_font_size \?\? null/)
+  const profilePost = body.indexOf('/api/forms/${formId}/field-profile`')
+  assert.ok(profilePost > -1, '应 POST field-profile 原子接口')
+  // 原子命令：创建/绑定定义 + 实例 upsert（不再分两次请求）
+  assert.match(body, /const command = buildFieldProfileCommand\(\{/)
+  assert.match(body, /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\)/)
+  assert.match(body, /const createdFfId = result\.form_field_id \?\? result\.form_field\?\.id/)
+  assert.match(body, /const createdFdId = result\.final_definition_id/)
+  assert.match(body, /const definitionCreated = Boolean\(result\.definition_created\)/)
   // 替换草稿并刷新
   assert.match(body, /formFields\.value = formFields\.value\.filter\(\(f\) => !isDraftField\(f\)\)/)
   assert.match(body, /loadFormFields\(formId\)/)
   assert.match(body, /loadFieldDefs\(\)/)
-  // 作为一次「新建字段」入撤销栈
+  // 作为一次「新建字段」入撤销栈；撤销=删除实例+条件清理定义，重做=复用/重建
   assert.match(body, /recordDesignerHistory\(historyContext, \{/)
   assert.match(body, /label: '新建字段'/)
+  assert.match(body, /buildDeleteProfileCommand\(\{[\s\S]*?cleanupDefinitionId: definitionCreated \? ids\.fdId : null/)
+  assert.match(body, /preferred_definition_id: ids\.fdId/)
   // 失败保留草稿并报错，不静默
   assert.match(body, /ElMessage\.error\(e\.message\)/)
   assert.match(body, /return false/)
@@ -147,9 +145,9 @@ test('模板：草稿态显示顶部保存按钮，草稿行无批量选择框',
   assert.match(source, /@click="onSelectFieldClick\(ff\)"/)
 })
 
-test('模板：草稿字段在右侧属性面板显示保存和取消按钮', () => {
-  assert.match(source, /v-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-cancel"[\s\S]*?@click="removeDraftFromState"/)
-  assert.match(source, /v-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-save"[\s\S]*?@click="saveDraftField"/)
+test('模板：草稿字段在属性面板固定底部动作栏显示保存和取消按钮', () => {
+  assert.match(source, /v-else-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-cancel"[\s\S]*?@click="removeDraftFromState"/)
+  assert.match(source, /v-else-if="selectedFieldId === DRAFT_FIELD_ID"[\s\S]*?data-test="designer-draft-save"[\s\S]*?@click="saveDraftField"/)
 })
 
 test('组件边界 guard：快编/inline/拖入/log 均对草稿短路', () => {
@@ -157,8 +155,8 @@ test('组件边界 guard：快编/inline/拖入/log 均对草稿短路', () => {
   assert.match(source, /function openQuickEdit\(ff\) \{\s*if \(isDraftField\(ff\)\) return;/)
   // toggleInline 草稿早退（纵深防御，按钮虽已隐藏）
   assert.match(source, /async function toggleInline\(ff\) \{\s*if \(isDraftField\(ff\)\) return;/)
-  // addField / addLogRow 落库前先确认草稿，避免 loadFormFields 覆盖丢失
-  assert.match(fnBody('addField'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
+  // newField / addLogRow 落库前先确认草稿，避免 loadFormFields 覆盖丢失
+  assert.match(fnBody('newField'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
   assert.match(fnBody('addLogRow'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
 })
 

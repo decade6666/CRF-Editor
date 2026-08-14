@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  buildDefinitionPayload,
   normalizeDateFormat,
   normalizeHexColorInput,
   syncFieldTypeSpecificProps,
@@ -11,10 +12,6 @@ import {
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
-const fieldDefinitionPayloadExpression = /const updatedDefinition = await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`, (\{[\s\S]*?\})\)/.exec(formDesignerSource)?.[1]
-const buildFieldDefinitionPayload = fieldDefinitionPayloadExpression
-  ? new Function('snapshot', `return (${fieldDefinitionPayloadExpression})`)
-  : null
 
 function functionBody(name) {
   const start = formDesignerSource.indexOf(`function ${name}(`)
@@ -61,14 +58,14 @@ const DEFAULT_DATE_FORMATS = {
   时间: 'HH:mm',
 }
 
-test('applyFieldPropState replays colors for both log rows and normal fields', () => {
-  // 撤销/恢复颜色对日志行与普通字段都需回放：颜色 PATCH 必须在 if/else 之外无条件执行
-  const body = /async function applyFieldPropState\(ctx, state\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
-  assert.ok(body, 'should locate applyFieldPropState body')
-  const colorPatches = body.match(/api\.patch\(`\/api\/form-fields\/\$\{ffId\}\/colors`/g) || []
-  assert.equal(colorPatches.length, 1, 'colors should be patched exactly once')
-  const elseBlock = /\} else \{([\s\S]*?)\n {2}\}/.exec(body)?.[1] || ''
-  assert.doesNotMatch(elseBlock, /\/colors`/, 'colors patch must not be confined to the non-log-row branch')
+test('replayBindingProfile replays definition, binding, instance and cleanup in one request', () => {
+  // 撤销/恢复收敛为一次 binding-profile 原子请求（不再逐次 PUT 定义 / PUT 实例 / PATCH 颜色）
+  const body = /async function replayBindingProfile\(historyContext, ffId, command, \{ focusFieldId = ffId \} = \{\}\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
+  assert.ok(body, 'should locate replayBindingProfile body')
+  assert.match(body, /api\.put\(`\/api\/form-fields\/\$\{ffId\}\/binding-profile`, command\)/)
+  assert.match(body, /reloadAfterReplay\(historyContext\?\.formId, \{ defs: true, focusFieldId \}\)/)
+  assert.doesNotMatch(formDesignerSource, /async function applyFieldPropState/)
+  assert.doesNotMatch(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ffId\}\/colors`/)
 })
 
 test('syncFieldTypeSpecificProps clears stale choice and unit references when type changes', () => {
@@ -134,9 +131,7 @@ test('currentEditorPropState normalizes date_format the same way as syncFieldTyp
 })
 
 test('field definition payload keeps cleared unit as null', () => {
-  assert.ok(buildFieldDefinitionPayload, 'should extract field definition payload builder from FormDesignerTab.vue')
-
-  const clearedPayload = buildFieldDefinitionPayload({
+  const clearedPayload = buildDefinitionPayload({
     label: '体温',
     variable_name: 'TEMP',
     field_type: '文本',
@@ -147,7 +142,7 @@ test('field definition payload keeps cleared unit as null', () => {
     codelist_id: null,
     unit_id: undefined,
   })
-  const selectedPayload = buildFieldDefinitionPayload({
+  const selectedPayload = buildDefinitionPayload({
     label: '体温',
     variable_name: 'TEMP',
     field_type: '文本',
@@ -164,6 +159,9 @@ test('field definition payload keeps cleared unit as null', () => {
   assert.equal(clearedPayload.checkbox_label, null)
   assert.equal(selectedPayload.unit_id, 12)
   assert.equal(selectedPayload.checkbox_label, '已确认')
+  // 结构字段默认值
+  assert.equal(clearedPayload.is_multi_record, 0)
+  assert.equal(clearedPayload.table_type, '固定行')
 })
 
 test('property editor exposes explicit dirty state helpers and keeps drafts clean', () => {
@@ -259,7 +257,7 @@ test('property editor save validates, warns on multi-form references, and update
   assert.match(body, /isSavingFieldProp\.value = true/)
   assert.match(body, /isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id/)
   assert.match(body, /ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)/)
-  assert.match(body, /await confirmFieldReferenceImpact\(ff\)/)
+  assert.match(body, /await confirmFieldReferenceImpact\(sharedWriteTarget\)/)
   assert.match(formDesignerSource, /import \{ countDistinctForms, formatFieldImpactMessage \} from '..\/composables\/fieldReferenceImpact'/)
   assert.match(formDesignerSource, /countDistinctForms\(refs\) <= 1/)
   assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
@@ -277,12 +275,19 @@ test('property editor cancel restores selected field from baseline without reque
   assert.match(body, /if \(ff\) selectField\(ff\)/)
 })
 
-test('saveFieldProp always follows the field-definition update path and refreshes the field library', () => {
+test('saveFieldProp saves one atomic binding-profile command and refreshes the field library', () => {
   const body = functionBody('saveFieldProp')
 
   assert.doesNotMatch(body, /if \(ff\.is_log_row\)/)
-  assert.match(body, /const updatedDefinition = await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`/)
+  assert.match(body, /const command = buildBindingProfileCommand\(\{/)
+  assert.match(body, /const result = await api\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command\)/)
+  assert.doesNotMatch(body, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions/)
+  assert.doesNotMatch(body, /api\.patch\(`\/api\/form-fields/)
+  assert.match(body, /api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\)/)
   assert.match(body, /refreshKey\.value\+\+/)
+  // 历史条目按操作类型记录：共享更新 / 换绑 / OID 分叉
+  assert.match(body, /buildFieldPropReplayCommand\(\{[\s\S]*entryType: isFork \? 'fork-undo' : isRebind \? 'rebind-undo' : 'shared'/)
+  assert.match(body, /buildFieldPropReplayCommand\(\{[\s\S]*entryType: isFork \? 'fork-redo' : isRebind \? 'rebind-redo' : 'shared'/)
 })
 
 
@@ -329,12 +334,10 @@ test('FormDesignerTab guards OID charset on form/field submit paths (option code
   assert.doesNotMatch(quickSave, /isValidOptionalOid\(opt\.code\)/)
 })
 
-test('log row property panel shares the persisted-field cancel/save action bar', () => {
-  // log 行与普通字段仍共用同一组「取消/保存」，但位置回到滚动区内，紧跟字段表单末尾，
-  // 视觉上与草稿按钮一致；全文件仍只允许存在一处 designer-property-actions。
-  const actionBarCount = (formDesignerSource.match(/data-test="designer-property-actions"/g) || []).length
-  assert.equal(actionBarCount, 1, 'designer-property-actions must exist exactly once')
-  assert.doesNotMatch(formDesignerSource, /designer-editor-actions/)
+test('log row property panel renders readonly hint and skips the fixed action bar', () => {
+  // log 行只读：无取消/保存；普通字段与草稿共用固定底部动作栏（designer-editor-actions）
+  const actionBarCount = (formDesignerSource.match(/class="designer-editor-actions"/g) || []).length
+  assert.equal(actionBarCount, 1, 'designer-editor-actions must exist exactly once')
 
   const fieldEditorSection = formDesignerSource.match(
     /<div v-else class="designer-editor-scroll">([\s\S]*?)^ {12}<\/div>/m,
@@ -352,17 +355,17 @@ test('log row property panel shares the persisted-field cancel/save action bar',
     /<template v-else>[\s\S]*?<el-form[\s\S]*data-test="designer-field-property-form"/,
     'normal field editor should live in the v-else template next to the log-row hint',
   )
+  // log 行分支不渲染取消/保存（v-else-if="editProp.field_type !== '日志行'"）
   assert.match(
-    fieldEditorBody,
-    /data-test="designer-draft-save"[\s\S]*<div v-else class="designer-draft-actions"[\s\S]*data-test="designer-property-actions"/,
-    'persisted-field action bar should stay inside the scroll area and be skipped for log rows',
+    formDesignerSource,
+    /<template v-else-if="editProp\.field_type !== '日志行'"[\s\S]*data-test="designer-property-cancel"/,
   )
   assert.match(
-    fieldEditorBody,
+    formDesignerSource,
     /data-test="designer-property-cancel"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value \|\| isSavingFieldProp"[\s\S]*@click="cancelSelectedFieldProp"/,
   )
   assert.match(
-    fieldEditorBody,
+    formDesignerSource,
     /data-test="designer-property-save"[\s\S]*:loading="isSavingFieldProp"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value"[\s\S]*@click="saveSelectedFieldProp"/,
   )
 })

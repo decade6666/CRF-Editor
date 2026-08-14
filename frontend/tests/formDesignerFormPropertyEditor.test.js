@@ -205,7 +205,7 @@ test('designer blank click switches to form properties except on cards, controls
   assert.match(formDesignerSource, /class="designer-dialog-header"[\s\S]*@click="onDesignerBlankClick"/)
   assert.match(
     formDesignerSource,
-    /DESIGNER_BLANK_EXCLUDE_SELECTOR = \[[\s\S]*\.designer-preview-pane[\s\S]*\.designer-editor-card[\s\S]*\.designer-notes-card[\s\S]*\.fd-canvas-list/,
+    /DESIGNER_BLANK_EXCLUDE_SELECTOR = \[[\s\S]*\.designer-preview-pane[\s\S]*\.designer-editor-card[\s\S]*\.pane-v-resizer[\s\S]*\.pane-h-resizer[\s\S]*\.fd-canvas-list/,
   )
 })
 

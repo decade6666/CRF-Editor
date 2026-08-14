@@ -260,11 +260,10 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.doesNotMatch(formsSource, /<el-table-column type="selection" width="40" v-if="editMode" \/>/);
   assert.doesNotMatch(formsSource, /<el-table-column v-if="editMode" label="操作" width="150" fixed="right">/);
   assert.doesNotMatch(formsSource, /designer-shell--readonly/);
-  assert.doesNotMatch(formsSource, /<div v-if="editMode" class="fd-library designer-library-pane"/);
-  assert.match(formsSource, /class="fd-library designer-library-pane"/);
-  assert.doesNotMatch(formsSource, /<div v-if="editMode" class="fd-panel-resizer"/);
-  assert.match(formsSource, /class="fd-panel-resizer"/);
-  assert.match(formsSource, /aria-label="调整字段库宽度"/);
+  // 字段库独立卡片已移除：字段库入口收敛为 OID/标签自动完成
+  assert.doesNotMatch(formsSource, /fd-library/);
+  assert.doesNotMatch(formsSource, /fd-panel-resizer/);
+  assert.doesNotMatch(formsSource, /调整字段库宽度/);
   assert.doesNotMatch(formsSource, /:draggable="editMode"/);
   assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/);
   assert.doesNotMatch(formsSource, /<el-checkbox v-if="editMode" v-model="selectedIds"/);
@@ -274,9 +273,10 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
     formsSource,
     /<el-button v-if="editMode" type="danger" size="small" link @click\.stop="removeField\(ff\)"/,
   );
+  // 行级删除已图标化（图标按钮 + tooltip），不再渲染「删除」文本
   assert.match(
     formsSource,
-    /data-test="designer-delete-field"[\s\S]*?@click\.stop="removeField\(ff\)"[\s\S]*?>删除<\/el-button/,
+    /data-test="designer-delete-field"[\s\S]*?@click\.stop="removeField\(ff\)"[\s\S]*?><el-icon/,
   );
   assert.doesNotMatch(formsSource, /<div v-else-if="!editMode" class="designer-empty-state">简要模式下仅支持预览/);
   assert.doesNotMatch(formsSource, /<div v-if="!editMode" class="designer-notes-readonly">/);
@@ -285,7 +285,7 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
   assert.doesNotMatch(formsSource, /if \(!editMode\.value \|\|/);
 });
 
-test('FormDesignerTab designer dialog uses center-bottom preview and right-side notes layout', () => {
+test('FormDesignerTab designer dialog uses two-pane layout: fields+editor left, preview right', () => {
   assert.match(formsSource, /const designerVisibleFields = computed\(\(\) => \{/);
   assert.match(formsSource, /_displayOrder: index \+ 1/);
   assert.match(formsSource, /v-for="\(ff, idx\) in designerVisibleFields"/);
@@ -298,43 +298,36 @@ test('FormDesignerTab designer dialog uses center-bottom preview and right-side 
   );
   assert.match(formsSource, /\.designer-dialog-header \{[\s\S]*padding-right: 32px;[\s\S]*\}/);
   assert.match(formsSource, /class="designer-shell"/);
-  assert.match(formsSource, /class="designer-workspace"/);
-  assert.match(formsSource, /class="designer-workspace-top"/);
-  assert.match(formsSource, /class="designer-workspace-bottom"/);
+  // 两栏：字段卡片 + 属性卡片在左列，预览在右列；字段库卡片/独立属性栏/备注卡片已移除
+  assert.match(formsSource, /class="fd-canvas designer-fields-panel"/);
+  assert.match(formsSource, /class="pane-v-resizer designer-left-resizer"/);
+  assert.match(formsSource, /class="pane-h-resizer"/);
   assert.match(formsSource, /class="designer-preview-pane"/);
-  assert.match(formsSource, /class="designer-side-pane"/);
   assert.match(formsSource, /class="designer-editor-card"/);
-  assert.match(formsSource, /class="designer-notes-card"/);
-  assert.match(formsSource, /width: propWidth \+ 'px'/);
-  assert.doesNotMatch(formsSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/);
+  assert.doesNotMatch(formsSource, /designer-workspace/);
+  assert.doesNotMatch(formsSource, /designer-side-pane/);
+  assert.doesNotMatch(formsSource, /designer-notes-card/);
+  assert.doesNotMatch(formsSource, /width: propWidth \+ 'px'/);
   assert.doesNotMatch(formsSource, /designer-editor-stack/);
   assert.doesNotMatch(formsSource, /const designerHasPreviewNotes = computed\(\(\) => false\)/);
-  assert.match(formsSource, /const previewPaneWidth = 460/);
+  assert.doesNotMatch(formsSource, /const previewPaneWidth = 460/);
   assert.match(
     formsSource,
     /<style>[\s\S]*\.designer-dialog \.el-dialog__body \{[\s\S]*height: calc\(100vh - 54px\);[\s\S]*overflow: hidden;[\s\S]*<\/style>/,
   );
   assert.doesNotMatch(formsSource, /\.designer-dialog :deep\(\.el-dialog__body\)/);
-  assert.match(formsSource, /grid-template-columns: auto 4px minmax\(320px, 1fr\) 460px;/);
-  assert.match(formsSource, /\.designer-shell \{[\s\S]*grid-template-rows: minmax\(0, 1fr\);[\s\S]*overflow: hidden;/);
-  assert.match(
-    formsSource,
-    /\.designer-library-pane \{[\s\S]*min-height: 0;[\s\S]*height: 100%;[\s\S]*overflow: hidden;/,
-  );
-  assert.match(formsSource, /\.fd-library \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
-  assert.match(formsSource, /\.fd-library-list \{[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/);
-  assert.match(formsSource, /\.designer-workspace \{[\s\S]*row-gap: 0;/);
-  assert.match(formsSource, /gridTemplateRows: workspaceRows/);
-  assert.match(formsSource, /\.designer-workspace-bottom \{[\s\S]*display: flex;[\s\S]*overflow: hidden;[\s\S]*min-height: 200px;/);
-  assert.match(formsSource, /\.designer-side-pane \{[\s\S]*row-gap: 0;/);
-  assert.match(formsSource, /gridTemplateRows: sideRows/);
+  assert.match(formsSource, /grid-template-columns: var\(--main-first, 0\.38fr\) 6px var\(--main-second, 0\.62fr\);/);
+  assert.match(formsSource, /\.designer-shell \{[\s\S]*grid-template-rows: var\(--left-first, 0\.5fr\) 6px var\(--left-second, 0\.5fr\);[\s\S]*overflow: hidden;/);
+  assert.doesNotMatch(formsSource, /\.designer-library-pane/);
+  assert.doesNotMatch(formsSource, /gridTemplateRows: workspaceRows/);
+  assert.doesNotMatch(formsSource, /gridTemplateRows: sideRows/);
   assert.match(formsSource, /width: 56px; margin-left: 2px/);
   assert.match(formsSource, /\.ff-item \{/);
   assert.match(formsSource, /display: flex;/);
   assert.match(formsSource, /align-items: center;/);
   assert.match(formsSource, /gap: 6px;/);
   assert.match(formsSource, /cursor: pointer;/);
-  assert.match(formsSource, /data-test="designer-canvas-notes-summary"/);
+  assert.doesNotMatch(formsSource, /data-test="designer-canvas-notes-summary"/);
   assert.doesNotMatch(formsSource, /@mousedown="startPropResize"/);
   assert.doesNotMatch(formsSource, /function startPropResize\(/);
 });
