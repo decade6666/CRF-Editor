@@ -22,7 +22,7 @@ graph TD
     B --> B5["src/repositories (5)"];
     B --> B6["tests (49)"];
     A --> C["frontend"];
-    C --> C1["src/components (13)"];
+    C --> C1["src/components (14)"];
     C --> C2["src/composables (26)"];
     C --> C3["src/styles"];
     C --> C4["tests (56)"];
@@ -45,6 +45,7 @@ graph TD
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Admin recycle bin with estimated-size display, configurable age/size auto-cleanup policy, preview-before-save dry-run, and an in-process background cleanup loop
+- Admin workspace with top-level 用户管理 / 机构管理 dual entries; org presets are maintained in-page (persistent list + right editor, stacked on narrow screens) with immediate Logo thumbnails and built-in click-to-zoom preview
 - Brief / full editing modes; in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel, and default-off AI review suggestions that can be accepted per suggestion / per form / globally before import
 - Form designer real-time preview, full-screen form-switch dropdown and inline form-property editing (OID / name / paper orientation), field instance quick edit/copy with no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching, aCRF vertical annotation dragging/persistence, and column width / row height dragging
@@ -136,6 +137,7 @@ sudo bash deploy/install-service.sh uninstall
 - Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
 
 ## Change Log
+- `2026-08-14` (task `admin-organization-management`): 管理员双入口与机构管理页面化。`App.vue` 管理员分支顶部 `el-radio-group` 双入口（用户管理 / 机构管理，内存态 `activeAdminPage`，无刷新切换）；用户页保留半宽 `.admin-shell`，机构页新增宽壳 `.admin-org-shell`（max-width 1200px）。新增 `frontend/src/components/OrganizationManagementView.vue`：页面内「左侧机构列表 + 右侧编辑区」，≤900px 上下堆叠，主流程无弹窗；Logo 列立即显示缩略图（reactive Map 存 blob URL + `el-image` 内置预览器，`showPreview` 支持键盘 Enter/Space 打开，点击缩略图不误触发行编辑）；修复错误 Logo 读取 URL（统一走 `/api/organization-presets/{id}/logo`，加载失败可观察提示）；Object URL 在保存刷新 / 删除 / 切换 / 卸载各路径释放。`AdminView.vue` 移除机构预设弹窗入口与接线，删除 `OrganizationPresetsDialog.vue`。管理员 CRUD 权限、普通用户候选脱敏、位图白名单不变；后端零改动。测试：`adminViewStructure.test.js` / `adminOrgPresets.test.js` 重写为页面组件契约（双入口、宽壳、Logo URL、生命周期、键盘预览）。前端全量 628 passed，lint 0 errors，build OK；后端 915 passed / 4 xfailed；浏览器实机（管理员登录）：双入口切换、列表加载、缩略图显示、点击放大 / Esc / 键盘打开、行点击编辑、删除确认全部通过。
 - `2026-08-13` (task `global-search-list-actions`): 全局搜索与五类列表交互统一。`searchRanking.js` 升级为四层级排序（精确 > 连续包含 > 有序子序列 > 受限编辑距离），编辑距离按关键词长度启用（1–2 字不启用；3–5 字最多 1 次；6 字以上最多 2 次且相似度下限 0.7），全部现有接入页共用，无拼音、无新依赖、不截断结果。`main.js` 注册 Element Plus 官方 `zh-cn` locale（内置 MessageBox「确定/取消」、空表/无匹配/日期文案中文化，不额外覆写）。五类页面（CodelistsTab 字典+选项、UnitsTab、FieldsTab、FormDesignerTab 外层表单列表、VisitsTab 访视+关联表单）新增 `Plus`/批量删除 `Delete` 小号方形图标按钮（批删常显、无选择禁用、不显示数量），操作列统一语义图标（复制 `DocumentCopy`、编辑 `EditPen`、删除 `Delete`、预览 `View`、移除 `CircleClose`，删除/移除 danger），全部 `el-tooltip + aria-label`、无原生 `title`；「批量编辑」「设计表单」等复杂动作保留文本。`main.css` 全局 selection 单元格居中规则（`.el-table-column--selection .cell` justify-content center + 左右 padding 0），管理员弹窗等所有表格同步受益，设计器手写复选框不改。测试：`searchRanking.test.js` 14 例（原 7 + 新 7 层级契约）、新增 `listActionsIconify.test.js`（10 例）、`tableHeaderStyle.test.js` 补 selection 居中、`codelistsCopyButton.test.js` / `orderingStructure.test.js` 随图标化同步。前端全量 562 passed，lint 0 errors，build OK；后端零改动（799 passed / 4 xfailed 复核）。浏览器实机（明暗主题）：图标/tooltip/disabled/中文 MessageBox/复选框居中偏差 0px 全部验证。
 - `2026-08-13` (task `designer-notes-chip-capsule`): 设计器顶栏备注 chip 升级为独立胶囊。上一版「卡片底 + 实线边」在暗色下对比仍太弱（用户实机反馈浅色/暗色都看不出分隔），升级为文字 `--color-text-secondary` + 掺主色实线边 `color-mix(primary 35%, border)` + `border-radius: 999px` + 微弱阴影，明暗两套都一眼可见。`formFieldPresentation.test.js` 契约同步。前端全量 544 passed，lint 0 errors，build OK。后端零改动。
 - `2026-08-12` (task `designer-notes-chip-contrast`): 设计器顶栏备注 chip 与表单名视觉分隔。暗色顶栏 `--color-primary-subtle` / `--color-bg-hover` / `--color-border` 几乎同色，原 hover 底 + 虚线边看不见，表单名与备注连成一串。`.fd-canvas-header-notes` 改为卡片底 `var(--color-bg-card)` + 实线边 `1px solid var(--color-border)`（保留 muted 文字、单行省略、`flex: 0 1 auto`），主画布与全屏共用一条规则。`formFieldPresentation.test.js` 补守卫。前端全量 544 passed，lint 0 errors，build OK。后端零改动。

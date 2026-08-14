@@ -270,6 +270,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 - Authentication now uses the existing `username` + password pair through `POST /api/auth/login`.
 - Legacy accounts without a password receive a migration hint in development; production returns a generic unauthorized response.
 - After an administrator logs in, the app lands on a dedicated admin workspace and does not render the normal project list or CRF editing shell.
+- The admin workspace header offers a "User Management / Organization Management" switch: user management keeps users, batch project operations, recycle bin and cleanup policy; organization management maintains org presets in-page (persistent list + right editor, stacked on narrow screens), shows an immediate Logo thumbnail after upload, and supports click-to-zoom preview.
 - Administrators use that workspace to set initial passwords for new users and reset passwords for legacy accounts during migration.
 
 ### Basic Workflow

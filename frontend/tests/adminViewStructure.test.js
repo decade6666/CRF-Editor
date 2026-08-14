@@ -8,14 +8,31 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const adminViewSource = readFileSync(path.resolve(currentDir, '../src/components/AdminView.vue'), 'utf8')
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
 
-test('AdminView uses a single user management workspace', () => {
-  assert.equal(adminViewSource.includes('<el-tabs'), false)
-  assert.equal(adminViewSource.includes('<el-tab-pane'), false)
-  assert.match(adminViewSource, /@click="openRecycleBin"/)
-  assert.match(adminViewSource, /回收站/)
-  assert.match(adminViewSource, /@click="showOrgPresets = true"/)
-  assert.match(adminViewSource, /机构预设/)
-  assert.match(adminViewSource, /<OrganizationPresetsDialog v-model="showOrgPresets" \/>/)
+test('App.vue admin branch exposes top-level users/orgs entry switch', () => {
+  const adminBranch = appSource.match(/<template v-else-if="isAdmin">[\s\S]*?<\/template>/)?.[0] ?? ''
+  assert.match(adminBranch, /用户管理/)
+  assert.match(adminBranch, /机构管理/)
+  assert.match(adminBranch, /el-radio-group/)
+  assert.match(adminBranch, /el-radio-button/)
+  assert.match(adminBranch, /activeAdminPage/)
+  assert.match(adminBranch, /activeAdminPage === 'users'/)
+  assert.match(adminBranch, /activeAdminPage === 'orgs'/)
+})
+
+test('App.vue admin branch renders no dialog-form entry switch', () => {
+  assert.doesNotMatch(appSource, /showOrgPresets/)
+  assert.doesNotMatch(appSource, /OrganizationPresetsDialog/)
+})
+
+test('App.vue admin branch mounts AdminView or org view by page state', () => {
+  const adminBranch = appSource.match(/<template v-else-if="isAdmin">[\s\S]*?<\/template>/)?.[0] ?? ''
+  assert.match(adminBranch, /<AdminView[\s\S]*?@logout="logout"[\s\S]*?\/>/)
+  assert.match(adminBranch, /<OrganizationManagementView/)
+})
+
+test('App.vue admin branch keeps the users page half-width shell and adds an org wide shell', () => {
+  assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*50%[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
+  assert.match(appSource, /\.admin-org-shell\s*\{[\s\S]*max-width:\s*1200px/)
 })
 
 test('AdminView keeps batch project actions inside a single project list dialog', () => {
@@ -47,8 +64,6 @@ test('AdminView highlights admin users and restricts admin-only actions', () => 
 
 test('admin shell mounts AdminView directly without normal workspace content', () => {
   assert.match(appSource, /<template v-else-if="isAdmin">/)
-  assert.match(appSource, /<div class="admin-shell">[\s\S]*<AdminView @logout="logout" \/>/)
-  assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*50%[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
   assert.doesNotMatch(appSource, /showAdmin = true/)
   assert.doesNotMatch(appSource, /<el-dialog v-model="showAdmin"/)
 })

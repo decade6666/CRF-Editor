@@ -160,6 +160,7 @@ Contracts:
 - Do not add body-cell alignment overrides (`td`, `.cell`) under `.admin-shell`; global `tableHeaderStyle.test.js` locks the Element Plus table-header fill/centering contract, while body cells keep the Element Plus default left alignment.
 - If admin table columns change, recalculate the fixed-width total before changing the shell width/min-width, so narrow viewports do not pick up horizontal scrollbars.
 - Dialogs in `AdminView.vue` use `append-to-body` and must stay visually independent of the half-width shell.
+- Admin workspace has two top-level pages behind a `el-radio-group` switch: users (`AdminView` inside `.admin-shell`, half-width) and orgs (`OrganizationManagementView` inside `.admin-org-shell`, max-width 1200px). The org page keeps a persistent left preset list plus a right in-page editor (stacked ≤900px); logo thumbnails use `el-image` built-in preview (`preview-src-list` + `preview-teleported` + programmatic `showPreview` for keyboard), read the logo via `/api/organization-presets/{id}/logo`, and revoke every created object URL on save-refresh / delete / switch / unmount. Clicking a thumbnail must open the preview without also selecting the row into edit mode.
 
 ---
 
