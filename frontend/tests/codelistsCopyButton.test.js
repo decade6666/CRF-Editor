@@ -24,11 +24,11 @@ test('CodelistsTab exposes copy action through project-scoped copy endpoint', ()
 })
 
 test('CodelistsTab operation column matches form list copy edit delete layout', () => {
-  const column = extractBetween('<el-table-column label="操作" width="150" fixed="right">', '</el-table-column>')
+  const column = extractBetween('<el-table-column label="操作" width="120" fixed="right">', '</el-table-column>')
 
-  assert.match(column, /@click\.stop="copyCl\(row\)"[^>]*>复制<\/el-button>/)
-  assert.match(column, /@click\.stop="openEditCl\(row\)"[^>]*>编辑<\/el-button>/)
-  assert.match(column, /@click\.stop="delCl\(row\)"[^>]*>删除<\/el-button>/)
+  assert.match(column, /aria-label="复制"[\s\S]*@click\.stop="copyCl\(row\)"/)
+  assert.match(column, /aria-label="编辑"[\s\S]*@click\.stop="openEditCl\(row\)"/)
+  assert.match(column, /aria-label="删除"[\s\S]*@click\.stop="delCl\(row\)"/)
   assert.ok(column.indexOf('copyCl(row)') < column.indexOf('openEditCl(row)'))
   assert.ok(column.indexOf('openEditCl(row)') < column.indexOf('delCl(row)'))
 })

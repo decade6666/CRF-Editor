@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, EditPen } from '@element-plus/icons-vue'
+import { Delete, DocumentCopy, EditPen, Plus } from '@element-plus/icons-vue'
 import { api, genFieldVarName, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
@@ -383,8 +383,12 @@ async function quickSaveCodelist() {
     <!-- 左侧：字段列表 -->
     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-        <el-button type="primary" size="small" @click="openAdd">新增字段</el-button>
-        <el-button type="danger" size="small" :disabled="!selFields.length" @click="batchDelFields">批量删除({{ selFields.length }})</el-button>
+        <el-tooltip content="新增字段" placement="top">
+          <el-button type="primary" size="small" :icon="Plus" aria-label="新增字段" @click="openAdd" />
+        </el-tooltip>
+        <el-tooltip content="批量删除字段" placement="top">
+          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除字段" :disabled="!selFields.length" @click="batchDelFields" />
+        </el-tooltip>
         <el-input
           v-model="searchField"
           placeholder="搜索字段..."
@@ -438,10 +442,14 @@ async function quickSaveCodelist() {
             <span v-else style="color:var(--color-text-muted)">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110">
+        <el-table-column label="操作" width="90">
           <template #default="{ row }">
-            <el-button size="small" link @click.stop="copyField(row)">复制</el-button>
-            <el-button type="danger" size="small" link @click.stop="del(row)">删除</el-button>
+            <el-tooltip content="复制" placement="top">
+              <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyField(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="del(row)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>

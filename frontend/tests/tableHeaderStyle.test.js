@@ -26,6 +26,13 @@ test('Element Plus table headers keep themed fill and centered header text', () 
   )
 })
 
+test('selection column checkboxes center horizontally in header and body', () => {
+  assert.match(
+    cssSource,
+    /\.el-table \.el-table-column--selection \.cell\s*\{[\s\S]*justify-content:\s*center;[\s\S]*padding-left:\s*0;[\s\S]*padding-right:\s*0;/,
+  )
+})
+
 test('Element Plus fixed operation column headers override the fixed-column background rule', () => {
   assert.match(
     cssSource,
@@ -56,6 +63,8 @@ test('VisitsTab visit-form list uses Element Plus bordered table headers', () =>
   assert.match(visitsSource, /<el-table-column width="32">/)
   assert.match(visitsSource, /<el-table-column label="序号" width="100">/)
   assert.match(visitsSource, /<el-table-column prop="name" label="表单名称" show-overflow-tooltip \/>/)
-  assert.match(visitsSource, /<el-table-column label="操作" width="110" fixed="right">/)
+  assert.match(visitsSource, /<el-table-column label="操作" width="90" fixed="right">/)
+  assert.match(visitsSource, /aria-label="预览"[\s\S]*@click\.stop="openFormPreview\(row\)"/)
+  assert.match(visitsSource, /aria-label="移除"[\s\S]*@click\.stop="removeFormFromVisit\(row\.id\)"/)
   assert.doesNotMatch(visitsSource, /manual-list-header visit-form-list-header/)
 })

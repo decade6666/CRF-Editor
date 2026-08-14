@@ -5,6 +5,7 @@ import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import { CircleClose, Delete, DocumentCopy, EditPen, Plus, View } from '@element-plus/icons-vue'
 import {
   ANNOTATION_FORM_KEY,
   ANNOTATION_KIND_FIELD,
@@ -756,8 +757,12 @@ async function toggleCell(visitId, formId) {
     <!-- 左侧：访视列表 -->
     <div style="width:50%;min-width:0;display:flex;flex-direction:column">
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-        <el-button type="primary" size="small" @click="openAdd">新增访视</el-button>
-        <el-button type="danger" size="small" :disabled="!selVisits.length" @click="batchDelVisits">批量删除({{ selVisits.length }})</el-button>
+        <el-tooltip content="新增访视" placement="top">
+          <el-button type="primary" size="small" :icon="Plus" aria-label="新增访视" @click="openAdd" />
+        </el-tooltip>
+        <el-tooltip content="批量删除访视" placement="top">
+          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除访视" :disabled="!selVisits.length" @click="batchDelVisits" />
+        </el-tooltip>
         <el-button type="info" plain size="small" @click="showPreview = true">批量编辑</el-button>
         <el-input
           v-model="searchVisit"
@@ -803,11 +808,17 @@ async function toggleCell(visitId, formId) {
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
         <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link @click.stop="copyVisit(row)">复制</el-button>
-            <el-button size="small" link @click.stop="openEdit(row)">编辑</el-button>
-            <el-button type="danger" size="small" link @click.stop="del(row)">删除</el-button>
+            <el-tooltip content="复制" placement="top">
+              <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyVisit(row)" />
+            </el-tooltip>
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" link :icon="EditPen" aria-label="编辑" @click.stop="openEdit(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="del(row)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -869,10 +880,14 @@ async function toggleCell(visitId, formId) {
             </template>
           </el-table-column>
           <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
-          <el-table-column label="操作" width="110" fixed="right">
+          <el-table-column label="操作" width="90" fixed="right">
             <template #default="{ row }">
-              <el-button type="primary" size="small" link @click.stop="openFormPreview(row)">预览</el-button>
-              <el-button type="danger" size="small" link @click.stop="removeFormFromVisit(row.id)">移除</el-button>
+              <el-tooltip content="预览" placement="top">
+                <el-button type="primary" size="small" link :icon="View" aria-label="预览" @click.stop="openFormPreview(row)" />
+              </el-tooltip>
+              <el-tooltip content="移除" placement="top">
+                <el-button type="danger" size="small" link :icon="CircleClose" aria-label="移除" @click.stop="removeFormFromVisit(row.id)" />
+              </el-tooltip>
             </template>
           </el-table-column>
           <template #empty>

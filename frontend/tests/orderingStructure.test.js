@@ -241,7 +241,7 @@ test('FormDesignerTab keeps designer entry visible for selected form outside edi
     /<el-button v-if="editMode && selectedForm" size="small" type="primary" @click="openDesigner">设计表单<\/el-button>/,
   );
   // R3：新建表单按钮不再被 editMode 门禁包裹
-  assert.match(formsSource, /<el-button type="primary" size="small" @click="openAddForm">新建表单<\/el-button>/);
+  assert.match(formsSource, /<el-button type="primary" size="small" :icon="Plus" aria-label="新建表单" @click="openAddForm" \/>/);
   assert.doesNotMatch(
     formsSource,
     /<el-button v-if="editMode" type="primary" size="small" @click="openAddForm">新建表单<\/el-button>/,
@@ -254,7 +254,8 @@ test('FormDesignerTab unlocks all editing surfaces after R3 brief-mode unlock', 
     formsSource,
     /<el-button v-if="editMode" type="danger" size="small" :disabled="!selForms\.length" @click="batchDelForms"/,
   );
-  assert.match(formsSource, /批量删除\(\{\{ selForms\.length \}\}\)/);
+  assert.match(formsSource, /<el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms\.length" @click="batchDelForms" \/>/);
+  assert.doesNotMatch(formsSource, /批量删除\(\{\{ selForms\.length \}\}\)/);
   assert.doesNotMatch(formsSource, /<el-table-column width="32" v-if="editMode && !isFormsFiltered">/);
   assert.doesNotMatch(formsSource, /<el-table-column type="selection" width="40" v-if="editMode" \/>/);
   assert.doesNotMatch(formsSource, /<el-table-column v-if="editMode" label="操作" width="150" fixed="right">/);

@@ -5,6 +5,7 @@ import { api, genCode, truncRefs } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import { Delete, EditPen, Plus } from '@element-plus/icons-vue'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -132,8 +133,12 @@ const {
 <template>
   <div style="height:calc(100vh - 160px);display:flex;flex-direction:column">
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-      <el-button type="primary" size="small" @click="openAdd">新增单位</el-button>
-      <el-button type="danger" size="small" :disabled="!selUnits.length" @click="batchDelUnits">批量删除({{ selUnits.length }})</el-button>
+      <el-tooltip content="新增单位" placement="top">
+        <el-button type="primary" size="small" :icon="Plus" aria-label="新增单位" @click="openAdd" />
+      </el-tooltip>
+      <el-tooltip content="批量删除单位" placement="top">
+        <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除单位" :disabled="!selUnits.length" @click="batchDelUnits" />
+      </el-tooltip>
       <el-input
         v-model="searchUnit"
         placeholder="搜索单位..."
@@ -179,10 +184,14 @@ const {
       </el-table-column>
       <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
       <el-table-column prop="symbol" label="单位符号" min-width="120" show-overflow-tooltip />
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="90">
         <template #default="{ row }">
-          <el-button size="small" link @click.stop="openEdit(row)">编辑</el-button>
-          <el-button type="danger" size="small" link @click.stop="del(row)">删除</el-button>
+          <el-tooltip content="编辑" placement="top">
+            <el-button size="small" link :icon="EditPen" aria-label="编辑" @click.stop="openEdit(row)" />
+          </el-tooltip>
+          <el-tooltip content="删除" placement="top">
+            <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="del(row)" />
+          </el-tooltip>
         </template>
       </el-table-column>
     </el-table>

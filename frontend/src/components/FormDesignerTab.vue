@@ -12,7 +12,7 @@ import {
   defineExpose,
 } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Check, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
+import { Check, Delete, DocumentCopy, EditPen, InfoFilled, Plus } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
 import { useSortableTable } from '../composables/useSortableTable';
@@ -3191,10 +3191,12 @@ function openAddForm() {
   <div class="form-designer">
     <div class="fd-formlist">
       <div style="margin-bottom: 12px; display: flex; gap: 8px">
-        <el-button type="primary" size="small" @click="openAddForm">新建表单</el-button>
-        <el-button type="danger" size="small" :disabled="!selForms.length" @click="batchDelForms"
-          >批量删除({{ selForms.length }})</el-button
-        >
+        <el-tooltip content="新建表单" placement="top">
+          <el-button type="primary" size="small" :icon="Plus" aria-label="新建表单" @click="openAddForm" />
+        </el-tooltip>
+        <el-tooltip content="批量删除表单" placement="top">
+          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms.length" @click="batchDelForms" />
+        </el-tooltip>
         <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
       </div>
       <el-table
@@ -3244,12 +3246,18 @@ function openAddForm() {
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
         <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }"
-            ><el-button size="small" link @click.stop="copyForm(row)">复制</el-button
-            ><el-button size="small" link @click.stop="openEditForm(row)">编辑</el-button
-            ><el-button type="danger" size="small" link @click.stop="delForm(row)">删除</el-button></template
-          >
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-tooltip content="复制" placement="top">
+              <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyForm(row)" />
+            </el-tooltip>
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" link :icon="EditPen" aria-label="编辑" @click.stop="openEditForm(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="delForm(row)" />
+            </el-tooltip>
+          </template>
         </el-table-column>
       </el-table>
     </div>
