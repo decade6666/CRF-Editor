@@ -1145,7 +1145,6 @@ function startResize(e) {
       </div>
       <div class="header-right-group">
         <div class="header-right">
-          <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
           <el-dropdown v-if="selectedProject" trigger="hover" :disabled="exportWordLoading" @command="onExportCommand">
             <el-button type="warning" size="small" :loading="exportWordLoading" aria-label="导出">导出Word</el-button>
             <template #dropdown>
@@ -1277,7 +1276,7 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane label="表单" name="designer">
               <div v-if="isTabActivated('designer')" class="content-inner">
-                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" />
+                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" @import-template="openImportDialog" />
               </div>
             </el-tab-pane>
             <el-tab-pane label="访视" name="visits">

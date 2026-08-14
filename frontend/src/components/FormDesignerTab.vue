@@ -111,6 +111,7 @@ import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composable
 import DesignNotesDialog from './DesignNotesDialog.vue';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
+const emit = defineEmits(['import-template']);
 const refreshKey = inject('refreshKey', ref(0));
 const editMode = inject('editMode', ref(false));
 const projectDbType = inject('projectDbType', ref('其他'));
@@ -3289,14 +3290,15 @@ function openAddForm() {
 <template>
   <div class="form-designer">
     <div class="fd-formlist">
-      <div style="margin-bottom: 12px; display: flex; gap: 8px">
+      <div class="list-toolbar">
         <el-tooltip content="新建表单" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新建表单" @click="openAddForm" />
         </el-tooltip>
+        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
+        <el-button type="warning" size="small" @click="emit('import-template')">导入模板</el-button>
         <el-tooltip content="批量删除表单" placement="top">
           <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms.length" @click="batchDelForms" />
         </el-tooltip>
-        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
       </div>
       <el-table
         ref="formsTableRef"
@@ -3368,6 +3370,7 @@ function openAddForm() {
           <el-switch
             v-if="selectedForm && editMode"
             v-model="viewMode"
+            size="small"
             inline-prompt
             active-text="aCRF"
             inactive-text="eCRF"
@@ -5589,7 +5592,9 @@ function openAddForm() {
   overflow: hidden;
 }
 .fd-canvas-header {
-  padding: 8px 12px;
+  min-height: 24px;
+  padding: 0 12px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;

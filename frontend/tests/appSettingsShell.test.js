@@ -52,9 +52,9 @@ test('app refreshes field definition cache when switching to fields or designer 
   );
 });
 
-test('header keeps template import and word export only', () => {
+test('header keeps word export only (template import moved to form list)', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || '';
-  assert.match(headerSection, /@click="openImportDialog">导入模板<\/el-button>/);
+  assert.doesNotMatch(headerSection, /导入模板/);
   assert.doesNotMatch(headerSection, /导入Word/);
   assert.match(appSource, /<el-dropdown\s+v-if="selectedProject"[\s\S]*trigger="hover"[\s\S]*@command="onExportCommand"/);
   assert.match(appSource, /:loading="exportWordLoading"[\s\S]*>导出Word<\/el-button>/);

@@ -270,7 +270,7 @@ function openAddCl() {
   <div style="display:flex;gap:16px;height:calc(100vh - 160px)">
     <!-- 左侧：字典列表 -->
     <div style="width:50%;min-width:0;display:flex;flex-direction:column">
-      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <div class="list-toolbar">
         <el-tooltip content="新增字典" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新增字典" @click="openAddCl" />
         </el-tooltip>
@@ -340,7 +340,7 @@ function openAddCl() {
 
     <!-- 右侧：选项列表 -->
     <div style="width:50%;min-width:0;display:flex;flex-direction:column" v-if="selected">
-      <div style="margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px">
+      <div class="list-toolbar">
         <el-tooltip content="新增选项" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新增选项" @click="openAddOpt" />
         </el-tooltip>
