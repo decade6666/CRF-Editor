@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from src.database import get_session
+from src.database import get_plain_session, get_session
 from src.dependencies import get_current_user, require_admin
 from src.models.user import User
 from src.schemas.organization_preset import (
@@ -56,7 +56,7 @@ def admin_create_preset(
     metadata: str = Form(...),
     logo_action: str = Form(...),
     file: Optional[UploadFile] = File(None),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_plain_session),
     _: User = Depends(require_admin),
 ):
     upsert = _parse_metadata(metadata)
@@ -76,7 +76,7 @@ def admin_update_preset(
     metadata: str = Form(...),
     logo_action: str = Form(...),
     file: Optional[UploadFile] = File(None),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_plain_session),
     _: User = Depends(require_admin),
 ):
     upsert = _parse_metadata(metadata)
@@ -93,7 +93,7 @@ def admin_update_preset(
 @router.delete("/admin/organization-presets/{preset_id}", status_code=204)
 def admin_delete_preset(
     preset_id: int,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_plain_session),
     _: User = Depends(require_admin),
 ):
     service.delete_preset(preset_id, session=session)

@@ -233,3 +233,63 @@ def test_profile_upload_failure_keeps_old_logo_and_cleans_new_file(client, engin
         assert project.company_logo_path == old_logo
         assert project.trial_name == "测试项目"
     assert len(list((tmp_path / "logos").glob("*.png"))) == 1
+
+
+def test_profile_commit_failure_keeps_old_logo_and_cleans_new_file(client, engine, tmp_path, monkeypatch):
+    """真实路由路径（get_session 已开事务）：提交失败 → 补偿在服务内生效。
+
+    旧代码 _tx 在 in_transaction 分支不提交，commit 发生在路由返回后的依赖
+    teardown，删旧文件已提前执行 → DB 回滚后指向不存在的文件。本测试锁定
+    服务内显式 commit 后的补偿顺序。
+    """
+    from sqlalchemy.orm import Session
+
+    token = login_as(client, "alice")
+    project_id = client.post("/api/projects", json=_metadata(), headers=auth_headers(token)).json()["id"]
+    resp = _put_profile(client, token, project_id, _metadata(), logo_action="upload", file=PNG)
+    assert resp.status_code == 200, resp.text
+    old_logo = resp.json()["company_logo_path"]
+    assert (tmp_path / "logos" / old_logo).exists()
+
+    real_commit = Session.commit
+    calls = {"n": 0}
+
+    def _boom_once(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("注入的提交故障")
+        return real_commit(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "commit", _boom_once)
+    try:
+        resp = _put_profile(client, token, project_id, _metadata(trial_name="提交失败注入"), logo_action="upload", file=PNG)
+    finally:
+        monkeypatch.setattr(Session, "commit", real_commit)
+    assert resp.status_code == 500, resp.text
+    assert "保存项目信息失败" in resp.json()["detail"]
+
+    # DB 回滚：元数据未变、Logo 未换
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        assert project.trial_name == "测试项目"
+        assert project.company_logo_path == old_logo
+    # 旧文件保留、新文件已清理（目录只剩旧 Logo 一个文件）
+    assert list((tmp_path / "logos").glob("*.png")) == [tmp_path / "logos" / old_logo]
+
+
+def test_profile_preset_logo_missing_on_disk_returns_stable_500(client, tmp_path):
+    """预设 Logo 文件在磁盘缺失：响应不得泄露内部路径。"""
+    admin_token = login_as(client, "admin")
+    token = login_as(client, "alice")
+    preset = _create_preset_with_logo(client, admin_token, tmp_path)
+    logo_files = list((tmp_path / "organization-logos").glob("*.png"))
+    assert len(logo_files) == 1
+    logo_files[0].unlink()
+
+    project_id = client.post("/api/projects", json=_metadata(), headers=auth_headers(token)).json()["id"]
+    resp = _put_profile(client, token, project_id, _metadata(), logo_action="preset", preset_id=preset["id"])
+    assert resp.status_code == 500, resp.text
+    detail = resp.json()["detail"]
+    assert "Logo" in detail
+    assert str(tmp_path) not in detail
+    assert "organization-logos" not in detail

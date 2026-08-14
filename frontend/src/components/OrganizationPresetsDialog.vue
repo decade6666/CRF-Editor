@@ -82,6 +82,7 @@ function pickLogo(e) {
   logoDraftSource.value = 'upload'
   revokeLogoPreview()
   logoPreviewUrl.value = URL.createObjectURL(file)
+  if (logoInput.value) logoInput.value = ''
 }
 
 function clearLogoDraft() {
