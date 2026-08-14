@@ -75,8 +75,8 @@ test('no negative margins introduced across the five pages and shared css', () =
   }
 })
 
-test('VisitsTab toolbar alignment is delegated to the visit subtask', () => {
-  // 本任务不写 VisitsTab；共享契约由 visit-flow-workspace 消费（父任务串行约定）
+test('VisitsTab consumes the shared toolbar contract (visit-flow subtask)', () => {
   const visitsSource = src('components/VisitsTab.vue')
-  assert.doesNotMatch(visitsSource, /class="list-toolbar"/)
+  assert.match(visitsSource, /class="list-toolbar"/)
+  assert.match(visitsSource, /class="pane-tool-slot"/)
 })

@@ -62,7 +62,7 @@ test('VisitsTab wires visit form drag sorting through useSortableTable', () => {
   );
   assert.match(
     visitsSource,
-    /watch\(\[selectedVisit, visitForms\], \(\) => \{\s*nextTick\(\(\) => initVisitFormsSortable\(\)\)\s*\}\)/,
+    /watch\(\[selectedVisit, visitForms, flowView, workspaceMode\], \(\) => \{\s*nextTick\(\(\) => initVisitFormsSortable\(\)\)\s*\}\)/,
   );
   assert.match(visitsSource, /ref="visitFormsTableRef"/);
   assert.match(

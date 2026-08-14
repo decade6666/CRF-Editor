@@ -306,11 +306,6 @@ body {
   font-weight: 700;
   opacity: 0.82;
 }
-/* 矩阵弹窗全高适配：让 el-dialog__body 撑满 90vh */
-.matrix-preview-dialog { height: 90vh; display: flex; flex-direction: column; }
-.matrix-preview-dialog .el-dialog__header { flex-shrink: 0; }
-.matrix-preview-dialog .el-dialog__body { flex: 1; overflow: hidden; min-height: 0; padding: 14px 24px; }
-
 /* Word预览 */
 .word-preview {
   flex: 1;

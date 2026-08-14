@@ -82,9 +82,10 @@ test('action columns use semantic icon buttons with tooltips and aria-labels', (
   assert.match(codelists, /:icon="Plus" aria-label="新增选项"/)
 })
 
-test('visits batch edit keeps its text button while add and batch delete are icons', () => {
+test('visits flow entry keeps its text button while add and batch delete are icons', () => {
   const visits = readSource('src/components/VisitsTab.vue')
 
-  assert.match(visits, /<el-button type="info" plain size="small" @click="showPreview = true">批量编辑<\/el-button>/)
-  assert.doesNotMatch(visits, /:icon="Plus"[^>]*@click="showPreview = true"/)
+  assert.match(visits, /访视流程/)
+  assert.doesNotMatch(visits, /showPreview/)
+  assert.doesNotMatch(visits, /批量编辑/)
 })
