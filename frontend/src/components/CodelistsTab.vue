@@ -6,6 +6,7 @@ import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 import { OID_ERROR, isValidOptionalOid } from '../composables/oidValidation.js'
+import { Delete, DocumentCopy, EditPen, Plus } from '@element-plus/icons-vue'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -270,8 +271,12 @@ function openAddCl() {
     <!-- 左侧：字典列表 -->
     <div style="width:50%;min-width:0;display:flex;flex-direction:column">
       <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-        <el-button type="primary" size="small" @click="openAddCl">新增字典</el-button>
-        <el-button type="danger" size="small" :disabled="!selCls.length" @click="batchDelCl">批量删除({{ selCls.length }})</el-button>
+        <el-tooltip content="新增字典" placement="top">
+          <el-button type="primary" size="small" :icon="Plus" aria-label="新增字典" @click="openAddCl" />
+        </el-tooltip>
+        <el-tooltip content="批量删除字典" placement="top">
+          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除字典" :disabled="!selCls.length" @click="batchDelCl" />
+        </el-tooltip>
         <el-input
           v-model="searchCl"
           placeholder="搜索选项..."
@@ -317,11 +322,17 @@ function openAddCl() {
         <el-table-column v-if="editMode" prop="code" label="OID" min-width="100" show-overflow-tooltip />
         <el-table-column prop="name" label="字典名称" :width="codelistNameColWidth" resizable />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link @click.stop="copyCl(row)">复制</el-button>
-            <el-button size="small" link @click.stop="openEditCl(row)">编辑</el-button>
-            <el-button type="danger" size="small" link @click.stop="delCl(row)">删除</el-button>
+            <el-tooltip content="复制" placement="top">
+              <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyCl(row)" />
+            </el-tooltip>
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" link :icon="EditPen" aria-label="编辑" @click.stop="openEditCl(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="delCl(row)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -330,8 +341,12 @@ function openAddCl() {
     <!-- 右侧：选项列表 -->
     <div style="width:50%;min-width:0;display:flex;flex-direction:column" v-if="selected">
       <div style="margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px">
-        <el-button type="primary" size="small" @click="openAddOpt">新增选项</el-button>
-        <el-button type="danger" size="small" :disabled="!selOpts.length" @click="batchDelOpt">批量删除({{ selOpts.length }})</el-button>
+        <el-tooltip content="新增选项" placement="top">
+          <el-button type="primary" size="small" :icon="Plus" aria-label="新增选项" @click="openAddOpt" />
+        </el-tooltip>
+        <el-tooltip content="批量删除选项" placement="top">
+          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除选项" :disabled="!selOpts.length" @click="batchDelOpt" />
+        </el-tooltip>
         <el-input
           v-model="searchOpt"
           placeholder="搜索选项..."
@@ -386,10 +401,14 @@ function openAddCl() {
         </el-table-column>
         <el-table-column v-if="editMode" prop="code" label="OID" width="100" show-overflow-tooltip />
         <el-table-column prop="decode" label="标签" show-overflow-tooltip />
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link @click="openEditOpt(row)">编辑</el-button>
-            <el-button type="danger" size="small" link @click="delOpt(row)">删除</el-button>
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" link :icon="EditPen" aria-label="编辑" @click="openEditOpt(row)" />
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click="delOpt(row)" />
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>

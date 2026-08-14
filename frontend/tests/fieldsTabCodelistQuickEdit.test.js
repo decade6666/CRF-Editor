@@ -13,7 +13,7 @@ const source = readFileSync(path.resolve(currentDir, '../src/components/FieldsTa
  */
 
 test('FieldsTab imports the add/edit icons for inline codelist editing', () => {
-  assert.match(source, /import \{ Plus, EditPen \} from ['"]@element-plus\/icons-vue['"]/)
+  assert.match(source, /import \{ Delete, DocumentCopy, EditPen, Plus \} from ['"]@element-plus\/icons-vue['"]/)
 })
 
 test('choice option row exposes add and edit codelist buttons with correct wiring', () => {

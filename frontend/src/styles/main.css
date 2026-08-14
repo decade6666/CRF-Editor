@@ -516,6 +516,13 @@ body {
   text-align: center;
 }
 
+/* 选择列表头与行复选框统一水平居中（含 fixed 列变体），管理员弹窗等所有表格同步受益 */
+.el-table .el-table-column--selection .cell {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .el-table,
 .el-table__inner-wrapper,
 .el-table tr,
