@@ -132,7 +132,7 @@ const {
 
 <template>
   <div style="height:calc(100vh - 160px);display:flex;flex-direction:column">
-    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+    <div class="list-toolbar">
       <el-tooltip content="新增单位" placement="top">
         <el-button type="primary" size="small" :icon="Plus" aria-label="新增单位" @click="openAdd" />
       </el-tooltip>

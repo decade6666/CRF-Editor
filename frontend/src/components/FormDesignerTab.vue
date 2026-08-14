@@ -111,6 +111,7 @@ import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composable
 import DesignNotesDialog from './DesignNotesDialog.vue';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
+const emit = defineEmits(['import-template']);
 const refreshKey = inject('refreshKey', ref(0));
 const editMode = inject('editMode', ref(false));
 const projectDbType = inject('projectDbType', ref('其他'));
@@ -2706,35 +2707,46 @@ async function saveDraftField() {
     return false;
   }
   if (isReordering.value) return false;
+  const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
+  const editorState = {
+    variable_name: fd.variable_name ?? '',
+    label: fd.label ?? '',
+    field_type: fd.field_type ?? '文本',
+    integer_digits: fd.integer_digits ?? null,
+    decimal_digits: fd.decimal_digits ?? null,
+    date_format: fd.date_format ?? null,
+    checkbox_label: fd.checkbox_label ?? null,
+    codelist_id: fd.codelist_id ?? null,
+    unit_id: fd.unit_id ?? null,
+    required: draft.required ?? 0,
+    label_override: draft.label_override ?? null,
+    help_text: draft.help_text ?? null,
+    default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : null,
+    inline_mark: draft.inline_mark ? 1 : 0,
+    bg_color: draft.bg_color ?? null,
+    text_color: draft.text_color ?? null,
+    label_bold: draft.label_bold ?? 1,
+    label_font_size: draft.label_font_size ?? null,
+  };
+  const command = buildFieldProfileCommand({
+    editorState,
+    selectedDefinitionId: selectedDefinitionId.value,
+    candidateOid: candidateOid.value,
+    candidateDefinitionPayload: candidateBeforeDefinition,
+  });
+  // 草稿内改了定义级属性 → 随保存共享更新候选定义；多表单引用时先确认影响范围
+  const definitionChanged = command.definition_operation?.operation === 'update_shared';
+  // 确认弹窗 await 期间用户可能经 onSelectFieldClick→丢弃草稿 清空 candidateBeforeDefinition：
+  // 恢复快照必须在首个 await 前捕获，否则 undo 静默丢失定义内容恢复
+  const restoreDefinitionPayload = definitionChanged ? candidateBeforeDefinition : null;
   savingDraft.value = true;
   beginFieldMembershipMutation();
   try {
-    const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
-    const editorState = {
-      variable_name: fd.variable_name ?? '',
-      label: fd.label ?? '',
-      field_type: fd.field_type ?? '文本',
-      integer_digits: fd.integer_digits ?? null,
-      decimal_digits: fd.decimal_digits ?? null,
-      date_format: fd.date_format ?? null,
-      checkbox_label: fd.checkbox_label ?? null,
-      codelist_id: fd.codelist_id ?? null,
-      unit_id: fd.unit_id ?? null,
-      required: draft.required ?? 0,
-      label_override: draft.label_override ?? null,
-      help_text: draft.help_text ?? null,
-      default_value: supportsDefaultValue ? normalizeDefaultValue(draft.default_value, !draft.inline_mark) : null,
-      inline_mark: draft.inline_mark ? 1 : 0,
-      bg_color: draft.bg_color ?? null,
-      text_color: draft.text_color ?? null,
-      label_bold: draft.label_bold ?? 1,
-      label_font_size: draft.label_font_size ?? null,
-    };
-    const command = buildFieldProfileCommand({
-      editorState,
-      selectedDefinitionId: selectedDefinitionId.value,
-      candidateOid: candidateOid.value,
-    });
+    if (definitionChanged) {
+      await confirmFieldReferenceImpact(selectedDefinitionId.value);
+      // 确认弹窗期间草稿可能被丢弃：不再物化已丢弃字段
+      if (!hasDraft.value) return false;
+    }
     const result = await api.post(`/api/forms/${formId}/field-profile`, command);
     const createdFfId = result.form_field_id ?? result.form_field?.id;
     const createdFdId = result.final_definition_id;
@@ -2756,6 +2768,11 @@ async function saveDraftField() {
       label: '新建字段',
       ids: { ffId: createdFfId, fdId: createdFdId },
       undo: async (ids) => {
+        if (restoreDefinitionPayload) {
+          // 先恢复候选定义内容（其他表单同引用的定义保持内容一致），再删除实例
+          await api.put(`/api/projects/${projectId}/field-definitions/${ids.fdId}`, restoreDefinitionPayload);
+          api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
+        }
         const deleteCommand = buildDeleteProfileCommand({
           cleanupDefinitionId: definitionCreated ? ids.fdId : null,
         });
@@ -2765,17 +2782,22 @@ async function saveDraftField() {
         }
       },
       redo: async (ids, { remapId }) => {
-        const redoResult = await api.post(`/api/forms/${formId}/field-profile`, {
-          ...command,
-          definition_operation: {
-            operation: 'create_or_restore',
-            create_or_restore: {
-              definition: buildDefinitionPayload(editorState),
-              preferred_definition_id: ids.fdId,
-            },
-          },
-          binding: { mode: 'operation_result' },
-        });
+        // 链接候选路径（有无定义级差异都原样重放捕获命令：existing 绑定 + 可选共享更新 + 实例 upsert）；
+        // 新建定义路径：重放为 create_or_restore 复用原定义。
+        const redoCommand = command.binding?.mode === 'existing'
+          ? command
+          : {
+              ...command,
+              definition_operation: {
+                operation: 'create_or_restore',
+                create_or_restore: {
+                  definition: buildDefinitionPayload(editorState),
+                  preferred_definition_id: ids.fdId,
+                },
+              },
+              binding: { mode: 'operation_result' },
+            };
+        const redoResult = await api.post(`/api/forms/${formId}/field-profile`, redoCommand);
         remapId(ids.ffId, redoResult.form_field_id ?? redoResult.form_field?.id);
         remapId(ids.fdId, redoResult.final_definition_id ?? ids.fdId);
         await reloadAfterReplay(formId, { defs: true });
@@ -2783,6 +2805,7 @@ async function saveDraftField() {
     });
     return true;
   } catch (e) {
+    if (e === 'cancel' || e === 'close') return false;
     ElMessage.error(e.message);
     return false;
   } finally {
@@ -3289,14 +3312,15 @@ function openAddForm() {
 <template>
   <div class="form-designer">
     <div class="fd-formlist">
-      <div style="margin-bottom: 12px; display: flex; gap: 8px">
+      <div class="list-toolbar">
         <el-tooltip content="新建表单" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新建表单" @click="openAddForm" />
         </el-tooltip>
+        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
+        <el-button type="warning" size="small" @click="emit('import-template')">导入模板</el-button>
         <el-tooltip content="批量删除表单" placement="top">
           <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms.length" @click="batchDelForms" />
         </el-tooltip>
-        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
       </div>
       <el-table
         ref="formsTableRef"
@@ -3368,6 +3392,7 @@ function openAddForm() {
           <el-switch
             v-if="selectedForm && editMode"
             v-model="viewMode"
+            size="small"
             inline-prompt
             active-text="aCRF"
             inactive-text="eCRF"
@@ -5589,7 +5614,9 @@ function openAddForm() {
   overflow: hidden;
 }
 .fd-canvas-header {
-  padding: 8px 12px;
+  min-height: 24px;
+  padding: 0 12px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
@@ -5719,11 +5746,24 @@ function openAddForm() {
 
 .pane-h-resizer {
   grid-area: hresizer;
+  position: relative;
   width: 6px;
   cursor: col-resize;
   background: transparent;
   transition: background 0.2s;
   flex-shrink: 0;
+}
+
+/* 三面板之间的单条细线：resizer 轨道中心画 1px 竖线（内缘卡片边框已移除） */
+.pane-h-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--color-border);
+  transform: translateX(-50%);
 }
 
 .pane-h-resizer:hover {
@@ -5744,6 +5784,16 @@ function openAddForm() {
   }
   .pane-h-resizer {
     display: none;
+  }
+  /* 堆叠时右侧/左侧成为页面外缘 → 恢复边框（preview 顶边去边框须位于基础规则之后，见文件尾媒体块） */
+  .designer-fields-panel {
+    border-right: 1px solid var(--color-border);
+  }
+  .designer-editor-card {
+    border-right: 1px solid var(--color-border);
+  }
+  .designer-preview-pane {
+    border-left: 1px solid var(--color-border);
   }
 }
 
@@ -5804,7 +5854,9 @@ function openAddForm() {
 
 .designer-fields-panel {
   height: 100%;
-  border: 1px solid var(--color-border);
+  /* 三块主工作区之间只留一条细线：内缘边框移除，由 resizer ::before 的 1px 分隔线承担 */
+  border-top: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
@@ -5826,7 +5878,8 @@ function openAddForm() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
@@ -5834,11 +5887,24 @@ function openAddForm() {
 }
 
 .pane-v-resizer {
+  position: relative;
   height: 6px;
   cursor: row-resize;
   background: transparent;
   transition: background 0.2s;
   flex-shrink: 0;
+}
+
+/* 字段列表与属性编辑之间的单条细线：resizer 轨道中心画 1px 横线 */
+.pane-v-resizer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--color-border);
+  transform: translateY(-50%);
 }
 
 .pane-v-resizer:hover {
@@ -5969,7 +6035,9 @@ function openAddForm() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
@@ -6152,5 +6220,13 @@ function openAddForm() {
 }
 .unified-table-host {
   cursor: default;
+}
+
+/* 窄屏堆叠：preview 顶边与 editor 底边相邻 → 去自身顶边框避免双线。
+   必须位于 .designer-preview-pane 基础规则之后（同特异性下后声明者胜）。 */
+@media (max-width: 1100px) {
+  .designer-preview-pane {
+    border-top: none;
+  }
 }
 </style>

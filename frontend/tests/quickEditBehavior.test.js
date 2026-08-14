@@ -395,7 +395,7 @@ test('app blocks project switch until form designer can leave', () => {
   assert.match(formDesignerSource, /defineExpose\(\{[\s\S]*canLeaveProject,[\s\S]*canLeaveTab,[\s\S]*getForms: \(\) => forms\.value,/)
   assert.match(appSource, /const formDesignerTabRef = ref\(null\)/)
   assert.match(appSource, /async function selectProject\(p\) \{[\s\S]*if \(isTabActivated\('designer'\) && formDesignerTabRef\.value\?\.canLeaveProject\) \{[\s\S]*const canLeave = await formDesignerTabRef\.value\.canLeaveProject\(\)[\s\S]*if \(!canLeave\) return/)
-  assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" \/>/)
+  assert.match(appSource, /<FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject\.id" @import-template="openImportDialog" \/>/)
 })
 
 test('app blocks main tab leave from designer until form designer can leave', () => {

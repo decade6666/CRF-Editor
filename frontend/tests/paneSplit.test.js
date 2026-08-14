@@ -222,6 +222,70 @@ describe('FormDesignerTab CSS: two-pane layout', () => {
     assert.match(formDesignerSource, /\.pane-v-resizer \{[\s\S]*?cursor: row-resize/);
   });
 
+  // 取最后一个匹配块：grid-area 简写规则在前，完整卡片规则在后
+  function ruleBlock(source, selector) {
+    const start = source.lastIndexOf(selector + ' {');
+    if (start === -1) return '';
+    const open = source.indexOf('{', start);
+    const close = source.indexOf('}', open);
+    return source.slice(open, close);
+  }
+
+  // 宽屏主样式 = 完整 scoped 样式剔除全部 ≤1100px 媒体块（卡片规则位于媒体块之后）
+  const mediaBlocks = [...formDesignerSource.matchAll(/@media \(max-width: 1100px\) \{([\s\S]*?)\n\}/g)].map((m) => m[0]);
+  const mediaSource = mediaBlocks.join('\n');
+  const wideSource = mediaBlocks.reduce((acc, block) => acc.replace(block, ''), formDesignerSource);
+
+  test('three panes only keep outer borders; inner edges rely on the resizer line', () => {
+    // 字段面板仅保留外缘（上、左），面向 resizer 的右/下边框移除
+    const fieldsRule = ruleBlock(wideSource, '.designer-fields-panel');
+    assert.match(fieldsRule, /border-top: 1px solid var\(--color-border\)/);
+    assert.match(fieldsRule, /border-left: 1px solid var\(--color-border\)/);
+    assert.doesNotMatch(fieldsRule, /border-right/);
+    assert.doesNotMatch(fieldsRule, /border-bottom/);
+    // 属性编辑卡片：仅保留外缘（左、下），面向 resizer 的上/右边框移除
+    const editorRule = ruleBlock(wideSource, '.designer-editor-card');
+    assert.match(editorRule, /border-left: 1px solid var\(--color-border\)/);
+    assert.match(editorRule, /border-bottom: 1px solid var\(--color-border\)/);
+    assert.doesNotMatch(editorRule, /border-top/);
+    assert.doesNotMatch(editorRule, /border-right/);
+    // 预览面板：仅保留外缘（上、右、下），面向 resizer 的左边框移除
+    const previewRule = ruleBlock(wideSource, '.designer-preview-pane');
+    assert.match(previewRule, /border-top: 1px solid var\(--color-border\)/);
+    assert.match(previewRule, /border-right: 1px solid var\(--color-border\)/);
+    assert.match(previewRule, /border-bottom: 1px solid var\(--color-border\)/);
+    assert.doesNotMatch(previewRule, /border-left/);
+  });
+
+  test('resizer strips draw the single 1px divider via ::before pseudo element', () => {
+    assert.match(ruleBlock(wideSource, '.pane-h-resizer'), /position: relative/);
+    assert.match(ruleBlock(wideSource, '.pane-v-resizer'), /position: relative/);
+    const vLine = ruleBlock(wideSource, '.pane-v-resizer::before');
+    const hLine = ruleBlock(wideSource, '.pane-h-resizer::before');
+    assert.match(vLine, /content: ''/);
+    assert.match(vLine, /height: 1px/);
+    assert.match(vLine, /var\(--color-border\)/);
+    assert.match(hLine, /content: ''/);
+    assert.match(hLine, /width: 1px/);
+    assert.match(hLine, /var\(--color-border\)/);
+  });
+
+  test('narrow stacked layout restores outer edges that become visible page edges', () => {
+    // 堆叠时 fields 右侧 / editor 右侧 / preview 左侧都变成页面外缘 → 恢复边框
+    assert.match(mediaSource, /\.designer-fields-panel \{[\s\S]*?border-right: 1px solid var\(--color-border\)/);
+    assert.match(mediaSource, /\.designer-editor-card \{[\s\S]*?border-right: 1px solid var\(--color-border\)/);
+    assert.match(mediaSource, /\.designer-preview-pane \{[\s\S]*?border-left: 1px solid var\(--color-border\)/);
+    // preview 顶部与 editor 底边相邻 → 去掉自身顶边框，避免双线（独立媒体块，位于基础规则之后）
+    assert.match(mediaSource, /\.designer-preview-pane \{[\s\S]*?border-top: none/);
+  });
+
+  test('stacked preview border-top override must come after the base preview rule (cascade order)', () => {
+    // 同特异性下后声明者胜：border-top: none 若位于 .designer-preview-pane 基础规则之前会被其 1px 边框覆盖 → 双线
+    const noneIdx = formDesignerSource.indexOf('border-top: none');
+    const baseRuleStart = formDesignerSource.lastIndexOf('.designer-preview-pane {');
+    assert.ok(noneIdx > baseRuleStart, `border-top: none (${noneIdx}) should appear after base rule (${baseRuleStart})`);
+  });
+
   test('pane-h-resizer has col-resize cursor and hover highlight', () => {
     assert.match(formDesignerSource, /\.pane-h-resizer \{[\s\S]*?cursor: col-resize/);
     assert.match(formDesignerSource, /\.pane-h-resizer:hover \{[\s\S]*?--color-primary-subtle/);

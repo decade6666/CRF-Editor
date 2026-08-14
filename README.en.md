@@ -9,7 +9,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 ### Key Features
 
 - **Project and Access Management**: Create and manage clinical research projects with account-password login, admin user management, project isolation, and a dedicated admin workspace
-- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and batch-edit visit-form mappings in matrix form
+- **Visit Management**: Define and manage research visit workflows, support visit sequences and form associations, and maintain visit-form mappings through an in-page visit-flow workspace with matrix / single-visit views
 - **Form Designer**: Full-screen visual form designer supporting multiple field types (text, numeric, date, radio, multi-select, single checkbox, etc.), drag sorting, and design notes
 - **Live Preview & Quick Edit**: The designer provides a live preview at the bottom and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values; in complete mode, both the designer and the visits form preview can switch between eCRF / aCRF views, and the aCRF field OID / form-domain annotations support vertical dragging, persisted positions, and export-matched styling
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page; a single checkbox is codelist-free, can define checkbox text (defaulting to `✔` when empty), and renders as `field label | □checkbox text` in previews and Word exports
@@ -270,6 +270,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 - Authentication now uses the existing `username` + password pair through `POST /api/auth/login`.
 - Legacy accounts without a password receive a migration hint in development; production returns a generic unauthorized response.
 - After an administrator logs in, the app lands on a dedicated admin workspace and does not render the normal project list or CRF editing shell.
+- The admin workspace header offers a "User Management / Organization Management" switch: user management keeps users, batch project operations, recycle bin and cleanup policy; organization management maintains org presets in-page (persistent list + right editor, stacked on narrow screens), shows an immediate Logo thumbnail after upload, and supports click-to-zoom preview.
 - Administrators use that workspace to set initial passwords for new users and reset passwords for legacy accounts during migration.
 
 ### Basic Workflow

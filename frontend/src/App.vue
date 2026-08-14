@@ -41,6 +41,7 @@ import { clearPerfEvents, markPerfEnd, markPerfStart, recordPerfEvent } from './
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
+import OrganizationManagementView from './components/OrganizationManagementView.vue';
 import SessionTimer from './components/SessionTimer.vue';
 import { useOrderableList } from './composables/useOrderableList';
 import { confirmFinalProjectDelete } from './composables/projectDeleteConfirmation';
@@ -111,6 +112,7 @@ function handleAuthExpired() {
 // 当前用户信息
 const currentUser = ref(getEmptyUser());
 const isAdmin = computed(() => currentUser.value.is_admin);
+const activeAdminPage = ref('users'); // users | orgs
 
 async function loadMe() {
   try {
@@ -1097,8 +1099,15 @@ function startResize(e) {
         <SessionTimer />
       </div>
     </div>
-    <div class="admin-shell">
-      <AdminView @logout="logout" />
+    <div :class="activeAdminPage === 'orgs' ? 'admin-org-shell' : 'admin-shell'">
+      <div class="admin-nav">
+        <el-radio-group v-model="activeAdminPage" size="small">
+          <el-radio-button value="users">用户管理</el-radio-button>
+          <el-radio-button value="orgs">机构管理</el-radio-button>
+        </el-radio-group>
+      </div>
+      <AdminView v-if="activeAdminPage === 'users'" @logout="logout" />
+      <OrganizationManagementView v-else />
     </div>
   </template>
   <template v-else>
@@ -1136,7 +1145,6 @@ function startResize(e) {
       </div>
       <div class="header-right-group">
         <div class="header-right">
-          <el-button v-if="selectedProject" type="warning" size="small" @click="openImportDialog">导入模板</el-button>
           <el-dropdown v-if="selectedProject" trigger="hover" :disabled="exportWordLoading" @command="onExportCommand">
             <el-button type="warning" size="small" :loading="exportWordLoading" aria-label="导出">导出Word</el-button>
             <template #dropdown>
@@ -1268,7 +1276,7 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane label="表单" name="designer">
               <div v-if="isTabActivated('designer')" class="content-inner">
-                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" />
+                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" @import-template="openImportDialog" />
               </div>
             </el-tab-pane>
             <el-tab-pane label="访视" name="visits">
@@ -1878,6 +1886,17 @@ function startResize(e) {
   min-width: 600px;
   max-width: 100%;
   margin-inline: auto;
+}
+
+.admin-org-shell {
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 20px;
+  box-sizing: border-box;
+}
+
+.admin-nav {
+  margin-bottom: 12px;
 }
 
 .main-content-tabs :deep(.el-tabs__header) {

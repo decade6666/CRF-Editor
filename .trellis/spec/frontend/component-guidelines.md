@@ -141,6 +141,29 @@ Contracts:
 
 ---
 
+### Shared Toolbar / Top-Slot Contract
+
+`main.css` provides two semantic classes for list toolbars and pane title rows:
+
+```css
+.list-toolbar,
+.pane-tool-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+```
+
+Contracts:
+
+- `.list-toolbar` is for action toolbars (add / batch-delete / search / import); `.pane-tool-slot` is for title rows or structural placeholders on the non-action side of two-pane pages.
+- Slot height math: no-border toolbar = 24px + 12px = 36px; a title row with a 1px bottom border may total 37px. Browser acceptance tolerance is 0–1px; use `size="small"` controls (24px) inside slots — a default 32px `el-switch` re-grows the slot to ~44px and breaks two-pane top alignment.
+- Consumers: CodelistsTab (both panes), UnitsTab, FieldsTab (left toolbar + right pane header), FormDesignerTab form list and `.fd-canvas-header`, VisitsTab (default list / flow header / single-visit rows). The template-import entry lives in the form list toolbar only (`新建 → 搜索 → 导入模板 → 批量删除`) and `FormDesignerTab` emits `import-template` to `App.vue`.
+- Forbidden: page-local negative margins, duplicated `gap` / `margin-bottom` patches; a positive `margin-left:auto` spacer is allowed to push a trailing action (e.g. 访视流程) to the right.
+
 ### Admin Workspace Width Constraint
 
 The admin workspace root in `App.vue` uses `.admin-shell` to constrain the whole content block (title + actions + user table) to half width and center it:
@@ -160,6 +183,7 @@ Contracts:
 - Do not add body-cell alignment overrides (`td`, `.cell`) under `.admin-shell`; global `tableHeaderStyle.test.js` locks the Element Plus table-header fill/centering contract, while body cells keep the Element Plus default left alignment.
 - If admin table columns change, recalculate the fixed-width total before changing the shell width/min-width, so narrow viewports do not pick up horizontal scrollbars.
 - Dialogs in `AdminView.vue` use `append-to-body` and must stay visually independent of the half-width shell.
+- Admin workspace has two top-level pages behind a `el-radio-group` switch: users (`AdminView` inside `.admin-shell`, half-width) and orgs (`OrganizationManagementView` inside `.admin-org-shell`, max-width 1200px). The org page keeps a persistent left preset list plus a right in-page editor (stacked ≤900px); logo thumbnails use `el-image` built-in preview (`preview-src-list` + `preview-teleported` + programmatic `showPreview` for keyboard), read the logo via `/api/organization-presets/{id}/logo`, and revoke every created object URL on save-refresh / delete / switch / unmount. Clicking a thumbnail must open the preview without also selecting the row into edit mode.
 
 ---
 

@@ -382,7 +382,7 @@ async function quickSaveCodelist() {
   <div style="display:flex;gap:12px;align-items:stretch;height:calc(100vh - 160px)">
     <!-- 左侧：字段列表 -->
     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
-      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <div class="list-toolbar">
         <el-tooltip content="新增字段" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新增字段" @click="openAdd" />
         </el-tooltip>
@@ -457,7 +457,7 @@ async function quickSaveCodelist() {
 
     <!-- 右侧：属性编辑面板 -->
     <div style="width:320px;border:1px solid var(--color-border);border-radius:4px;display:flex;flex-direction:column;flex-shrink:0">
-      <div style="padding:8px 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">
+      <div class="pane-tool-slot" style="padding:0 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">
         {{ isCreating ? '新增字段' : (selectedFieldId ? '编辑字段' : '属性编辑') }}
       </div>
       <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>

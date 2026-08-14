@@ -62,6 +62,37 @@ test('选项字段保存前要求选择字典', () => {
   assert.match(body, /isChoiceField\(fd\.field_type\) && !fd\.codelist_id/)
 })
 
+test('链接候选且改了定义级属性时：命令携带候选快照、保存前确认影响范围', () => {
+  const body = fnBody('saveDraftField')
+  // 候选点击时捕获的快照传入命令构造器，9 键差异决定是否随保存共享更新候选定义
+  assert.match(body, /candidateDefinitionPayload: candidateBeforeDefinition/)
+  assert.match(body, /const definitionChanged = command\.definition_operation\?\.operation === 'update_shared'/)
+  // 有差异才需要多表单影响确认；取消确认不弹错误、不落库
+  assert.match(body, /if \(definitionChanged\) \{[\s\S]*?await confirmFieldReferenceImpact\(selectedDefinitionId\.value\)/)
+  assert.match(body, /if \(e === 'cancel' \|\| e === 'close'\) return false/)
+})
+
+test('链接候选修改定义的保存：undo 先 PUT 恢复共享定义内容再删实例', () => {
+  const body = fnBody('saveDraftField')
+  assert.match(
+    body,
+    /const restoreDefinitionPayload = definitionChanged \? candidateBeforeDefinition : null/,
+  )
+  // undo 闭包：先恢复定义内容（其他表单同引用的定义保持内容一致），再删除实例；随后走回放刷新
+  assert.match(
+    body,
+    /if \(restoreDefinitionPayload\) \{[\s\S]*?await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ids\.fdId\}`, restoreDefinitionPayload\)[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\)[\s\S]*?\}[\s\S]*?const deleteCommand = buildDeleteProfileCommand/,
+  )
+})
+
+test('链接候选修改定义的保存：redo 原样重放捕获命令（existing 绑定 + 共享更新），不重建定义', () => {
+  const body = fnBody('saveDraftField')
+  assert.match(
+    body,
+    /const redoCommand = command\.binding\?\.mode === 'existing'\s*\?\s*command\s*:\s*\{[\s\S]*?definition_operation: \{[\s\S]*?operation: 'create_or_restore'/,
+  )
+})
+
 test('removeField 对草稿仅移除本地、不调 DELETE', () => {
   const body = fnBody('removeField')
   const draftBranch = /if \(isDraftField\(ff\)\) \{[\s\S]*?removeDraftFromState\(\);[\s\S]*?return;[\s\S]*?\}/

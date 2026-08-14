@@ -165,6 +165,7 @@
       ],
       "components": [
         "frontend/src/components/AdminView.vue",
+        "frontend/src/components/OrganizationManagementView.vue",
         "frontend/src/components/CodelistsTab.vue",
         "frontend/src/components/DocxCompareDialog.vue",
         "frontend/src/components/DocxScreenshotPanel.vue",

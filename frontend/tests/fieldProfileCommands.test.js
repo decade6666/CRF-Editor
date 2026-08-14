@@ -114,6 +114,60 @@ describe('field profile command builders', () => {
     assert.equal(command.instance.upsert.required, 1)
   })
 
+  test('draft attach without definition-level changes stays a pure binding', async () => {
+    const { buildFieldProfileCommand, buildDefinitionPayload } = await loadModule()
+    const candidatePayload = buildDefinitionPayload(EDITOR)
+    const command = buildFieldProfileCommand({
+      editorState: EDITOR,
+      selectedDefinitionId: 7,
+      candidateOid: 'BASE_DEF',
+      candidateDefinitionPayload: candidatePayload,
+    })
+    assert.equal(command.binding.mode, 'existing')
+    assert.equal(command.binding.target_field_definition_id, 7)
+    assert.equal(command.definition_operation, undefined)
+    assert.equal(command.instance.mode, 'upsert')
+  })
+
+  test('draft attach with definition-level changes updates the shared candidate definition', async () => {
+    const { buildFieldProfileCommand, buildDefinitionPayload } = await loadModule()
+    const candidatePayload = buildDefinitionPayload(EDITOR)
+    const command = buildFieldProfileCommand({
+      editorState: { ...EDITOR, label: '修改后的标签' },
+      selectedDefinitionId: 7,
+      candidateOid: 'BASE_DEF',
+      candidateDefinitionPayload: candidatePayload,
+    })
+    assert.equal(command.binding.mode, 'existing')
+    assert.equal(command.binding.target_field_definition_id, 7)
+    assert.equal(command.definition_operation.operation, 'update_shared')
+    assert.equal(command.definition_operation.update_shared.target_definition_id, 7)
+    assert.equal(command.definition_operation.update_shared.definition.label, '修改后的标签')
+    assert.equal(command.definition_operation.update_shared.definition.variable_name, 'BASE_DEF')
+    assert.equal(command.instance.mode, 'upsert')
+    assert.equal(command.instance.upsert.required, 1)
+  })
+
+  test('draft attach diff ignores reserved is_multi_record/table_type but preserves them on update', async () => {
+    const { buildFieldProfileCommand, buildDefinitionPayload } = await loadModule()
+    const candidatePayload = { ...buildDefinitionPayload(EDITOR), is_multi_record: 1, table_type: 'log行' }
+    const sameCommand = buildFieldProfileCommand({
+      editorState: EDITOR,
+      selectedDefinitionId: 7,
+      candidateOid: 'BASE_DEF',
+      candidateDefinitionPayload: candidatePayload,
+    })
+    assert.equal(sameCommand.definition_operation, undefined, '保留结构键不参与差异判断')
+    const changedCommand = buildFieldProfileCommand({
+      editorState: { ...EDITOR, label: '改了标签' },
+      selectedDefinitionId: 7,
+      candidateOid: 'BASE_DEF',
+      candidateDefinitionPayload: candidatePayload,
+    })
+    assert.equal(changedCommand.definition_operation.update_shared.definition.is_multi_record, 1)
+    assert.equal(changedCommand.definition_operation.update_shared.definition.table_type, 'log行')
+  })
+
   test('new draft creates definition otherwise', async () => {
     const { buildFieldProfileCommand } = await loadModule()
     const command = buildFieldProfileCommand({ editorState: EDITOR })
@@ -156,6 +210,7 @@ describe('field profile command builders', () => {
     assert.match(source, /export function buildInstanceOnlyProfileCommand/)
     assert.match(source, /export function resolveSharedWriteTarget/)
     assert.match(source, /export function buildEditorStateFromSnapshot/)
+    assert.match(source, /export function sameDraftDefinitionPayload/)
   })
 
   test('instance-only command keeps definition and binding untouched', async () => {
