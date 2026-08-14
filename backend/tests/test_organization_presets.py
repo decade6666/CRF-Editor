@@ -202,3 +202,87 @@ def test_delete_preset_removes_logo_file(client, tmp_path):
     preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).json()["id"]
     assert client.delete(f"/api/admin/organization-presets/{preset_id}", headers=auth_headers(admin_token)).status_code == 204
     assert not list((tmp_path / "organization-logos").glob("*"))
+
+
+# ---- 真实路由路径的提交失败补偿（get_session 已开事务，_tx 必须显式 commit）----
+
+def test_preset_update_commit_failure_keeps_old_file_and_cleans_new(client, tmp_path, monkeypatch):
+    from sqlalchemy.orm import SessionTransaction
+
+    admin_token = login_as(client, "admin")
+    payload, files = _multipart(_metadata("带Logo机构", "单位U"), logo_action="upload", file=PNG)
+    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).json()["id"]
+    old_files = list((tmp_path / "organization-logos").glob("*.png"))
+    assert len(old_files) == 1
+
+    real_commit = SessionTransaction.commit
+    calls = {"n": 0}
+
+    def _boom_once(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("注入的提交故障")
+        return real_commit(self, *args, **kwargs)
+
+    monkeypatch.setattr(SessionTransaction, "commit", _boom_once)
+    try:
+        payload, files = _multipart(_metadata("带Logo机构", "单位V"), logo_action="upload", file=PNG)
+        resp = client.put(f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(admin_token))
+    finally:
+        monkeypatch.setattr(SessionTransaction, "commit", real_commit)
+    assert resp.status_code == 500, resp.text
+    # DB 回滚：单位未变；旧文件保留、新文件已清理
+    rows = client.get("/api/admin/organization-presets", headers=auth_headers(admin_token)).json()
+    assert rows[0]["data_management_unit"] == "单位U"
+    assert list((tmp_path / "organization-logos").glob("*.png")) == old_files
+
+
+def test_preset_create_commit_failure_cleans_new_file(client, tmp_path, monkeypatch):
+    from sqlalchemy.orm import SessionTransaction
+
+    admin_token = login_as(client, "admin")
+    real_commit = SessionTransaction.commit
+    calls = {"n": 0}
+
+    def _boom_once(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("注入的提交故障")
+        return real_commit(self, *args, **kwargs)
+
+    monkeypatch.setattr(SessionTransaction, "commit", _boom_once)
+    try:
+        payload, files = _multipart(_metadata("失败机构", "单位F"), logo_action="upload", file=PNG)
+        resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token))
+    finally:
+        monkeypatch.setattr(SessionTransaction, "commit", real_commit)
+    assert resp.status_code == 500, resp.text
+    # 行未写入、新文件被清理
+    assert client.get("/api/admin/organization-presets", headers=auth_headers(admin_token)).json() == []
+    assert not list((tmp_path / "organization-logos").glob("*"))
+
+
+def test_preset_create_commit_conflict_maps_to_409(client, tmp_path, monkeypatch):
+    """commit 阶段的唯一约束冲突（并发窗口）映射为稳定 409 而非裸 500。"""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import SessionTransaction
+
+    admin_token = login_as(client, "admin")
+    real_commit = SessionTransaction.commit
+    calls = {"n": 0}
+
+    def _conflict_once(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+        return real_commit(self, *args, **kwargs)
+
+    monkeypatch.setattr(SessionTransaction, "commit", _conflict_once)
+    try:
+        payload, files = _multipart(_metadata("冲突机构", "单位C"), logo_action="upload", file=PNG)
+        resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token))
+    finally:
+        monkeypatch.setattr(SessionTransaction, "commit", real_commit)
+    assert resp.status_code == 409, resp.text
+    assert "已存在" in resp.json()["detail"]
+    assert not list((tmp_path / "organization-logos").glob("*"))

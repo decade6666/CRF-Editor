@@ -28,7 +28,7 @@ warnings.filterwarnings(
 
 from main import app
 from src.config import AppConfig, AdminConfig, AuthConfig
-from src.database import get_session
+from src.database import get_plain_session, get_session
 from src.models import Base
 
 # 测试用配置：只固定有效 secret_key，其余字段走默认值。
@@ -65,7 +65,13 @@ def client(engine):
             with session.begin():
                 yield session
 
+    def _override_plain():
+        # 与生产 get_plain_session 一致：不预开事务，组合写服务在函数内 commit
+        with Session(engine) as session:
+            yield session
+
     app.dependency_overrides[get_session] = _override
+    app.dependency_overrides[get_plain_session] = _override_plain
 
     with patch("main.get_config", return_value=_TEST_CONFIG), \
          patch("src.database.get_config", return_value=_TEST_CONFIG), \

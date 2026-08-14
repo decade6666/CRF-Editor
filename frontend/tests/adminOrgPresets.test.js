@@ -46,6 +46,10 @@ test('presets dialog delete requires confirmation before DELETE', () => {
   assert.match(dialogSource, /api\.del\(`\/api\/admin\/organization-presets\/\$\{row\.id\}`\)/)
 })
 
+test('presets dialog pickLogo resets the file input for repeat selection', () => {
+  assert.match(dialogSource, /function pickLogo\(e\) \{[\s\S]*logoPreviewUrl\.value = URL\.createObjectURL\(file\)[\s\S]*if \(logoInput\.value\) logoInput\.value = ''/)
+})
+
 test('presets dialog cancel resets draft without side effects', () => {
   assert.match(dialogSource, /function resetDraft\(\) \{[\s\S]*editing\.value = false[\s\S]*draft\.name = ''[\s\S]*revokeLogoPreview\(\)/)
   assert.match(dialogSource, /@closed="resetDraft"/)

@@ -57,6 +57,15 @@ test('ProjectInfoTab restricts logo uploads to bitmap formats', () => {
   assert.match(source, /:accept="FILE_ACCEPT"/)
 })
 
+test('ProjectInfoTab editing unit text after preset selection degrades logo draft to keep', () => {
+  assert.match(source, /function onUnitInput\(\) \{/)
+  assert.match(source, /if \(!matched\) \{\s*logoDraft\.presetId = null\s*logoDraft\.source = 'keep'\s*\}/)
+})
+
+test('ProjectInfoTab pickLogo resets the file input for repeat selection', () => {
+  assert.match(source, /function pickLogo\(e\) \{[\s\S]*logoDraft\.blobUrl = URL\.createObjectURL\(file\)[\s\S]*if \(logoInput\.value\) logoInput\.value = ''/)
+})
+
 test('ProjectInfoTab reset on project switch revokes logo blob and keeps upload state', () => {
   assert.match(source, /function resetLogoDraft\(\) \{/)
   assert.match(source, /onUnmounted\(\(\) => \{\s*revokeLogoBlob\(\)/)

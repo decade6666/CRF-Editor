@@ -113,10 +113,13 @@ async function applyUnitPreset(item) {
 }
 
 function onUnitInput() {
-  // 用户随后修改单位文本：单位转自定义，已同步的 Logo 草稿保留（直到上传/清除覆盖）
+  // 用户随后修改单位文本：单位转自定义，已同步的 Logo 草稿降级为 keep（保留预览，保存不动项目 Logo）
   if (logoDraft.source === 'preset') {
     const matched = unitCandidates.value.find((c) => c.data_management_unit === form.data_management_unit)
-    if (!matched) logoDraft.presetId = null
+    if (!matched) {
+      logoDraft.presetId = null
+      logoDraft.source = 'keep'
+    }
   }
 }
 
@@ -128,6 +131,7 @@ function pickLogo(e) {
   logoDraft.presetId = null
   revokeLogoBlob()
   logoDraft.blobUrl = URL.createObjectURL(file)
+  if (logoInput.value) logoInput.value = ''
 }
 
 function clearLogoDraft() {

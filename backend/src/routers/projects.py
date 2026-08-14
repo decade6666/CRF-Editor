@@ -1,12 +1,15 @@
 """Projects Router"""
+import logging
 from typing import List, Optional
+
+logger = logging.getLogger("src.projects")
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from pathlib import Path
 
-from src.database import get_session
+from src.database import get_plain_session, get_session
 from src.dependencies import get_current_user, require_admin
 from src.rate_limit import limit_import_action
 from src.models.project import Project
@@ -268,7 +271,7 @@ def update_project_profile(
     logo_action: str = Form(...),
     preset_id: Optional[int] = Form(None),
     file: Optional[UploadFile] = File(None),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_plain_session),
     current_user: User = Depends(get_current_user),
 ):
     from src.services.project_profile_service import update_project_profile as _apply_profile
@@ -293,9 +296,13 @@ def update_project_profile(
         raise
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except FileNotFoundError as exc:
+        # 预设 Logo 文件在磁盘缺失：记录真实路径供排查，响应不泄露内部路径
+        logger.warning("预设 Logo 文件缺失，无法复制到项目: %s", exc)
+        raise HTTPException(500, "保存项目信息失败：预设 Logo 文件缺失") from exc
     except Exception as exc:
-        from fastapi import HTTPException as _HE
-        raise _HE(500, f"保存项目信息失败: {exc}") from exc
+        logger.exception("保存项目信息失败（项目 %s）", project_id)
+        raise HTTPException(500, "保存项目信息失败：未知错误") from exc
 
 
 @router.delete("/{project_id}", status_code=204)

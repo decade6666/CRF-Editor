@@ -22,6 +22,7 @@ logger = logging.getLogger("src.project_profile")
 def _tx(session: Session) -> Iterator[Session]:
     if session.in_transaction():
         yield session
+        session.commit()
     else:
         with session.begin():
             yield session

@@ -1331,6 +1331,21 @@ def get_session():
 
 
 
+def get_plain_session():
+
+    """裸 Session：不预开事务，供组合写服务使用。
+
+    机构预设 / 项目 profile 服务在函数内显式 commit，以便提交失败时补偿文件；
+    预开事务会让服务无法在请求内提交（提交后外层 begin 上下文内的任何
+    后续会话操作都会抛 InvalidRequestError）。
+    """
+
+    with Session(get_engine()) as session:
+
+        yield session
+
+
+
 
 
 def get_read_session():

@@ -32,9 +32,14 @@ class PresetConflictError(Exception):
 
 @contextmanager
 def _tx(session: Session) -> Iterator[Session]:
-    """已处于事务中的 session（路由 get_session / 测试覆盖）直接复用，否则自建 begin。"""
+    """已处于事务中的 session（路由 get_session / 测试覆盖）直接复用，否则自建 begin。
+
+    复用分支也必须显式 commit：get_session 要到路由返回后才提交，而删旧文件等
+    补偿动作在 _tx 之后执行，若提交失败发生在服务之外，补偿窗口早已错过。
+    """
     if session.in_transaction():
         yield session
+        session.commit()
     else:
         with session.begin():
             yield session
@@ -95,6 +100,9 @@ def create_preset(
             except IntegrityError as exc:
                 raise PresetConflictError("机构名称或数据管理单位已存在") from exc
             session.refresh(preset)
+    except IntegrityError as exc:
+        _discard_new_file(new_logo_rel)
+        raise PresetConflictError("机构名称或数据管理单位已存在") from exc
     except Exception:
         _discard_new_file(new_logo_rel)
         raise
@@ -135,6 +143,9 @@ def update_preset(
             except IntegrityError as exc:
                 raise PresetConflictError("机构名称或数据管理单位已存在") from exc
             session.refresh(preset)
+    except IntegrityError as exc:
+        _discard_new_file(new_logo_rel)
+        raise PresetConflictError("机构名称或数据管理单位已存在") from exc
     except Exception:
         _discard_new_file(new_logo_rel)
         raise
