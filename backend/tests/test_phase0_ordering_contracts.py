@@ -938,12 +938,17 @@ def test_quick_edit_updates_list_readback_and_export_consistently(
     target_field_id = field_ids[1]
 
     update_resp = client.put(
-        f"/api/form-fields/{target_field_id}",
+        f"/api/form-fields/{target_field_id}/binding-profile",
         json={
-            "label_override": "快捷编辑标签",
-            "inline_mark": 1,
-            "bg_color": "FFEEDD",
-            "text_color": "112233",
+            "instance": {
+                "mode": "upsert",
+                "upsert": {
+                    "label_override": "快捷编辑标签",
+                    "inline_mark": 1,
+                    "bg_color": "FFEEDD",
+                    "text_color": "112233",
+                },
+            }
         },
         headers=auth_headers(auth_token),
     )

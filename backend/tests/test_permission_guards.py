@@ -331,10 +331,10 @@ def test_authenticated_user_can_export_owned_projects_database(client: TestClien
         ("post", "/api/forms/{form_id}/copy", {}),
         ("get", "/api/forms/{form_id}/fields", None),
         ("post", "/api/forms/{form_id}/fields", {"field_definition_id": "{field_definition_id}"}),
-        ("put", "/api/form-fields/{form_field_id}", {"label_override": "Hijacked"}),
+        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"label_override": "Hijacked"}}}),
         ("delete", "/api/form-fields/{form_field_id}", None),
-        ("patch", "/api/form-fields/{form_field_id}/inline-mark", {"inline_mark": 0}),
-        ("patch", "/api/form-fields/{form_field_id}/colors", {"bg_color": "FFFFFF"}),
+        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}}),
+        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"bg_color": "FFFFFF"}}}),
         ("post", "/api/forms/{form_id}/fields/reorder", {"ordered_ids": ["{form_field_id}"]}),
         ("post", "/api/forms/{form_id}/fields/batch-delete", {"ids": ["{form_field_id}"]}),
         ("get", "/api/field-definitions/{field_definition_id}/references", None),
@@ -396,7 +396,7 @@ def test_other_user_cannot_access_form_and_field_routes(
         ("get", "/api/forms/{form_id}/references", None),
         ("patch", "/api/forms/{form_id}", {"name": "No Login"}),
         ("get", "/api/forms/{form_id}/fields", None),
-        ("patch", "/api/form-fields/{form_field_id}/inline-mark", {"inline_mark": 0}),
+        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}}),
     ],
 )
 def test_sensitive_form_and_field_routes_require_login(

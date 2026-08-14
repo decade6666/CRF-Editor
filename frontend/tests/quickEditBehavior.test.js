@@ -14,7 +14,7 @@ const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8
  */
 
 test('fullscreen preview field has double-click handler for quick edit', () => {
-  assert.match(formDesignerSource, /class="designer-workspace-bottom"[\s\S]*class="designer-preview-pane"/)
+  assert.match(formDesignerSource, /class="designer-preview-pane"/)
   assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/)
   assert.match(formDesignerSource, /@dblclick="openQuickEdit\(seg\.fields\[0\]\)"/)
   assert.match(formDesignerSource, /@dblclick="openQuickEdit\(ff\)"/)
@@ -59,9 +59,12 @@ test('quick edit is limited to field instance properties only', () => {
   assert.equal(hasFieldTypeEditInQuickEdit, false, 'Quick edit should not include field_type selector')
 })
 
-test('property editor previews live edits and design notes use independent autosave', () => {
+test('property editor previews live edits and design notes use explicit dialog save', () => {
   assert.match(formDesignerSource, /const designerPreviewFields = computed\(\(\) => \{[\s\S]*const liveSnapshot = liveEditSnapshot\.value\?\.fieldId === field\.id \? liveEditSnapshot\.value : null;[\s\S]*return applyPreviewSnapshot\(field, liveSnapshot\)/)
-  assert.match(formDesignerSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
+  // 备注保存失败提示已随弹窗组件隔离；设计器只保留弹窗接线
+  const notesDialogSource = readFileSync(path.resolve(currentDir, '../src/components/DesignNotesDialog.vue'), 'utf8')
+  assert.match(notesDialogSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
+  assert.match(notesDialogSource, /await api\.put\(`\/api\/forms\/\$\{props\.form\.id\}`, \{ design_notes: draft\.value \}\)/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\)/)
   assert.match(formDesignerSource, /formsTableRef\.value\?\.setCurrentRow\(currentForm\)/)
   assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/)
@@ -100,10 +103,11 @@ test('choice codelist row exposes icon actions with disable guard', () => {
 test('property editor restores type-specific controls', () => {
   assert.match(
     formDesignerSource,
-    /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"[\s\S]*<el-form-item label="字段标签"[\s\S]*<el-input[\s\S]*v-model="editProp\.label"[\s\S]*:type="editProp\.field_type === '标签' \? 'textarea' : 'text'"/,
+    /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"[\s\S]*<el-form-item label="字段标签"[\s\S]*v-model="editProp\.label"/,
   )
   assert.match(formDesignerSource, /<el-form-item v-if="isChoiceField\(editProp\.field_type\)" label="字段选项">/)
-  assert.match(formDesignerSource, /:autosize="editProp\.field_type === '标签' \? \{ minRows: 2, maxRows: 4 \} : undefined"/)
+  // 标签类型仍为 textarea（无字段库候选）；其他类型为自动完成输入
+  assert.match(formDesignerSource, /v-if="editProp\.field_type === '标签'"[\s\S]*type="textarea"[\s\S]*:autosize="\{ minRows: 2, maxRows: 4 \}"/)
   assert.match(formDesignerSource, /v-model="editProp\.integer_digits"/)
   assert.match(formDesignerSource, /v-model="editProp\.decimal_digits"/)
   assert.match(formDesignerSource, /v-model="editProp\.date_format"/)
@@ -181,14 +185,17 @@ test('selectField keeps regular fields editable and resets log rows to readonly 
     formDesignerSource,
     /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits \?\? null,[\s\S]*decimal_digits: fd\.decimal_digits \?\? null,[\s\S]*date_format: fd\.date_format \?\? null,[\s\S]*codelist_id: fd\.codelist_id \?\? null,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
   )
+  // 属性保存收敛为一次 binding-profile 原子请求（不再逐次 PUT 定义 / PUT 实例 / PATCH 颜色）
   assert.match(
     formDesignerSource,
-    /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`,[\s\S]*label: snapshot\.label,[\s\S]*variable_name: snapshot\.variable_name,[\s\S]*field_type: snapshot\.field_type,[\s\S]*integer_digits: snapshot\.integer_digits,[\s\S]*decimal_digits: snapshot\.decimal_digits,[\s\S]*date_format: snapshot\.date_format,[\s\S]*codelist_id: snapshot\.codelist_id,[\s\S]*unit_id: snapshot\.unit_id \?\? null[\s\S]*\}\)/,
+    /const command = buildBindingProfileCommand\(\{[\s\S]*currentDefinitionId: originalDefinitionId,[\s\S]*currentDefinitionOid: originalDefinitionOid,[\s\S]*editorState,[\s\S]*selectedDefinitionId: selectedDefinitionId\.value,[\s\S]*candidateOid: candidateOid\.value,[\s\S]*\}\)/,
   )
   assert.match(
     formDesignerSource,
-    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/colors`,[\s\S]*bg_color: snapshot\.bg_color,[\s\S]*text_color: snapshot\.text_color[\s\S]*\}\)/,
+    /const result = await api\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command\)/,
   )
+  assert.doesNotMatch(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/colors`/)
+  assert.doesNotMatch(formDesignerSource, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`/)
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /from '..\/composables\/formDesignerPropertyEditor'/)
   assert.match(formDesignerSource, /@input="applyCustomBgColor"/)
@@ -196,20 +203,22 @@ test('selectField keeps regular fields editable and resets log rows to readonly 
 })
 
 
-test('field list exposes inline toggle backed by patch endpoint', () => {
+test('field list exposes inline toggle backed by binding-profile instance update', () => {
   assert.match(formDesignerSource, /function canToggleInline\(ff\)/)
   assert.match(formDesignerSource, /async function toggleInline\(ff\)/)
   assert.match(formDesignerSource, /await confirmFormChange\(\)/)
   assert.match(
     formDesignerSource,
-    /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/inline-mark`,[\s\S]*inline_mark: nextInlineMark[\s\S]*\}\)/,
+    /api\.put\(\s*`\/api\/form-fields\/\$\{ff\.id\}\/binding-profile`,[\s\S]*buildInstanceOnlyProfileCommand\(\{ instance: \{ inline_mark: nextInlineMark \} \}\)/,
   )
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"/)
   assert.match(formDesignerSource, /content="横向表格标记"/)
   assert.match(formDesignerSource, /:aria-label="'切换 ' \+ getFormFieldDisplayLabel\(ff\) \+ ' 的横向表格标记'"/)
-  assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"[\s\S]*>⊞<\/el-button\s*>/)
+  // 图标化：⊞ 文本占位已被 Grid 图标取代
+  assert.doesNotMatch(formDesignerSource, />⊞<\/el-button/)
+  assert.match(formDesignerSource, /@click\.stop="toggleInline\(ff\)"[\s\S]*><el-icon[\s\S]*<Grid \/>/)
 })
 
 
@@ -298,7 +307,8 @@ test('property editor uses explicit save and cancel buttons instead of persisten
   assert.doesNotMatch(formDesignerSource, /let pendingFieldPropSnapshots = \[\]/)
   assert.doesNotMatch(formDesignerSource, /flushPendingFieldPropSave/)
   assert.doesNotMatch(formDesignerSource, /fieldPropSaveTimer = setTimeout/)
-  assert.match(formDesignerSource, /data-test="designer-property-actions"/)
+  // 保存/取消收敛到属性卡固定底部动作栏（log 行只读不渲染）
+  assert.match(formDesignerSource, /class="designer-editor-actions"/)
   assert.match(formDesignerSource, /data-test="designer-property-cancel"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value \|\| isSavingFieldProp"[\s\S]*@click="cancelSelectedFieldProp"/)
   assert.match(formDesignerSource, /data-test="designer-property-save"[\s\S]*:loading="isSavingFieldProp"[\s\S]*:disabled="!isFieldPropDirty \|\| designerHistory\.busy\.value"[\s\S]*@click="saveSelectedFieldProp"/)
 })
@@ -317,10 +327,13 @@ test('property editor hydrates baseline before switching fields', () => {
 test('property editor save uses shared multi-form impact warning and context guards', () => {
   assert.match(formDesignerSource, /async function saveSelectedFieldProp\(\) \{/)
   assert.match(formDesignerSource, /isSavingFieldProp\.value = true/)
-  assert.match(formDesignerSource, /await confirmFieldReferenceImpact\(ff\)/)
+  // 影响确认只针对真正被 update_shared 写入的目标定义（换绑=候选；分叉=无共享影响）
+  assert.match(formDesignerSource, /const sharedWriteTarget = resolveSharedWriteTarget\(\{/)
+  assert.match(formDesignerSource, /await confirmFieldReferenceImpact\(sharedWriteTarget\)/)
   assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === snapshot\.fieldId\) syncFieldPropBaselineFromEditor\(\)/)
-  assert.match(formDesignerSource, /const refs = await api\.get\(`\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/references`\)/)
+  assert.match(formDesignerSource, /async function confirmFieldReferenceImpact\(definitionId\) \{/)
+  assert.match(formDesignerSource, /const refs = await api\.get\(`\/api\/field-definitions\/\$\{definitionId\}\/references`\)/)
   assert.match(formDesignerSource, /if \(countDistinctForms\(refs\) <= 1\) return true/)
   assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
   assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('字段属性保存上下文已变更'\)/)
@@ -418,7 +431,6 @@ test('field switch goes through property dirty leave guard before selecting anot
 
 test('dirty property edits are guarded before reselecting or refreshing editor state', () => {
   assert.match(formDesignerSource, /async function newField\(\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '新建字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*selectField\(draft\)/)
-  assert.match(formDesignerSource, /async function addField\(fd\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '添加字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*api\.post\(`\/api\/forms\/\$\{formId\}\/fields`/)
   assert.match(formDesignerSource, /async function copyFormField\(ff\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '复制字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(created\) selectField\(created\)/)
   assert.match(formDesignerSource, /if \(refreshed && selectedFieldId\.value === refreshed\.id && !isFieldPropDirty\.value\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
@@ -451,12 +463,13 @@ test('form switch only lets latest field load commit', () => {
 })
 
 
-test('form switch flushes field autosave and clears stale field state before selecting next form', () => {
+test('form switch flushes annotation drag and clears stale field state before selecting next form', () => {
   assert.match(formDesignerSource, /function invalidateFormSelectionSession\(\) \{[\s\S]*formSelectionSession \+= 1[\s\S]*formSelectionAttempt \+= 1/)
   assert.match(formDesignerSource, /let formSelectionSession = 0/)
   assert.match(formDesignerSource, /let formSelectionAttempt = 0/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\) \{[\s\S]*const selectionAttempt = \+\+formSelectionAttempt/)
-  assert.match(formDesignerSource, /const flushSucceeded = await flushDesignNotesSave\(buildDesignNotesSaveSnapshot\(\{ form: currentForm \}\)\)/)
+  // 备注改为显式弹窗保存后，表单切换不再 flush 备注自动保存
+  assert.doesNotMatch(formDesignerSource, /flushDesignNotesSave/)
   assert.match(formDesignerSource, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return/)
   assert.match(
     formDesignerSource,

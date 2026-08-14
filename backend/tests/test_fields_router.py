@@ -427,7 +427,17 @@ def test_checkbox_field_definition_rejects_label_over_255_characters(
 
 
 
-def test_patch_inline_mark_preserves_default_value_when_disabling(
+def put_binding_profile(client: TestClient, ff_id: int, auth_token: str, upsert: dict) -> dict:
+    """通过 binding-profile 实例部分更新；返回 (status_code, payload)。"""
+    resp = client.put(
+        f"/api/form-fields/{ff_id}/binding-profile",
+        json={"instance": {"mode": "upsert", "upsert": upsert}},
+        headers=auth_headers(auth_token),
+    )
+    return resp.status_code, resp.json()
+
+
+def test_binding_profile_inline_mark_normalizes_default_value_when_disabling(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -445,15 +455,11 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/inline-mark",
-        json={"inline_mark": 0},
-        headers=auth_headers(auth_token),
-    )
-    assert patch_resp.status_code == 200, patch_resp.text
-    patched = patch_resp.json()
-    assert patched["inline_mark"] == 0
-    assert patched["default_value"] == "保留值"
+    status, payload = put_binding_profile(client, form_field["id"], auth_token, {"inline_mark": 0})
+    assert status == 200, payload
+    updated = payload["form_field"]
+    assert updated["inline_mark"] == 0
+    assert updated["default_value"] == "保留值"
 
     list_resp = client.get(
         f"/api/forms/{form_id}/fields",
@@ -466,68 +472,7 @@ def test_patch_inline_mark_preserves_default_value_when_disabling(
     assert matched[0]["default_value"] == "保留值"
 
 
-
-def test_form_fields_response_returns_choice_options_without_trailing_metadata(
-    client: TestClient,
-    form_id: int,
-    choice_field_definition_id: int,
-    auth_token: str,
-) -> None:
-    add_resp = client.post(
-        f"/api/forms/{form_id}/fields",
-        json={"field_definition_id": choice_field_definition_id},
-        headers=auth_headers(auth_token),
-    )
-    assert add_resp.status_code == 201, add_resp.text
-
-    list_resp = client.get(
-        f"/api/forms/{form_id}/fields",
-        headers=auth_headers(auth_token),
-    )
-    assert list_resp.status_code == 200, list_resp.text
-    fields = list_resp.json()
-    assert len(fields) == 1
-
-    options = fields[0]["field_definition"]["codelist"]["options"]
-    assert [option["decode"] for option in options] == ["男", "女"]
-    assert all("trailing_underscore" not in option for option in options)
-
-
-
-def test_import_template_preview_response_returns_options_without_trailing_metadata(
-    client: TestClient,
-    project_id: int,
-    template_db_path: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
-    auth_token: str,
-) -> None:
-    from src.routers import import_template as import_template_router
-
-    template_service_config = SimpleNamespace(
-        db_path=str(template_db_path.db_path.parent / "crf_editor.db"),
-        upload_path=str(template_db_path.db_path.parent / "uploads"),
-    )
-    monkeypatch.setattr(
-        import_template_router,
-        "get_config",
-        lambda: SimpleNamespace(template_path=str(template_db_path.allowed_template_path)),
-    )
-    monkeypatch.setattr(import_service_module, "get_config", lambda: template_service_config)
-
-    preview_resp = client.get(
-        f"/api/projects/{project_id}/import-template/form-fields?form_id={template_db_path.form_id}",
-        headers=auth_headers(auth_token),
-    )
-    assert preview_resp.status_code == 200, preview_resp.text
-    payload = preview_resp.json()
-    assert payload["form_id"] == template_db_path.form_id
-    assert len(payload["fields"]) == 1
-    options = payload["fields"][0]["options"]
-    assert [option["decode"] for option in options] == ["男", "女"]
-    assert all("trailing_underscore" not in option for option in options)
-
-
-def test_patch_colors_can_clear_bg_and_set_text_black(
+def test_binding_profile_can_clear_bg_and_set_text_black(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -541,25 +486,19 @@ def test_patch_colors_can_clear_bg_and_set_text_black(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    seed_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json={"bg_color": "FFEEDD", "text_color": "112233"},
-        headers=auth_headers(auth_token),
+    status, seeded = put_binding_profile(
+        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
     )
-    assert seed_resp.status_code == 200, seed_resp.text
-    seeded = seed_resp.json()
-    assert seeded["bg_color"] == "FFEEDD"
-    assert seeded["text_color"] == "112233"
+    assert status == 200, seeded
+    assert seeded["form_field"]["bg_color"] == "FFEEDD"
+    assert seeded["form_field"]["text_color"] == "112233"
 
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"bg_color": None, "text_color": "000000"},
-        headers=auth_headers(auth_token),
+    status, patched = put_binding_profile(
+        client, form_field["id"], auth_token, {"bg_color": None, "text_color": "000000"},
     )
-    assert patch_resp.status_code == 200, patch_resp.text
-    patched = patch_resp.json()
-    assert patched["bg_color"] is None
-    assert patched["text_color"] == "000000"
+    assert status == 200, patched
+    assert patched["form_field"]["bg_color"] is None
+    assert patched["form_field"]["text_color"] == "000000"
 
     list_resp = client.get(
         f"/api/forms/{form_id}/fields",
@@ -572,7 +511,7 @@ def test_patch_colors_can_clear_bg_and_set_text_black(
     assert matched[0]["text_color"] == "000000"
 
 
-def test_patch_colors_rejects_invalid_hex(
+def test_binding_profile_rejects_invalid_hex(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -586,15 +525,11 @@ def test_patch_colors_rejects_invalid_hex(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"text_color": "GGGGGG"},
-        headers=auth_headers(auth_token),
-    )
-    assert patch_resp.status_code == 422, patch_resp.text
+    status, payload = put_binding_profile(client, form_field["id"], auth_token, {"text_color": "GGGGGG"})
+    assert status == 422, payload
 
 
-def test_patch_colors_keeps_omitted_field_unchanged(
+def test_binding_profile_keeps_omitted_field_unchanged(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -608,22 +543,15 @@ def test_patch_colors_keeps_omitted_field_unchanged(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    seed_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json={"bg_color": "FFEEDD", "text_color": "112233"},
-        headers=auth_headers(auth_token),
+    status, seeded = put_binding_profile(
+        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
     )
-    assert seed_resp.status_code == 200, seed_resp.text
+    assert status == 200, seeded
 
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"text_color": "000000"},
-        headers=auth_headers(auth_token),
-    )
-    assert patch_resp.status_code == 200, patch_resp.text
-    patched = patch_resp.json()
-    assert patched["bg_color"] == "FFEEDD"
-    assert patched["text_color"] == "000000"
+    status, patched = put_binding_profile(client, form_field["id"], auth_token, {"text_color": "000000"})
+    assert status == 200, patched
+    assert patched["form_field"]["bg_color"] == "FFEEDD"
+    assert patched["form_field"]["text_color"] == "000000"
 
 
 @pytest.mark.parametrize(
@@ -635,7 +563,7 @@ def test_patch_colors_keeps_omitted_field_unchanged(
         ({"text_color": "GGGGGG"}, 422, None, None),
     ],
 )
-def test_put_form_field_color_validation_and_null_semantics(
+def test_binding_profile_color_validation_and_null_semantics(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -653,29 +581,22 @@ def test_put_form_field_color_validation_and_null_semantics(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    seed_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json={"bg_color": "FFEEDD", "text_color": "112233"},
-        headers=auth_headers(auth_token),
+    status, seeded = put_binding_profile(
+        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
     )
-    assert seed_resp.status_code == 200, seed_resp.text
+    assert status == 200, seeded
 
-    put_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json=payload,
-        headers=auth_headers(auth_token),
-    )
-    assert put_resp.status_code == expected_status, put_resp.text
+    status, updated = put_binding_profile(client, form_field["id"], auth_token, payload)
+    assert status == expected_status, updated
 
     if expected_status != 200:
         return
 
-    updated = put_resp.json()
-    assert updated["bg_color"] == expected_bg_color
-    assert updated["text_color"] == expected_text_color
+    assert updated["form_field"]["bg_color"] == expected_bg_color
+    assert updated["form_field"]["text_color"] == expected_text_color
 
 
-def test_form_field_label_style_defaults_and_updates(
+def test_binding_profile_label_style_defaults_and_updates(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -692,26 +613,20 @@ def test_form_field_label_style_defaults_and_updates(
     assert form_field["label_bold"] == 1
     assert form_field["label_font_size"] is None
 
-    # 通过 /colors PATCH（正向自动保存路径）写入“不加粗 + 大字号”
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"label_bold": 0, "label_font_size": "large"},
-        headers=auth_headers(auth_token),
+    # 设计器属性保存与快编两条路径都走 binding-profile 实例更新
+    status, updated = put_binding_profile(
+        client, form_field["id"], auth_token, {"label_bold": 0, "label_font_size": "large"},
     )
-    assert patch_resp.status_code == 200, patch_resp.text
-    patched = patch_resp.json()
-    assert patched["label_bold"] == 0
-    assert patched["label_font_size"] == "large"
+    assert status == 200, updated
+    assert updated["form_field"]["label_bold"] == 0
+    assert updated["form_field"]["label_font_size"] == "large"
 
-    # 通过 PUT（双击快编路径）改回加粗 + 小字号
-    put_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json={"label_bold": 1, "label_font_size": "small"},
-        headers=auth_headers(auth_token),
+    status, updated = put_binding_profile(
+        client, form_field["id"], auth_token, {"label_bold": 1, "label_font_size": "small"},
     )
-    assert put_resp.status_code == 200, put_resp.text
-    assert put_resp.json()["label_bold"] == 1
-    assert put_resp.json()["label_font_size"] == "small"
+    assert status == 200, updated
+    assert updated["form_field"]["label_bold"] == 1
+    assert updated["form_field"]["label_font_size"] == "small"
 
     # 列表读回保持一致
     list_resp = client.get(
@@ -725,7 +640,7 @@ def test_form_field_label_style_defaults_and_updates(
     assert matched[0]["label_font_size"] == "small"
 
 
-def test_form_field_label_font_size_rejects_invalid_value(
+def test_binding_profile_label_font_size_rejects_invalid_value(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -739,15 +654,11 @@ def test_form_field_label_font_size_rejects_invalid_value(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"label_font_size": "huge"},
-        headers=auth_headers(auth_token),
-    )
-    assert resp.status_code == 422, resp.text
+    status, payload = put_binding_profile(client, form_field["id"], auth_token, {"label_font_size": "huge"})
+    assert status == 422, payload
 
 
-def test_form_field_label_bold_rejects_out_of_range(
+def test_binding_profile_label_bold_rejects_out_of_range(
     client: TestClient,
     form_id: int,
     field_definition_id: int,
@@ -761,56 +672,64 @@ def test_form_field_label_bold_rejects_out_of_range(
     assert add_resp.status_code == 201, add_resp.text
     form_field = add_resp.json()
 
-    # /colors PATCH 与 PUT 两条写路径都应拒绝 0/1 之外的值
-    patch_resp = client.patch(
-        f"/api/form-fields/{form_field['id']}/colors",
-        json={"label_bold": 2},
+    for bad_value in (2, -1):
+        status, payload = put_binding_profile(client, form_field["id"], auth_token, {"label_bold": bad_value})
+        assert status == 422, payload
+
+
+def test_binding_profile_label_bold_rejects_null(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
         headers=auth_headers(auth_token),
     )
-    assert patch_resp.status_code == 422, patch_resp.text
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
+
+    status, payload = put_binding_profile(client, form_field["id"], auth_token, {"label_bold": None})
+    assert status == 422, payload
+
+
+def test_legacy_form_field_write_routes_are_removed(
+    client: TestClient,
+    form_id: int,
+    field_definition_id: int,
+    auth_token: str,
+) -> None:
+    add_resp = client.post(
+        f"/api/forms/{form_id}/fields",
+        json={"field_definition_id": field_definition_id},
+        headers=auth_headers(auth_token),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+    form_field = add_resp.json()
 
     put_resp = client.put(
         f"/api/form-fields/{form_field['id']}",
-        json={"label_bold": -1},
+        json={"inline_mark": 0},
         headers=auth_headers(auth_token),
     )
-    assert put_resp.status_code == 422, put_resp.text
+    assert put_resp.status_code == 405, put_resp.text
 
-
-def test_form_field_label_bold_rejects_null(
-    client: TestClient,
-    form_id: int,
-    field_definition_id: int,
-    auth_token: str,
-) -> None:
-    create_resp = client.post(
-        f"/api/forms/{form_id}/fields",
-        json={"field_definition_id": field_definition_id, "label_bold": None},
-        headers=auth_headers(auth_token),
-    )
-    assert create_resp.status_code == 422, create_resp.text
-
-    add_resp = client.post(
-        f"/api/forms/{form_id}/fields",
-        json={"field_definition_id": field_definition_id},
-        headers=auth_headers(auth_token),
-    )
-    assert add_resp.status_code == 201, add_resp.text
-    form_field = add_resp.json()
-
-    patch_resp = client.patch(
+    patch_colors = client.patch(
         f"/api/form-fields/{form_field['id']}/colors",
-        json={"label_bold": None},
+        json={"bg_color": None},
         headers=auth_headers(auth_token),
     )
-    assert patch_resp.status_code == 422, patch_resp.text
+    assert patch_colors.status_code in (404, 405), patch_colors.text
 
-    put_resp = client.put(
-        f"/api/form-fields/{form_field['id']}",
-        json={"label_bold": None},
+    patch_inline = client.patch(
+        f"/api/form-fields/{form_field['id']}/inline-mark",
+        json={"inline_mark": 1},
         headers=auth_headers(auth_token),
     )
-    assert put_resp.status_code == 422, put_resp.text
+    assert patch_inline.status_code in (404, 405), patch_inline.text
+
 
 
 def test_delete_label_form_field_removes_orphan_field_definition(

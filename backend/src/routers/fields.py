@@ -10,7 +10,6 @@ from sqlalchemy import select
 
 from pydantic import BaseModel, field_validator
 
-from src.schemas.field import HexColor, LabelFontSize, LabelBold
 
 
 
@@ -27,6 +26,8 @@ from src.dependencies import (
 )
 
 from src.models.field_definition import FieldDefinition
+
+from src.models.form import Form
 
 from src.models.form_field import FormField
 
@@ -48,11 +49,18 @@ from src.schemas.field import (
 
     FieldDefinitionCreate, FieldDefinitionUpdate, FieldDefinitionResponse,
 
-    FormFieldCreate, FormFieldUpdate, FormFieldResponse
+    FormFieldCreate, FormFieldResponse
 
 )
 
 from src.schemas import BatchDeleteRequest
+
+from src.schemas.field_profile import FieldProfileCommand, FieldProfileResponse
+
+from src.services.field_profile_service import (
+    create_field_profile,
+    update_binding_profile,
+)
 
 from src.services.field_cleanup_service import (
     batch_delete_form_fields_and_cleanup_label_definitions,
@@ -186,10 +194,6 @@ def get_field_definition_references(fd_id: int, session: Session = Depends(get_s
     """查询字段定义被哪些表单引用"""
 
     verify_field_definition_owner(fd_id, current_user, session)
-
-    from src.models.form import Form
-
-    from src.models.form_field import FormField
 
     stmt = (
 
@@ -354,21 +358,46 @@ def add_form_field(form_id: int, data: FormFieldCreate, session: Session = Depen
 
 
 
-@router.put("/form-fields/{ff_id}", response_model=FormFieldResponse)
+@router.post("/forms/{form_id}/field-profile", response_model=FieldProfileResponse, status_code=201)
 
-def update_form_field(ff_id: int, data: FormFieldUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def create_form_field_profile(form_id: int, command: FieldProfileCommand, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
-    repo = FormFieldRepository(session)
+    """新增字段草稿落库：定义创建/恢复 + 实例创建，单事务原子。"""
+
+    form = verify_form_owner(form_id, current_user, session)
+
+    project = verify_project_owner(form.project_id, current_user, session)
+
+    result = create_field_profile(session, project, form, current_user, command)
+
+    result["form_field"] = result.pop("form_field_obj", None)
+
+    return result
+
+
+
+
+@router.put("/form-fields/{ff_id}/binding-profile", response_model=FieldProfileResponse)
+
+def update_form_field_binding_profile(ff_id: int, command: FieldProfileCommand, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+
+    """已有字段：共享更新 / 换绑 / OID 分叉 / 实例部分更新 / 撤销删除，单事务原子。"""
 
     ff = verify_form_field_owner(ff_id, current_user, session)
 
-    for k, v in data.model_dump(exclude_unset=True).items():
+    form = session.get(Form, ff.form_id)
 
-        setattr(ff, k, v)
+    if form is None:
 
-    repo.update(ff)
+        raise HTTPException(404, "表单不存在")
 
-    return ff
+    project = verify_project_owner(form.project_id, current_user, session)
+
+    result = update_binding_profile(session, ff, project, current_user, command)
+
+    result["form_field"] = result.pop("form_field_obj", None)
+
+    return result
 
 
 
@@ -381,82 +410,6 @@ def delete_form_field(ff_id: int, session: Session = Depends(get_session), curre
     ff = verify_form_field_owner(ff_id, current_user, session)
 
     delete_form_field_and_cleanup_label_definition(session, ff)
-
-
-
-
-
-class InlineMarkUpdate(BaseModel):
-
-    inline_mark: int
-
-
-
-
-
-class FormFieldStyleUpdate(BaseModel):
-
-    bg_color: Optional[HexColor] = None
-
-    text_color: Optional[HexColor] = None
-
-    label_bold: Optional[LabelBold] = None
-
-    label_font_size: Optional[LabelFontSize] = None
-
-    @field_validator("label_bold", mode="before")
-    @classmethod
-    def reject_null_label_bold(cls, value: object) -> object:
-        if value is None:
-            raise ValueError("label_bold must be 0 or 1")
-        return value
-
-
-
-
-
-@router.patch("/form-fields/{ff_id}/inline-mark", response_model=FormFieldResponse)
-
-def update_inline_mark(ff_id: int, data: InlineMarkUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
-    verify_form_field_owner(ff_id, current_user, session)
-
-    repo = FormFieldRepository(session)
-
-    if not repo.update_inline_mark(ff_id, data.inline_mark):
-
-        raise HTTPException(404, "表单字段不存在")
-
-    return repo.get_by_id(ff_id)
-
-
-
-
-
-@router.patch("/form-fields/{ff_id}/colors", response_model=FormFieldResponse)
-
-def update_field_style(
-    ff_id: int,
-    data: FormFieldStyleUpdate,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-
-    """更新字段底纹颜色、文字颜色和标签样式。"""
-
-    repo = FormFieldRepository(session)
-
-    ff = verify_form_field_owner(ff_id, current_user, session)
-
-    for key, value in data.model_dump(exclude_unset=True).items():
-
-        setattr(ff, key, value)
-
-    repo.update(ff)
-
-    return ff
-
-
 
 
 
