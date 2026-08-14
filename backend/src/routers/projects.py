@@ -1,14 +1,12 @@
 """Projects Router"""
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from pathlib import Path
-import shutil
 
 from src.database import get_session
-from src.config import get_config
 from src.dependencies import get_current_user, require_admin
 from src.rate_limit import limit_import_action
 from src.models.project import Project
@@ -27,8 +25,32 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
-_LOGO_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/webp"]
-_LOGO_BLOCKED_EXTENSIONS = {".svg", ".xml"}
+_PROFILE_LOGO_ACTIONS = {"keep", "preset", "upload", "clear"}
+
+
+class ProjectProfileMetadata(ProjectUpdate):
+    """项目 profile 的 metadata JSON：拒绝一切未声明字段（含 company_logo_path）。"""
+
+    model_config = {"extra": "forbid"}
+
+
+def _parse_profile_metadata(metadata_raw: str) -> ProjectProfileMetadata:
+    import json as _json
+
+    from pydantic import ValidationError
+
+    try:
+        data = _json.loads(metadata_raw)
+    except (_json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(400, "metadata 必须是合法 JSON") from exc
+    try:
+        return ProjectProfileMetadata.model_validate(data)
+    except ValidationError as exc:
+        messages = []
+        for err in exc.errors():
+            loc = ".".join(str(part) for part in err["loc"]) or "metadata"
+            messages.append(f"{loc}: {err['msg']}")
+        raise HTTPException(422, "; ".join(messages)) from exc
 
 
 # Task 4.4: 项目导入自定义异常（确保事务回滚 + 稳定 JSON 响应）
@@ -69,11 +91,6 @@ def _save_bytes_to_temp(filename: str, content: bytes) -> Path:
         os.unlink(tmp_path)
         raise
     return Path(tmp_path)
-
-
-async def _save_upload_to_temp(file: UploadFile) -> Path:
-    content = await file.read()
-    return _save_bytes_to_temp(file.filename or 'upload.db', content)
 
 
 @router.post("/import/project-db")
@@ -244,23 +261,41 @@ def get_project(
     return project
 
 
-@router.put("/{project_id}", response_model=ProjectResponse)
-def update_project(
+@router.put("/{project_id}/profile", response_model=ProjectResponse)
+def update_project_profile(
     project_id: int,
-    data: ProjectUpdate,
+    metadata: str = Form(...),
+    logo_action: str = Form(...),
+    preset_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    from src.services.project_profile_service import update_project_profile as _apply_profile
+
     repo = ProjectRepository(session)
     project = repo.get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
     if project.owner_id != current_user.id:
         raise HTTPException(403, "无权访问此项目")
-    for k, v in data.model_dump(exclude_unset=True).items():
-        setattr(project, k, v)
-    repo.update(project)
-    return project
+
+    upsert = _parse_profile_metadata(metadata)
+    if logo_action not in _PROFILE_LOGO_ACTIONS:
+        raise HTTPException(422, "logo_action 必须是 keep/preset/upload/clear")
+    if logo_action == "upload" and file is None:
+        raise HTTPException(422, "logo_action=upload 需要 file")
+    if logo_action == "preset" and preset_id is None:
+        raise HTTPException(422, "logo_action=preset 需要 preset_id")
+    try:
+        return _apply_profile(project, upsert, logo_action, preset_id, file, session)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        from fastapi import HTTPException as _HE
+        raise _HE(500, f"保存项目信息失败: {exc}") from exc
 
 
 @router.delete("/{project_id}", status_code=204)
@@ -301,13 +336,6 @@ def copy_project(
     return cloned_project
 
 
-def _resolve_logo_path(upload_dir: Path, logo_name: str) -> Path:
-    raw_path = Path(logo_name)
-    if raw_path.is_absolute() or raw_path.name != logo_name or ".." in raw_path.parts:
-        raise HTTPException(400, "Logo 文件不安全: 非法路径")
-    return upload_dir / logo_name
-
-
 @router.get("/{project_id}/logo")
 def get_logo(
     project_id: int,
@@ -315,7 +343,11 @@ def get_logo(
     current_user: User = Depends(get_current_user),
 ):
     from fastapi.responses import FileResponse as FR
-    from src.utils import is_safe_file_upload
+    from src.services.logo_storage_service import (
+        PROJECT_NAMESPACE,
+        read_safe,
+        safe_resolve,
+    )
 
     project = ProjectRepository(session).get_by_id(project_id)
     if not project:
@@ -325,23 +357,13 @@ def get_logo(
     if not project.company_logo_path:
         raise HTTPException(404, "无Logo")
 
-    upload_dir = Path(get_config().upload_path) / "logos"
-    logo_path = _resolve_logo_path(upload_dir, project.company_logo_path)
-    if logo_path.suffix.lower() in _LOGO_BLOCKED_EXTENSIONS:
-        raise HTTPException(400, "Logo 文件不安全: 不允许 SVG/XML 图片，请重新上传位图")
-    if not logo_path.exists():
-        raise HTTPException(404, "文件不存在")
-
-    file_content = logo_path.read_bytes()
-    is_valid, error_msg, _ = is_safe_file_upload(
-        filename=logo_path.name,
-        content=file_content,
-        allowed_mime_types=_LOGO_ALLOWED_TYPES,
-        max_size_mb=5,
-    )
-    if not is_valid:
-        raise HTTPException(400, f"Logo 文件不安全: {error_msg}，请重新上传位图")
-    return FR(str(logo_path))
+    try:
+        read_safe(PROJECT_NAMESPACE, project.company_logo_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "文件不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(400, f"Logo 文件不安全: {exc}，请重新上传位图") from exc
+    return FR(str(safe_resolve(PROJECT_NAMESPACE, project.company_logo_path)))
 
 
 class BatchDeleteRequest(BaseModel):
@@ -369,47 +391,3 @@ def batch_delete_projects(
     )
 
 
-@router.post("/{project_id}/logo", response_model=ProjectResponse)
-def upload_logo(
-    project_id: int,
-    file: UploadFile = File(...),
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    import uuid
-    from src.utils import is_safe_file_upload
-
-    repo = ProjectRepository(session)
-    project = repo.get_by_id(project_id)
-    if not project:
-        raise HTTPException(404, "项目不存在")
-    if project.owner_id != current_user.id:
-        raise HTTPException(403, "无权访问此项目")
-
-    file_content = file.file.read()
-
-    is_valid, error_msg, detected_ext = is_safe_file_upload(
-        filename=file.filename or "logo",
-        content=file_content,
-        allowed_mime_types=_LOGO_ALLOWED_TYPES,
-        max_size_mb=5,
-    )
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=f"文件不安全: {error_msg}")
-
-    safe_filename = f"{uuid.uuid4().hex}.{detected_ext}"
-
-    upload_dir = Path(get_config().upload_path) / "logos"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    if project.company_logo_path:
-        old_logo = _resolve_logo_path(upload_dir, project.company_logo_path)
-        if old_logo.exists():
-            old_logo.unlink()
-
-    with open(upload_dir / safe_filename, "wb") as f:
-        f.write(file_content)
-
-    project.company_logo_path = safe_filename
-    repo.update(project)
-    return project

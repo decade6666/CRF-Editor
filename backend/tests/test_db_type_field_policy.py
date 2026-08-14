@@ -75,9 +75,10 @@ def test_create_project_with_saimeisi_and_update_roundtrip(client):
     pid = r.json()["id"]
     assert r.json()["db_type"] == "赛美斯"
 
+    import json as _json
     r2 = client.put(
-        f"/api/projects/{pid}",
-        json={"name": "S", "version": "1.0", "db_type": "其他"},
+        f"/api/projects/{pid}/profile",
+        data={"metadata": _json.dumps({"name": "S", "version": "1.0", "db_type": "其他"}), "logo_action": "keep"},
         headers=auth_headers(token),
     )
     assert r2.status_code == 200, r2.text

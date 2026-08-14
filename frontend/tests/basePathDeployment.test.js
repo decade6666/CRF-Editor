@@ -101,7 +101,8 @@ test('bypass fetch sites in components are wrapped with apiUrl', () => {
   assert.match(appSource, /fetch\(apiUrl\('\/api\/projects\/import\/auto'\)/);
   assert.match(appSource, /:action="apiUrl\('/);
   assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{projectId\}\/logo`\)/);
-  assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{props\.project\.id\}\/logo`\), \{ method: 'POST'/);
+  assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{props\.project\.id\}\/profile`\), \{ method: 'PUT', body: fd, headers: getAuthHeaders\(\) \}\)/);
+  assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/organization-presets\/\$\{item\.preset_id\}\/logo`\)/);
   assert.match(screenshotSource, /return apiUrl\(`\/api\/projects\/\$\{props\.projectId\}\/import-docx/);
 });
 

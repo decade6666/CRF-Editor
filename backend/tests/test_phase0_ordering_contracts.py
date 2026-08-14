@@ -841,7 +841,7 @@ def test_project_copy_preserves_order_index(
     )
 
     with patch("src.services.project_clone_service.get_config", return_value=test_config), patch(
-        "src.routers.projects.get_config", return_value=test_config
+        "src.services.logo_storage_service.get_config", return_value=test_config
     ):
         copy_resp = client.post(
             f"/api/projects/{target_project_id}/copy",

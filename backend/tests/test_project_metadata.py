@@ -18,6 +18,13 @@ def _project_payload(name: str, version: str, **overrides):
     payload.update(overrides)
     return payload
 
+def _update_profile(client, token, project_id, payload):
+    import json
+    return client.put(
+        f'/api/projects/{project_id}/profile',
+        data={'metadata': json.dumps(payload), 'logo_action': 'keep'},
+        headers=auth_headers(token),
+    )
 
 def test_project_create_persists_screening_number_format(client, engine):
     token = login_as(client, 'alice')
@@ -36,11 +43,7 @@ def test_project_update_persists_screening_number_format(client, engine):
     assert create_resp.status_code == 201, create_resp.text
     project_id = create_resp.json()['id']
 
-    update_resp = client.put(
-        f'/api/projects/{project_id}',
-        json=_project_payload('元数据项目', '1.0', screening_number_format='SCR-XYZ'),
-        headers=auth_headers(token),
-    )
+    update_resp = _update_profile(client, token, project_id, _project_payload('元数据项目', '1.0', screening_number_format='SCR-XYZ'))
     assert update_resp.status_code == 200, update_resp.text
     assert update_resp.json()['screening_number_format'] == 'SCR-XYZ'
 
@@ -55,11 +58,7 @@ def test_project_update_normalizes_blank_screening_number_format_to_null(client,
     assert create_resp.status_code == 201, create_resp.text
     project_id = create_resp.json()['id']
 
-    update_resp = client.put(
-        f'/api/projects/{project_id}',
-        json=_project_payload('空白项目', '1.0', screening_number_format='   '),
-        headers=auth_headers(token),
-    )
+    update_resp = _update_profile(client, token, project_id, _project_payload('空白项目', '1.0', screening_number_format='   '))
     assert update_resp.status_code == 200, update_resp.text
     assert update_resp.json()['screening_number_format'] is None
 
@@ -70,29 +69,17 @@ def test_project_update_rejects_invalid_screening_number_format(client, engine):
     assert create_resp.status_code == 201, create_resp.text
     project_id = create_resp.json()['id']
 
-    long_resp = client.put(
-        f'/api/projects/{project_id}',
-        json=_project_payload('非法项目', '1.0', screening_number_format='A' * 101),
-        headers=auth_headers(token),
-    )
+    long_resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format='A' * 101))
     assert long_resp.status_code == 422, long_resp.text
     assert '筛选号格式长度不能超过100个字符' in long_resp.json()['detail']
 
-    newline_resp = client.put(
-        f'/api/projects/{project_id}',
-        json=_project_payload('非法项目', '1.0', screening_number_format='A\nB'),
-        headers=auth_headers(token),
-    )
+    newline_resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format='A\nB'))
     assert newline_resp.status_code == 422, newline_resp.text
     assert '筛选号格式不能包含换行或控制字符' in newline_resp.json()['detail']
 
     # 回归：首尾换行/Tab 不能被 strip() 静默吞掉
     for sample in ('A\n', '\nA', 'A\t', '\tA', 'A\rB'):
-        resp = client.put(
-            f'/api/projects/{project_id}',
-            json=_project_payload('非法项目', '1.0', screening_number_format=sample),
-            headers=auth_headers(token),
-        )
+        resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format=sample))
         assert resp.status_code == 422, (sample, resp.text)
         assert '筛选号格式不能包含换行或控制字符' in resp.json()['detail']
 
@@ -103,11 +90,7 @@ def test_project_update_still_requires_name_and_version(client, engine):
     assert create_resp.status_code == 201, create_resp.text
     project_id = create_resp.json()['id']
 
-    update_resp = client.put(
-        f'/api/projects/{project_id}',
-        json={'screening_number_format': 'SCR-ONLY'},
-        headers=auth_headers(token),
-    )
+    update_resp = _update_profile(client, token, project_id, {'screening_number_format': 'SCR-ONLY'})
     assert update_resp.status_code == 422, update_resp.text
     detail = update_resp.json()['detail']
     assert 'name' in detail and 'version' in detail

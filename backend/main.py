@@ -30,7 +30,7 @@ from src.perf import (
     set_route_template,
 )
 
-from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx
+from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx, organization_presets
 
 from src.routers.auth import router as auth_router
 
@@ -205,6 +205,7 @@ app.include_router(import_template.router, prefix="/api")
 app.include_router(import_docx.router, prefix="/api")
 
 app.include_router(admin_router, prefix="/api")
+app.include_router(organization_presets.router, prefix="/api")
 
 
 
