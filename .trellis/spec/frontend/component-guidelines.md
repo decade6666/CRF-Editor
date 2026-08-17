@@ -166,14 +166,15 @@ Contracts:
 
 ### Admin Workspace Width Constraint
 
-The admin workspace root in `App.vue` uses `.admin-shell` to constrain the whole content block (title + actions + user table) to half width and center it:
+The admin workspace root in `App.vue` uses `.admin-shell` to constrain the whole content block (title + actions + table) to the shared wide shell and center it:
 
 ```css
 .admin-shell {
-  width: 50%;
-  min-width: 600px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 1200px;
   margin-inline: auto;
+  padding-inline: 20px;
+  box-sizing: border-box;
 }
 ```
 
@@ -181,9 +182,31 @@ Contracts:
 
 - Keep the entire admin content block centered as one unit; do not constrain only the table while leaving the header full-width.
 - Do not add body-cell alignment overrides (`td`, `.cell`) under `.admin-shell`; global `tableHeaderStyle.test.js` locks the Element Plus table-header fill/centering contract, while body cells keep the Element Plus default left alignment.
-- If admin table columns change, recalculate the fixed-width total before changing the shell width/min-width, so narrow viewports do not pick up horizontal scrollbars.
-- Dialogs in `AdminView.vue` use `append-to-body` and must stay visually independent of the half-width shell.
-- Admin workspace has two top-level pages behind a `el-radio-group` switch: users (`AdminView` inside `.admin-shell`, half-width) and orgs (`OrganizationManagementView` inside `.admin-org-shell`, max-width 1200px). The org page keeps a persistent left preset list plus a right in-page editor (stacked ≤900px); logo thumbnails use `el-image` built-in preview (`preview-src-list` + `preview-teleported` + programmatic `showPreview` for keyboard), read the logo via `/api/organization-presets/{id}/logo`, and revoke every created object URL on save-refresh / delete / switch / unmount. Clicking a thumbnail must open the preview without also selecting the row into edit mode.
+- Dialogs in `AdminView.vue` use `append-to-body` and stay visually independent of the shell.
+- Both admin pages (`AdminView` users page and `OrganizationManagementView` orgs page) share the single `.admin-shell` and are wrapped in ONE `<KeepAlive>` in `App.vue`; switching pages must not re-mount/re-fetch/re-download logos, and blob URLs are released only on real unmount (admin logout).
+- Org page is a full-width preset table plus an add/edit `el-dialog` (there is no persistent right editor pane and no "click left list to edit" placeholder); logo thumbnails use `el-image` built-in preview (`preview-src-list` + `preview-teleported` + programmatic `showPreview` for keyboard + `hide-on-click-modal` backdrop close), read the logo via `/api/organization-presets/{id}/logo`, and revoke every created object URL on save-refresh / delete / unmount.
+- Project-list batch operations are a two-step dialog (select projects → choose copy/move target user with 上一步 back); the target-user select always excludes the source user for BOTH copy and move.
+- Project ordinary/batch soft deletes are recoverable through the admin recycle bin, so their confirmation copy says 「删除后如需恢复，请联系管理员。」; only recycle-bin hard delete keeps 「此操作不可恢复」.
+
+### Right-Side Property Card Pattern (Units / Visits / Fields)
+
+UnitsTab, VisitsTab (list workspace) and FieldsTab share the same two-pane property-card structure:
+
+```
+outer row: display:flex; gap:12px; align-items:stretch; height:calc(100vh - 160px)
+left:  flex:1; min-width:0; display:flex; flex-direction:column  (+ .list-toolbar + el-table height:100%)
+right: width:320px; display:flex; flex-direction:column; flex-shrink:0
+  ├ .pane-tool-slot（title, OUTSIDE the card）→ card top = table top = 36px slot
+  └ inner: flex:1; min-height:0; border:1px solid var(--color-border); border-radius:4px; overflow:hidden
+```
+
+Contracts:
+
+- Row click selects and hydrates the card (edit mode); the toolbar Plus opens the same card in create mode; Cancel/清空 returns to the empty-state placeholder.
+- Row action columns keep only copy/delete (no EditPen); deleting the active row must clear the card selection.
+- VisitsTab list card edits OID + name only; `sequence` is never part of the card or the PUT payload — drag + ordinal quick edit are the only ordering interfaces.
+- After deleting the selected visit, el-table re-render fires a `current-change` that would land on another row; suppress that passive re-select (`suppressVisitRowSelect`) so the card stays empty.
+- Do not create a shared property-card component: the layouts share only visual structure; business state and impact confirmation differ per tab (the current per-tab inline implementation is intentional).
 
 ---
 

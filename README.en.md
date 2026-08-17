@@ -270,7 +270,7 @@ The desktop entry launches the local backend, opens the browser automatically, a
 - Authentication now uses the existing `username` + password pair through `POST /api/auth/login`.
 - Legacy accounts without a password receive a migration hint in development; production returns a generic unauthorized response.
 - After an administrator logs in, the app lands on a dedicated admin workspace and does not render the normal project list or CRF editing shell.
-- The admin workspace header offers a "User Management / Organization Management" switch: user management keeps users, batch project operations, recycle bin and cleanup policy; organization management maintains org presets in-page (persistent list + right editor, stacked on narrow screens), shows an immediate Logo thumbnail after upload, and supports click-to-zoom preview.
+- The admin workspace header offers a "User Management / Organization Management" switch: user management keeps users, batch project operations, recycle bin and cleanup policy; organization management maintains org presets in a full-width table with dialog editing, shows an immediate Logo thumbnail after upload, and supports click-to-zoom preview; both pages share the wide shell and switch without re-fetching data or logos thanks to KeepAlive.
 - Administrators use that workspace to set initial passwords for new users and reset passwords for legacy accounts during migration.
 
 ### Basic Workflow
@@ -442,7 +442,7 @@ node --test tests/*.test.js
 
 In the current repository:
 - `backend/tests/` currently contains 47 Python test files (45 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 50 frontend test files (49 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, and OID charset validation wiring
+- `frontend/tests/` currently contains 65 frontend test files (64 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing
