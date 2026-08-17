@@ -200,6 +200,13 @@ body {
 .workspace-actions .el-button + .el-button {
   margin-left: 0;
 }
+/* 两栏对齐契约：工具栏内容允许换行，行高仍由最矮一行（24px）决定，
+   保证左右两侧工具栏/卡片顶边按同一 36px 槽位对齐（搜索框多一行时不撑高） */
+.list-toolbar,
+.pane-tool-slot {
+  flex-wrap: wrap;
+  min-height: 24px;
+}
 /* 管理端共享页头（用户管理 / 机构管理） */
 .workspace-header {
   display: flex;
@@ -221,7 +228,7 @@ body {
   gap: 8px;
   align-items: center;
 }
-.fd-right { width: 65%; display: flex; gap: 12px; overflow: hidden; }
+.fd-right { width: 65%; display: flex; flex-direction: column; overflow: hidden; }
 .fd-library { width: 240px; border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: var(--color-bg-subtle); display: flex; flex-direction: column; flex-shrink: 0; transition: all var(--transition-std); }
 .fd-library:hover { box-shadow: var(--shadow-primary); }
 .fd-library-header { padding: 8px 12px; background: var(--color-primary-subtle); border-bottom: 1px solid var(--color-border); font-size: 13px; font-weight: bold; color: var(--color-primary-dark); }

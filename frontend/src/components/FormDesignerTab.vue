@@ -3339,7 +3339,7 @@ function openAddForm() {
         <el-tooltip content="批量删除表单" placement="top">
           <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms.length" @click="batchDelForms" />
         </el-tooltip>
-        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
+        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px; flex: 1 1 auto" />
       </div>
       <el-table
         ref="formsTableRef"
