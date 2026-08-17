@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend TDD, history failure, and regression review gates."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check designer panel and property-editor interaction contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check atomic history replay, retry behavior, draft retention, and busy guards."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Check no regression to field, renderer, preview, or aCRF contracts."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Evidence baseline for draft persistence and panel separator defects."}

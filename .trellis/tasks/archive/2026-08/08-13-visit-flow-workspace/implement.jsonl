@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture overview for the visit workspace."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Visit tables, shared toolbars, responsive two-pane layout, and accessibility conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Mode transitions, project reset, selected visit, preview, and Sortable lifecycle guidance."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Protect existing visit preview and aCRF annotation contracts."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Verified matrix, single-visit maintenance, and current dialog wiring evidence."}

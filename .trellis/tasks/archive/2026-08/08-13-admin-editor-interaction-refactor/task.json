@@ -1,0 +1,31 @@
+{
+  "id": "admin-editor-interaction-refactor",
+  "name": "admin-editor-interaction-refactor",
+  "title": "管理端与编辑器交互重构",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-08-13",
+  "completedAt": "2026-08-14",
+  "branch": null,
+  "base_branch": "worktree-admin-org-visit-flow-ui",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-13-admin-organization-management",
+    "08-13-visit-flow-workspace",
+    "08-13-toolbar-pane-alignment",
+    "08-13-designer-panel-draft-fix"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

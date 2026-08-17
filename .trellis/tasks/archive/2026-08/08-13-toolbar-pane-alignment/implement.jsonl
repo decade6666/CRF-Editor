@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture overview for shared list and pane styling."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Toolbar, two-pane, form designer, and application-shell conventions."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse App-owned template import state and establish one shared layout contract."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Verified toolbar locations, dimensions, and template-import ownership."}

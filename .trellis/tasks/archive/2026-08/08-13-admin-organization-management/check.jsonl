@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend testing, failure visibility, and review gates."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check administrator layout, table, image preview, and accessibility contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check permission, API, and data-exposure boundaries."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Evidence baseline for verifying Logo routing and page migration."}

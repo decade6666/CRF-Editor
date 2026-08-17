@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend review and regression quality gates for the integrated change."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Verify component structure, accessibility, and shared layout contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify mode transitions, cleanup, and state ownership."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Verify no regression to subpath, preview, and aCRF contracts."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Evidence baseline for checking each reported issue and intended boundary."}

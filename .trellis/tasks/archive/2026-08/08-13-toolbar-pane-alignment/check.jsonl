@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend layout regression and validation gates."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check shared toolbar and pane-slot contracts across all target pages."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check that import business logic remains single-sourced in App."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Evidence baseline for tool spacing and vertical alignment defects."}
