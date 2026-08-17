@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture overview for the administrator workbench."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Administrator shell, table, responsive layout, and accessibility conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Page switching and authenticated Blob URL lifecycle guidance."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Preserve admin authorization and public candidate-response boundaries."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Verified organization preset APIs, current UI wiring, and wrong Logo URL evidence."}
