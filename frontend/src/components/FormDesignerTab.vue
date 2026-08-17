@@ -5775,6 +5775,9 @@ function openAddForm() {
   grid-area: hresizer;
   position: relative;
   width: 6px;
+  /* resizer 是 <button>：浏览器默认 2px outset 边框会与 ::before 分隔线叠加成双线，必须显式移除 */
+  border: none;
+  padding: 0;
   cursor: col-resize;
   background: transparent;
   transition: background 0.2s;
@@ -5928,6 +5931,8 @@ function openAddForm() {
 .pane-v-resizer {
   position: relative;
   height: 6px;
+  border: none;
+  padding: 0;
   cursor: row-resize;
   background: transparent;
   transition: background 0.2s;
