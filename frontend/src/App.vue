@@ -1281,7 +1281,12 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane label="访视" name="visits">
               <div v-if="isTabActivated('visits')" class="content-inner">
-                <VisitsTab :project-id="selectedProject.id" />
+                <VisitsTab :project-id="selectedProject.id" workspace="list" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="访视流程" name="visitflow">
+              <div v-if="isTabActivated('visitflow')" class="content-inner">
+                <VisitsTab :project-id="selectedProject.id" workspace="flow" />
               </div>
             </el-tab-pane>
           </el-tabs>

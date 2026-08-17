@@ -82,10 +82,14 @@ test('action columns use semantic icon buttons with tooltips and aria-labels', (
   assert.match(codelists, /:icon="Plus" aria-label="新增选项"/)
 })
 
-test('visits flow entry keeps its text button while add and batch delete are icons', () => {
+test('visit flow moved to a top-level tab: no in-page text entry remains in VisitsTab', () => {
   const visits = readSource('src/components/VisitsTab.vue')
+  const app = readSource('src/App.vue')
 
-  assert.match(visits, /访视流程/)
+  // 页内不再有「访视流程」文本按钮；顶级标签页承载入口
+  assert.doesNotMatch(visits, />访视流程<\/el-button>/)
+  assert.match(app, /<el-tab-pane label="访视流程" name="visitflow">/)
+  assert.match(app, /workspace="flow"/)
   assert.doesNotMatch(visits, /showPreview/)
   assert.doesNotMatch(visits, /批量编辑/)
 })

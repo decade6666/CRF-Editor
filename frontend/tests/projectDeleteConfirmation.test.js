@@ -136,7 +136,6 @@ test('management delete handlers require final confirmation before delete API ca
     [fieldsSource, 'batchDelFields', 'ElMessageBox.confirm', 'batch-delete'],
     [visitsSource, 'del', 'ElMessageBox.confirm', 'api.del'],
     [visitsSource, 'batchDelVisits', 'ElMessageBox.confirm', 'batch-delete'],
-    [visitsSource, 'removeFormFromVisit', 'confirmDelete', 'api.del'],
     [visitsSource, 'toggleCell', 'confirmDelete', 'api.del'],
     [designerSource, 'delForm', 'ElMessageBox.confirm', 'api.del'],
     [designerSource, 'batchDelForms', 'ElMessageBox.confirm', 'forms/batch-delete'],
@@ -153,6 +152,11 @@ test('management delete handlers require final confirmation before delete API ca
       `${functionName} should confirm before ${deleteCall}`
     )
   }
+
+  // 2.5：访视流程页内移除访视表单不二次确认，直接 DELETE
+  const removeBody = getFunctionBody(visitsSource, 'removeFormFromVisit')
+  assert.doesNotMatch(removeBody, /confirmDelete|ElMessageBox\.confirm/)
+  assert.ok(removeBody.indexOf('api.del') >= 0)
 
   // All handlers should NOT use double-confirm helpers
   for (const [source, functionName] of [
