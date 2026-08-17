@@ -43,10 +43,13 @@ test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤�
   assert.match(body, /const createdFfId = result\.form_field_id \?\? result\.form_field\?\.id/)
   assert.match(body, /const createdFdId = result\.final_definition_id/)
   assert.match(body, /const definitionCreated = Boolean\(result\.definition_created\)/)
-  // 替换草稿并刷新
-  assert.match(body, /formFields\.value = formFields\.value\.filter\(\(f\) => !isDraftField\(f\)\)/)
-  assert.match(body, /loadFormFields\(formId\)/)
+  // 字段库同步刷新 + 草稿行不「先删后补」（2.10：保存后立即出现、字段库立即更新）
+  assert.match(body, /refreshKey\.value\+\+/)
+  assert.match(body, /reloaded = await loadFormFields\(formId\)/)
   assert.match(body, /loadFieldDefs\(\)/)
+  // 加载被会话守卫吞掉/失败时：草稿行原位转正，不留下空列表
+  assert.match(body, /formFields\.value = formFields\.value\.map\(\(f\) =>/)
+  assert.match(body, /__draft: false/)
   // 作为一次「新建字段」入撤销栈；撤销=删除实例+条件清理定义，重做=复用/重建
   assert.match(body, /recordDesignerHistory\(historyContext, \{/)
   assert.match(body, /label: '新建字段'/)

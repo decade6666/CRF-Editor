@@ -384,16 +384,18 @@ function sortFormFieldsByOrder(fields) {
   });
 }
 
+// 返回 boolean：本次加载是否成功落地（被会话守卫吞掉时返回 false，调用方可决定是否原位保留草稿行）
 async function loadFormFields(formId = selectedForm.value?.id ?? null) {
   const sessionId = ++formFieldsLoadSession;
   if (!formId) {
     formFields.value = [];
     selectedIds.value = [];
-    return;
+    return false;
   }
   const loadedFields = await api.cachedGet(`/api/forms/${formId}/fields`);
-  if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return;
+  if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return false;
   formFields.value = sortFormFieldsByOrder(loadedFields);
+  return true;
 }
 watch(
   () => selectedForm.value?.id ?? null,
@@ -2754,15 +2756,32 @@ async function saveDraftField() {
     const definitionCreated = Boolean(result.definition_created);
     api.invalidateCache(`/api/forms/${formId}/fields`);
     api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
+    // 字段库同步刷新：与 saveFieldProp 一致（草稿保存的更新要立即反映到「字段」页）
+    refreshKey.value++;
     if (!isCurrentDesignerHistoryContext(historyContext)) return true;
     if (isReordering.value) return true;
-    formFields.value = formFields.value.filter((f) => !isDraftField(f));
-    await loadFormFields(formId);
+    // 不再「先删草稿行再回填」：加载被会话守卫吞掉或失败时草稿行原位转正，
+    // 避免保存后字段行消失 / 长时间不出现（2.10 根因 c）
+    let reloaded = false;
+    try {
+      reloaded = await loadFormFields(formId);
+    } catch {
+      reloaded = false;
+      ElMessage.warning('字段已保存，但列表刷新失败，请稍后刷新查看');
+    }
     await loadFieldDefs();
-    if (!isCurrentDesignerHistoryContext(historyContext)) return true;
-    if (isReordering.value) return true;
-    const realFf = formFields.value.find((f) => f.id === createdFfId);
-    if (realFf) selectField(realFf);
+    if (!reloaded) {
+      formFields.value = formFields.value.map((f) =>
+        isDraftField(f)
+          ? { ...f, id: createdFfId, field_definition_id: createdFdId ?? f.field_definition_id, __draft: false }
+          : f,
+      );
+    } else {
+      if (!isCurrentDesignerHistoryContext(historyContext)) return true;
+      if (isReordering.value) return true;
+      const realFf = formFields.value.find((f) => f.id === createdFfId);
+      if (realFf) selectField(realFf);
+    }
     // 保存即一次「新建字段」，入撤销栈；撤销=删除实例+条件清理定义，重做=复用原定义或按原快照重建。
     recordDesignerHistory(historyContext, {
       label: '新建字段',
