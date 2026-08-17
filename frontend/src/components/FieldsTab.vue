@@ -455,13 +455,14 @@ async function quickSaveCodelist() {
       </el-table>
     </div>
 
-    <!-- 右侧：属性编辑面板 -->
-    <div style="width:320px;border:1px solid var(--color-border);border-radius:4px;display:flex;flex-direction:column;flex-shrink:0">
-      <div class="pane-tool-slot" style="padding:0 12px;background:var(--color-bg-hover);border-bottom:1px solid var(--color-border);font-size:13px;font-weight:bold">
-        {{ isCreating ? '新增字段' : (selectedFieldId ? '编辑字段' : '属性编辑') }}
+    <!-- 右侧：属性编辑面板（标题行在卡片外，卡片顶边与左侧表格顶边对齐） -->
+    <div style="width:320px;display:flex;flex-direction:column;flex-shrink:0">
+      <div class="pane-tool-slot">
+        <b>{{ isCreating ? '新增字段' : (selectedFieldId ? '编辑字段' : '属性编辑') }}</b>
       </div>
-      <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
-      <div v-else style="flex:1;overflow-y:auto;padding:8px">
+      <div style="flex:1;min-height:0;border:1px solid var(--color-border);border-radius:4px;display:flex;flex-direction:column;overflow:hidden">
+        <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
+        <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
           <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" /></el-form-item>
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
@@ -499,6 +500,7 @@ async function quickSaveCodelist() {
           <el-button size="small" style="flex:1" @click="clearSelection">取消</el-button>
           <el-button type="primary" size="small" style="flex:1" @click="save">保存</el-button>
         </div>
+      </div>
       </div>
     </div>
 

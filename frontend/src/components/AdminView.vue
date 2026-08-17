@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DeleteFilled } from '@element-plus/icons-vue'
+import { DeleteFilled, Plus, Refresh, EditPen, Key, FolderOpened, Delete } from '@element-plus/icons-vue'
 import { api } from '../composables/useApi'
 import { formatBytes } from '../composables/byteSize'
 import { confirmDelete, confirmFinalProjectDelete } from '../composables/projectDeleteConfirmation'
@@ -195,10 +195,11 @@ const batchMode = ref('move')
 const batchTargetUserId = ref(null)
 const sourceUserProjects = ref([])
 const selectedProjectIds = ref([])
+// 两步式：select = 选择项目；target = 复制/迁移时二次选择目标用户
+const projectListStep = ref('select')
 
-const needsTargetUser = computed(() => batchMode.value !== 'delete')
 const canExecuteBatchAction = computed(() => {
-  return selectedProjectIds.value.length > 0 && (!needsTargetUser.value || !!batchTargetUserId.value)
+  return batchMode.value !== 'delete' && !!batchTargetUserId.value
 })
 const batchConfirmText = computed(() => {
   if (batchMode.value === 'move') return '确定迁移'
@@ -217,7 +218,20 @@ function resetProjectListState() {
   batchTargetUserId.value = null
   sourceUserProjects.value = []
   selectedProjectIds.value = []
+  projectListStep.value = 'select'
   showProjectList.value = false
+}
+
+// 第一步动作：复制/迁移进入第二步选目标用户；删除直接执行（保留二次确认）
+function startBatchAction(mode) {
+  if (!selectedProjectIds.value.length) return
+  batchMode.value = mode
+  if (mode === 'delete') return executeBatchDelete()
+  projectListStep.value = 'target'
+}
+
+function backToProjectSelection() {
+  projectListStep.value = 'select'
 }
 
 async function openProjectList(user) {
@@ -383,13 +397,19 @@ onMounted(() => {
         <div class="workspace-subtitle">统一管理用户、批量项目操作与回收站入口</div>
       </div>
       <div class="workspace-actions">
-        <el-button type="primary" @click="openAddUser">新增用户</el-button>
-        <el-button @click="loadUsers" :loading="loadingUsers">刷新</el-button>
-        <el-button @click="openRecycleBin">回收站</el-button>
+        <el-tooltip content="新增用户" placement="top">
+          <el-button type="primary" :icon="Plus" aria-label="新增用户" @click="openAddUser" />
+        </el-tooltip>
+        <el-tooltip content="刷新" placement="top">
+          <el-button :icon="Refresh" aria-label="刷新" :loading="loadingUsers" @click="loadUsers" />
+        </el-tooltip>
+        <el-tooltip content="回收站" placement="top">
+          <el-button :icon="DeleteFilled" aria-label="回收站" @click="openRecycleBin" />
+        </el-tooltip>
       </div>
     </div>
 
-    <el-table :data="users" v-loading="loadingUsers" border stripe>
+    <el-table :data="users" v-loading="loadingUsers" border stripe size="small">
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column label="用户名" width="160">
         <template #default="{ row }">
@@ -400,12 +420,20 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="project_count" label="项目数" width="100" />
-      <el-table-column label="操作" width="360">
+      <el-table-column label="操作" width="130">
         <template #default="{ row }">
-          <el-button size="small" @click="openRenameUser(row)">改名</el-button>
-          <el-button size="small" type="primary" @click="openResetPassword(row)">重置密码</el-button>
-          <el-button v-if="!row.is_admin" size="small" type="primary" plain @click="openProjectList(row)">项目列表</el-button>
-          <el-button v-if="!row.is_admin" size="small" type="danger" plain @click="deleteUser(row)" :disabled="row.project_count > 0">删除</el-button>
+          <el-tooltip content="改名" placement="top">
+            <el-button size="small" link :icon="EditPen" aria-label="改名" @click="openRenameUser(row)" />
+          </el-tooltip>
+          <el-tooltip content="重置密码" placement="top">
+            <el-button size="small" link :icon="Key" aria-label="重置密码" @click="openResetPassword(row)" />
+          </el-tooltip>
+          <el-tooltip v-if="!row.is_admin" content="项目列表" placement="top">
+            <el-button size="small" link :icon="FolderOpened" aria-label="项目列表" @click="openProjectList(row)" />
+          </el-tooltip>
+          <el-tooltip v-if="!row.is_admin" content="删除" placement="top">
+            <el-button size="small" link type="danger" :icon="Delete" aria-label="删除" :disabled="row.project_count > 0" @click="deleteUser(row)" />
+          </el-tooltip>
         </template>
       </el-table-column>
     </el-table>
@@ -447,15 +475,14 @@ onMounted(() => {
       append-to-body
       @close="resetProjectListState"
     >
-      <div class="batch-mode-row">
-        <span>操作方式：</span>
-        <el-radio-group v-model="batchMode">
-          <el-radio-button label="move">迁移</el-radio-button>
-          <el-radio-button label="copy">复制</el-radio-button>
-          <el-radio-button label="delete">删除</el-radio-button>
-        </el-radio-group>
-      </div>
-      <div v-if="needsTargetUser" class="batch-target-row">
+      <template v-if="projectListStep === 'select'">
+        <div class="batch-hint">请先选择要操作的项目，再选择 复制 / 迁移 / 删除。</div>
+        <el-table :data="sourceUserProjects" v-loading="loadingProjects" @selection-change="onProjectSelectionChange" border max-height="320">
+          <el-table-column type="selection" width="50" />
+          <el-table-column prop="name" label="项目名称" />
+        </el-table>
+      </template>
+      <div v-else class="batch-target-row">
         <span>选择目标用户：</span>
         <el-select v-model="batchTargetUserId" placeholder="请选择用户">
           <el-option
@@ -466,13 +493,17 @@ onMounted(() => {
           />
         </el-select>
       </div>
-      <el-table :data="sourceUserProjects" v-loading="loadingProjects" @selection-change="onProjectSelectionChange" border max-height="320">
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="name" label="项目名称" />
-      </el-table>
       <template #footer>
-        <el-button @click="resetProjectListState">取消</el-button>
-        <el-button :type="batchMode === 'delete' ? 'danger' : 'primary'" :disabled="!canExecuteBatchAction" @click="executeBatchAction">{{ batchConfirmText }}</el-button>
+        <template v-if="projectListStep === 'select'">
+          <el-button @click="resetProjectListState">取消</el-button>
+          <el-button type="primary" :disabled="!selectedProjectIds.length" @click="startBatchAction('copy')">复制</el-button>
+          <el-button type="primary" :disabled="!selectedProjectIds.length" @click="startBatchAction('move')">迁移</el-button>
+          <el-button type="danger" :disabled="!selectedProjectIds.length" @click="startBatchAction('delete')">删除</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="backToProjectSelection">上一步</el-button>
+          <el-button type="primary" :disabled="!canExecuteBatchAction" @click="executeBatchAction">{{ batchConfirmText }}</el-button>
+        </template>
       </template>
     </el-dialog>
 
@@ -589,26 +620,6 @@ onMounted(() => {
 
 <style scoped>
 .admin-view { padding: 8px; }
-.workspace-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.workspace-title {
-  font-size: 18px;
-  font-weight: 600;
-}
-.workspace-subtitle {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-.workspace-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .user-name-cell {
   display: inline-flex;
   align-items: center;
@@ -631,7 +642,11 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 }
-.batch-mode-row,
+.batch-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
 .batch-target-row {
   display: flex;
   align-items: center;

@@ -436,7 +436,7 @@ test('commands revalidate captured context after confirmations before persistent
 test('stale async completions cannot mutate current designer field state or focus', () => {
   assert.match(
     functionBody('saveDraftField'),
-    /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?formFields\.value = formFields\.value\.filter/,
+    /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?reloaded = await loadFormFields\(formId\);[\s\S]*?__draft: false/,
   )
   assert.match(
     functionBody('copyFormField'),

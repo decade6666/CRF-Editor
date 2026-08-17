@@ -257,6 +257,18 @@ describe('FormDesignerTab CSS: two-pane layout', () => {
     assert.doesNotMatch(previewRule, /border-left/);
   });
 
+  test('panes carry no box-shadow and round only their outer corners (single visual divider)', () => {
+    // 阴影光晕 + 内缘圆角会让相邻面板看起来有第二条线
+    for (const ruleName of ['.designer-fields-panel', '.designer-editor-card', '.designer-preview-pane']) {
+      assert.doesNotMatch(ruleBlock(wideSource, ruleName), /box-shadow/);
+    }
+    assert.match(ruleBlock(wideSource, '.designer-fields-panel'), /border-radius: var\(--radius-md\) 0 0 0/);
+    assert.match(ruleBlock(wideSource, '.designer-editor-card'), /border-radius: 0 0 0 var\(--radius-md\)/);
+    assert.match(ruleBlock(wideSource, '.designer-preview-pane'), /border-radius: 0 var\(--radius-md\) var\(--radius-md\) 0/);
+    // 堆叠整列布局下无圆角需求
+    assert.match(mediaSource, /\.designer-fields-panel,\s*\n\s*\.designer-editor-card,\s*\n\s*\.designer-preview-pane \{\s*\n\s*border-radius: 0/);
+  });
+
   test('resizer strips draw the single 1px divider via ::before pseudo element', () => {
     assert.match(ruleBlock(wideSource, '.pane-h-resizer'), /position: relative/);
     assert.match(ruleBlock(wideSource, '.pane-v-resizer'), /position: relative/);
@@ -291,9 +303,13 @@ describe('FormDesignerTab CSS: two-pane layout', () => {
     assert.match(formDesignerSource, /\.pane-h-resizer:hover \{[\s\S]*?--color-primary-subtle/);
   });
 
-  test('editor actions bar is fixed below the scrolling form', () => {
-    assert.match(formDesignerSource, /\.designer-editor-actions \{[\s\S]*?border-top: 1px solid var\(--color-border\)/);
+  test('editor actions bar is fixed below the scrolling form without a separator line', () => {
+    const actionsRule = formDesignerSource.match(/\.designer-editor-actions \{([\s\S]*?)\}/)?.[1] || '';
+    assert.doesNotMatch(actionsRule, /border-top/);
+    assert.match(actionsRule, /flex-shrink:\s*0/);
     assert.match(formDesignerSource, /\.designer-editor-scroll \{[\s\S]*?overflow-y: auto/);
+    // 全屏弹窗 body 底部留白：属性卡底边不被窗口边缘裁切
+    assert.match(formDesignerSource, /\.designer-dialog \.el-dialog__body \{[\s\S]*?padding: 0 0 12px[\s\S]*?box-sizing: border-box/);
   });
 
   test('notes card is replaced by the notes dialog entry', () => {

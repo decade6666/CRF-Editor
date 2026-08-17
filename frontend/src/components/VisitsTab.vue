@@ -50,7 +50,11 @@ import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInline
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
-const props = defineProps({ projectId: { type: Number, required: true } })
+// workspace：'list'（访视页默认）| 'flow'（访视流程标签页）；由 App.vue 顶级标签指定，实例内不切换
+const props = defineProps({
+  projectId: { type: Number, required: true },
+  workspace: { type: String, default: 'list' },
+})
 const refreshKey = inject('refreshKey', ref(0))
 const editMode = inject('editMode', ref(false))
 const VIEW_MODE_STORAGE_KEY = 'crf_view_mode'
@@ -106,7 +110,7 @@ const allForms = ref([])
 const form = reactive({ name: '', code: '', sequence: null })
 const showAdd = ref(false)
 // 访视流程工作区：list（默认全宽列表）| flow（页面内矩阵 / 单访视）
-const workspaceMode = ref('list')
+const workspaceMode = ref(props.workspace)
 const flowView = ref('matrix')
 // 表单内容预览弹窗
 const showFormPreview = ref(false)
@@ -159,7 +163,7 @@ watch(
   () => props.projectId,
   async (newProjectId, previousProjectId) => {
     if (newProjectId === previousProjectId) return
-    workspaceMode.value = 'list'
+    workspaceMode.value = props.workspace
     flowView.value = 'matrix'
     selectedVisit.value = null
     await flushAnnotationPositionSave({ cancelActiveDrag: true })
@@ -318,12 +322,10 @@ async function addFormToVisit() {
   } catch (e) { ElMessage.error(e.message || '添加失败') }
 }
 
-// 从访视移除表单
+// 从访视移除表单（访视流程页内移除不二次确认，2.5）
 async function removeFormFromVisit(formId) {
   if (!selectedVisit.value) return
-  const form = visitForms.value.find(item => item.id === formId)
   try {
-    await confirmDelete(ElMessageBox.confirm, { targetText: `访视中的表单 "${form?.name || formId}"` })
     await api.del(`/api/visits/${selectedVisit.value.id}/forms/${formId}`)
     await reloadVisitForms()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
@@ -738,24 +740,6 @@ watch([selectedVisit, visitForms, flowView, workspaceMode], () => {
   nextTick(() => initVisitFormsSortable())
 })
 
-// 进入流程清空序号快编态与行选择；返回列表重建访视表格 Sortable
-function enterFlow() {
-  editingVisitId.value = null
-  editingVisitFormId.value = null
-  selVisits.value = []
-  workspaceMode.value = 'flow'
-  flowView.value = 'matrix'
-}
-
-watch(workspaceMode, (mode) => {
-  if (mode === 'list') {
-    nextTick(() => {
-      initVisitsSortable()
-      visitsTableRef.value?.setCurrentRow(selectedVisit.value)
-    })
-  }
-})
-
 watch(flowView, (view) => {
   if (view === 'single') {
     nextTick(() => {
@@ -784,9 +768,9 @@ async function toggleCell(visitId, formId) {
 
 <template>
   <div style="display:flex;flex-direction:column;height:calc(100vh - 160px)">
-    <!-- 常驻工具栏 -->
-    <div class="list-toolbar">
-      <template v-if="workspaceMode === 'list'">
+    <template v-if="workspaceMode === 'list'">
+      <!-- 访视列表工具栏（「访视流程」为顶级标签页，不再在页内提供入口） -->
+      <div class="list-toolbar">
         <el-tooltip content="新增访视" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新增访视" @click="openAdd" />
         </el-tooltip>
@@ -800,18 +784,7 @@ async function toggleCell(visitId, formId) {
           size="small"
           style="width:180px"
         />
-      </template>
-      <div style="margin-left:auto" />
-      <el-button
-        :type="workspaceMode === 'flow' ? 'primary' : 'info'"
-        plain
-        size="small"
-        :aria-label="workspaceMode === 'flow' ? '返回访视列表' : '访视流程'"
-        @click="workspaceMode === 'flow' ? (workspaceMode = 'list') : enterFlow()"
-      >访视流程</el-button>
-    </div>
-
-    <template v-if="workspaceMode === 'list'">
+      </div>
       <div style="flex:1;min-height:0">
         <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
           @current-change="row => { if (row) selectedVisit = row }"
@@ -878,7 +851,7 @@ async function toggleCell(visitId, formId) {
           size="small"
           inline-prompt
           inactive-text="矩阵"
-          active-text="单访视"
+          active-text="列表"
           :active-value="'single'"
           :inactive-value="'matrix'"
         />

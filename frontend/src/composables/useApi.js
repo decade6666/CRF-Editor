@@ -85,6 +85,9 @@ async function _checkStatus(r) {
 // ── 内存缓存层 ──
 const _cache = new Map(); // key → { data, ts }
 const _pending = new Map(); // key → Promise（去重并发请求）
+// 缓存世代：任何 invalidate/clear 都会自增，在途 cachedGet 写回前比对世代，
+// 防止「写操作先失效缓存、旧请求后到」把过期数据重新写进 30s TTL 缓存（2.10 根因 b）
+let _cacheGeneration = 0;
 
 // 按URL前缀清除缓存
 function invalidateCache(urlPrefix) {
@@ -94,12 +97,14 @@ function invalidateCache(urlPrefix) {
   for (const key of _pending.keys()) {
     if (key.startsWith(urlPrefix)) _pending.delete(key);
   }
+  _cacheGeneration += 1;
 }
 
 // 清除全部缓存
 function clearAllCache() {
   _cache.clear();
   _pending.clear();
+  _cacheGeneration += 1;
 }
 
 // 数据变更后自动失效相关缓存
@@ -141,11 +146,15 @@ export const api = {
     // Promise去重：同一URL并发只发一次请求
     if (_pending.has(url)) return _pending.get(url);
 
+    // 捕获发起时的缓存世代：期间若有 invalidate/clear，响应到达时不再写回缓存
+    const generation = _cacheGeneration;
     const p = fetch(apiUrl(url), { headers: _getAuthHeaders() })
       .then(async (r) => {
         await _checkStatus(r);
         const data = await _safeJsonParse(r);
-        _cache.set(url, { data, ts: Date.now() });
+        if (generation === _cacheGeneration) {
+          _cache.set(url, { data, ts: Date.now() });
+        }
         _pending.delete(url);
         return data;
       })

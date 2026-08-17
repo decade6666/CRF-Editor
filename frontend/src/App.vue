@@ -1099,7 +1099,7 @@ function startResize(e) {
         <SessionTimer />
       </div>
     </div>
-    <div :class="activeAdminPage === 'orgs' ? 'admin-org-shell' : 'admin-shell'">
+    <div class="admin-shell">
       <div class="admin-nav">
         <el-radio-group v-model="activeAdminPage" size="small">
           <el-radio-button value="users">用户管理</el-radio-button>
@@ -1281,7 +1281,12 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane label="访视" name="visits">
               <div v-if="isTabActivated('visits')" class="content-inner">
-                <VisitsTab :project-id="selectedProject.id" />
+                <VisitsTab :project-id="selectedProject.id" workspace="list" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="访视流程" name="visitflow">
+              <div v-if="isTabActivated('visitflow')" class="content-inner">
+                <VisitsTab :project-id="selectedProject.id" workspace="flow" />
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -1882,13 +1887,6 @@ function startResize(e) {
 }
 
 .admin-shell {
-  width: 50%;
-  min-width: 600px;
-  max-width: 100%;
-  margin-inline: auto;
-}
-
-.admin-org-shell {
   width: 100%;
   max-width: 1200px;
   margin-inline: auto;

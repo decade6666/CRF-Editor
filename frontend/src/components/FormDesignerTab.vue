@@ -384,16 +384,18 @@ function sortFormFieldsByOrder(fields) {
   });
 }
 
+// 返回 boolean：本次加载是否成功落地（被会话守卫吞掉时返回 false，调用方可决定是否原位保留草稿行）
 async function loadFormFields(formId = selectedForm.value?.id ?? null) {
   const sessionId = ++formFieldsLoadSession;
   if (!formId) {
     formFields.value = [];
     selectedIds.value = [];
-    return;
+    return false;
   }
   const loadedFields = await api.cachedGet(`/api/forms/${formId}/fields`);
-  if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return;
+  if (sessionId !== formFieldsLoadSession || selectedForm.value?.id !== formId) return false;
   formFields.value = sortFormFieldsByOrder(loadedFields);
+  return true;
 }
 watch(
   () => selectedForm.value?.id ?? null,
@@ -2754,15 +2756,32 @@ async function saveDraftField() {
     const definitionCreated = Boolean(result.definition_created);
     api.invalidateCache(`/api/forms/${formId}/fields`);
     api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
+    // 字段库同步刷新：与 saveFieldProp 一致（草稿保存的更新要立即反映到「字段」页）
+    refreshKey.value++;
     if (!isCurrentDesignerHistoryContext(historyContext)) return true;
     if (isReordering.value) return true;
-    formFields.value = formFields.value.filter((f) => !isDraftField(f));
-    await loadFormFields(formId);
+    // 不再「先删草稿行再回填」：加载被会话守卫吞掉或失败时草稿行原位转正，
+    // 避免保存后字段行消失 / 长时间不出现（2.10 根因 c）
+    let reloaded = false;
+    try {
+      reloaded = await loadFormFields(formId);
+    } catch {
+      reloaded = false;
+      ElMessage.warning('字段已保存，但列表刷新失败，请稍后刷新查看');
+    }
     await loadFieldDefs();
-    if (!isCurrentDesignerHistoryContext(historyContext)) return true;
-    if (isReordering.value) return true;
-    const realFf = formFields.value.find((f) => f.id === createdFfId);
-    if (realFf) selectField(realFf);
+    if (!reloaded) {
+      formFields.value = formFields.value.map((f) =>
+        isDraftField(f)
+          ? { ...f, id: createdFfId, field_definition_id: createdFdId ?? f.field_definition_id, __draft: false }
+          : f,
+      );
+    } else {
+      if (!isCurrentDesignerHistoryContext(historyContext)) return true;
+      if (isReordering.value) return true;
+      const realFf = formFields.value.find((f) => f.id === createdFfId);
+      if (realFf) selectField(realFf);
+    }
     // 保存即一次「新建字段」，入撤销栈；撤销=删除实例+条件清理定义，重做=复用原定义或按原快照重建。
     recordDesignerHistory(historyContext, {
       label: '新建字段',
@@ -3316,11 +3335,11 @@ function openAddForm() {
         <el-tooltip content="新建表单" placement="top">
           <el-button type="primary" size="small" :icon="Plus" aria-label="新建表单" @click="openAddForm" />
         </el-tooltip>
-        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px" />
         <el-button type="warning" size="small" @click="emit('import-template')">导入模板</el-button>
         <el-tooltip content="批量删除表单" placement="top">
           <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除表单" :disabled="!selForms.length" @click="batchDelForms" />
         </el-tooltip>
+        <el-input v-model="searchForm" placeholder="搜索表单..." clearable size="small" style="width: 180px; flex: 1 1 auto" />
       </div>
       <el-table
         ref="formsTableRef"
@@ -3386,37 +3405,38 @@ function openAddForm() {
     </div>
 
     <div class="fd-right">
-      <div class="fd-canvas" style="flex: 1">
-        <div class="fd-canvas-header">
-          <el-button v-if="selectedForm" size="small" type="primary" @click="openDesigner">设计表单</el-button>
-          <el-switch
-            v-if="selectedForm && editMode"
-            v-model="viewMode"
-            size="small"
-            inline-prompt
-            active-text="aCRF"
-            inactive-text="eCRF"
-            :active-value="'aCRF'"
-            :inactive-value="'eCRF'"
-          />
-          <div class="fd-canvas-header-main">
-            <span class="fd-canvas-form-title">{{ selectedForm?.name || '未选择表单' }}</span>
-            <el-tooltip
-              v-if="headerDesignNotesSummary"
-              effect="dark"
-              placement="bottom"
-              popper-class="fd-notes-tooltip"
-            >
-              <template #content>
-                <div class="fd-notes-tooltip-content">{{ headerDesignNotesTooltip }}</div>
-              </template>
-              <span class="fd-canvas-header-notes" data-test="canvas-notes-summary">{{
-                headerDesignNotesSummary
-              }}</span>
-            </el-tooltip>
-          </div>
-          <span class="fd-canvas-header-count">共 {{ formFields.length }} 个字段</span>
+      <!-- 工具栏槽位在卡片外，与左侧表单列表工具栏对齐（左表格/右预览卡顶边一致） -->
+      <div class="pane-tool-slot fd-canvas-toolbar">
+        <el-button v-if="selectedForm" size="small" type="primary" @click="openDesigner">设计表单</el-button>
+        <el-switch
+          v-if="selectedForm && editMode"
+          v-model="viewMode"
+          size="small"
+          inline-prompt
+          active-text="aCRF"
+          inactive-text="eCRF"
+          :active-value="'aCRF'"
+          :inactive-value="'eCRF'"
+        />
+        <div class="fd-canvas-header-main">
+          <span class="fd-canvas-form-title">{{ selectedForm?.name || '未选择表单' }}</span>
+          <el-tooltip
+            v-if="headerDesignNotesSummary"
+            effect="dark"
+            placement="bottom"
+            popper-class="fd-notes-tooltip"
+          >
+            <template #content>
+              <div class="fd-notes-tooltip-content">{{ headerDesignNotesTooltip }}</div>
+            </template>
+            <span class="fd-canvas-header-notes" data-test="canvas-notes-summary">{{
+              headerDesignNotesSummary
+            }}</span>
+          </el-tooltip>
         </div>
+        <span class="fd-canvas-header-count">共 {{ formFields.length }} 个字段</span>
+      </div>
+      <div class="fd-canvas" style="flex: 1">
         <div class="word-preview">
           <div
             :class="['word-page', 'form-designer-word-page', 'designer-scaled-word-page', { landscape: landscapeMode }]"
@@ -5570,8 +5590,10 @@ function openAddForm() {
 
 <style>
 .designer-dialog .el-dialog__body {
-  padding: 0;
+  /* 底部留白：属性卡底边不再被窗口边缘裁切 */
+  padding: 0 0 12px;
   height: calc(100vh - 54px);
+  box-sizing: border-box;
   overflow: hidden;
 }
 /* 设计备注悬浮提示：popper 被 teleport 到 body，须用全局类；pre-wrap 让完整原文按换行分行 */
@@ -5785,7 +5807,13 @@ function openAddForm() {
   .pane-h-resizer {
     display: none;
   }
-  /* 堆叠时右侧/左侧成为页面外缘 → 恢复边框（preview 顶边去边框须位于基础规则之后，见文件尾媒体块） */
+  /* 堆叠时右侧/左侧成为页面外缘 → 恢复边框（preview 顶边去边框须位于基础规则之后，见文件尾媒体块）；
+     整列堆叠无内缘圆角需求，清除外缘分角 */
+  .designer-fields-panel,
+  .designer-editor-card,
+  .designer-preview-pane {
+    border-radius: 0;
+  }
   .designer-fields-panel {
     border-right: 1px solid var(--color-border);
   }
@@ -5854,12 +5882,12 @@ function openAddForm() {
 
 .designer-fields-panel {
   height: 100%;
-  /* 三块主工作区之间只留一条细线：内缘边框移除，由 resizer ::before 的 1px 分隔线承担 */
+  /* 三块主工作区之间只留一条细线：内缘边框移除，由 resizer ::before 的 1px 分隔线承担；
+     无阴影光晕、仅外缘圆角，避免相邻面板视觉上出现第二条线 */
   border-top: 1px solid var(--color-border);
   border-left: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-md) 0 0 0;
   background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
 }
 
 .designer-field-list {
@@ -5880,9 +5908,8 @@ function openAddForm() {
   flex-direction: column;
   border-left: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 0 0 0 var(--radius-md);
   background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -5967,13 +5994,12 @@ function openAddForm() {
   padding: 6px;
 }
 
-/* 固定底部动作栏：滚动区之外，与卡片标题同框 */
+/* 固定底部动作栏：滚动区之外，与卡片标题同框（无分隔框线，2.9） */
 .designer-editor-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-top: 1px solid var(--color-border);
   background: var(--color-bg-card);
   flex-shrink: 0;
 }
@@ -6038,9 +6064,8 @@ function openAddForm() {
   border-top: 1px solid var(--color-border);
   border-right: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 

@@ -18,7 +18,14 @@ test('org view loads admin list sorted by name', () => {
   assert.match(viewSource, /api\.get\('\/api\/admin\/organization-presets'\)/)
 })
 
-test('org view renders a two-column page layout with a narrow-screen stack', () => {
+test('org view renders a page header like the users page and a two-column layout', () => {
+  assert.match(viewSource, /class="workspace-header"/)
+  assert.match(viewSource, /class="workspace-title">机构管理</)
+  assert.match(viewSource, /class="workspace-subtitle"/)
+  assert.match(viewSource, /class="workspace-actions"/)
+  assert.match(viewSource, /aria-label="新增预设"/)
+  assert.match(viewSource, /aria-label="刷新"/)
+  assert.doesNotMatch(viewSource, /org-list-toolbar/)
   assert.match(viewSource, /class="org-layout"/)
   assert.match(viewSource, /@media \(max-width: 900px\)/)
   assert.match(viewSource, /class="org-editor"/)
@@ -40,6 +47,7 @@ test('org view renders logo thumbnails with built-in preview and keyboard semant
   assert.match(viewSource, /el-image/)
   assert.match(viewSource, /preview-src-list/)
   assert.match(viewSource, /preview-teleported/)
+  assert.match(viewSource, /hide-on-click-modal/)
   assert.match(viewSource, /tabindex="0"/)
   assert.match(viewSource, /role="button"/)
   assert.match(viewSource, /aria-label="放大查看机构 Logo"/)

@@ -224,6 +224,7 @@
         "frontend/tests/acrfAnnotationPersistence.test.js",
         "frontend/tests/acrfViewToggle.test.js",
         "frontend/tests/adminViewStructure.test.js",
+        "frontend/tests/apiCacheInvalidation.test.js",
         "frontend/tests/appCollapse.test.js",
         "frontend/tests/appSettingsShell.test.js",
         "frontend/tests/appTabLazyLoad.test.js",

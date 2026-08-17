@@ -27,13 +27,13 @@ test('FormDesignerTab declares the import-template emit', () => {
   assert.match(designerSource, /defineEmits\(\[['"]import-template['"]\]\)/)
 })
 
-test('form list toolbar keeps exact order: new -> search -> import template -> batch delete', () => {
+test('form list toolbar keeps exact order: new -> import template -> batch delete -> search', () => {
   const listScope = designerSource.match(/<div class="fd-formlist">([\s\S]*?)<\/div>/)?.[1] || ''
   const plus = listScope.indexOf('aria-label="新建表单"')
-  const search = listScope.indexOf('搜索表单')
   const importBtn = listScope.indexOf('导入模板')
   const batchDel = listScope.indexOf('aria-label="批量删除表单"')
-  assert.ok(plus >= 0 && search > plus && importBtn > search && batchDel > importBtn, listScope.slice(0, 400))
+  const search = listScope.indexOf('搜索表单')
+  assert.ok(plus >= 0 && importBtn > plus && batchDel > importBtn && search > batchDel, listScope.slice(0, 400))
   assert.match(listScope, /type="warning"[\s\S]*?@click="emit\('import-template'\)"/)
 })
 
@@ -59,14 +59,26 @@ test('main.css defines the shared toolbar slot contract', () => {
   assert.match(block, /flex-shrink:\s*0/)
 })
 
-test('FormDesigner canvas header becomes the shared 36px slot with a small switch', () => {
+test('adjacent buttons inside shared toolbars lose the Element Plus 12px margin (uniform 8px gap)', () => {
+  assert.match(mainCss, /\.list-toolbar \.el-button \+ \.el-button[\s\S]*?margin-left:\s*0/)
+  assert.match(mainCss, /\.pane-tool-slot \.el-button \+ \.el-button[\s\S]*?margin-left:\s*0/)
+})
+
+test('FieldsTab right pane card top aligns with the table: title row sits outside the bordered card', () => {
+  assert.match(fieldsSource, /width:320px;display:flex;flex-direction:column;flex-shrink:0"[\s\S]*?class="pane-tool-slot"[\s\S]*?flex:1;min-height:0;border:1px solid var\(--color-border\)/)
+})
+
+test('FormDesigner main canvas toolbar becomes the shared 36px slot above the card with a small switch', () => {
+  // 主画布工具栏移出 .fd-canvas 卡片，作为 .fd-right 直属子节点（顶边与左侧表单列表工具栏对齐）
+  const toolbarBlock = designerSource.match(/<div class="pane-tool-slot fd-canvas-toolbar">([\s\S]*?)<\/div>\s*<div class="fd-canvas"/)?.[1] || ''
+  assert.ok(toolbarBlock, 'main canvas toolbar should live outside the fd-canvas card')
+  assert.match(toolbarBlock, /<el-switch[\s\S]*?size="small"/)
+  assert.match(toolbarBlock, /class="fd-canvas-header-main"/)
+  // 全屏设计器仍消费共享 .fd-canvas-header 规则（规则本身不改）
   const headerBlock = designerSource.match(/\.fd-canvas-header\s*\{([\s\S]*?)\}/)?.[1] || ''
   assert.match(headerBlock, /min-height:\s*24px/)
   assert.match(headerBlock, /padding:\s*0 12px/)
   assert.match(headerBlock, /margin-bottom:\s*12px/)
-  // 主画布 switch（:3368 区域）必须 small，防止默认 32px 控件重新撑高
-  const canvasSwitch = designerSource.match(/<div class="fd-canvas-header">([\s\S]*?)<\/div>\s*<div class="word-preview">/)?.[1] || ''
-  assert.match(canvasSwitch, /<el-switch[\s\S]*?size="small"/)
 })
 
 test('no negative margins introduced across the five pages and shared css', () => {

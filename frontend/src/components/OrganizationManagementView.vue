@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, EditPen, UploadFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Plus, Delete, EditPen, UploadFilled, CircleCloseFilled, Refresh } from '@element-plus/icons-vue'
 import { api, getAuthHeaders, apiUrl } from '../composables/useApi'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
@@ -246,11 +246,23 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="org-layout">
-    <section class="org-list" aria-label="机构预设列表">
-      <div class="org-list-toolbar">
-        <el-button size="small" type="primary" :icon="Plus" @click="openAdd">新增预设</el-button>
+  <div class="org-page">
+    <div class="workspace-header">
+      <div>
+        <div class="workspace-title">机构管理</div>
+        <div class="workspace-subtitle">维护展示给用户选择的机构预设与公司 Logo</div>
       </div>
+      <div class="workspace-actions">
+        <el-tooltip content="新增预设" placement="top">
+          <el-button type="primary" :icon="Plus" aria-label="新增预设" @click="openAdd" />
+        </el-tooltip>
+        <el-tooltip content="刷新" placement="top">
+          <el-button :icon="Refresh" aria-label="刷新" :loading="loading" @click="load" />
+        </el-tooltip>
+      </div>
+    </div>
+    <div class="org-layout">
+      <section class="org-list" aria-label="机构预设列表">
       <el-table
         :data="presets"
         v-loading="loading"
@@ -281,6 +293,7 @@ onBeforeUnmount(() => {
                 :src="thumbnailUrls.get(row.id)"
                 :preview-src-list="[thumbnailUrls.get(row.id)]"
                 preview-teleported
+                hide-on-click-modal
                 fit="contain"
                 class="org-logo-thumb"
                 :alt="row.name + ' 机构 Logo'"
@@ -332,6 +345,7 @@ onBeforeUnmount(() => {
       </el-form>
       <div v-else class="org-placeholder">点击左侧机构进行编辑，或点击「新增预设」创建机构。</div>
     </section>
+    </div>
   </div>
 </template>
 
@@ -350,15 +364,6 @@ onBeforeUnmount(() => {
 .org-editor {
   flex: 1;
   min-width: 0;
-}
-
-.org-list-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  margin-bottom: 12px;
-  flex-shrink: 0;
 }
 
 .org-placeholder {
