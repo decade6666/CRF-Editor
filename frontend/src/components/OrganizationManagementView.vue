@@ -334,6 +334,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.org-page {
+  /* 与 AdminView .admin-view 的 padding: 8px 保持一致，两页内容顶位对齐 */
+  padding: 8px;
+}
+
 .org-table {
   width: 100%;
 }

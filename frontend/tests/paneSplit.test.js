@@ -222,6 +222,12 @@ describe('FormDesignerTab CSS: two-pane layout', () => {
     assert.match(formDesignerSource, /\.pane-v-resizer \{[\s\S]*?cursor: row-resize/);
   });
 
+  test('resizers drop the native button border so the ::before line is the only divider', () => {
+    // resizer 是 <button>：浏览器默认 2px outset 边框会与 ::before 分隔线叠加成双线
+    assert.match(formDesignerSource, /\.pane-h-resizer \{[\s\S]*?border: none[\s\S]*?padding: 0/);
+    assert.match(formDesignerSource, /\.pane-v-resizer \{[\s\S]*?border: none[\s\S]*?padding: 0/);
+  });
+
   // 取最后一个匹配块：grid-area 简写规则在前，完整卡片规则在后
   function ruleBlock(source, selector) {
     const start = source.lastIndexOf(selector + ' {');

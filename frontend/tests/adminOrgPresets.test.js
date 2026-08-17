@@ -29,6 +29,8 @@ test('org view renders a full-width table with an add/edit dialog', () => {
   assert.match(viewSource, /<el-dialog[\s\S]*?v-model="showEdit"[\s\S]*?:title="draftId \? '编辑机构预设' : '新增机构预设'"/)
   assert.match(viewSource, /<el-dialog[\s\S]*?:close-on-click-modal="false"/)
   assert.match(viewSource, /@closed="resetDraft"/)
+  // 与 AdminView .admin-view 相同的 8px padding：两页内容顶位一致，切换不跳动
+  assert.match(viewSource, /\.org-page \{[^}]*padding: 8px;\s*\}/)
   assert.doesNotMatch(viewSource, /class="org-layout"|class="org-list"|class="org-editor"|class="org-placeholder"/)
   assert.doesNotMatch(viewSource, /点击左侧机构/)
   assert.doesNotMatch(viewSource, /维护展示给用户选择的机构预设与公司 Logo/)
