@@ -1889,6 +1889,7 @@ function startResize(e) {
 }
 
 .admin-org-shell {
+  width: 100%;
   max-width: 1200px;
   margin-inline: auto;
   padding-inline: 20px;

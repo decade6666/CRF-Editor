@@ -32,7 +32,7 @@ test('App.vue admin branch mounts AdminView or org view by page state', () => {
 
 test('App.vue admin branch keeps the users page half-width shell and adds an org wide shell', () => {
   assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*50%[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
-  assert.match(appSource, /\.admin-org-shell\s*\{[\s\S]*max-width:\s*1200px/)
+  assert.match(appSource, /\.admin-org-shell\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*1200px/)
 })
 
 test('AdminView keeps batch project actions inside a single project list dialog', () => {
