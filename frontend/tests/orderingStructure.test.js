@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const codelistsSource = readFileSync(path.resolve(currentDir, '../src/components/CodelistsTab.vue'), 'utf8');
+const unitsSource = readFileSync(path.resolve(currentDir, '../src/components/UnitsTab.vue'), 'utf8');
 const visitsSource = readFileSync(path.resolve(currentDir, '../src/components/VisitsTab.vue'), 'utf8');
 const fieldsSource = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8');
 const formsSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
@@ -47,6 +48,19 @@ test('CodelistsTab wires option list drag sorting through useSortableTable', () 
   assert.match(codelistsSource, /renderList: visibleOptions/);
   assert.match(codelistsSource, /ref="optionsTableRef"/);
   assert.match(codelistsSource, /<el-table-column width="32" v-if="!isOptionsFiltered">/);
+});
+
+test('UnitsTab retains sortable and ordinal ordering inside its left table pane', () => {
+  assert.match(unitsSource, /import \{ useSortableTable \} from '\.\.\/composables\/useSortableTable'/);
+  assert.match(unitsSource, /const unitsTableRef = ref\(null\)/);
+  assert.match(
+    unitsSource,
+    /const reorderUrl = computed\(\(\) => `\/api\/projects\/\$\{props\.projectId\}\/units\/reorder`\)/,
+  );
+  assert.match(unitsSource, /useSortableTable\(unitsTableRef, units, reorderUrl,/);
+  assert.match(unitsSource, /renderList: visibleUnits/);
+  assert.match(unitsSource, /<el-table-column width="32" v-if="!isFiltered">/);
+  assert.match(unitsSource, /@dblclick\.stop="startUnitOrdinalEdit\(row\)"/);
 });
 
 test('VisitsTab wires visit form drag sorting through useSortableTable', () => {
@@ -298,8 +312,9 @@ test('FormDesignerTab designer dialog uses two-pane layout: fields+editor left, 
   );
   assert.match(formsSource, /\.designer-dialog-header \{[\s\S]*padding-right: 32px;[\s\S]*\}/);
   assert.match(formsSource, /class="designer-shell"/);
-  // 两栏：字段卡片 + 属性卡片在左列，预览在右列；字段库卡片/独立属性栏/备注卡片已移除
-  assert.match(formsSource, /class="fd-canvas designer-fields-panel"/);
+  // 字段面板独立拥有布局，避免继承 fd-canvas 的完整边框和阴影。
+  assert.match(formsSource, /class="designer-fields-panel"/);
+  assert.doesNotMatch(formsSource, /class="fd-canvas designer-fields-panel"/);
   assert.match(formsSource, /class="pane-v-resizer designer-left-resizer"/);
   assert.match(formsSource, /class="pane-h-resizer"/);
   assert.match(formsSource, /class="designer-preview-pane"/);

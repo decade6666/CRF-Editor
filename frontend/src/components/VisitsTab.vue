@@ -5,7 +5,7 @@ import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
-import { CircleClose, Delete, DocumentCopy, EditPen, Plus, View } from '@element-plus/icons-vue'
+import { CircleClose, Delete, DocumentCopy, Plus, View } from '@element-plus/icons-vue'
 import {
   ANNOTATION_FORM_KEY,
   ANNOTATION_KIND_FIELD,
@@ -48,7 +48,6 @@ import {
 } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
-import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 // workspace：'list'（访视页默认）| 'flow'（访视流程标签页）；由 App.vue 顶级标签指定，实例内不切换
 const props = defineProps({
@@ -107,8 +106,6 @@ const filteredVisits = computed(() =>
 const matrixData = ref(null)
 // 所有表单列表（用于右侧面板添加表单）
 const allForms = ref([])
-const form = reactive({ name: '', code: '', sequence: null })
-const showAdd = ref(false)
 // 访视流程工作区：list（默认全宽列表）| flow（页面内矩阵 / 单访视）
 const workspaceMode = ref(props.workspace)
 const flowView = ref('matrix')
@@ -135,6 +132,59 @@ const previewDesignNotesHtml = computed(() => (
 ))
 // 当前选中的访视（右侧面板）
 const selectedVisit = ref(null)
+const isCreatingVisit = ref(false)
+const visitEditProp = reactive({ name: '', code: '' })
+// 删除当前选中访视后，表格重新渲染会触发一次 current-change 自动落到其他行；
+// 该标志抑制这次被动重选，避免属性卡被自动切换到其他访视。
+let suppressVisitRowSelect = false
+
+function resetVisitEditor(visit) {
+  Object.assign(visitEditProp, {
+    name: '',
+    code: '',
+  }, visit ? {
+    name: visit.name || '',
+    code: visit.code || '',
+  } : {})
+}
+
+function clearVisitSelection() {
+  selectedVisit.value = null
+  isCreatingVisit.value = false
+  resetVisitEditor()
+  visitsTableRef.value?.setCurrentRow(null)
+}
+
+function selectListVisit(visit) {
+  if (suppressVisitRowSelect) return
+  if (!visit) return clearVisitSelection()
+  selectedVisit.value = visit
+  isCreatingVisit.value = false
+  resetVisitEditor(visit)
+  visitsTableRef.value?.setCurrentRow(visit)
+}
+
+// 用户主动点击行不受删除抑制窗口影响：取消抑制并立即选中
+function onVisitRowClick(visit) {
+  suppressVisitRowSelect = false
+  selectListVisit(visit)
+}
+
+async function suppressNextVisitRowSelect() {
+  suppressVisitRowSelect = true
+  try {
+    await reloadVisits()
+    await nextTick()
+    await nextTick()
+  } finally {
+    // reload 失败也必须释放标志，否则后续行点击/current-change 被永久吞掉
+    suppressVisitRowSelect = false
+  }
+}
+
+function selectFlowVisit(visit) {
+  if (visit) selectedVisit.value = visit
+}
 
 async function load() {
   visits.value = await api.cachedGet(`/api/projects/${props.projectId}/visits`)
@@ -142,7 +192,9 @@ async function load() {
   allForms.value = await api.cachedGet(`/api/projects/${props.projectId}/forms`)
   // 刷新后按 id 重建选中引用，避免旧对象引用失配
   if (selectedVisit.value) {
-    selectedVisit.value = visits.value.find(v => v.id === selectedVisit.value.id) || null
+    const refreshedSelectedVisit = visits.value.find(v => v.id === selectedVisit.value.id)
+    if (refreshedSelectedVisit) selectedVisit.value = refreshedSelectedVisit
+    else clearVisitSelection()
   }
   if (formPreviewForm.value?.id != null) {
     const refreshedPreviewForm = allForms.value.find(item => item.id === formPreviewForm.value.id)
@@ -165,7 +217,7 @@ watch(
     if (newProjectId === previousProjectId) return
     workspaceMode.value = props.workspace
     flowView.value = 'matrix'
-    selectedVisit.value = null
+    clearVisitSelection()
     await flushAnnotationPositionSave({ cancelActiveDrag: true })
     showFormPreview.value = false
     resetFormPreviewState({ skipAnnotationCleanup: true })
@@ -199,6 +251,14 @@ async function reloadVisits() {
   api.invalidateCache(`/api/projects/${props.projectId}/visits`)
   await load()
 }
+
+async function reloadAndSelectVisit(visitId) {
+  await reloadVisits()
+  const latest = visits.value.find((visit) => visit.id === visitId)
+  if (latest) selectListVisit(latest)
+  else clearVisitSelection()
+}
+
 const { initSortable: initVisitsSortable } = useSortableTable(visitsTableRef, visits, reorderUrl, {
   reloadFn: reloadVisits,
   isFiltered,
@@ -253,10 +313,17 @@ async function reloadVisitForms() {
   syncVisitForms()
 }
 
-async function add() {
+async function saveVisit() {
+  const visitId = selectedVisit.value?.id
+  if (!isCreatingVisit.value && !visitId) return
   try {
-    await api.post(`/api/projects/${props.projectId}/visits`, { ...form })
-    showAdd.value = false; form.name = ''; form.code = ''; load()
+    if (isCreatingVisit.value) {
+      const created = await api.post(`/api/projects/${props.projectId}/visits`, { name: visitEditProp.name, code: visitEditProp.code })
+      await reloadAndSelectVisit(created.id)
+      return
+    }
+    await api.put(`/api/projects/${props.projectId}/visits/${visitId}`, { name: visitEditProp.name, code: visitEditProp.code })
+    await reloadAndSelectVisit(visitId)
   } catch (e) { ElMessage.error(e.message) }
 }
 
@@ -265,8 +332,13 @@ async function del(v) {
     await ElMessageBox.confirm(`删除访视 "${v.name}"？`, '确认', { type: 'warning' })
     await api.del(`/api/visits/${v.id}`)
     api.invalidateCache(`/api/projects/${props.projectId}`)
-    if (selectedVisit.value?.id === v.id) selectedVisit.value = null
-    load()
+    if (selectedVisit.value?.id === v.id) {
+      suppressVisitRowSelect = true
+      clearVisitSelection()
+      await suppressNextVisitRowSelect()
+    } else {
+      await reloadVisits()
+    }
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -276,8 +348,14 @@ async function batchDelVisits() {
     await ElMessageBox.confirm(`确认删除选中的 ${selVisits.value.length} 个访视？`, '批量删除', { type: 'warning' })
     const delIds = new Set(selVisits.value.map(v => v.id))
     await api.post(`/api/projects/${props.projectId}/visits/batch-delete`, { ids: [...delIds] })
-    if (selectedVisit.value && delIds.has(selectedVisit.value.id)) selectedVisit.value = null
-    selVisits.value = []; load()
+    if (selectedVisit.value && delIds.has(selectedVisit.value.id)) {
+      suppressVisitRowSelect = true
+      clearVisitSelection()
+      await suppressNextVisitRowSelect()
+    } else {
+      await reloadVisits()
+    }
+    selVisits.value = []
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -290,25 +368,10 @@ async function copyVisit(v) {
   catch (e) { ElMessage.error(e.message) }
 }
 
-const showEdit = ref(false)
-const editForm = reactive({ name: '', code: '', sequence: 1 })
-const editTarget = ref(null)
-
-function openEdit(v) {
-  Object.assign(editForm, { name: v.name, code: v.code || '', sequence: v.sequence })
-  editTarget.value = v; showEdit.value = true
-}
-
-async function update() {
-  try {
-    await api.put(`/api/projects/${props.projectId}/visits/${editTarget.value.id}`, { ...editForm })
-    showEdit.value = false; load()
-  } catch (e) { ElMessage.error(e.message) }
-}
-
 function openAdd() {
-  form.code = genCode('VISIT')
-  showAdd.value = true
+  resetVisitEditor({ code: genCode('VISIT') })
+  selectedVisit.value = null
+  isCreatingVisit.value = true
 }
 
 // 添加表单到访视
@@ -756,9 +819,6 @@ async function toggleCell(visitId, formId) {
   const has = m[visitId] && m[visitId][formId] != null
   try {
     if (has) {
-      const visit = visits.value.find(item => item.id === visitId)
-      const form = allForms.value.find(item => item.id === formId)
-      await confirmDelete(ElMessageBox.confirm, { targetText: `访视 "${visit?.name || visitId}" 中的表单 "${form?.name || formId}"` })
       await api.del(`/api/visits/${visitId}/forms/${formId}`)
     } else await api.post(`/api/visits/${visitId}/forms/${formId}`, {})
     await reloadVisitForms()
@@ -769,74 +829,93 @@ async function toggleCell(visitId, formId) {
 <template>
   <div style="display:flex;flex-direction:column;height:calc(100vh - 160px)">
     <template v-if="workspaceMode === 'list'">
-      <!-- 访视列表工具栏（「访视流程」为顶级标签页，不再在页内提供入口） -->
-      <div class="list-toolbar">
-        <el-tooltip content="新增访视" placement="top">
-          <el-button type="primary" size="small" :icon="Plus" aria-label="新增访视" @click="openAdd" />
-        </el-tooltip>
-        <el-tooltip content="批量删除访视" placement="top">
-          <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除访视" :disabled="!selVisits.length" @click="batchDelVisits" />
-        </el-tooltip>
-        <el-input
-          v-model="searchVisit"
-          placeholder="搜索访视..."
-          clearable
-          size="small"
-          style="width:180px"
-        />
-      </div>
-      <div style="flex:1;min-height:0">
-        <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
-          @current-change="row => { if (row) selectedVisit = row }"
-          @selection-change="r => selVisits = r" style="width:100%" height="100%">
-          <el-table-column width="32" v-if="!isFiltered">
-            <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
-          </el-table-column>
-          <el-table-column type="selection" width="40" />
-          <el-table-column label="序号" width="100">
-            <template #default="{ row }">
-              <el-input-number
-                v-if="workspaceMode === 'list' && editingVisitId === row.id"
-                ref="visitOrdinalInputRef"
-                v-model="editingVisitOrdinal"
-                :min="1"
-                :max="filteredVisits.length"
-                :controls="false"
-                size="small"
-                style="width:80px"
-                @click.stop
-                @keyup.enter.stop="commitVisitOrdinalEdit"
-                @keydown.esc.stop.prevent="cancelVisitOrdinalEdit"
-                @blur="cancelVisitOrdinalEdit"
-              />
-              <button
-                v-else-if="workspaceMode === 'list'"
-                type="button"
-                style="border:none;background:transparent;padding:0;cursor:pointer"
-                @click.stop
-                @dblclick.stop="startVisitOrdinalEdit(row)"
-              >
-                <span class="ordinal-cell">{{ row.sequence }}</span>
-              </button>
-              <span v-else class="ordinal-cell">{{ row.sequence }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
-          <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
-          <el-table-column label="操作" width="120" fixed="right" v-if="workspaceMode === 'list'">
-            <template #default="{ row }">
-              <el-tooltip content="复制" placement="top">
-                <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyVisit(row)" />
-              </el-tooltip>
-              <el-tooltip content="编辑" placement="top">
-                <el-button size="small" link :icon="EditPen" aria-label="编辑" @click.stop="openEdit(row)" />
-              </el-tooltip>
-              <el-tooltip content="删除" placement="top">
-                <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="del(row)" />
-              </el-tooltip>
-            </template>
-          </el-table-column>
-        </el-table>
+      <div style="display:flex;gap:12px;align-items:stretch;flex:1;min-height:0">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <!-- 访视列表工具栏（「访视流程」为顶级标签页，不再在页内提供入口） -->
+          <div class="list-toolbar">
+            <el-tooltip content="新增访视" placement="top">
+              <el-button type="primary" size="small" :icon="Plus" aria-label="新增访视" @click="openAdd" />
+            </el-tooltip>
+            <el-tooltip content="批量删除访视" placement="top">
+              <el-button type="danger" size="small" :icon="Delete" aria-label="批量删除访视" :disabled="!selVisits.length" @click="batchDelVisits" />
+            </el-tooltip>
+            <el-input
+              v-model="searchVisit"
+              placeholder="搜索访视..."
+              clearable
+              size="small"
+              style="width:180px"
+            />
+          </div>
+          <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
+            :row-style="{ cursor: 'pointer' }"
+            @row-click="onVisitRowClick"
+            @current-change="selectListVisit"
+            @selection-change="r => selVisits = r" style="width:100%" height="100%">
+            <el-table-column width="32" v-if="!isFiltered">
+              <template #default><span class="drag-handle" style="cursor:move;color:var(--color-text-muted)">☰</span></template>
+            </el-table-column>
+            <el-table-column type="selection" width="40" />
+            <el-table-column label="序号" width="100">
+              <template #default="{ row }">
+                <el-input-number
+                  v-if="workspaceMode === 'list' && editingVisitId === row.id"
+                  ref="visitOrdinalInputRef"
+                  v-model="editingVisitOrdinal"
+                  :min="1"
+                  :max="filteredVisits.length"
+                  :controls="false"
+                  size="small"
+                  style="width:80px"
+                  @click.stop
+                  @keyup.enter.stop="commitVisitOrdinalEdit"
+                  @keydown.esc.stop.prevent="cancelVisitOrdinalEdit"
+                  @blur="cancelVisitOrdinalEdit"
+                />
+                <button
+                  v-else-if="workspaceMode === 'list'"
+                  type="button"
+                  style="border:none;background:transparent;padding:0;cursor:pointer"
+                  @click.stop
+                  @dblclick.stop="startVisitOrdinalEdit(row)"
+                >
+                  <span class="ordinal-cell">{{ row.sequence }}</span>
+                </button>
+              </template>
+            </el-table-column>
+            <el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip />
+            <el-table-column prop="name" label="访视名称" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-tooltip content="复制" placement="top">
+                  <el-button size="small" link :icon="DocumentCopy" aria-label="复制" @click.stop="copyVisit(row)" />
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <el-button type="danger" size="small" link :icon="Delete" aria-label="删除" @click.stop="del(row)" />
+                </el-tooltip>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div style="width:320px;display:flex;flex-direction:column;flex-shrink:0">
+          <div class="pane-tool-slot">
+            <b>{{ isCreatingVisit ? '新增访视' : (selectedVisit ? '编辑访视' : '属性编辑') }}</b>
+          </div>
+          <div style="flex:1;min-height:0;border:1px solid var(--color-border);border-radius:4px;display:flex;flex-direction:column;overflow:hidden">
+            <div v-if="!selectedVisit && !isCreatingVisit" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增访视</div>
+            <div v-else style="flex:1;overflow-y:auto;padding:8px">
+              <el-form :model="visitEditProp" label-width="70px" size="small">
+                <el-form-item v-if="editMode" label="OID"><el-input v-model="visitEditProp.code" /></el-form-item>
+                <el-form-item label="访视名称"><el-input v-model="visitEditProp.name" /></el-form-item>
+              </el-form>
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <el-button size="small" style="flex:1" @click="clearVisitSelection">取消</el-button>
+                <el-button type="primary" size="small" style="flex:1" @click="saveVisit">保存</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -890,7 +969,7 @@ async function toggleCell(visitId, formId) {
         <!-- 单访视：左列表只读选择 -->
         <div style="width:50%;min-width:0;display:flex;flex-direction:column">
           <el-table ref="visitsTableRef" :data="filteredVisits" size="small" border highlight-current-row row-key="id"
-            @current-change="row => { if (row) selectedVisit = row }" style="width:100%" height="100%">
+            @current-change="selectFlowVisit" style="width:100%" height="100%">
             <el-table-column label="序号" width="100">
               <template #default="{ row }"><span class="ordinal-cell">{{ row.sequence }}</span></template>
             </el-table-column>
@@ -975,32 +1054,6 @@ async function toggleCell(visitId, formId) {
         </div>
       </div>
     </template>
-
-    <!-- 新增访视弹窗 -->
-    <el-dialog v-model="showAdd" title="新增访视" width="360px" :close-on-click-modal="false">
-      <el-form :model="form" label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="form.code" /></el-form-item>
-        <el-form-item label="访视名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="序号"><el-input-number v-model="form.sequence" :min="1" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAdd = false">取消</el-button>
-        <el-button type="primary" @click="add">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 编辑访视弹窗 -->
-    <el-dialog v-model="showEdit" title="编辑访视" width="360px" :close-on-click-modal="false">
-      <el-form :model="editForm" label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="editForm.code" /></el-form-item>
-        <el-form-item label="访视名称"><el-input v-model="editForm.name" /></el-form-item>
-        <el-form-item label="序号"><el-input-number v-model="editForm.sequence" :min="1" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEdit = false">取消</el-button>
-        <el-button type="primary" @click="update">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
   <!-- 表单内容预览弹窗 -->
   <el-dialog v-model="showFormPreview" width="90%" style="max-width:1200px" top="5vh" :close-on-click-modal="false" @closed="resetFormPreviewState">

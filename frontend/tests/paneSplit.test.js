@@ -236,6 +236,18 @@ describe('FormDesignerTab CSS: two-pane layout', () => {
   const mediaSource = mediaBlocks.join('\n');
   const wideSource = mediaBlocks.reduce((acc, block) => acc.replace(block, ''), formDesignerSource);
 
+  test('fullscreen fields pane owns canvas layout without inheriting fd-canvas chrome', () => {
+    assert.match(formDesignerSource, /<div class="designer-fields-panel">/);
+    assert.doesNotMatch(formDesignerSource, /<div class="fd-canvas designer-fields-panel">/);
+
+    const fieldsRule = ruleBlock(wideSource, '.designer-fields-panel');
+    assert.match(fieldsRule, /flex: 1;/);
+    assert.match(fieldsRule, /display: flex;/);
+    assert.match(fieldsRule, /flex-direction: column;/);
+    assert.match(fieldsRule, /overflow: hidden;/);
+    assert.match(fieldsRule, /transition: border-color var\(--transition-fast\);/);
+  });
+
   test('three panes only keep outer borders; inner edges rely on the resizer line', () => {
     // 字段面板仅保留外缘（上、左），面向 resizer 的右/下边框移除
     const fieldsRule = ruleBlock(wideSource, '.designer-fields-panel');

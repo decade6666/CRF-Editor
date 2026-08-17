@@ -454,6 +454,11 @@ test('form designer surfaces header notes summary and paper orientation controls
   // 否则 08-05 的「撑满自适应」规则会让短摘要撑出一个大空框（flex: 1 1 auto 回归守卫）
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*flex: 0 1 auto;/s);
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*min-width: 0;[\s\S]*max-width: none;/s);
+  const canvasToolbarRule = formDesignerSource.match(/\.fd-canvas-toolbar \{([\s\S]*?)\n\}/)?.[1] || '';
+  const headerNotesRule = formDesignerSource.match(/\.fd-canvas-header-notes \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(canvasToolbarRule, /flex-wrap: nowrap;/);
+  assert.doesNotMatch(headerNotesRule, /margin-right:/);
+  assert.match(headerNotesRule, /overflow: hidden;[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/);
   // 暗色顶栏 --color-primary-subtle / --color-bg-hover / --color-border 几乎同色，
   // chip 必须用卡片底 + 掺主色实线边 + 胶囊圆角才能和表单名分开（禁止 dashed / hover 底复发）
   assert.match(formDesignerSource, /\.fd-canvas-header-notes \{[^}]*background: var\(--color-bg-card\);/s);

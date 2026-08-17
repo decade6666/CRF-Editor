@@ -2776,6 +2776,8 @@ async function saveDraftField() {
           ? { ...f, id: createdFfId, field_definition_id: createdFdId ?? f.field_definition_id, __draft: false }
           : f,
       );
+      const realFf = formFields.value.find((f) => f.id === createdFfId);
+      if (realFf) selectField(realFf);
     } else {
       if (!isCurrentDesignerHistoryContext(historyContext)) return true;
       if (isReordering.value) return true;
@@ -4088,7 +4090,7 @@ function openAddForm() {
       </template>
       <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- blank designer click returns to form props -->
       <div class="designer-shell" :style="{ ...mainSplitStyle, ...leftSplitStyle }" @click="onDesignerBlankClick">
-            <div class="fd-canvas designer-fields-panel">
+            <div class="designer-fields-panel">
               <div class="fd-canvas-header">
                 <el-tooltip content="新建字段" placement="top" :show-after="300"
                   ><el-button
@@ -5630,6 +5632,9 @@ function openAddForm() {
   flex-direction: column;
   overflow: hidden;
 }
+.fd-canvas-toolbar {
+  flex-wrap: nowrap;
+}
 .fd-canvas {
   display: flex;
   flex-direction: column;
@@ -5882,6 +5887,13 @@ function openAddForm() {
 
 .designer-fields-panel {
   height: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
   /* 三块主工作区之间只留一条细线：内缘边框移除，由 resizer ::before 的 1px 分隔线承担；
      无阴影光晕、仅外缘圆角，避免相邻面板视觉上出现第二条线 */
   border-top: 1px solid var(--color-border);
@@ -5968,8 +5980,6 @@ function openAddForm() {
   padding: 0 10px;
   line-height: 18px;
   cursor: help;
-  /* 右侧预留位：后续在顶栏加元素只需改这一个变量，不用再动布局 */
-  margin-right: var(--notes-reserve, 96px);
 }
 
 .designer-empty-state {
