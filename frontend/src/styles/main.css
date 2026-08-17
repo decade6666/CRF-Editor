@@ -194,6 +194,33 @@ body {
   margin-bottom: 12px;
   flex-shrink: 0;
 }
+/* 相邻按钮间距统一由容器 gap 决定：中和 Element Plus 自带 .el-button+.el-button margin-left:12px */
+.list-toolbar .el-button + .el-button,
+.pane-tool-slot .el-button + .el-button,
+.workspace-actions .el-button + .el-button {
+  margin-left: 0;
+}
+/* 管理端共享页头（用户管理 / 机构管理） */
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.workspace-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+.workspace-subtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.workspace-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 .fd-right { width: 65%; display: flex; gap: 12px; overflow: hidden; }
 .fd-library { width: 240px; border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: var(--color-bg-subtle); display: flex; flex-direction: column; flex-shrink: 0; transition: all var(--transition-std); }
 .fd-library:hover { box-shadow: var(--shadow-primary); }

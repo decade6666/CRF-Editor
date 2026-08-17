@@ -1099,7 +1099,7 @@ function startResize(e) {
         <SessionTimer />
       </div>
     </div>
-    <div :class="activeAdminPage === 'orgs' ? 'admin-org-shell' : 'admin-shell'">
+    <div class="admin-shell">
       <div class="admin-nav">
         <el-radio-group v-model="activeAdminPage" size="small">
           <el-radio-button value="users">用户管理</el-radio-button>
@@ -1882,13 +1882,6 @@ function startResize(e) {
 }
 
 .admin-shell {
-  width: 50%;
-  min-width: 600px;
-  max-width: 100%;
-  margin-inline: auto;
-}
-
-.admin-org-shell {
   width: 100%;
   max-width: 1200px;
   margin-inline: auto;

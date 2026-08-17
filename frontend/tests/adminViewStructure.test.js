@@ -16,7 +16,7 @@ test('App.vue admin branch exposes top-level users/orgs entry switch', () => {
   assert.match(adminBranch, /el-radio-button/)
   assert.match(adminBranch, /activeAdminPage/)
   assert.match(adminBranch, /activeAdminPage === 'users'/)
-  assert.match(adminBranch, /activeAdminPage === 'orgs'/)
+  assert.match(adminBranch, /value="orgs"/)
 })
 
 test('App.vue admin branch renders no dialog-form entry switch', () => {
@@ -30,18 +30,30 @@ test('App.vue admin branch mounts AdminView or org view by page state', () => {
   assert.match(adminBranch, /<OrganizationManagementView/)
 })
 
-test('App.vue admin branch keeps the users page half-width shell and adds an org wide shell', () => {
-  assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*50%[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
-  assert.match(appSource, /\.admin-org-shell\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*1200px/)
+test('App.vue admin branch uses one shared wide shell for both pages', () => {
+  assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*1200px[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
+  assert.doesNotMatch(appSource, /\.admin-org-shell/)
+  assert.doesNotMatch(appSource, /width:\s*50%/)
+  assert.match(appSource, /class="admin-shell"/)
 })
 
-test('AdminView keeps batch project actions inside a single project list dialog', () => {
+test('AdminView keeps batch project actions inside a single two-step project list dialog', () => {
   assert.match(adminViewSource, /@click="openProjectList\(row\)"/)
   assert.match(adminViewSource, /项目列表/)
   assert.match(adminViewSource, /v-model="showProjectList"/)
   assert.match(adminViewSource, /@selection-change="onProjectSelectionChange"/)
   assert.match(adminViewSource, /type="selection"/)
-  assert.match(adminViewSource, /v-if="needsTargetUser"/)
+  // 第一步：项目表格 + 三个动作按钮（取消 右侧）；复制/迁移进入第二步
+  assert.match(adminViewSource, /@click="startBatchAction\('copy'\)"/)
+  assert.match(adminViewSource, /@click="startBatchAction\('move'\)"/)
+  assert.match(adminViewSource, /@click="startBatchAction\('delete'\)"/)
+  assert.match(adminViewSource, /projectListStep === 'select'/)
+  assert.match(adminViewSource, /projectListStep\.value = 'target'/)
+  // 第二步：目标用户选择 + 上一步
+  assert.match(adminViewSource, /@click="backToProjectSelection"/)
+  assert.match(adminViewSource, /batchTargetUserId/)
+  // 删除路径保留最终二次确认
+  assert.match(adminViewSource, /confirmFinalProjectDelete/)
 })
 
 test('AdminView highlights admin users and restricts admin-only actions', () => {
@@ -57,9 +69,9 @@ test('AdminView highlights admin users and restricts admin-only actions', () => 
   assert.equal(/v-if=|v-show=/.test(renameButtonTag), false)
   assert.equal(/v-if=|v-show=/.test(resetPasswordButtonTag), false)
 
-  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="openProjectList\(row\)"/)
-  assert.match(adminViewSource, /v-if="!row\.is_admin"[^\n>]*@click="deleteUser\(row\)"/)
-  assert.match(adminViewSource, /@click="deleteUser\(row\)"[^\n>]*:disabled="row\.project_count > 0"/)
+  assert.match(adminViewSource, /<el-tooltip v-if="!row\.is_admin"[\s\S]*?aria-label="项目列表"[\s\S]*?@click="openProjectList\(row\)"\s*\/>/)
+  assert.match(adminViewSource, /<el-tooltip v-if="!row\.is_admin"[\s\S]*?aria-label="删除"[\s\S]*?@click="deleteUser\(row\)"\s*\/>/)
+  assert.match(adminViewSource, /:disabled="row\.project_count > 0"[^\n>]*@click="deleteUser\(row\)"/)
 })
 
 test('admin shell mounts AdminView directly without normal workspace content', () => {
@@ -96,7 +108,8 @@ test('AdminView shows recycle bin size and cleanup policy entry points', () => {
   assert.match(adminViewSource, /recycle-bin\/cleanup-policy/)
   assert.match(adminViewSource, /recycle-bin\/cleanup\/preview/)
   assert.match(adminViewSource, /label="用户名" width="160"/)
-  assert.match(adminViewSource, /label="操作" width="360"/)
+  assert.match(adminViewSource, /label="操作" width="130"/)
+  assert.match(adminViewSource, /<el-table[\s\S]*?size="small"/)
 })
 
 test('App.vue shows copy button without hover condition', () => {
