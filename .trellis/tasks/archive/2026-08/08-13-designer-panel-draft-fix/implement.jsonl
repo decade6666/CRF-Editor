@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture overview for the form designer."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Designer panel, field editor, accessibility, and responsive layout conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Draft, confirmation, history replay, busy-state, and lifecycle guidance."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing profile commands, impact confirmation, and history infrastructure."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Protect renderer, preview, annotation, and field-definition contracts."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Verified draft-loss root cause and designer boundary evidence."}
