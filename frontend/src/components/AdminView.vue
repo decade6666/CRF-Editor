@@ -287,6 +287,7 @@ async function executeBatchDelete() {
   try {
     await confirmFinalProjectDelete(ElMessageBox.confirm, {
       projectCount: selectedProjectIds.value.length,
+      recoverable: true,
     })
     await api.post(`${adminApiBase}/projects/batch-delete`, {
       project_ids: selectedProjectIds.value,
@@ -394,7 +395,6 @@ onMounted(() => {
     <div class="workspace-header">
       <div>
         <div class="workspace-title">用户管理</div>
-        <div class="workspace-subtitle">统一管理用户、批量项目操作与回收站入口</div>
       </div>
       <div class="workspace-actions">
         <el-tooltip content="新增用户" placement="top">
@@ -411,7 +411,7 @@ onMounted(() => {
 
     <el-table :data="users" v-loading="loadingUsers" border stripe size="small">
       <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column label="用户名" width="160">
+      <el-table-column label="用户名" min-width="160">
         <template #default="{ row }">
           <div class="user-name-cell">
             <span>{{ row.username }}</span>
@@ -478,7 +478,7 @@ onMounted(() => {
       <template v-if="projectListStep === 'select'">
         <div class="batch-hint">请先选择要操作的项目，再选择 复制 / 迁移 / 删除。</div>
         <el-table :data="sourceUserProjects" v-loading="loadingProjects" @selection-change="onProjectSelectionChange" border max-height="320">
-          <el-table-column type="selection" width="50" />
+          <el-table-column type="selection" width="50" align="center" />
           <el-table-column prop="name" label="项目名称" />
         </el-table>
       </template>
@@ -486,7 +486,7 @@ onMounted(() => {
         <span>选择目标用户：</span>
         <el-select v-model="batchTargetUserId" placeholder="请选择用户">
           <el-option
-            v-for="user in users.filter(item => item.id !== projectListUser?.id || batchMode === 'copy')"
+            v-for="user in users.filter(item => item.id !== projectListUser?.id)"
             :key="user.id"
             :label="user.username"
             :value="user.id"

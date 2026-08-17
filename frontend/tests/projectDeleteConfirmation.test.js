@@ -30,17 +30,17 @@ function getFunctionBody(source, functionName) {
   return source.slice(start, end)
 }
 
-test('buildFinalProjectDeleteConfirmMessage describes named project delete', () => {
+test('buildFinalProjectDeleteConfirmMessage describes recoverable named project delete', () => {
   assert.equal(
-    buildFinalProjectDeleteConfirmMessage({ projectName: 'TEST' }),
-    '请再次确认：确定要删除项目 "TEST" 吗？此操作不可恢复。'
+    buildFinalProjectDeleteConfirmMessage({ projectName: 'TEST', recoverable: true }),
+    '请再次确认：确定要删除项目 "TEST" 吗？删除后如需恢复，请联系管理员。'
   )
 })
 
-test('buildFinalProjectDeleteConfirmMessage describes batch project delete', () => {
+test('buildFinalProjectDeleteConfirmMessage describes recoverable batch project delete', () => {
   assert.equal(
-    buildFinalProjectDeleteConfirmMessage({ projectCount: 3 }),
-    '请再次确认：确定要删除选中的 3 个项目吗？此操作不可恢复。'
+    buildFinalProjectDeleteConfirmMessage({ projectCount: 3, recoverable: true }),
+    '请再次确认：确定要删除选中的 3 个项目吗？删除后如需恢复，请联系管理员。'
   )
 })
 
@@ -102,15 +102,15 @@ test('confirmFinalProjectDelete cancellation short-circuits callers before delet
 
 test('normal project delete waits for final confirmation before deleting', () => {
   const body = getFunctionBody(appSource, 'deleteProject')
-  assert.match(body, /ElMessageBox\.confirm\(`删除项目/)
-  assert.match(body, /confirmFinalProjectDelete\(ElMessageBox\.confirm, \{ projectName: p\.name \}\)/)
+  assert.match(body, /ElMessageBox\.confirm\(`删除项目 "\$\{p\.name\}"？删除后如需恢复，请联系管理员。`/)
+  assert.match(body, /confirmFinalProjectDelete\(ElMessageBox\.confirm, \{ projectName: p\.name, recoverable: true \}\)/)
   assert.match(body, /if \(e !== 'cancel'\) ElMessage\.error\('删除失败: ' \+ e\.message\)/)
   assert.ok(body.indexOf('confirmFinalProjectDelete') < body.indexOf('api.del'))
 })
 
 test('admin batch project delete waits for final confirmation before API call', () => {
   const body = getFunctionBody(adminViewSource, 'executeBatchDelete')
-  assert.match(body, /confirmFinalProjectDelete\(ElMessageBox\.confirm, \{[\s\S]*projectCount: selectedProjectIds\.value\.length/)
+  assert.match(body, /confirmFinalProjectDelete\(ElMessageBox\.confirm, \{[\s\S]*projectCount: selectedProjectIds\.value\.length,[\s\S]*recoverable: true/)
   assert.match(body, /if \(e !== 'cancel'\) ElMessage\.error\('删除失败: ' \+ e\.message\)/)
   assert.ok(body.indexOf('confirmFinalProjectDelete') < body.indexOf('api.post'))
 })
@@ -124,7 +124,7 @@ test('hard project delete keeps irreversible warning and waits for final confirm
   assert.ok(body.indexOf('confirmFinalProjectDelete') < body.indexOf('api.del'))
 })
 
-test('management delete handlers require final confirmation before delete API calls', () => {
+test('standard management delete handlers require confirmation before delete API calls', () => {
   const cases = [
     [codelistsSource, 'delCl', 'ElMessageBox.confirm', 'api.del'],
     [codelistsSource, 'batchDelCl', 'ElMessageBox.confirm', 'batch-delete'],
@@ -136,7 +136,6 @@ test('management delete handlers require final confirmation before delete API ca
     [fieldsSource, 'batchDelFields', 'ElMessageBox.confirm', 'batch-delete'],
     [visitsSource, 'del', 'ElMessageBox.confirm', 'api.del'],
     [visitsSource, 'batchDelVisits', 'ElMessageBox.confirm', 'batch-delete'],
-    [visitsSource, 'toggleCell', 'confirmDelete', 'api.del'],
     [designerSource, 'delForm', 'ElMessageBox.confirm', 'api.del'],
     [designerSource, 'batchDelForms', 'ElMessageBox.confirm', 'forms/batch-delete'],
     [designerSource, 'removeField', 'confirmFormChange', 'api.del'],
@@ -157,6 +156,7 @@ test('management delete handlers require final confirmation before delete API ca
   const removeBody = getFunctionBody(visitsSource, 'removeFormFromVisit')
   assert.doesNotMatch(removeBody, /confirmDelete|ElMessageBox\.confirm/)
   assert.ok(removeBody.indexOf('api.del') >= 0)
+  assert.match(removeBody, /catch \(e\) \{ if \(e !== 'cancel'\) ElMessage\.error\(e\.message\) \}/)
 
   // All handlers should NOT use double-confirm helpers
   for (const [source, functionName] of [
@@ -177,6 +177,16 @@ test('management delete handlers require final confirmation before delete API ca
     assert.doesNotMatch(body, /confirmDeleteTwice\(ElMessageBox\.confirm/)
     assert.doesNotMatch(body, /confirmFinalDelete\(ElMessageBox\.confirm/)
   }
+})
+
+test('visit flow matrix removes an unchecked association directly without confirmation', () => {
+  const body = getFunctionBody(visitsSource, 'toggleCell')
+
+  assert.match(body, /if \(has\) \{\s*await api\.del\(`\/api\/visits\/\$\{visitId\}\/forms\/\$\{formId\}`\)/)
+  assert.doesNotMatch(body, /confirmDelete|ElMessageBox\.confirm/)
+  assert.match(body, /await reloadVisitForms\(\)/)
+  assert.match(body, /catch \(e\) \{ if \(e !== 'cancel'\) ElMessage\.error\(e\.message \|\| '操作失败'\) \}/)
+  assert.doesNotMatch(visitsSource, /import \{ confirmDelete \} from '\.\.\/composables\/projectDeleteConfirmation'/)
 })
 
 test('quick codelist option row deletes require a single confirmation before local removal', () => {

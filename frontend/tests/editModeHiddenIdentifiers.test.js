@@ -42,7 +42,7 @@ test('codelist and option OID controls are visible only in complete edit mode', 
   assert.doesNotMatch(codelistsSource, /display:none/)
 })
 
-test('unit OID and symbol use the same table style as other management tabs', () => {
+test('unit OID and symbol use the same table style as other management tabs and the shared property-card editor', () => {
   assert.match(unitsSource, /const editMode = inject\('editMode', ref\(false\)\)/)
   assert.match(unitsSource, /<el-table ref="unitsTableRef" :data="visibleUnits" size="small" border height="100%" row-key="id"/)
   assertInOrder(unitsSource, [
@@ -52,8 +52,10 @@ test('unit OID and symbol use the same table style as other management tabs', ()
   ], 'unit OID should sit between ordinal and symbol columns')
   assert.match(unitsSource, /<el-table-column v-if="editMode" prop="code" label="OID" min-width="110" show-overflow-tooltip \/>/)
   assert.match(unitsSource, /<el-table-column prop="symbol" label="单位符号" min-width="120" show-overflow-tooltip \/>/)
-  assert.match(unitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="unitCode"/)
-  assert.match(unitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="editUnitCode"/)
+  assert.match(unitsSource, /const unitEditProp = reactive\(\{ code: '', symbol: '' \}\)/)
+  assert.match(unitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="unitEditProp\.code"/)
+  assert.match(unitsSource, /<el-form-item label="单位符号">[\s\S]*v-model="unitEditProp\.symbol"/)
+  assert.doesNotMatch(unitsSource, /v-model="unitCode"|v-model="editUnitCode"/)
   assert.doesNotMatch(unitsSource, /unit-col|unit-symbol|unit-oid/)
   assert.doesNotMatch(unitsSource, /<draggable|from 'vuedraggable'|useOrderableList/)
   assert.doesNotMatch(unitsSource, /单位符号OID/)
@@ -87,15 +89,17 @@ test('form OID and designer field variable OID controls are visible only in comp
   assert.doesNotMatch(formDesignerSource, /v-show="false"/)
 })
 
-test('visit OID controls are visible only in complete edit mode after ordinal', () => {
+test('visit OID controls are visible only in complete edit mode after ordinal and use the list card editor', () => {
   assert.match(visitsSource, /const editMode = inject\('editMode', ref\(false\)\)/)
   assertInOrder(visitsSource, [
     /<el-table-column label="序号" width="100">/,
     /<el-table-column v-if="editMode" prop="code" label="OID"/,
     /<el-table-column prop="name" label="访视名称"/,
   ], 'visit OID column should sit immediately after ordinal column')
-  assert.match(visitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="form\.code"/)
-  assert.match(visitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="editForm\.code"/)
+  assert.match(visitsSource, /const visitEditProp = reactive\(\{ name: '', code: '' \}\)/)
+  assert.match(visitsSource, /<el-form-item v-if="editMode" label="OID">[\s\S]*v-model="visitEditProp\.code"/)
+  assert.match(visitsSource, /<el-form-item label="访视名称">[\s\S]*v-model="visitEditProp\.name"/)
+  assert.doesNotMatch(visitsSource, /v-model="form\.code"|v-model="editForm\.code"/)
   assert.doesNotMatch(visitsSource, /访视OID/)
   assert.doesNotMatch(visitsSource, /v-show="false"/)
 })

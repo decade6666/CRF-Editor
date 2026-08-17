@@ -70,7 +70,7 @@ test('action columns use semantic icon buttons with tooltips and aria-labels', (
   for (const source of [codelists, fields, forms, visits]) {
     assert.match(source, /:icon="DocumentCopy" aria-label="复制"/)
   }
-  for (const source of [codelists, units, forms, visits]) {
+  for (const source of [codelists, forms]) {
     assert.match(source, /:icon="EditPen" aria-label="编辑"/)
   }
   for (const source of [codelists, units, fields, forms, visits]) {
@@ -80,6 +80,10 @@ test('action columns use semantic icon buttons with tooltips and aria-labels', (
   assert.match(visits, /:icon="View" aria-label="预览"/)
   assert.match(visits, /:icon="CircleClose" aria-label="移除"/)
   assert.match(codelists, /:icon="Plus" aria-label="新增选项"/)
+  assert.doesNotMatch(units, /:icon="EditPen" aria-label="编辑"/)
+  assert.doesNotMatch(visits, /:icon="EditPen" aria-label="编辑"/)
+  assert.doesNotMatch(units, /import \{[^}]*EditPen[^}]*\} from '@element-plus\/icons-vue'/)
+  assert.doesNotMatch(visits, /import \{[^}]*EditPen[^}]*\} from '@element-plus\/icons-vue'/)
 })
 
 test('visit flow moved to a top-level tab: no in-page text entry remains in VisitsTab', () => {

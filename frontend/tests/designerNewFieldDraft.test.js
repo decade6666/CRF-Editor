@@ -60,6 +60,17 @@ test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤�
   assert.match(body, /return false/)
 })
 
+test('saveDraftField selects the real field after fallback map when reload is skipped', () => {
+  const body = fnBody('saveDraftField')
+  const fallbackBranch = body.match(/if \(!reloaded\) \{([\s\S]*?)\n    \} else \{/)
+
+  assert.ok(fallbackBranch, 'saveDraftField should keep a fallback branch when field reload is skipped')
+  assert.match(
+    fallbackBranch[1],
+    /formFields\.value = formFields\.value\.map\(\(f\) =>[\s\S]*?__draft: false[\s\S]*?const realFf = formFields\.value\.find\(\(f\) => f\.id === createdFfId\)[\s\S]*?if \(realFf\) selectField\(realFf\)/,
+  )
+})
+
 test('选项字段保存前要求选择字典', () => {
   const body = fnBody('saveDraftField')
   assert.match(body, /isChoiceField\(fd\.field_type\) && !fd\.codelist_id/)

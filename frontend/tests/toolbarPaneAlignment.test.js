@@ -12,10 +12,12 @@ const designerSource = src('components/FormDesignerTab.vue')
 const codelistsSource = src('components/CodelistsTab.vue')
 const unitsSource = src('components/UnitsTab.vue')
 const fieldsSource = src('components/FieldsTab.vue')
+const visitsSource = src('components/VisitsTab.vue')
 const mainCss = src('styles/main.css')
 
 test('App.vue header no longer contains the template import button', () => {
   const headerSection = appSource.match(/<div class="header-right">([\s\S]*?)<\/div>/)?.[1] || ''
+  assert.ok(headerSection, 'header-right block should exist')
   assert.doesNotMatch(headerSection, /导入模板/)
 })
 
@@ -68,6 +70,44 @@ test('FieldsTab right pane card top aligns with the table: title row sits outsid
   assert.match(fieldsSource, /width:320px;display:flex;flex-direction:column;flex-shrink:0"[\s\S]*?class="pane-tool-slot"[\s\S]*?flex:1;min-height:0;border:1px solid var\(--color-border\)/)
 })
 
+test('UnitsTab uses the aligned list and 320px property-card structure', () => {
+  assert.match(unitsSource, /<div style="display:flex;gap:12px;align-items:stretch;height:calc\(100vh - 160px\)">/)
+  assert.match(unitsSource, /<div style="flex:1;min-width:0;display:flex;flex-direction:column">[\s\S]*?class="list-toolbar"/)
+  assert.match(unitsSource, /width:320px;display:flex;flex-direction:column;flex-shrink:0"[\s\S]*?class="pane-tool-slot"[\s\S]*?flex:1;min-height:0;border:1px solid var\(--color-border\)/)
+  assert.match(unitsSource, /@row-click="selectUnit"/)
+  assert.match(unitsSource, /@selection-change="r => selUnits = r"/)
+})
+
+test('UnitsTab card editor replaces add/edit dialogs without conflating row and batch selection', () => {
+  const saveBody = unitsSource.match(/async function saveUnit\(\) \{([\s\S]*?)\n\}/)?.[1] || ''
+  const selectBody = unitsSource.match(/function selectUnit\(unit\) \{([\s\S]*?)\n\}/)?.[1] || ''
+
+  assert.match(unitsSource, /const selectedUnitId = ref\(null\)/)
+  assert.match(unitsSource, /const isCreatingUnit = ref\(false\)/)
+  assert.match(unitsSource, /const unitEditProp = reactive\(\{ code: '', symbol: '' \}\)/)
+  assert.match(unitsSource, /function openAdd\(\) \{\s*resetUnitEditor\(\{ code: genCode\('UNIT'\) \}\)/)
+  assert.doesNotMatch(unitsSource, /<el-dialog v-model="showAdd"|<el-dialog v-model="showEdit"/)
+  assert.doesNotMatch(unitsSource, /const showAdd = ref\(|const showEdit = ref\(|const editTarget = ref\(/)
+  assert.match(saveBody, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/units`,\s*\{\s*symbol: unitEditProp\.symbol,\s*code: unitEditProp\.code,?\s*\}\)/)
+  assert.match(saveBody, /const unitId = selectedUnitId\.value/)
+  assert.match(saveBody, /await api\.put\(`\/api\/units\/\$\{unitId\}`,\s*\{\s*symbol: unitEditProp\.symbol,\s*code: unitEditProp\.code,?\s*\}\)/)
+  assert.doesNotMatch(selectBody, /selUnits/)
+  assert.match(unitsSource, /if \(selectedUnitId\.value === u\.id\) clearUnitSelection\(\)/)
+  assert.match(unitsSource, /if \(ids\.includes\(selectedUnitId\.value\)\) clearUnitSelection\(\)/)
+})
+
+test('VisitsTab list workspace keeps the root gap-free while its nested panes align the table and card', () => {
+  const root = visitsSource.match(/<div style="[^"]*height:calc\(100vh - 160px\)"[\s\S]*?>/)?.[0] || ''
+  const listBranch = visitsSource.match(/<template v-if="workspaceMode === 'list'">([\s\S]*?)<\/template>\s*<template v-else>/)?.[1] || ''
+
+  assert.ok(root, 'root flex container should exist')
+  assert.ok(listBranch, 'list workspace branch should exist')
+  assert.doesNotMatch(root, /gap:/)
+  assert.match(listBranch, /<div style="display:flex;gap:12px;align-items:stretch;flex:1;min-height:0">/)
+  assert.match(listBranch, /<div style="flex:1;min-width:0;display:flex;flex-direction:column">[\s\S]*?class="list-toolbar"/)
+  assert.match(listBranch, /width:320px;display:flex;flex-direction:column;flex-shrink:0"[\s\S]*?class="pane-tool-slot"[\s\S]*?flex:1;min-height:0;border:1px solid var\(--color-border\)/)
+})
+
 test('FormDesigner main canvas toolbar becomes the shared 36px slot above the card with a small switch', () => {
   // 主画布工具栏移出 .fd-canvas 卡片，作为 .fd-right 直属子节点（顶边与左侧表单列表工具栏对齐）
   const toolbarBlock = designerSource.match(/<div class="pane-tool-slot fd-canvas-toolbar">([\s\S]*?)<\/div>\s*<div class="fd-canvas"/)?.[1] || ''
@@ -88,7 +128,6 @@ test('no negative margins introduced across the five pages and shared css', () =
 })
 
 test('VisitsTab consumes the shared toolbar contract (visit-flow subtask)', () => {
-  const visitsSource = src('components/VisitsTab.vue')
   assert.match(visitsSource, /class="list-toolbar"/)
   assert.match(visitsSource, /class="pane-tool-slot"/)
 })

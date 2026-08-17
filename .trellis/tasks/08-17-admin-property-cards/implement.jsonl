@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Vue component, dialog, toolbar, and blob lifecycle conventions"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "API, ordered-list, and delete-confirmation contracts"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Local selection and refreshKey state coordination"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse evaluation for matching property-card layouts"}

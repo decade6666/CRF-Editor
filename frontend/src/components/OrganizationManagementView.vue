@@ -8,8 +8,7 @@ import { confirmDelete } from '../composables/projectDeleteConfirmation'
 
 const presets = ref([])
 const loading = ref(false)
-const selectedId = ref(null)
-const editing = ref(false)
+const showEdit = ref(false)
 const saving = ref(false)
 const draftId = ref(null)
 const draft = reactive({ name: '', data_management_unit: '' })
@@ -25,6 +24,8 @@ const FILE_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,.webp'
 // reactive Map：模板依赖其条目变化重渲染缩略图列。
 const thumbnailUrls = reactive(new Map())
 const inFlightLogo = new Set()
+// id -> 世代计数：保存/删除时自增作废在途请求，防止旧响应写回过期缩略图
+const logoFetchVersion = new Map()
 let disposed = false
 
 function revokeLogoUrl(id) {
@@ -50,13 +51,15 @@ function releaseAllThumbnails() {
 async function loadLogoUrl(id) {
   if (!id) return null
   if (inFlightLogo.has(id)) return thumbnailUrls.get(id) ?? null
+  const version = (logoFetchVersion.get(id) ?? 0) + 1
+  logoFetchVersion.set(id, version)
   inFlightLogo.add(id)
   try {
     const r = await fetch(apiUrl(`/api/organization-presets/${id}/logo`), { headers: getAuthHeaders() })
-    if (disposed) return null
+    if (disposed || logoFetchVersion.get(id) !== version) return null
     if (r.ok) {
       const url = URL.createObjectURL(await r.blob())
-      if (disposed) {
+      if (disposed || logoFetchVersion.get(id) !== version) {
         URL.revokeObjectURL(url)
         return null
       }
@@ -76,6 +79,7 @@ async function loadLogoUrl(id) {
 
 function deleteLogoUrl(id) {
   revokeLogoUrl(id)
+  logoFetchVersion.set(id, (logoFetchVersion.get(id) ?? 0) + 1)
   if (inFlightLogo.has(id)) inFlightLogo.delete(id)
 }
 
@@ -98,7 +102,7 @@ async function load() {
 }
 
 function resetDraft() {
-  editing.value = false
+  showEdit.value = false
   draftId.value = null
   draft.name = ''
   draft.data_management_unit = ''
@@ -109,13 +113,12 @@ function resetDraft() {
 
 async function openAdd() {
   resetDraft()
-  editing.value = true
+  showEdit.value = true
 }
 
 async function openEdit(row) {
-  selectedId.value = row.id
   resetDraft()
-  editing.value = true
+  showEdit.value = true
   draftId.value = row.id
   draft.name = row.name
   draft.data_management_unit = row.data_management_unit || ''
@@ -130,24 +133,8 @@ async function openEdit(row) {
   }
 }
 
-let previewOpeningId = null
-
 function showPreview(id) {
-  previewOpeningId = id
   logoPreviewRefs.get(id)?.showPreview()
-  // 缩略图点击会同时触发 el-table 行选中；短暂窗口内抑制自动编辑，随后恢复
-  setTimeout(() => {
-    if (previewOpeningId === id) previewOpeningId = null
-  }, 800)
-}
-
-function onRowChange(row) {
-  if (!row) return
-  if (previewOpeningId === row.id) {
-    previewOpeningId = null
-    return // 缩略图点击，仅打开预览，不自动进入编辑
-  }
-  openEdit(row)
 }
 
 function pickLogo(e) {
@@ -202,7 +189,10 @@ async function saveDraft() {
       return
     }
     const isEdit = Boolean(draftId.value)
-    if (isEdit) revokeLogoUrl(draftId.value) // 让 load 按最新 logo 状态重拉
+    if (isEdit) {
+      revokeLogoUrl(draftId.value) // 让 load 按最新 logo 状态重拉
+      logoFetchVersion.set(draftId.value, (logoFetchVersion.get(draftId.value) ?? 0) + 1) // 作废在途旧 Logo 请求
+    }
     await load()
     resetDraft()
     ElMessage.success(isEdit ? '保存成功' : '创建成功')
@@ -223,10 +213,6 @@ async function removePreset(row) {
   try {
     await api.del(`/api/admin/organization-presets/${row.id}`)
     deleteLogoUrl(row.id)
-    if (selectedId.value === row.id) {
-      selectedId.value = null
-      resetDraft()
-    }
     await load()
     ElMessage.success('已删除')
   } catch (e) {
@@ -250,7 +236,6 @@ onBeforeUnmount(() => {
     <div class="workspace-header">
       <div>
         <div class="workspace-title">机构管理</div>
-        <div class="workspace-subtitle">维护展示给用户选择的机构预设与公司 Logo</div>
       </div>
       <div class="workspace-actions">
         <el-tooltip content="新增预设" placement="top">
@@ -261,17 +246,14 @@ onBeforeUnmount(() => {
         </el-tooltip>
       </div>
     </div>
-    <div class="org-layout">
-      <section class="org-list" aria-label="机构预设列表">
-      <el-table
-        :data="presets"
-        v-loading="loading"
-        border
-        stripe
-        size="small"
-        highlight-current-row
-        @current-change="onRowChange"
-      >
+    <el-table
+      class="org-table"
+      :data="presets"
+      v-loading="loading"
+      border
+      stripe
+      size="small"
+    >
         <el-table-column prop="name" label="机构名称" min-width="140" />
         <el-table-column prop="data_management_unit" label="数据管理单位" min-width="160">
           <template #default="{ row }">{{ row.data_management_unit || '—' }}</template>
@@ -313,11 +295,17 @@ onBeforeUnmount(() => {
             </el-tooltip>
           </template>
         </el-table-column>
-      </el-table>
-    </section>
+    </el-table>
 
-    <section class="org-editor" aria-label="机构预设编辑">
-      <el-form v-if="editing" label-width="110px" @submit.prevent>
+    <el-dialog
+      v-model="showEdit"
+      :title="draftId ? '编辑机构预设' : '新增机构预设'"
+      width="520px"
+      append-to-body
+      :close-on-click-modal="false"
+      @closed="resetDraft"
+    >
+      <el-form label-width="110px" @submit.prevent>
         <el-form-item label="机构名称" required>
           <el-input v-model="draft.name" placeholder="管理员内部机构名称" />
         </el-form-item>
@@ -336,39 +324,18 @@ onBeforeUnmount(() => {
             <input ref="logoInput" aria-label="上传机构预设 Logo" type="file" :accept="FILE_ACCEPT" style="display:none" @change="pickLogo">
           </div>
         </el-form-item>
-        <el-form-item>
-          <div class="org-editor-actions">
-            <el-button @click="resetDraft">取消</el-button>
-            <el-button type="primary" :loading="saving" @click="saveDraft">保存</el-button>
-          </div>
-        </el-form-item>
       </el-form>
-      <div v-else class="org-placeholder">点击左侧机构进行编辑，或点击「新增预设」创建机构。</div>
-    </section>
-    </div>
+      <template #footer>
+        <el-button @click="showEdit = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveDraft">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.org-layout {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.org-list {
-  flex: 1;
-  min-width: 0;
-}
-
-.org-editor {
-  flex: 1;
-  min-width: 0;
-}
-
-.org-placeholder {
-  color: var(--color-text-secondary);
-  padding: 24px 0;
+.org-table {
+  width: 100%;
 }
 
 .org-logo-cell {
@@ -414,14 +381,4 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.org-editor-actions {
-  display: flex;
-  gap: 8px;
-}
-
-@media (max-width: 900px) {
-  .org-layout {
-    flex-direction: column;
-  }
-}
 </style>
