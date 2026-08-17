@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend state, interaction, and regression review gates."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check visit list, matrix, single-visit pane, toolbar, and accessibility contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check mode preservation, project reset, and remounted Sortable behavior."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Check eCRF/aCRF preview and annotation behavior remains unchanged."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Evidence baseline for page-level visit-flow migration."}
