@@ -18,22 +18,20 @@ test('org view loads admin list sorted by name', () => {
   assert.match(viewSource, /api\.get\('\/api\/admin\/organization-presets'\)/)
 })
 
-test('org view renders a page header like the users page and a two-column layout', () => {
+test('org view renders a full-width table with an add/edit dialog', () => {
   assert.match(viewSource, /class="workspace-header"/)
   assert.match(viewSource, /class="workspace-title">机构管理</)
-  assert.match(viewSource, /class="workspace-subtitle"/)
+  assert.doesNotMatch(viewSource, /class="workspace-subtitle"/)
   assert.match(viewSource, /class="workspace-actions"/)
   assert.match(viewSource, /aria-label="新增预设"/)
   assert.match(viewSource, /aria-label="刷新"/)
-  assert.doesNotMatch(viewSource, /org-list-toolbar/)
-  assert.match(viewSource, /class="org-layout"/)
-  assert.match(viewSource, /@media \(max-width: 900px\)/)
-  assert.match(viewSource, /class="org-editor"/)
-})
-
-test('org view keeps an editor placeholder when nothing is selected', () => {
-  assert.match(viewSource, /selectedId/)
-  assert.match(viewSource, /点击左侧机构/)
+  assert.match(viewSource, /<el-table[\s\S]*?class="org-table"[\s\S]*?:data="presets"/)
+  assert.match(viewSource, /<el-dialog[\s\S]*?v-model="showEdit"[\s\S]*?:title="draftId \? '编辑机构预设' : '新增机构预设'"/)
+  assert.match(viewSource, /<el-dialog[\s\S]*?:close-on-click-modal="false"/)
+  assert.match(viewSource, /@closed="resetDraft"/)
+  assert.doesNotMatch(viewSource, /class="org-layout"|class="org-list"|class="org-editor"|class="org-placeholder"/)
+  assert.doesNotMatch(viewSource, /点击左侧机构/)
+  assert.doesNotMatch(viewSource, /维护展示给用户选择的机构预设与公司 Logo/)
 })
 
 test('org view loads the correct logo URL and shows observable failure', () => {
@@ -61,13 +59,13 @@ test('org view manages object URL lifecycle on save, delete, switch, clear and u
   assert.match(viewSource, /function revokeLogoUrl\(id\)/)
 })
 
-test('org view suppresses row-edit on thumbnail preview clicks', () => {
-  assert.match(viewSource, /@current-change="onRowChange"/)
-  assert.match(viewSource, /function onRowChange\(row\) \{[\s\S]*if \(previewOpeningId === row\.id\) \{[\s\S]*return[\s\S]*openEdit\(row\)/)
+test('org view keeps thumbnail preview separate from explicit edit actions', () => {
+  assert.match(viewSource, /aria-label="编辑" @click="openEdit\(row\)"/)
   assert.match(viewSource, /@click\.stop="showPreview\(row\.id\)"/)
   assert.match(viewSource, /@keydown\.enter\.stop\.prevent="showPreview\(row\.id\)"/)
   assert.match(viewSource, /@keydown\.space\.stop\.prevent="showPreview\(row\.id\)"/)
   assert.match(viewSource, /logoPreviewOwned/)
+  assert.doesNotMatch(viewSource, /selectedId|onRowChange|previewOpeningId/)
 })
 
 test('org view reconciles thumbnails on load and pre-releases on edit save', () => {
@@ -94,7 +92,8 @@ test('org view pickLogo resets the file input for repeat selection', () => {
   assert.match(viewSource, /function pickLogo\(e\) \{[\s\S]*logoPreviewUrl\.value = URL\.createObjectURL\(file\)[\s\S]*if \(logoInput\.value\) logoInput\.value = ''/)
 })
 
-test('org view resets draft without side effects and has no dialog wrapper', () => {
-  assert.doesNotMatch(viewSource, /el-dialog/)
-  assert.match(viewSource, /function resetDraft\(\) \{[\s\S]*editing\.value = false[\s\S]*draft\.name = ''[\s\S]*revokeLogoPreview\(\)/)
+test('org view resets draft on dialog close and opens add/edit through the dialog', () => {
+  assert.match(viewSource, /function resetDraft\(\) \{[\s\S]*showEdit\.value = false[\s\S]*draft\.name = ''[\s\S]*revokeLogoPreview\(\)/)
+  assert.match(viewSource, /async function openAdd\(\) \{[\s\S]*resetDraft\(\)[\s\S]*showEdit\.value = true/)
+  assert.match(viewSource, /async function openEdit\(row\) \{[\s\S]*resetDraft\(\)[\s\S]*showEdit\.value = true[\s\S]*draftId\.value = row\.id/)
 })

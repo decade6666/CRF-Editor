@@ -5,7 +5,8 @@ function formatQuestionTargetText(targetText) {
 export function buildFinalDeleteConfirmMessage(options = {}) {
   const actionText = options.actionText || '删除'
   const targetText = options.targetText || '该内容'
-  return `请再次确认：确定要${actionText}${formatQuestionTargetText(targetText)}吗？此操作不可恢复。`
+  const recoveryNotice = options.recoverable ? '删除后如需恢复，请联系管理员。' : '此操作不可恢复。'
+  return `请再次确认：确定要${actionText}${formatQuestionTargetText(targetText)}吗？${recoveryNotice}`
 }
 
 export async function confirmDelete(confirm, options = {}) {

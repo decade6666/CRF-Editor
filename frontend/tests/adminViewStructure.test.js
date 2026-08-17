@@ -24,10 +24,12 @@ test('App.vue admin branch renders no dialog-form entry switch', () => {
   assert.doesNotMatch(appSource, /OrganizationPresetsDialog/)
 })
 
-test('App.vue admin branch mounts AdminView or org view by page state', () => {
+test('App.vue caches admin pages while preserving the page switch and logout event', () => {
   const adminBranch = appSource.match(/<template v-else-if="isAdmin">[\s\S]*?<\/template>/)?.[0] ?? ''
-  assert.match(adminBranch, /<AdminView[\s\S]*?@logout="logout"[\s\S]*?\/>/)
-  assert.match(adminBranch, /<OrganizationManagementView/)
+  assert.match(
+    adminBranch,
+    /<KeepAlive>[\s\S]*?<AdminView v-if="activeAdminPage === 'users'" @logout="logout"\s*\/>[\s\S]*?<OrganizationManagementView v-else\s*\/>[\s\S]*?<\/KeepAlive>/
+  )
 })
 
 test('App.vue admin branch uses one shared wide shell for both pages', () => {
@@ -42,7 +44,7 @@ test('AdminView keeps batch project actions inside a single two-step project lis
   assert.match(adminViewSource, /项目列表/)
   assert.match(adminViewSource, /v-model="showProjectList"/)
   assert.match(adminViewSource, /@selection-change="onProjectSelectionChange"/)
-  assert.match(adminViewSource, /type="selection"/)
+  assert.match(adminViewSource, /<el-table-column type="selection" width="50" align="center"\s*\/>/)
   // 第一步：项目表格 + 三个动作按钮（取消 右侧）；复制/迁移进入第二步
   assert.match(adminViewSource, /@click="startBatchAction\('copy'\)"/)
   assert.match(adminViewSource, /@click="startBatchAction\('move'\)"/)
@@ -52,6 +54,8 @@ test('AdminView keeps batch project actions inside a single two-step project lis
   // 第二步：目标用户选择 + 上一步
   assert.match(adminViewSource, /@click="backToProjectSelection"/)
   assert.match(adminViewSource, /batchTargetUserId/)
+  assert.match(adminViewSource, /v-for="user in users\.filter\(item => item\.id !== projectListUser\?\.id\)"/)
+  assert.doesNotMatch(adminViewSource, /batchMode === 'copy'/)
   // 删除路径保留最终二次确认
   assert.match(adminViewSource, /confirmFinalProjectDelete/)
 })
@@ -107,7 +111,9 @@ test('AdminView shows recycle bin size and cleanup policy entry points', () => {
   assert.match(adminViewSource, /清理策略/)
   assert.match(adminViewSource, /recycle-bin\/cleanup-policy/)
   assert.match(adminViewSource, /recycle-bin\/cleanup\/preview/)
-  assert.match(adminViewSource, /label="用户名" width="160"/)
+  assert.match(adminViewSource, /<el-table-column label="用户名" min-width="160">/)
+  assert.doesNotMatch(adminViewSource, /<el-table-column label="用户名" width=/)
+  assert.doesNotMatch(adminViewSource, /统一管理用户、批量项目操作与回收站入口/)
   assert.match(adminViewSource, /label="操作" width="130"/)
   assert.match(adminViewSource, /<el-table[\s\S]*?size="small"/)
 })

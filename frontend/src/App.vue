@@ -268,8 +268,8 @@ async function createProject() {
 
 async function deleteProject(p) {
   try {
-    await ElMessageBox.confirm(`删除项目 "${p.name}"？此操作不可恢复！`, '确认', { type: 'warning' });
-    await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: p.name });
+    await ElMessageBox.confirm(`删除项目 "${p.name}"？删除后如需恢复，请联系管理员。`, '确认', { type: 'warning' });
+    await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: p.name, recoverable: true });
     await api.del(`/api/projects/${p.id}`);
     if (selectedProject.value?.id === p.id) {
       selectedProject.value = null;
@@ -1106,8 +1106,10 @@ function startResize(e) {
           <el-radio-button value="orgs">机构管理</el-radio-button>
         </el-radio-group>
       </div>
-      <AdminView v-if="activeAdminPage === 'users'" @logout="logout" />
-      <OrganizationManagementView v-else />
+      <KeepAlive>
+        <AdminView v-if="activeAdminPage === 'users'" @logout="logout" />
+        <OrganizationManagementView v-else />
+      </KeepAlive>
     </div>
   </template>
   <template v-else>
