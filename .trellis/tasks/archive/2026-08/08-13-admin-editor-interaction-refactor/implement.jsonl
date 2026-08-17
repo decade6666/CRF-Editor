@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture and conventions overview for the integrated UI work."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Shared admin, toolbar, pane, designer, and visit component contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"State ownership and lifecycle guidance across App and page components."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing import, preview, ordering, and editor flows without duplication."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Preserve existing frontend/backend API and authorization boundaries."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Protect preview, aCRF, subpath, and cross-stack contracts during integration."}
+{"file":".trellis/tasks/08-13-admin-editor-interaction-refactor/research/multimodel-evidence.md","reason":"Consolidated repository evidence and confirmed root causes for all child deliverables."}
