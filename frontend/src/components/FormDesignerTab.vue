@@ -4178,14 +4178,16 @@ function openAddForm() {
                   @drop="onDrop($event, idx)"
                   @keydown="handleFieldKeydown($event, ff, idx)"
                 >
-                  <el-checkbox
-                    v-if="!isDraftField(ff)"
-                    v-model="selectedIds"
-                    :value="ff.id"
-                    size="small"
-                    draggable="false"
-                    @click.stop
-                    ><span></span></el-checkbox
+                  <span class="ff-select-slot"
+                    ><el-checkbox
+                      v-if="!isDraftField(ff)"
+                      v-model="selectedIds"
+                      :value="ff.id"
+                      size="small"
+                      draggable="false"
+                      @click.stop
+                      ><span></span></el-checkbox
+                  ></span
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
                   ><span class="drag-handle">⠿</span
                   ><template v-if="showAcrfAnnotations"

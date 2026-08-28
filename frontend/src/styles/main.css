@@ -250,6 +250,8 @@ body {
 .ff-item .ff-label { flex: 1; min-width: 0; }
 .ff-item .ff-var-name { display: inline-block; width: 90px; min-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); font-family: var(--font-mono, monospace); font-size: 11px; }
 .ff-item .ff-type { color: var(--color-text-muted); font-size: 11px; }
+.ff-item .ff-select-slot { flex: 0 0 24px; display: inline-flex; align-items: center; justify-content: center; }
+.ff-item .ff-select-slot .el-checkbox { margin-right: 0; }
 
 /* SortableJS 默认拖拽态：兼容表格行与设计器卡片 */
 .el-table__body-wrapper tbody tr,
@@ -555,8 +557,10 @@ body {
   text-align: center;
 }
 
-/* 选择列表头与行复选框统一水平居中（含 fixed 列变体），管理员弹窗等所有表格同步受益 */
+/* 选择列表头与行复选框统一水平居中（含 fixed 列变体），管理员弹窗等所有表格同步受益。
+   Element Plus 默认将选择列 .cell 设为 inline-flex（收缩包裹），必须改成块级 flex 才能分配居中空间。 */
 .el-table .el-table-column--selection .cell {
+  display: flex;
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
