@@ -19,6 +19,13 @@ function extractBetween(source, startMarker, endMarker) {
   return source.slice(start, end)
 }
 
+function extractRuleBody(source, selector) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))
+  assert.ok(match, `${selector} rule must exist`)
+  return match[1]
+}
+
 test('Element Plus table headers keep themed fill and centered header text', () => {
   assert.match(
     cssSource,
@@ -26,11 +33,13 @@ test('Element Plus table headers keep themed fill and centered header text', () 
   )
 })
 
-test('selection column checkboxes center horizontally in header and body', () => {
-  assert.match(
-    cssSource,
-    /\.el-table \.el-table-column--selection \.cell\s*\{[\s\S]*justify-content:\s*center;[\s\S]*padding-left:\s*0;[\s\S]*padding-right:\s*0;/,
-  )
+test('selection column cells use a full-width flex box to center checkboxes', () => {
+  const selectionRule = extractRuleBody(cssSource, '.el-table .el-table-column--selection .cell')
+
+  assert.match(selectionRule, /display:\s*flex;/)
+  assert.match(selectionRule, /justify-content:\s*center;/)
+  assert.match(selectionRule, /padding-left:\s*0;/)
+  assert.match(selectionRule, /padding-right:\s*0;/)
 })
 
 test('Element Plus fixed operation column headers override the fixed-column background rule', () => {

@@ -347,7 +347,21 @@ test('FormDesignerTab designer dialog uses two-pane layout: fields+editor left, 
   assert.doesNotMatch(formsSource, /function startPropResize\(/);
 });
 
-// ===== useSortableTable 契约验证 =====
+test('FormDesignerTab fullscreen field rows reserve a centered selection slot', () => {
+  const slotStart = formsSource.indexOf('class="ff-select-slot"');
+  const ordinalStart = formsSource.indexOf('class="ordinal-cell"', slotStart);
+  assert.ok(slotStart >= 0, 'fullscreen field rows must reserve a selection slot');
+  assert.ok(ordinalStart > slotStart, 'selection slot must precede the ordinal cell');
+
+  const selectionSlot = formsSource.slice(slotStart, ordinalStart);
+  assert.match(selectionSlot, /<el-checkbox[\s\S]*?v-if="!isDraftField\(ff\)"/);
+  assert.match(selectionSlot, /<\/el-checkbox[\s\S]*?<\/span/);
+  assert.match(
+    mainCssSource,
+    /\.ff-item \.ff-select-slot\s*\{[^}]*flex:\s*0 0 24px;[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;/,
+  );
+  assert.match(mainCssSource, /\.ff-item \.ff-select-slot \.el-checkbox\s*\{[^}]*margin-right:\s*0;/);
+});
 
 test('useSortableTable disables Sortable when isFiltered is true', () => {
   // Sortable 初始化时禁用态基于 isFiltered
