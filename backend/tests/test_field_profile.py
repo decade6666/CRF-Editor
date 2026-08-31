@@ -108,6 +108,42 @@ def test_create_profile_with_new_definition(field_context, client):
     assert payload["form_field"]["default_value"] == "A"
 
 
+def test_create_profile_inserts_at_requested_order(field_context, client, engine):
+    existing = _add_field(
+        client,
+        field_context["form_id"],
+        field_context["field_definition_id"],
+        field_context["token"],
+    )
+
+    resp = _create_profile(
+        client,
+        field_context["form_id"],
+        field_context["token"],
+        {
+            "definition_operation": {
+                "operation": "create_or_restore",
+                "create_or_restore": {"definition": _new_definition_payload("COPIED_DEF")},
+            },
+            "binding": {"mode": "operation_result"},
+            "instance": {"mode": "upsert", "upsert": {}},
+            "order_index": 1,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    payload = resp.json()
+    assert payload["form_field"]["order_index"] == 1
+
+    with Session(engine) as session:
+        fields = session.scalars(
+            select(FormField)
+            .where(FormField.form_id == field_context["form_id"])
+            .order_by(FormField.order_index, FormField.id)
+        ).all()
+        assert [field.id for field in fields] == [payload["form_field_id"], existing["id"]]
+        assert [field.order_index for field in fields] == [1, 2]
+
+
 def test_create_profile_attach_existing_definition(field_context, client):
     resp = _create_profile(
         client,

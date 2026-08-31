@@ -89,6 +89,7 @@ import {
 } from '../composables/formDesignerPropertyEditor';
 import {
   buildAutocompleteCandidates,
+  buildCopyVariableName,
   CANDIDATE_STATE_ADDED,
   findOidConflict,
   hydrateEditorFromCandidate,
@@ -209,7 +210,7 @@ let designerAuxiliaryLoadSession = 0;
 
 writeStoredViewMode(viewMode.value);
 
-// 新增字段本地草稿：点「新建字段」先生成临时草稿对象（不落库），保存才 POST 建定义+建实例。
+// 新增字段与普通字段复制使用本地草稿：先在设计器中编辑，保存才 POST 建定义+建实例。
 // 草稿带完整本地 field_definition，预览/渲染按本地数据工作，仅在发起网络请求处按草稿短路。
 const DRAFT_FIELD_ID = '__draft__';
 const savingDraft = ref(false);
@@ -760,6 +761,31 @@ function buildFormFieldCreatePayload(ff) {
   };
 }
 
+function buildCopyDraft(ff, definitions, formId) {
+  const sourceOrderIndex = Number.isInteger(Number(ff.order_index)) ? Number(ff.order_index) : 0;
+  const sourceDefinition = ff.field_definition || {};
+  const variableName = buildCopyVariableName(
+    definitions.map((definition) => definition?.variable_name),
+    sourceDefinition.variable_name,
+  );
+  return {
+    ...buildFormFieldCreatePayload(ff),
+    id: DRAFT_FIELD_ID,
+    __draft: true,
+    __draftOrigin: 'copy',
+    __draftOrderIndex: sourceOrderIndex + 1,
+    form_id: formId,
+    field_definition_id: null,
+    is_log_row: 0,
+    order_index: sourceOrderIndex + 0.5,
+    field_definition: {
+      ...sourceDefinition,
+      id: DRAFT_FIELD_ID,
+      variable_name: variableName,
+    },
+  };
+}
+
 function buildReplaySnapshot(ff) {
   return {
     formFieldPayload: buildFormFieldCreatePayload(ff),
@@ -952,25 +978,6 @@ function handleRedo() {
   if (designerHistory.canRedo.value) void runHistory('redo');
 }
 
-// 从字段定义复制接口的完整响应构造重做快照，避免丢失 checkbox_label 等定义属性。
-function buildDefinitionSnapshotFromResponse(newFd) {
-  return {
-    variable_name: newFd.variable_name,
-    label: newFd.label,
-    field_type: newFd.field_type,
-    integer_digits: newFd.integer_digits ?? null,
-    decimal_digits: newFd.decimal_digits ?? null,
-    date_format: newFd.date_format ?? null,
-    checkbox_label: newFd.checkbox_label ?? null,
-    codelist_id: newFd.codelist_id ?? null,
-    unit_id: newFd.unit_id ?? null,
-    is_multi_record: newFd.is_multi_record ?? 0,
-    table_type: newFd.table_type ?? '固定行',
-    // 重做时让字段库按当前尾部追加，避免回放旧字段库排序。
-    order_index: null,
-  };
-}
-
 async function copyFormField(ff) {
   if (isDraftField(ff)) return;
   if (designerHistory.busy.value || isReordering.value) return;
@@ -992,107 +999,54 @@ async function copyFormField(ff) {
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
       if (!proceed) return;
     }
-    if (isReordering.value) return;
+    if (isReordering.value || !isCurrentDesignerHistoryContext(historyContext)) return;
     const formId = historyContext.formId;
-    const projectId = props.projectId;
-    const isLogRow = Boolean(ff.is_log_row) && ff.field_definition_id == null;
-    const baseInstancePayload = {
-      ...buildFormFieldCreatePayload(ff),
-      order_index: (ff.order_index ?? 0) + 1,
-    };
+    const currentField = formFields.value.find((field) => field.id === ff.id) || ff;
+    const isLogRow = Boolean(currentField.is_log_row) && currentField.field_definition_id == null;
 
-    let copiedDefinition = null;
+    if (!isLogRow) {
+      const draft = buildCopyDraft(currentField, fieldDefs.value, formId);
+      formFields.value = [...formFields.value, draft];
+      selectField(draft);
+      return;
+    }
+
+    const baseInstancePayload = {
+      ...buildFormFieldCreatePayload(currentField),
+      order_index: (currentField.order_index ?? 0) + 1,
+    };
     let createdFormField;
     beginFieldMembershipMutation();
     try {
-      if (isLogRow) {
-        createdFormField = await api.post(`/api/forms/${formId}/fields`, {
-          ...baseInstancePayload,
-          field_definition_id: null,
-        });
-      } else {
-        copiedDefinition = await api.post(`/api/field-definitions/${ff.field_definition_id}/copy`, {});
-        try {
-          createdFormField = await api.post(`/api/forms/${formId}/fields`, {
-            ...baseInstancePayload,
-            field_definition_id: copiedDefinition.id,
-          });
-        } catch (error) {
-          try {
-            await api.del(`/api/field-definitions/${copiedDefinition.id}`);
-          } catch {
-            // 保留实例创建失败的原始错误，避免孤儿清理错误覆盖用户可操作提示。
-          }
-          throw error;
-        }
-      }
+      createdFormField = await api.post(`/api/forms/${formId}/fields`, {
+        ...baseInstancePayload,
+        field_definition_id: null,
+      });
 
       api.invalidateCache(`/api/forms/${formId}/fields`);
-      if (!isLogRow) api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
       if (isReordering.value) return;
 
-      await reloadAfterReplay(formId, { defs: !isLogRow });
+      await reloadAfterReplay(formId, { defs: false });
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
       if (isReordering.value) return;
       const created = formFields.value.find((field) => field.id === createdFormField.id);
       if (created) selectField(created);
 
-      const definitionSnapshot = copiedDefinition ? buildDefinitionSnapshotFromResponse(copiedDefinition) : null;
       recordDesignerHistory(historyContext, {
         label: '复制字段',
-        ids: { ffId: createdFormField.id, fdId: copiedDefinition?.id ?? null },
+        ids: { ffId: createdFormField.id, fdId: null },
         undo: async (ids) => {
           await api.del(`/api/form-fields/${ids.ffId}`);
-          if (ids.fdId != null) {
-            try {
-              await api.del(`/api/field-definitions/${ids.fdId}`);
-            } catch (error) {
-              const status = Number(error?.status ?? error?.response?.status);
-              if (status === 409) {
-                ElMessage.warning('字段定义已被其他表单引用，已保留定义');
-              } else if (status !== 404) {
-                throw error;
-              }
-            }
-          }
-          await reloadAfterReplay(formId, { defs: ids.fdId != null });
+          await reloadAfterReplay(formId, { defs: false });
         },
         redo: async (ids, { remapId }) => {
-          let fieldDefinitionId = ids.fdId;
-          let rebuiltDefinitionId = null;
-          if (fieldDefinitionId != null && definitionSnapshot) {
-            try {
-              const rebuiltDefinition = await api.post(
-                `/api/projects/${projectId}/field-definitions`,
-                definitionSnapshot,
-              );
-              rebuiltDefinitionId = rebuiltDefinition.id;
-              remapId(ids.fdId, rebuiltDefinition.id);
-              fieldDefinitionId = rebuiltDefinition.id;
-            } catch (error) {
-              const status = Number(error?.status ?? error?.response?.status);
-              if (status !== 409) throw error;
-            }
-          }
-          let recreated;
-          try {
-            recreated = await api.post(`/api/forms/${formId}/fields`, {
-              ...baseInstancePayload,
-              field_definition_id: fieldDefinitionId,
-            });
-          } catch (error) {
-            if (rebuiltDefinitionId != null) {
-              try {
-                await api.del(`/api/field-definitions/${rebuiltDefinitionId}`);
-              } catch {
-                // 保留实例创建失败的原始错误，避免孤儿清理错误覆盖重做失败原因。
-              }
-            }
-            throw error;
-          }
+          const recreated = await api.post(`/api/forms/${formId}/fields`, {
+            ...baseInstancePayload,
+            field_definition_id: null,
+          });
           remapId(ids.ffId, recreated.id);
-          await reloadAfterReplay(formId, { defs: ids.fdId != null });
+          await reloadAfterReplay(formId, { defs: false });
         },
       });
     } finally {
@@ -2720,6 +2674,8 @@ async function saveDraftField() {
     checkbox_label: fd.checkbox_label ?? null,
     codelist_id: fd.codelist_id ?? null,
     unit_id: fd.unit_id ?? null,
+    ...(fd.is_multi_record != null ? { is_multi_record: fd.is_multi_record } : {}),
+    ...(fd.table_type != null ? { table_type: fd.table_type } : {}),
     required: draft.required ?? 0,
     label_override: draft.label_override ?? null,
     help_text: draft.help_text ?? null,
@@ -2736,6 +2692,7 @@ async function saveDraftField() {
     candidateOid: candidateOid.value,
     candidateDefinitionPayload: candidateBeforeDefinition,
   });
+  if (Number.isInteger(draft.__draftOrderIndex)) command.order_index = draft.__draftOrderIndex;
   // 草稿内改了定义级属性 → 随保存共享更新候选定义；多表单引用时先确认影响范围
   const definitionChanged = command.definition_operation?.operation === 'update_shared';
   // 确认弹窗 await 期间用户可能经 onSelectFieldClick→丢弃草稿 清空 candidateBeforeDefinition：
@@ -2784,9 +2741,9 @@ async function saveDraftField() {
       const realFf = formFields.value.find((f) => f.id === createdFfId);
       if (realFf) selectField(realFf);
     }
-    // 保存即一次「新建字段」，入撤销栈；撤销=删除实例+条件清理定义，重做=复用原定义或按原快照重建。
+    // 保存即一次字段创建；撤销=删除实例+条件清理定义，重做=复用原定义或按原快照重建。
     recordDesignerHistory(historyContext, {
-      label: '新建字段',
+      label: draft.__draftOrigin === 'copy' ? '复制字段' : '新建字段',
       ids: { ffId: createdFfId, fdId: createdFdId },
       undo: async (ids) => {
         if (restoreDefinitionPayload) {

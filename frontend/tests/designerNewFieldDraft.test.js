@@ -33,6 +33,22 @@ test('newField 只构造本地草稿，不发任何网络请求', () => {
   assert.match(body, /confirmDiscardDraft\(\)/)
 })
 
+test('复制草稿携带来源、显示顺序和保存顺序元数据', () => {
+  assert.match(source, /__draftOrigin: 'copy'/)
+  assert.match(source, /__draftOrderIndex: .*\+ 1/)
+  assert.match(source, /order_index: .*\+ 0\.5/)
+  const body = fnBody('saveDraftField')
+  assert.match(body, /Number\.isInteger\(draft\.__draftOrderIndex\)/)
+  assert.match(body, /command\.order_index = draft\.__draftOrderIndex/)
+  assert.match(body, /label: draft\.__draftOrigin === 'copy' \? '复制字段' : '新建字段'/)
+})
+
+test('复制草稿保存时保留字段定义结构键', () => {
+  const body = fnBody('saveDraftField')
+  assert.match(body, /\.\.\.\(fd\.is_multi_record != null \? \{ is_multi_record: fd\.is_multi_record \} : \{\}\)/)
+  assert.match(body, /\.\.\.\(fd\.table_type != null \? \{ table_type: fd\.table_type \} : \{\}\)/)
+})
+
 test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤销栈', () => {
   const body = fnBody('saveDraftField')
   const profilePost = body.indexOf('/api/forms/${formId}/field-profile`')
@@ -52,7 +68,7 @@ test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤�
   assert.match(body, /__draft: false/)
   // 作为一次「新建字段」入撤销栈；撤销=删除实例+条件清理定义，重做=复用/重建
   assert.match(body, /recordDesignerHistory\(historyContext, \{/)
-  assert.match(body, /label: '新建字段'/)
+  assert.match(body, /label: draft\.__draftOrigin === 'copy' \? '复制字段' : '新建字段'/)
   assert.match(body, /buildDeleteProfileCommand\(\{[\s\S]*?cleanupDefinitionId: definitionCreated \? ids\.fdId : null/)
   assert.match(body, /preferred_definition_id: ids\.fdId/)
   // 失败保留草稿并报错，不静默

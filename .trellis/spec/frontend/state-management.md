@@ -634,7 +634,7 @@ function logout() {
 3. **Same-form `reloadForms` identity**: if selected form still exists, `Object.assign` metadata onto the same object and map list entries back to that reference; do **not** invalidate session (avoids `watch(selectedForm)` reloading fields and wiping optimistic order).
 4. **Stale backend success**: after write success, `invalidateCache` first, then `isCurrentDesignerHistoryContext` before UI reload / history record.
 5. **Membership ↔ reorder mutual exclusion**:
-   - `fieldMembershipMutationCount` / `begin` / `end` / `isFieldMembershipBusy` on six write paths only (`addField`, `copyFormField`, `removeField`, `batchDelete`, `saveDraftField`, `addLogRow`).
+   - `fieldMembershipMutationCount` / `begin` / `end` / `isFieldMembershipBusy` cover the six persistence paths (`addField`, log-row `copyFormField`, `removeField`, `batchDelete`, `saveDraftField`, `addLogRow`). A regular-field `copyFormField` call is local-only until its draft is saved, so it must return before membership bookkeeping.
    - `newField` is **not** a membership counter path; it only rejects when history busy or reordering.
    - Reorder drag/keyboard/`persistFieldReorder` reject when membership busy; membership skips list reload when reorder is active after invalidate.
 6. **Leave / draft-aware history**: history replay, reorder, or draft-save busy blocks form switch and project leave; undo/redo with a local draft confirms save/discard/cancel first and rechecks context.

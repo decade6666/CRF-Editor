@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Frontend component and designer draft/history conventions apply to FormDesignerTab changes."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Local draft state, cache invalidation, form history, and membership/reorder guards apply to this change."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend test, lint, build, and forbidden-pattern requirements apply."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"The implementation adds a reusable pure OID helper and must avoid duplicating existing copy/draft logic."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The frontend draft save depends on the existing backend field-profile order contract."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"The task uses an isolated branch and must finish through the repository PR workflow."}

@@ -132,6 +132,28 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
     assert.equal(findOidConflict(DEFINITIONS, 'NOPE', 1), null)
   })
 
+  test('buildCopyVariableName follows the backend copy suffix ladder', async () => {
+    const { buildCopyVariableName } = await loadModule()
+    assert.equal(buildCopyVariableName([], 'TEST'), 'TEST_copy')
+    assert.equal(buildCopyVariableName(['TEST_copy'], 'TEST'), 'TEST_copy1')
+    assert.equal(
+      buildCopyVariableName(['TEST_copy', 'TEST_copy1', 'TEST_copy3'], 'TEST'),
+      'TEST_copy2',
+    )
+  })
+
+  test('buildCopyVariableName receives all definition names, including hidden definitions', async () => {
+    const { buildCopyVariableName } = await loadModule()
+    const definitions = [
+      { variable_name: 'TEST' },
+      { variable_name: 'TEST_copy', field_type: '标签' },
+    ]
+    assert.equal(
+      buildCopyVariableName(definitions.map((definition) => definition.variable_name), 'TEST'),
+      'TEST_copy1',
+    )
+  })
+
   test('module reuses shared rankFuzzyMatches and visibility filter upstream', () => {
     assert.match(source, /import \{ rankFuzzyMatches \} from '\.\/searchRanking\.js'/)
     assert.match(source, /rankFuzzyMatches\(definitions, query, candidateTexts\)/)

@@ -90,6 +90,22 @@ export function hydrateEditorFromCandidate({
 }
 
 /**
+ * 为字段复制生成与后端一致的最小可用 OID：X_copy、X_copy1、X_copy2……。
+ * existingNames 应覆盖项目内全部字段定义，而不只是字段库可见候选。
+ */
+export function buildCopyVariableName(existingNames = [], sourceVariableName = '') {
+  const usedNames = new Set(
+    existingNames.filter((name) => name !== null && name !== undefined).map((name) => String(name)),
+  )
+  const baseName = `${String(sourceVariableName ?? '')}_copy`
+  if (!usedNames.has(baseName)) return baseName
+
+  let suffix = 1
+  while (usedNames.has(`${baseName}${suffix}`)) suffix += 1
+  return `${baseName}${suffix}`
+}
+
+/**
  * 保存前的 OID 冲突判定：手输 OID 命中其他现有定义（非当前绑定）时必须阻止，
  * 提示用户从候选中明确选择（后端唯一约束兜底）。
  */
