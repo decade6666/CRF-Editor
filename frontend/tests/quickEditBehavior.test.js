@@ -431,7 +431,7 @@ test('field switch goes through property dirty leave guard before selecting anot
 
 test('dirty property edits are guarded before reselecting or refreshing editor state', () => {
   assert.match(formDesignerSource, /async function newField\(\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '新建字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*selectField\(draft\)/)
-  assert.match(formDesignerSource, /async function copyFormField\(ff\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '复制字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(created\) selectField\(created\)/)
+  assert.match(formDesignerSource, /async function copyFormField\(ff\) \{[\s\S]*const canLeaveFieldProp = await resolveFieldPropLeave\(\{ actionText: '复制字段' \}\)[\s\S]*if \(!canLeaveFieldProp\) return;[\s\S]*if \(!isLogRow\) \{[\s\S]*?buildCopyDraft\(currentField, fieldDefs\.value, formId\)[\s\S]*?selectField\(draft\)/)
   assert.match(formDesignerSource, /if \(refreshed && selectedFieldId\.value === refreshed\.id && !isFieldPropDirty\.value\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
   assert.match(formDesignerSource, /if \(key === 'Enter'\) \{[\s\S]*await onSelectFieldClick\(field\);[\s\S]*return;[\s\S]*\}/)

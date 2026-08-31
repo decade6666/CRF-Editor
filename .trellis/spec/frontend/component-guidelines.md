@@ -1010,3 +1010,39 @@ const FormDesigner = defineAsyncComponent(() =>
   returns for log rows; `saveFieldProp` has no `is_log_row` branch.
 - `frontend/tests/designerNewFieldDraft.test.js` locks: the draft action bar
   keeps the exact `v-if="selectedFieldId === DRAFT_FIELD_ID"` condition.
+
+## Scenario: FormDesignerTab Regular-Field Copy Draft
+
+### 1. Scope / Trigger
+
+- Trigger: changing the regular-field copy action in
+  `frontend/src/components/FormDesignerTab.vue` or the shared OID helper in
+  `frontend/src/composables/fieldDefinitionAutocomplete.js`.
+- A regular field has both a form-field instance and a field-library definition;
+  copying it must not persist either resource until the draft Save action.
+- A log row has no field definition and is intentionally excluded from this
+  draft path; copying a log row remains an immediate form-field save.
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| Regular Copy creates an `id='__draft__'`, `__draft:true` local row and sends no request | Users must be able to review/edit the copy before it changes the project |
+| The local copy keeps the full definition and instance presentation state, but replaces the definition OID with `X_copy`, `X_copy1`, ... | Preview and Save must start from the same copied values while preserving project-level uniqueness |
+| OID collision checks include every `fieldDefs` entry, including hidden `标签` / `日志行` definitions | The backend uniqueness constraint is project-wide, not limited to visible autocomplete candidates |
+| The draft stores an integer `__draftOrderIndex` for Save and a fractional local `order_index` only for display | The UI can place the draft after its source without sending a non-integer persistence order |
+| Save labels the history entry `复制字段`; Cancel/discard paths remain local | Copy is one persisted history action only after explicit user confirmation |
+| Log-row Copy keeps the existing immediate POST, cache invalidation, and undo/redo path | Log rows are structural hints, not field-library definitions |
+
+### 3. Validation
+
+- `frontend/tests/designerFieldCopy.test.js` locks the regular local branch,
+  copied state, OID ladder, hidden-definition collisions, draft guards, and
+  the unchanged immediate log-row path.
+- `frontend/tests/fieldDefinitionAutocomplete.test.js` locks the pure
+  `buildCopyVariableName` suffix ladder.
+- `frontend/tests/designerNewFieldDraft.test.js` locks copied draft metadata,
+  integer order propagation, structural-key preservation, and the history-label
+  branch.
+- `backend/tests/test_field_profile.py` locks insertion at a requested
+  `order_index`; backend production code remains unchanged.

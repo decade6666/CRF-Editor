@@ -327,10 +327,14 @@ test('designer history recording is centralized behind form id and selection ses
   assert.match(recordBody, /return designerHistory\.record\(entry\)/)
   assert.equal((designerSource.match(/designerHistory\.record\(/g) || []).length, 1)
 
-  const labels = ['排序', '新建字段', '复制字段', '删除字段', '批量删除', '添加log行提示']
+  const labels = ['排序', '删除字段', '批量删除', '添加log行提示']
   for (const label of labels) {
     assert.match(designerSource, new RegExp(`recordDesignerHistory\\(historyContext, \\{[\\s\\S]*?label: '${label}'`))
   }
+  assert.match(
+    designerSource,
+    /recordDesignerHistory\(historyContext, \{[\s\S]*?label: draft\.__draftOrigin === 'copy' \? '复制字段' : '新建字段'/,
+  )
   // 属性编辑标签按操作类型三元分支：共享更新/换绑/OID 分叉
   assert.match(
     designerSource,
@@ -385,14 +389,14 @@ test('all async history commands capture context and both reorder paths pass it 
 })
 
 test('field membership mutations invalidate caches before stale returns and only reload current UI state', () => {
+  const copyBody = functionBody('copyFormField')
+  const draftBranchStart = copyBody.indexOf('if (!isLogRow)')
+  const membershipStart = copyBody.indexOf('beginFieldMembershipMutation()')
+  assert.ok(membershipStart > draftBranchStart, 'regular copy should return before membership mutation bookkeeping')
+  assert.match(copyBody, /buildCopyDraft\(currentField, fieldDefs\.value, formId\)/)
   assert.match(
-    functionBody('copyFormField'),
-    /await reloadAfterReplay\(formId, \{ defs: !isLogRow \}\);/,
-    'copy still reloads through the shared helper on the current session',
-  )
-  assert.match(
-    functionBody('copyFormField'),
-    /createdFormField = await api\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
+    copyBody,
+    /createdFormField = await api\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
   )
   assert.match(
     functionBody('removeField'),
@@ -440,7 +444,7 @@ test('stale async completions cannot mutate current designer field state or focu
   )
   assert.match(
     functionBody('copyFormField'),
-    /if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?await reloadAfterReplay\(formId,[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?selectField\(created\)/,
+    /if \(isReordering\.value \|\| !isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?if \(!isLogRow\) \{[\s\S]*?buildCopyDraft\(currentField, fieldDefs\.value, formId\)[\s\S]*?selectField\(draft\)/,
   )
   assert.match(
     functionBody('removeField'),
@@ -546,7 +550,7 @@ test('membership-changing actions, history replay, and leave guards all block re
   for (const name of ['copyFormField', 'removeField', 'batchDelete', 'newField', 'saveDraftField', 'addLogRow']) {
     assert.match(functionBody(name), /isReordering\.value/, `${name} should reject while reorder persistence is active`)
   }
-  for (const name of ['copyFormField', 'removeField', 'batchDelete', 'saveDraftField', 'addLogRow']) {
+  for (const name of ['removeField', 'batchDelete', 'saveDraftField', 'addLogRow']) {
     assert.match(functionBody(name), /beginFieldMembershipMutation\(\)/, `${name} should mark membership mutation in-flight`)
     assert.match(functionBody(name), /endFieldMembershipMutation\(\)/, `${name} should clear membership mutation in-flight`)
   }

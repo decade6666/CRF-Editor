@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check draft rendering, property actions, and FormDesignerTab structural conventions."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check draft lifecycle, stale guards, history isolation, and cache/membership semantics."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check tests, lint, build, and code-quality requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check the order_index API boundary and regular/log-row behavior split."}

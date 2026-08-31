@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { useDesignerHistory } from '../src/composables/useDesignerHistory.js'
+import { buildCopyVariableName } from '../src/composables/fieldDefinitionAutocomplete.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
@@ -23,11 +24,57 @@ function functionBody(name) {
   assert.fail(`${name} should have a complete body`)
 }
 
-function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft, isReordering = false } = {}) {
+function buildFormFieldCreatePayloadForTest(ff) {
+  return {
+    field_definition_id: ff.field_definition_id ?? null,
+    is_log_row: ff.is_log_row ?? 0,
+    order_index: ff.order_index ?? null,
+    required: ff.required ?? 0,
+    label_override: ff.label_override ?? null,
+    help_text: ff.help_text ?? null,
+    default_value: ff.default_value ?? null,
+    inline_mark: ff.inline_mark ?? 0,
+    bg_color: ff.bg_color ?? null,
+    text_color: ff.text_color ?? null,
+    label_bold: ff.label_bold ?? 1,
+    label_font_size: ff.label_font_size ?? null,
+  }
+}
+
+function buildCopyDraftFromSource(ff, definitions, formId) {
+  const buildCopyDraft = new Function(
+    'ff',
+    'definitions',
+    'formId',
+    'DRAFT_FIELD_ID',
+    'buildCopyVariableName',
+    'buildFormFieldCreatePayload',
+    functionBody('buildCopyDraft'),
+  )
+  return buildCopyDraft(
+    ff,
+    definitions,
+    formId,
+    '__draft__',
+    buildCopyVariableName,
+    buildFormFieldCreatePayloadForTest,
+  )
+}
+
+function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, confirmDiscardDraft, isReordering = false } = {}) {
   api = { invalidateCache: () => {}, ...api }
   const recordHistory = useDesignerHistory()
   const formFields = { value: fields }
-  const calls = { reloads: [], selected: [], errors: [], warnings: [], confirms: 0, membershipBegins: 0, membershipEnds: 0 }
+  const fieldDefinitions = { value: fieldDefs }
+  const calls = {
+    reloads: [],
+    selected: [],
+    errors: [],
+    warnings: [],
+    confirms: 0,
+    membershipBegins: 0,
+    membershipEnds: 0,
+  }
   const resolveDraftConfirmation =
     confirmDiscardDraft ||
     (async () => {
@@ -41,80 +88,65 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
     'confirmDiscardDraft',
     'copyingFieldIds',
     'isReordering',
-    'beginFieldMembershipMutation',
-    'endFieldMembershipMutation',
     'resolveFieldPropLeave',
     'selectedFieldId',
     'resolveFormPropLeave',
-    'selectedForm',
+    'captureDesignerHistoryContext',
+    'isCurrentDesignerHistoryContext',
+    'fieldDefs',
+    'buildCopyDraft',
+    'formFields',
+    'selectField',
     'buildFormFieldCreatePayload',
     'api',
     'reloadAfterReplay',
-    'formFields',
-    'selectField',
-    'buildDefinitionSnapshotFromResponse',
-    'designerHistory',
-    'captureDesignerHistoryContext',
-    'isCurrentDesignerHistoryContext',
+    'beginFieldMembershipMutation',
+    'endFieldMembershipMutation',
     'recordDesignerHistory',
+    'designerHistory',
     'ElMessage',
-    'props',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 24, 'runtime copy function should receive its full dependency context')
-  const snapshotBuilder = new Function('newFd', functionBody('buildDefinitionSnapshotFromResponse'))
+  assert.equal(copyFormField.length, 23, 'runtime copy function should receive its full dependency context')
   const copyingFieldIds = { value: new Set() }
   const context = [
-    (ff) => ff?.__draft === true,
+    (ff) => ff?.__draft === true || ff?.id === '__draft__',
     { value: hasDraft },
     resolveDraftConfirmation,
     copyingFieldIds,
     { value: isReordering },
+    async () => true,
+    { value: 20 },
+    async () => true,
+    () => ({ formId: 8, sessionId: 0 }),
+    (historyContext) => historyContext?.formId === 8 && historyContext?.sessionId === 0,
+    fieldDefinitions,
+    (ff, definitions, formId) => buildCopyDraftFromSource(ff, definitions, formId),
+    formFields,
+    (field) => calls.selected.push(field.id),
+    buildFormFieldCreatePayloadForTest,
+    api,
+    async (formId, options) => {
+      calls.reloads.push([formId, options])
+      if (api.createdFormField) formFields.value = [api.createdFormField]
+    },
     () => {
       calls.membershipBegins += 1
     },
     () => {
       calls.membershipEnds += 1
     },
-    async () => true,
-    { value: null },
-    async () => true,
-    { value: { id: 8 } },
-    (ff) => ({
-      field_definition_id: ff.field_definition_id ?? null,
-      is_log_row: ff.is_log_row ?? 0,
-      order_index: ff.order_index ?? null,
-      required: ff.required ?? 0,
-      label_override: ff.label_override ?? null,
-      help_text: ff.help_text ?? null,
-      default_value: ff.default_value ?? null,
-      inline_mark: ff.inline_mark ?? 0,
-      bg_color: ff.bg_color ?? null,
-      text_color: ff.text_color ?? null,
-      label_bold: ff.label_bold ?? 1,
-      label_font_size: ff.label_font_size ?? null,
-    }),
-    api,
-    async (formId, options) => {
-      calls.reloads.push([formId, options])
-      if (api.createdFormField) formFields.value = [api.createdFormField]
-    },
-    formFields,
-    (field) => calls.selected.push(field.id),
-    snapshotBuilder,
-    recordHistory,
-    () => ({ formId: 8, sessionId: 0 }),
-    (historyContext) => historyContext?.formId === 8 && historyContext?.sessionId === 0,
     (historyContext, entry) => (historyContext?.formId === 8 ? recordHistory.record(entry) : false),
+    recordHistory,
     {
       error: (message) => calls.errors.push(message),
       warning: (message) => calls.warnings.push(message),
     },
-    { projectId: 5 },
   ]
 
   return {
     calls,
+    formFields,
     copyingFieldIds,
     history: recordHistory,
     run: (ff) => copyFormField(ff, ...context),
@@ -123,6 +155,7 @@ function createRuntime({ api, fields = [], hasDraft = false, confirmDiscardDraft
 
 const regularField = {
   id: 20,
+  form_id: 8,
   field_definition_id: 10,
   is_log_row: 0,
   order_index: 4,
@@ -135,26 +168,34 @@ const regularField = {
   text_color: '000000',
   label_bold: 0,
   label_font_size: 'small',
+  field_definition: {
+    id: 10,
+    variable_name: 'TEST',
+    label: '测试字段',
+    field_type: '复选',
+    integer_digits: null,
+    decimal_digits: null,
+    date_format: null,
+    checkbox_label: '已确认',
+    codelist_id: null,
+    unit_id: 7,
+    is_multi_record: 1,
+    table_type: '动态行',
+    codelist: { options: [{ code: 'Y', decode: '是' }] },
+    unit: { symbol: 'kg' },
+  },
 }
 
-const copiedDefinition = {
-  id: 101,
-  variable_name: 'TEST_copy',
-  label: '测试字段',
-  field_type: '复选',
-  integer_digits: null,
-  decimal_digits: null,
-  date_format: null,
-  checkbox_label: '已确认',
-  codelist_id: null,
-  unit_id: 7,
-  is_multi_record: 0,
-  table_type: '固定行',
-  order_index: 9,
+const logField = {
+  ...regularField,
+  id: 21,
+  field_definition_id: null,
+  is_log_row: 1,
+  field_definition: null,
 }
 
-test('字段列表复制按钮位于删除左侧，并连接草稿与行级锁保护', () => {
-  const copyButtonStart = source.indexOf("v-if=\"!isDraftField(ff)\"", source.indexOf('designer-field-list'))
+test('字段列表复制按钮位于删除左侧，并保留草稿与行级锁保护', () => {
+  const copyButtonStart = source.indexOf('v-if="!isDraftField(ff)"', source.indexOf('designer-field-list'))
   const removeButtonStart = source.indexOf('@click.stop="removeField(ff)"', copyButtonStart)
   const copyButton = source.slice(copyButtonStart, removeButtonStart)
 
@@ -168,69 +209,84 @@ test('字段列表复制按钮位于删除左侧，并连接草稿与行级锁�
   const body = functionBody('copyFormField')
   assert.match(body, /if \(isDraftField\(ff\)\) return;/)
   assert.match(body, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return;/)
-  assert.match(body, /beginFieldMembershipMutation\(\)/)
-  assert.match(body, /endFieldMembershipMutation\(\)/)
+  assert.match(body, /if \(copyingFieldIds\.value\.has\(ff\.id\)\) return;/)
   assert.match(body, /if \(hasDraft\.value\) \{[\s\S]*?await confirmDiscardDraft\(\)/)
-  assert.match(body, /copyingFieldIds\.value\.has\(ff\.id\)/)
-  assert.match(body, /order_index: \(ff\.order_index \?\? 0\) \+ 1/)
-  assert.match(body, /\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/copy/)
-  assert.match(
-    body,
-    /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
-  )
-  assert.match(body, /recordDesignerHistory\(historyContext, \{[\s\S]*?label: '复制字段'/)
+  assert.match(body, /if \(!isLogRow\) \{[\s\S]*?buildCopyDraft\(/)
+  assert.match(body, /if \(isReordering\.value \|\| !isCurrentDesignerHistoryContext\(historyContext\)\) return;/)
+  assert.match(body, /createdFormField = await api\.post\([\s\S]*?field_definition_id: null/)
 })
 
-test('复制普通字段按定义再实例顺序请求，选中新实例并保留完整定义快照', async () => {
-  const calls = []
-  const api = {
-    createdFormField: { id: 201 },
-    post: async (url, payload) => {
-      calls.push([url, payload])
-      if (url.includes('/copy')) return copiedDefinition
-      return api.createdFormField
+test('buildCopyDraft copies complete definition and instance state while using a local OID', () => {
+  const draft = buildCopyDraftFromSource(regularField, [{ variable_name: 'TEST' }], 8)
+
+  assert.equal(draft.id, '__draft__')
+  assert.equal(draft.__draft, true)
+  assert.equal(draft.__draftOrigin, 'copy')
+  assert.equal(draft.__draftOrderIndex, 5)
+  assert.equal(draft.order_index, 4.5)
+  assert.equal(draft.form_id, 8)
+  assert.equal(draft.field_definition_id, null)
+  assert.equal(draft.is_log_row, 0)
+  assert.equal(draft.required, regularField.required)
+  assert.equal(draft.label_override, regularField.label_override)
+  assert.equal(draft.default_value, regularField.default_value)
+  assert.equal(draft.inline_mark, regularField.inline_mark)
+  assert.equal(draft.field_definition.variable_name, 'TEST_copy')
+  assert.equal(draft.field_definition.checkbox_label, '已确认')
+  assert.equal(draft.field_definition.is_multi_record, 1)
+  assert.equal(draft.field_definition.table_type, '动态行')
+  assert.deepEqual(draft.field_definition.codelist, regularField.field_definition.codelist)
+  assert.notEqual(draft.field_definition, regularField.field_definition)
+})
+
+test('复制普通字段只创建本地草稿，不发请求、不入撤销栈，并立即选中草稿', async () => {
+  const requests = []
+  const runtime = createRuntime({
+    fields: [regularField],
+    fieldDefs: [
+      { variable_name: 'TEST' },
+      { variable_name: 'TEST_copy', field_type: '标签' },
+    ],
+    api: {
+      post: async (...args) => {
+        requests.push(args)
+        throw new Error('regular field copy must stay local')
+      },
     },
-    del: async () => {},
-  }
-  const runtime = createRuntime({ api })
+  })
 
   await runtime.run(regularField)
 
-  assert.deepEqual(calls.map(([url]) => url), [
-    '/api/field-definitions/10/copy',
-    '/api/forms/8/fields',
-  ])
-  assert.equal(calls[1][1].field_definition_id, 101)
-  assert.equal(calls[1][1].order_index, 5)
-  assert.deepEqual(runtime.calls.reloads, [[8, { defs: true }]])
-  assert.deepEqual(runtime.calls.selected, [201])
-  assert.equal(runtime.history.undoStack.value[0].ids.fdId, 101)
-  assert.equal(runtime.history.undoStack.value[0].ids.ffId, 201)
-  assert.match(source, /function buildDefinitionSnapshotFromResponse\(newFd\) \{[\s\S]*?checkbox_label: newFd\.checkbox_label \?\? null[\s\S]*?order_index: null/)
+  assert.deepEqual(requests, [])
+  assert.deepEqual(runtime.calls.reloads, [])
+  assert.equal(runtime.calls.membershipBegins, 0)
+  assert.equal(runtime.calls.membershipEnds, 0)
+  assert.equal(runtime.history.undoStack.value.length, 0)
+  assert.deepEqual(runtime.calls.selected, ['__draft__'])
+  const draft = runtime.formFields.value.find((field) => field.__draft)
+  assert.equal(draft.field_definition.variable_name, 'TEST_copy1')
+  assert.equal(draft.order_index, 4.5)
+  assert.equal(draft.__draftOrderIndex, 5)
 })
 
-test('草稿确认期间的快速双击仍只运行一条复制链路', async () => {
+test('草稿确认期间的快速双击仍只创建一条本地复制草稿', async () => {
   let releaseDraftConfirmation
   let confirmCalls = 0
   const draftConfirmation = new Promise((resolve) => {
     releaseDraftConfirmation = resolve
   })
-  const calls = []
-  const api = {
-    createdFormField: { id: 202 },
-    post: async (url) => {
-      calls.push(url)
-      if (url.includes('/copy')) return copiedDefinition
-      return api.createdFormField
-    },
-    del: async () => {},
-  }
   const runtime = createRuntime({
-    api,
+    fields: [regularField],
+    fieldDefs: [{ variable_name: 'TEST' }],
     hasDraft: true,
     confirmDiscardDraft: async () => {
       confirmCalls += 1
       return await draftConfirmation
+    },
+    api: {
+      post: async () => {
+        throw new Error('regular field copy must stay local')
+      },
     },
   })
 
@@ -239,189 +295,77 @@ test('草稿确认期间的快速双击仍只运行一条复制链路', async ()
   await runtime.run(regularField)
   assert.equal(confirmCalls, 1)
   assert.equal(runtime.copyingFieldIds.value.size, 1)
-  assert.deepEqual(calls, [])
 
   releaseDraftConfirmation(true)
   await first
-  assert.deepEqual(calls, ['/api/field-definitions/10/copy', '/api/forms/8/fields'])
   assert.equal(runtime.copyingFieldIds.value.size, 0)
+  assert.equal(runtime.formFields.value.filter((field) => field.__draft).length, 1)
 })
 
-test('字段复制在排序持久化进行中直接返回，不会启动任何复制请求', async () => {
-  const apiCalls = []
-  const runtime = createRuntime({
-    api: {
-      invalidateCache: () => {},
-      post: async (url) => {
-        apiCalls.push(url)
-        return copiedDefinition
-      },
-      del: async () => {},
-    },
-    isReordering: true,
-  })
+test('字段复制在排序持久化进行中直接返回，不会创建草稿或发请求', async () => {
+  const runtime = createRuntime({ fields: [regularField], isReordering: true })
 
   await runtime.run(regularField)
 
-  assert.deepEqual(apiCalls, [])
+  assert.deepEqual(runtime.formFields.value, [regularField])
   assert.deepEqual(runtime.calls.reloads, [])
   assert.equal(runtime.history.undoStack.value.length, 0)
 })
 
-test('复制的撤销重做重建同名快照并映射 id，不会再次调用 copy endpoint', async () => {
+test('复制日志行仍立即创建实例并记录可撤销历史', async () => {
   const calls = []
-  let createCount = 0
   const api = {
-    createdFormField: { id: 201 },
-    post: async (url, payload) => {
-      calls.push([url, payload])
-      if (url.includes('/copy')) return copiedDefinition
-      if (url === '/api/projects/5/field-definitions') {
-        createCount += 1
-        return { id: 101 + createCount, ...payload }
-      }
-      if (url === '/api/forms/8/fields') {
-        api.createdFormField = { id: 201 + createCount }
-        return api.createdFormField
-      }
-      throw new Error(`unexpected POST ${url}`)
-    },
-    del: async (url) => calls.push([url]),
-  }
-  const runtime = createRuntime({ api })
-
-  await runtime.run(regularField)
-  await runtime.history.undo()
-  await runtime.history.redo()
-  await runtime.history.undo()
-  await runtime.history.redo()
-
-  assert.equal(calls.filter(([url]) => url.includes('/copy')).length, 1)
-  const recreatedDefinitions = calls.filter(([url]) => url === '/api/projects/5/field-definitions')
-  assert.deepEqual(recreatedDefinitions.map(([, payload]) => payload.variable_name), ['TEST_copy', 'TEST_copy'])
-  assert.ok(recreatedDefinitions.every(([, payload]) => payload.checkbox_label === '已确认'))
-  assert.equal(runtime.history.undoStack.value[0].ids.fdId, 103)
-  assert.equal(runtime.history.undoStack.value[0].ids.ffId, 203)
-})
-
-test('复制重做遇到已保留定义的 409 时复用原定义 id', async () => {
-  const calls = []
-  let formFieldId = 201
-  const api = {
-    createdFormField: { id: formFieldId },
-    post: async (url, payload) => {
-      calls.push([url, payload])
-      if (url.includes('/copy')) return copiedDefinition
-      if (url === '/api/projects/5/field-definitions') throw { status: 409 }
-      if (url === '/api/forms/8/fields') {
-        api.createdFormField = { id: formFieldId }
-        formFieldId += 1
-        return api.createdFormField
-      }
-      throw new Error(`unexpected POST ${url}`)
-    },
-    del: async (url) => {
-      calls.push([url])
-      if (url === '/api/field-definitions/101') throw { status: 409 }
-    },
-  }
-  const runtime = createRuntime({ api })
-
-  await runtime.run(regularField)
-  await runtime.history.undo()
-  await runtime.history.redo()
-
-  assert.deepEqual(runtime.calls.warnings, ['字段定义已被其他表单引用，已保留定义'])
-  assert.equal(calls.filter(([url]) => url === '/api/projects/5/field-definitions').length, 1)
-  assert.equal(calls.at(-1)[1].field_definition_id, 101)
-  assert.equal(runtime.history.undoStack.value[0].ids.fdId, 101)
-  assert.equal(runtime.history.undoStack.value[0].ids.ffId, 202)
-})
-
-test('复制失败清理孤儿定义；日志行不复制定义；行级锁阻止双击', async () => {
-  const failureCalls = []
-  const failureApi = {
-    post: async (url) => {
-      failureCalls.push(url)
-      if (url.includes('/copy')) return copiedDefinition
-      throw new Error('实例创建失败')
-    },
-    del: async (url) => failureCalls.push(url),
-  }
-  const failureRuntime = createRuntime({ api: failureApi })
-  await failureRuntime.run(regularField)
-  assert.deepEqual(failureCalls, [
-    '/api/field-definitions/10/copy',
-    '/api/forms/8/fields',
-    '/api/field-definitions/101',
-  ])
-  assert.deepEqual(failureRuntime.calls.errors, ['实例创建失败'])
-
-  const logCalls = []
-  const logApi = {
     createdFormField: { id: 301 },
     post: async (url, payload) => {
-      logCalls.push([url, payload])
-      return logApi.createdFormField
-    },
-    del: async () => {},
-  }
-  const logRuntime = createRuntime({ api: logApi })
-  await logRuntime.run({ ...regularField, id: 21, field_definition_id: null, is_log_row: 1 })
-  assert.deepEqual(logCalls.map(([url]) => url), ['/api/forms/8/fields'])
-  assert.equal(logCalls[0][1].field_definition_id, null)
-
-  let releaseCopy
-  const pendingCopy = new Promise((resolve) => {
-    releaseCopy = resolve
-  })
-  const debounceCalls = []
-  const debounceApi = {
-    createdFormField: { id: 401 },
-    post: async (url) => {
-      debounceCalls.push(url)
-      if (url.includes('/copy')) return pendingCopy
-      return debounceApi.createdFormField
-    },
-    del: async () => {},
-  }
-  const debounceRuntime = createRuntime({ api: debounceApi })
-  const first = debounceRuntime.run(regularField)
-  await Promise.resolve()
-  await debounceRuntime.run(regularField)
-  assert.deepEqual(debounceCalls, ['/api/field-definitions/10/copy'])
-  releaseCopy(copiedDefinition)
-  await first
-  assert.equal(debounceRuntime.copyingFieldIds.value.size, 0)
-})
-
-test('复制重做在定义重建后建实例失败时清理本次重建的孤儿定义并继续抛错', async () => {
-  const calls = []
-  const instanceError = new Error('重做实例创建失败')
-  let createFieldDefinitionCount = 0
-  const api = {
-    createdFormField: { id: 201 },
-    post: async (url, payload) => {
       calls.push([url, payload])
-      if (url.includes('/copy')) return copiedDefinition
-      if (url === '/api/projects/5/field-definitions') {
-        createFieldDefinitionCount += 1
-        return { id: 500 + createFieldDefinitionCount, ...payload }
-      }
-      if (url === '/api/forms/8/fields') {
-        if (createFieldDefinitionCount > 0) throw instanceError
-        return api.createdFormField
-      }
-      throw new Error(`unexpected POST ${url}`)
+      return api.createdFormField
     },
     del: async (url) => calls.push([url]),
   }
-  const runtime = createRuntime({ api })
+  const runtime = createRuntime({ api, fields: [logField] })
 
-  await runtime.run(regularField)
-  await runtime.history.undo()
-  await assert.rejects(runtime.history.redo(), instanceError)
+  await runtime.run(logField)
 
-  assert.equal(calls.filter(([url]) => url === '/api/field-definitions/501').length, 1)
-  assert.deepEqual(calls.at(-1), ['/api/field-definitions/501'])
+  assert.deepEqual(calls.map(([url]) => url), ['/api/forms/8/fields'])
+  assert.equal(calls[0][1].field_definition_id, null)
+  assert.deepEqual(runtime.calls.reloads, [[8, { defs: false }]])
+  assert.deepEqual(runtime.calls.selected, [301])
+  assert.equal(runtime.history.undoStack.value.length, 1)
+  assert.equal(runtime.history.undoStack.value[0].label, '复制字段')
+  assert.equal(runtime.history.undoStack.value[0].ids.fdId, null)
+})
+
+test('日志行复制的行级锁在立即保存请求期间阻止第二次点击', async () => {
+  let releasePost
+  const pendingPost = new Promise((resolve) => {
+    releasePost = resolve
+  })
+  const calls = []
+  const api = {
+    post: async (url) => {
+      calls.push(url)
+      return await pendingPost
+    },
+    invalidateCache: () => {},
+  }
+  const runtime = createRuntime({ api, fields: [logField] })
+  const first = runtime.run(logField)
+  await Promise.resolve()
+  await runtime.run(logField)
+  assert.deepEqual(calls, ['/api/forms/8/fields'])
+
+  releasePost({ id: 302 })
+  await first
+  assert.equal(runtime.copyingFieldIds.value.size, 0)
+})
+
+test('regular copy branch never calls the field-definition copy endpoint', () => {
+  const body = functionBody('copyFormField')
+  const regularBranch = body.slice(body.indexOf('if (!isLogRow)'), body.indexOf('const baseInstancePayload'))
+
+  assert.match(regularBranch, /buildCopyDraft\(currentField, fieldDefs\.value, formId\)/)
+  assert.match(regularBranch, /formFields\.value = \[\.\.\.formFields\.value, draft\]/)
+  assert.match(regularBranch, /selectField\(draft\)/)
+  assert.doesNotMatch(regularBranch, /api\.post\(/)
+  assert.doesNotMatch(body, /\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/copy/)
 })
