@@ -92,3 +92,27 @@ Browser check (when feasible): point a root `config.yaml` at a throwaway databas
 - Slice A and Slice B are independent; either can be reverted alone with `git checkout -- <files>` before commit.
 - If the controlled select misbehaves (a `@update:model-value` emission during hydration is not expected, but if observed), fall back to `v-model` + `@change` with an explicit `lastEditorFieldType` tracker that is updated in `selectField`, `resetFieldPropAutoSaveState`, `selectAutocompleteCandidate`, and the change handler. Record the deviation in the task notes.
 - After merge, rollback is a revert commit. Label OIDs already re-minted stay placeholders, which is harmless.
+
+## 4. Follow-up: post-merge review fixes (2026-09-29)
+
+Source: Opus review + GPT review of PR #86 (merged as `ac38271`). Branch `fix/designer-label-oid-followup` from `origin/main`, same worktree.
+
+Defect: a draft's `field_definition` mirrors the live editor (`applyEditorToDraft`), so re-selecting the draft row after picking a candidate re-seeded `labelOidSession` from the candidate. With a system-placeholder candidate OID, `标签` then reused it: save blocked with an OID conflict, or, after re-picking the candidate, `update_shared` converted the shared definition into a hidden label.
+
+Slices (mutually exclusive files, parallel `trellis-implement`, no commits):
+
+- Frontend (TDD) — `formDesignerPropertyEditor.js`, `FormDesignerTab.vue`, `frontend/tests/designerLabelOid.test.js`: add `withLabelOidSeed(draft)` (creation-time `__labelOidSeed` snapshot) and `resolveLabelOidSeedDefinition(formField)` (drafts use the seed, log rows none, others the loaded definition); wrap the drafts built in `newField` and the regular-field copy path; `selectField` seeds via the resolver. Tests: helper units, the draft re-selection flow, wiring guards including `selectAutocompleteCandidate` never assigning `labelOidSession`.
+- Backend (tests only) — `backend/tests/test_label_variable_name_migration.py`: a multi-project case (per-project uniqueness, OID released in each project) and an `init_db()` wiring guard.
+- Lead: review diffs; spec + CLAUDE.md follow-up notes; verification below; browser check of the draft re-selection flow when feasible.
+
+Verification:
+
+```bash
+cd frontend && node --test tests/*.test.js && npx eslint --quiet --ext .js,.vue src && npm run build
+cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy \
+  PYTHONDONTWRITEBYTECODE=1 ~/.venvs/crf-editor/bin/python -m pytest -p no:cacheprovider -q
+```
+
+The proxy variables are unset because the environment's SOCKS proxy (without `socksio`) caused the 3 `test_ai_review_service` failures seen earlier.
+
+Accepted, not changed: a tab left open across the first post-upgrade restart can get a recoverable 422 on a re-minted label (any upgrade already requires a refresh for the new bundle); format-locked regexes in existing wiring tests.

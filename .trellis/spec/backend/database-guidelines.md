@@ -294,7 +294,7 @@ _resolve_import_code(existing_codes: set[str], source_code: Optional[str], prefi
 
 #### 3. Tests Required
 
-- `backend/tests/test_label_variable_name_migration.py`: user-typed label OIDs (`AGE`, `标签A`, `''`, lowercase suffix) re-minted; placeholder / `_copy` / `_IMP2` kept; non-label rows untouched; collision retry via monkeypatched `src.database.generate_code`; idempotent second run; missing table / missing column no-ops; released OID reusable in the same project.
+- `backend/tests/test_label_variable_name_migration.py`: user-typed label OIDs (`AGE`, `标签A`, `''`, lowercase suffix) re-minted; placeholder / `_copy` / `_IMP2` kept; non-label rows untouched; collision retry via monkeypatched `src.database.generate_code`; idempotent second run; missing table / missing column no-ops; released OID reusable in the same project; two projects holding the same label OID are each re-minted and released independently (per-project uniqueness); `init_db()` invokes the normalization on its engine (wiring guard with a spied `_normalize_label_variable_names`).
 
 ### Scenario: Adding a New `form_field` Column
 
