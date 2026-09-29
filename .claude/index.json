@@ -98,6 +98,7 @@
         "backend/tests/test_auth.py",
         "backend/tests/test_background_jobs_flag.py",
         "backend/tests/test_batch_delete_isolation.py",
+        "backend/tests/test_ci_merge_gate.py",
         "backend/tests/test_codelists_router.py",
         "backend/tests/test_config.py",
         "backend/tests/test_docx_import_contract.py",

@@ -5,12 +5,13 @@
 
 ---
 
-## 1. any branch → main PR Auto-Merge
+## 1. any branch → main PR Merge Gate
 
-**What**: Owner-authored same-repo PRs targeting `main` (any head branch) are **auto-merged after required checks pass**. Agents and humans must **not** run manual `gh pr merge` (or equivalent) as part of the normal finish path.
+**What**: Owner-authored same-repo PRs targeting `main` (any head branch) are merged by the CI merge job `merge-owner-pr` in `.github/workflows/ci.yml`, **only after the four CI jobs and the `gitleaks` check pass on the PR head**. Agents and humans must **not** run manual `gh pr merge` (or equivalent) as part of the normal finish path.
 
 **Why**:
-- Workflow `.github/workflows/auto-merge-draft-to-main.yml` enables merge-commit auto-merge on qualifying PRs.
+- The merge job `needs` all four CI jobs (backend tests, frontend tests, frontend lint, frontend build) with an implicit `success()`, then polls the `gitleaks` check runs on the PR head SHA before merging.
+- `gh pr merge --auto` is not used: this private repo is on the GitHub Free plan, where required checks are unavailable, so `--auto` merged immediately without waiting for CI.
 - Manual merge races CI, triggers unnecessary permission prompts, and can bypass the intended gate order.
 
 ### Contract
@@ -22,8 +23,8 @@
 | Author | `decade6666` (repo owner) |
 | Same-repo PR | head repo must equal base repo (no fork PRs) |
 | Draft PR flag | must be **ready for review** (`draft == false`) |
-| Merge method | merge commit (`gh pr merge --auto --merge`) |
-| Agent action after open | **stop** — wait for CI + auto-merge; do not call `gh pr merge` |
+| Merge method | merge commit (`gh pr merge --merge --match-head-commit <head sha>` from the `ci.yml` merge job, after the four CI jobs and gitleaks pass) |
+| Agent action after open | **stop** — wait for CI + the merge job; do not call `gh pr merge` |
 
 ### Agent checklist (finish path)
 
@@ -31,7 +32,7 @@
 - [ ] Ensure PR is not marked draft (ready for review)
 - [ ] Confirm CI workflows are running / green (or still pending)
 - [ ] **Do not** run `gh pr merge` / click Merge / force-merge
-- [ ] Report the PR URL and that auto-merge will complete after checks
+- [ ] Report the PR URL and that the CI merge job merges it after the four jobs and gitleaks pass
 
 ### Wrong vs Correct
 
@@ -45,15 +46,23 @@ gh pr merge 49 --merge   # ❌ CI-owned; may be denied or race checks
 #### Correct
 ```bash
 gh pr create --base main --head chore/foo ...
-# Optional: gh pr view <N> --json state,mergeStateStatus,autoMergeRequest
-# Then stop. Auto-merge runs after required checks pass.
+# Optional: gh pr view <N> --json state,mergeStateStatus
+# Then stop. The ci.yml merge-owner-pr job merges the PR after the four CI
+# jobs and the gitleaks check pass on its head commit.
 ```
 
 ### Source of truth
 
-- Workflow: `.github/workflows/auto-merge-draft-to-main.yml` (filename kept for history; scope is any head → `main`)
+- Workflow job: `.github/workflows/ci.yml` → `jobs.merge-owner-pr`
 - Trigger types: `opened` / `reopened` / `synchronize` / `ready_for_review`
-- Action: `gh pr merge "$PR_URL" --auto --merge`
+- Concurrency: one group per PR (`github.event.pull_request.number`) with `cancel-in-progress: true` — a newer push cancels the older run and its merge job
+- Contract test: `backend/tests/test_ci_merge_gate.py` (runs inside the `Backend tests` CI job, so the gate checks its own configuration)
+
+### Notes
+
+- Re-running failed jobs also re-runs the previously skipped merge job, so a flaky job blocks the merge until green.
+- A `gitleaks` failure, or the wait timing out (10-minute cap), means no merge: the job fails closed and a manual merge then needs explicit user authorization. A failed status query (API error) logs a warning and is retried until the deadline; it is never read as success.
+- Bot merges made with `GITHUB_TOKEN` trigger no push-based workflows on `main` (the CI and gitleaks push runs).
 
 ### Exceptions (only with explicit user instruction)
 
@@ -123,4 +132,4 @@ codeagent-wrapper --backend agy - "$PWD" < task.txt
 
 - Trellis workflow overview: `.trellis/workflow.md` → section `codeagent-wrapper — direct multi-backend dispatch`
 - Channel collab patterns: `trellis-channel/references/workflows.md`
-- Auto-merge workflow: `.github/workflows/auto-merge-draft-to-main.yml`
+- CI merge gate: `.github/workflows/ci.yml` → job `merge-owner-pr` (see §1)

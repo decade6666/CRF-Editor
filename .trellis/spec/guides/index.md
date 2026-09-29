@@ -24,7 +24,7 @@ These guides help you **ask the right questions before coding**.
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
 | [Cross-Stack Contracts](./cross-stack-contracts.md) | Backend-frontend shared contracts | Changing shared constants/fixtures |
-| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | PR auto-merge ownership + codeagent-wrapper path | Opening any-branch→main PRs; multi-CLI dispatch |
+| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | PR merge gate (CI merge job) + codeagent-wrapper path | Opening any-branch→main PRs; multi-CLI dispatch |
 
 ---
 
@@ -72,7 +72,7 @@ These guides help you **ask the right questions before coding**.
 - [ ] Tempted to run `gh pr merge` after creating the PR
 - [ ] Calling Codex / Antigravity / other backends via `codeagent-wrapper`
 
-→ Read [Git & Tooling Conventions](./git-and-tooling-conventions.md): auto-merge owns the merge after checks; wrapper path is `/usr/bin/codeagent-wrapper`.
+→ Read [Git & Tooling Conventions](./git-and-tooling-conventions.md): the `ci.yml` merge job owns the merge after the CI jobs and gitleaks pass; wrapper path is `/usr/bin/codeagent-wrapper`.
 
 ---
 
