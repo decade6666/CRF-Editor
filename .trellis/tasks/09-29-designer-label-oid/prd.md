@@ -39,6 +39,7 @@ A label's `variable_name` is system-managed: it never comes from user input, it 
 - [ ] Startup normalization re-mints only non-placeholder label OIDs, keeps per-project uniqueness, is idempotent, and is a no-op without the table.
 - [ ] Targeted and full frontend tests, frontend lint, frontend build, and targeted and full backend tests pass.
 - [ ] Both reported flows are verified in a browser when the environment allows it; otherwise the blocker is reported.
+- [ ] (Follow-up) A draft that picked a library candidate and is then re-selected (click / Enter on its row) never seeds the label OID from that candidate: switching to `标签` and saving creates the draft's own label definition and leaves the candidate definition unchanged.
 
 ## Out of Scope
 

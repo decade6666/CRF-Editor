@@ -86,9 +86,11 @@ import {
   ensureLabelVariableName,
   normalizeDateFormat,
   normalizeHexColorInput,
+  resolveLabelOidSeedDefinition,
   resolveSharedWriteTarget,
   sameFormPropState,
   syncFieldTypeSpecificProps,
+  withLabelOidSeed,
 } from '../composables/formDesignerPropertyEditor';
 import {
   buildAutocompleteCandidates,
@@ -777,6 +779,12 @@ function buildCopyDraft(ff, definitions, formId) {
     __draft: true,
     __draftOrigin: 'copy',
     __draftOrderIndex: sourceOrderIndex + 1,
+    // 创建态标签 OID 种子快照（等价 withLabelOidSeed；本函数会被测试按固定参数抽取求值，
+    // 不得引入新的模块级标识符，故内联构造）
+    __labelOidSeed: {
+      variable_name: variableName,
+      field_type: sourceDefinition.field_type ?? null,
+    },
     form_id: formId,
     field_definition_id: null,
     is_log_row: 0,
@@ -2384,7 +2392,7 @@ watch(currentFieldPropDraftKey, (draftKey) => {
 });
 
 function selectField(ff) {
-  labelOidSession = buildLabelOidSession(ff?.is_log_row ? null : ff?.field_definition);
+  labelOidSession = buildLabelOidSession(resolveLabelOidSeedDefinition(ff));
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
   selectedDefinitionId.value = null;
@@ -2625,7 +2633,7 @@ async function newField() {
     if (!proceed) return;
   }
   const maxOrder = formFields.value.reduce((m, f) => Math.max(m, f?.order_index ?? 0), 0);
-  const draft = {
+  const draft = withLabelOidSeed({
     id: DRAFT_FIELD_ID,
     __draft: true,
     form_id: historyContext.formId,
@@ -2651,7 +2659,7 @@ async function newField() {
       codelist_id: null,
       unit_id: null,
     },
-  };
+  });
   formFields.value = [...formFields.value, draft];
   selectField(draft);
 }

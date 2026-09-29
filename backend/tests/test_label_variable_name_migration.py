@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
+from src.config import AdminConfig, AppConfig, AuthConfig, DatabaseConfig
 from src.database import _normalize_label_variable_names
 
 # 系统占位 OID 前缀规则（跨栈契约：前端 SYSTEM_FIELD_VARIABLE_NAME_RE ↔ 后端 _LABEL_PLACEHOLDER_RE）。
@@ -196,3 +197,92 @@ def test_released_oid_can_be_reused_in_same_project(tmp_path: Path) -> None:
     names = _fetch_variable_names(engine)
     assert "AGE" in names.values()
     assert "SEX" in names.values()
+
+
+def test_normalize_label_variable_names_releases_oid_per_project(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "label-oid-multi-project.db"
+    _create_field_definition_table(db_path)
+    conn = sqlite3.connect(str(db_path))
+    _insert(conn, 1, 1, "AGE", "年龄标签一", "标签")
+    _insert(conn, 2, 1, "SEX", "性别", "文本")
+    _insert(conn, 3, 2, "AGE", "年龄标签二", "标签")
+    _insert(conn, 4, 2, "HEIGHT", "身高", "文本")
+    conn.commit()
+    conn.close()
+
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    # 有界迭代器只供应两次相同占位值：唯一性按项目判定时恰好两次抽取即够；
+    # 若 used 集合误成全局，第二次抽取会命中重抽并耗尽迭代器（StopIteration 而非挂起）
+    draws = iter(["FIELD_20260101120000_SAME01", "FIELD_20260101120000_SAME01"])
+    monkeypatch.setattr("src.database.generate_code", lambda prefix: next(draws))
+
+    _normalize_label_variable_names(engine)
+
+    names = _fetch_variable_names(engine)
+    assert names[1] == "FIELD_20260101120000_SAME01"
+    assert names[3] == "FIELD_20260101120000_SAME01"
+    assert names[2] == "SEX"
+    assert names[4] == "HEIGHT"
+
+    # AGE 在两个项目内都已释放：UNIQUE(project_id, variable_name) 同时接受两条插入
+    with engine.begin() as db:
+        db.execute(
+            text(
+                "INSERT INTO field_definition (project_id, variable_name, label, field_type) "
+                "VALUES (1, 'AGE', '项目一年龄文本', '文本')"
+            )
+        )
+        db.execute(
+            text(
+                "INSERT INTO field_definition (project_id, variable_name, label, field_type) "
+                "VALUES (2, 'AGE', '项目二年龄文本', '文本')"
+            )
+        )
+
+    with engine.connect() as db:
+        age_projects = [
+            project_id
+            for (project_id,) in db.execute(
+                text(
+                    "SELECT DISTINCT project_id FROM field_definition "
+                    "WHERE variable_name = 'AGE' ORDER BY project_id"
+                )
+            )
+        ]
+    assert age_projects == [1, 2]
+
+
+def test_init_db_invokes_label_variable_name_normalization(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """init_db 启动必须接线 _normalize_label_variable_names，防止存量用户 OID 标签遗留。"""
+    import src.database as database_module
+
+    db_path = tmp_path / "label-oid-init-wiring.db"
+    test_config = AppConfig(
+        database=DatabaseConfig(path=str(db_path)),
+        auth=AuthConfig(secret_key="test-secret-key-for-testing"),
+        admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
+    )
+    seen_engines = []
+    monkeypatch.setattr(
+        database_module,
+        "_normalize_label_variable_names",
+        lambda engine_arg: seen_engines.append(engine_arg),
+    )
+
+    previous_engine = database_module._engine
+    database_module._engine = None
+    monkeypatch.setattr(database_module, "get_config", lambda: test_config)
+    monkeypatch.delenv("CRF_ENV", raising=False)
+    try:
+        database_module.init_db()
+        # 恰好调用一次，且用的是 init_db 实际创建并缓存的那台 engine
+        assert seen_engines == [database_module.get_engine()]
+    finally:
+        current_engine = database_module._engine
+        if current_engine is not None:
+            current_engine.dispose()
+        database_module._engine = previous_engine

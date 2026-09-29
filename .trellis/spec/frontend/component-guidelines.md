@@ -1064,7 +1064,8 @@ const FormDesigner = defineAsyncComponent(() =>
 | Rule | Why |
 |---|---|
 | The designer type selector is controlled (`:model-value` + `@update:model-value="onDesignerFieldTypeChange"`); the OID transition runs only in that handler | Hydration (`selectField`), candidate picks, and editor resets assign `editProp` directly and must never run the label transition |
-| `selectField` and `resetFieldPropAutoSaveState` rebuild `labelOidSession = buildLabelOidSession(...)` on every (re)selection | The seed comes only from the definition the field was loaded with (a label, or a system-placeholder OID), never from the live editor OID — otherwise a picked library candidate would be re-bound and silently converted into a hidden label |
+| `selectField` and `resetFieldPropAutoSaveState` rebuild `labelOidSession = buildLabelOidSession(...)` on every (re)selection; `selectField` seeds via `resolveLabelOidSeedDefinition(ff)`; `selectAutocompleteCandidate` never assigns the session | The seed comes only from the definition the field was loaded with (a label, or a system-placeholder OID), never from the live editor OID — otherwise a picked library candidate would be re-bound and silently converted into a hidden label |
+| Drafts carry a creation-time `__labelOidSeed` (`{ variable_name, field_type }`): `newField` wraps its draft in `withLabelOidSeed`, `buildCopyDraft` builds the same object inline (its test harness evaluates it with a fixed set of injected identifiers); only `__draft === true` rows use the seed | `applyEditorToDraft` mirrors the editor (including a picked candidate's OID) into the draft's `field_definition`, so re-selecting a draft must not seed from it |
 | Entering `标签` remembers the current OID and swaps in the session label OID (generating one on first use); leaving restores the remembered value (including `''`) | `文本 → 标签 → 文本` round-trips the typed OID; user OIDs never reach a label payload |
 | `saveSelectedFieldProp` and `saveDraftField` run `ensureLabelVariableName` for labels before building the request; non-label drafts fail fast with `OID_ERROR` | Historical empty/invalid label OIDs must not block saving; non-label OID validation stays client-side |
 | A loaded user-OID field switched to `标签` forks via `create_or_restore`; a loaded placeholder-OID field converts in place via `update_shared` | A named library definition must not silently become a hidden label; forking placeholder conversions would litter the library with orphan definitions |
@@ -1074,7 +1075,10 @@ const FormDesigner = defineAsyncComponent(() =>
 - `frontend/tests/designerLabelOid.test.js` locks the pure helpers, the
   `buildBindingProfileCommand` routing (round trip / in-place / fork /
   no-candidate-rebind), and the component wiring (controlled select, session
-  resets, save guards).
+  resets, save guards), plus the draft seed snapshot (`withLabelOidSeed`,
+  `resolveLabelOidSeedDefinition`, the `newField` / `buildCopyDraft` seeds),
+  the draft re-selection flow after a candidate pick, and the guard that
+  `selectAutocompleteCandidate` never assigns `labelOidSession`.
 - The placeholder prefix `^FIELD_\d{14}_[A-Z0-9]{6}` is a cross-stack contract
   with `backend/src/database.py::_LABEL_PLACEHOLDER_RE`; see
   `.trellis/spec/guides/cross-stack-contracts.md` §10.

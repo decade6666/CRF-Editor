@@ -54,6 +54,28 @@ export function buildLabelOidSession(definition = null) {
   return { rememberedVariableName: null, labelVariableName: reusable ? variableName : null }
 }
 
+/** 新建/复制草稿时附加创建态 OID+类型快照（__labelOidSeed），供草稿重选中重建标签 OID 会话。 */
+export function withLabelOidSeed(draft) {
+  return {
+    ...draft,
+    __labelOidSeed: {
+      variable_name: draft?.field_definition?.variable_name ?? null,
+      field_type: draft?.field_definition?.field_type ?? null,
+    },
+  }
+}
+
+/**
+ * selectField 的标签 OID 会话种子解析：缺失字段 / 日志行无种子；
+ * 草稿（__draft === true）取创建态快照——其 field_definition 会随编辑器镜像候选，
+ * 不能再作种子；其余（含保存后无刷新转正的行，__draft 已为 false）取加载态定义。
+ */
+export function resolveLabelOidSeedDefinition(formField) {
+  if (!formField || formField.is_log_row) return null
+  if (formField.__draft === true && formField.__labelOidSeed) return formField.__labelOidSeed
+  return formField.field_definition ?? null
+}
+
 /**
  * 用户切换字段类型时的 OID 迁移（纯函数，不修改入参）：
  * 切入标签 → 记住当前 OID，换成会话标签 OID（没有则生成并记入会话）；
