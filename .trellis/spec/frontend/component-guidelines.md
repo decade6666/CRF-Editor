@@ -1082,3 +1082,35 @@ const FormDesigner = defineAsyncComponent(() =>
 - The placeholder prefix `^FIELD_\d{14}_[A-Z0-9]{6}` is a cross-stack contract
   with `backend/src/database.py::_LABEL_PLACEHOLDER_RE`; see
   `.trellis/spec/guides/cross-stack-contracts.md` §10.
+
+## Scenario: FormDesignerTab Field-Library Autocomplete Candidates
+
+### 1. Scope / Trigger
+
+- Trigger: changing the OID / 字段标签 `el-autocomplete` pair in
+  `frontend/src/components/FormDesignerTab.vue` or
+  `buildAutocompleteCandidates` in
+  `frontend/src/composables/fieldDefinitionAutocomplete.js`.
+- Both inputs share one candidate list; Element Plus writes
+  `item[valueKey]` (default `value`) back into `v-model` and emits `input`
+  before it emits `select`, so the item shape decides what a pick does to the
+  input text.
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| Every candidate carries `value` equal to the raw (untrimmed) keyword string | `el-autocomplete` writes `item[valueKey]` into `v-model` before `select`; echoing the typed text keeps a rejected 「已添加」 pick from emptying the input, and a string value satisfies the emit validators (`undefined` triggers "Invalid event arguments" warnings) |
+| Neither designer `el-autocomplete` sets `value-key` | The default `valueKey='value'` is what the echo relies on; an override would reintroduce `undefined` writes |
+| Every `CANDIDATE_STATE_*` identifier referenced in `FormDesignerTab.vue` is imported from `fieldDefinitionAutocomplete` | An unimported constant makes the 「当前字段」/「已添加」 badge silently not render (Vue only logs a render warning) |
+| 「已添加」 candidates keep `selectable: false` and `selectAutocompleteCandidate` returns early for them | The definition is already on this form; the pick must leave input text and editor state untouched |
+| Selectable candidates rehydrate the editor (`hydrateEditorFromCandidate`), overwriting the echoed text | Picking a definition means binding it, not keeping what was typed |
+| Empty and whitespace-only keywords return `[]` | No candidates on empty input (matching uses the trimmed query, the echo uses the raw keyword) |
+
+### 3. Validation
+
+- `frontend/tests/fieldDefinitionAutocomplete.test.js` locks the `value` echo
+  across the current / added / plain states, the empty and whitespace-only
+  keyword behavior, and (source guard) that every `CANDIDATE_STATE_*`
+  referenced in `FormDesignerTab.vue` is imported from the composable and that
+  neither designer `el-autocomplete` sets `value-key`.

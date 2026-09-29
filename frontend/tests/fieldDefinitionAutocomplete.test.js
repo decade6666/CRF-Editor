@@ -8,6 +8,11 @@ const source = readFileSync(
   'utf8',
 )
 
+const formDesignerSource = readFileSync(
+  resolve(import.meta.dirname, '../src/components/FormDesignerTab.vue'),
+  'utf8',
+)
+
 const DEFINITIONS = [
   { id: 1, variable_name: 'AGE', label: '年龄', field_type: '数值' },
   { id: 2, variable_name: 'SEX', label: '性别', field_type: '单选' },
@@ -22,10 +27,34 @@ async function loadModule() {
 }
 
 describe('fieldDefinitionAutocomplete pure logic', () => {
-  test('empty keyword returns no candidates', async () => {
+  test('empty and whitespace-only keywords return no candidates', async () => {
     const { buildAutocompleteCandidates } = await loadModule()
-    const result = buildAutocompleteCandidates({ definitions: DEFINITIONS, keyword: '  ' })
-    assert.deepEqual(result, [])
+    assert.deepEqual(buildAutocompleteCandidates({ definitions: DEFINITIONS, keyword: '' }), [])
+    assert.deepEqual(buildAutocompleteCandidates({ definitions: DEFINITIONS, keyword: '  ' }), [])
+  })
+
+  test('value echoes the raw untrimmed keyword for current, added, and plain states', async () => {
+    const { buildAutocompleteCandidates, CANDIDATE_STATE_ADDED, CANDIDATE_STATE_CURRENT } =
+      await loadModule()
+    const definitions = [
+      { id: 1, variable_name: 'WEIGHT', label: '体重', field_type: '数值' },
+      { id: 2, variable_name: 'TEMP', label: '体温', field_type: '数值' },
+      { id: 3, variable_name: 'BMI', label: '体型', field_type: '文本' },
+    ]
+    // 匹配走 trim 后的「体」，value 回显未修剪的原始关键词
+    const result = buildAutocompleteCandidates({
+      definitions,
+      keyword: '  体 ',
+      currentDefinitionId: 1,
+      formFieldDefinitionIds: [1, 2],
+    })
+    const byId = new Map(result.map((item) => [item.definition.id, item]))
+    assert.equal(byId.get(1).state, CANDIDATE_STATE_CURRENT)
+    assert.equal(byId.get(1).value, '  体 ')
+    assert.equal(byId.get(2).state, CANDIDATE_STATE_ADDED)
+    assert.equal(byId.get(2).value, '  体 ')
+    assert.equal(byId.get(3).state, null)
+    assert.equal(byId.get(3).value, '  体 ')
   })
 
   test('ranks candidates by shared fuzzy rules across oid and label', async () => {
@@ -157,5 +186,33 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
   test('module reuses shared rankFuzzyMatches and visibility filter upstream', () => {
     assert.match(source, /import \{ rankFuzzyMatches \} from '\.\/searchRanking\.js'/)
     assert.match(source, /rankFuzzyMatches\(definitions, query, candidateTexts\)/)
+  })
+
+  test('FormDesignerTab imports every CANDIDATE_STATE_* it references and keeps the default valueKey', () => {
+    // 模板引用未导入的常量时徽标静默不渲染（Vue 只给 render 警告）
+    const referenced = [...new Set(formDesignerSource.match(/CANDIDATE_STATE_[A-Z]+/g) || [])]
+    const importMatch = formDesignerSource.match(
+      /import\s*\{([^}]+)\}\s*from\s*'[^']*fieldDefinitionAutocomplete'/,
+    )
+    assert.ok(importMatch, 'FormDesignerTab must import from fieldDefinitionAutocomplete')
+    const imported = new Set(
+      importMatch[1]
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    )
+    for (const identifier of referenced) {
+      assert.ok(
+        imported.has(identifier),
+        `${identifier} must be imported from fieldDefinitionAutocomplete`,
+      )
+    }
+    // 两个 el-autocomplete 均不设置 value-key：保持默认 valueKey='value'，
+    // 候选的 value 才会被写回 v-model 而不是 undefined
+    const autocompleteTags = [...formDesignerSource.matchAll(/<el-autocomplete\b([\s\S]*?)\n\s*>\n/g)]
+    assert.equal(autocompleteTags.length, 2, 'the designer keeps the OID and 字段标签 autocomplete pair')
+    for (const [, attributes] of autocompleteTags) {
+      assert.doesNotMatch(attributes, /value-key/)
+    }
   })
 })

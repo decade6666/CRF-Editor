@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality gates (lint, tests, source-level guards)"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Autocomplete scenario and existing FormDesignerTab contracts to preserve"}
