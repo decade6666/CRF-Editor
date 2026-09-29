@@ -1,7 +1,12 @@
 import { isChoiceField } from './useCRFRenderer.js'
+import { isValidRequiredOid } from './oidValidation.js'
 
 const UNIT_FIELD_TYPES = ['文本', '数值']
 const DATE_FIELD_TYPES = ['日期', '日期时间', '时间']
+const LABEL_FIELD_TYPE = '标签'
+// 系统占位 OID 前缀规则（与 backend/src/database.py::_LABEL_PLACEHOLDER_RE 一致）：
+// genFieldVarName / generate_code("FIELD") 生成值及其系统派生后缀（_copy、_IMP 等）
+const SYSTEM_FIELD_VARIABLE_NAME_RE = /^FIELD_\d{14}_[A-Z0-9]{6}/
 
 export function normalizeDateFormat(fieldType, value, dateFormatOptions, defaultDateFormats) {
   if (!DATE_FIELD_TYPES.includes(fieldType)) return null
@@ -25,6 +30,52 @@ export function syncFieldTypeSpecificProps(editProp, newType, dateFormatOptions,
   }
 
   return next
+}
+
+/** 是否为系统生成（或系统派生）的字段 OID。 */
+export function isSystemFieldVariableName(value) {
+  return SYSTEM_FIELD_VARIABLE_NAME_RE.test(String(value ?? '').trim())
+}
+
+/** 标签 OID 保存兜底：合法则原样保留，否则生成系统占位值（标签永不因 OID 阻塞保存）。 */
+export function ensureLabelVariableName(variableName, generateVariableName) {
+  return isValidRequiredOid(variableName) ? variableName : generateVariableName()
+}
+
+/**
+ * 选中字段时初始化标签 OID 会话：加载时的定义若是标签，或其 OID 为系统占位值，
+ * 则该 OID 可直接作为标签 OID（原地转换，不分叉、不产生孤儿定义）；否则留空，切入标签时再生成。
+ */
+export function buildLabelOidSession(definition = null) {
+  const variableName = definition?.variable_name
+  const reusable =
+    isValidRequiredOid(variableName) &&
+    (definition?.field_type === LABEL_FIELD_TYPE || isSystemFieldVariableName(variableName))
+  return { rememberedVariableName: null, labelVariableName: reusable ? variableName : null }
+}
+
+/**
+ * 用户切换字段类型时的 OID 迁移（纯函数，不修改入参）：
+ * 切入标签 → 记住当前 OID，换成会话标签 OID（没有则生成并记入会话）；
+ * 切出标签 → 有记忆则恢复并清空记忆，否则保持当前值；其他切换不变。
+ */
+export function applyLabelOidTransition({ variableName, session, previousType, nextType, generateVariableName }) {
+  const wasLabel = previousType === LABEL_FIELD_TYPE
+  const isLabel = nextType === LABEL_FIELD_TYPE
+  if (!wasLabel && isLabel) {
+    const labelVariableName = ensureLabelVariableName(session.labelVariableName, generateVariableName)
+    return {
+      variableName: labelVariableName,
+      session: { rememberedVariableName: variableName ?? '', labelVariableName },
+    }
+  }
+  if (wasLabel && !isLabel && session.rememberedVariableName != null) {
+    return {
+      variableName: session.rememberedVariableName,
+      session: { ...session, rememberedVariableName: null },
+    }
+  }
+  return { variableName, session: { ...session } }
 }
 
 export function normalizeHexColorInput(value) {

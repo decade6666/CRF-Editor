@@ -640,6 +640,13 @@ OID 字符集校验是一份**作用域契约**：只有「机器标识」类字
 - `.strip()` 保护三元组唯一约束 `(codelist_id, code, decode)` 不产生肉眼相同的重复行；
 - `""→None` 保持 SQLite 中 NULL（互不冲突）语义，且 `import_service._build_codelist_option_signature` 的 `(index, code, decode)` 模板导入去重签名依赖 `None` vs `""` 的可区分性——直接删会导致重复导入产生「名称（导入）」副本。
 
+**Label (`标签`) OID 是系统托管的占位值**（两侧契约）：
+
+- `field_definition.variable_name` for `标签` is a system placeholder; the frontend never sends a user-typed OID for a label (`formDesignerPropertyEditor.js`: `SYSTEM_FIELD_VARIABLE_NAME_RE`, `ensureLabelVariableName`, `buildLabelOidSession`, `applyLabelOidTransition`, wired in `FormDesignerTab.vue` via the controlled type selector).
+- Backend startup (`src/database.py::_normalize_label_variable_names`, called from `init_db()` after `_normalize_log_row_presentation`) re-mints every label OID that is not a placeholder: idempotent, label rows only, per-project unique through `generate_code("FIELD")` with collision retry.
+- Shared prefix rule (must stay identical on both sides): `^FIELD_\d{14}_[A-Z0-9]{6}` — matches `generate_code("FIELD")` / `genFieldVarName()` output plus system-derived suffixes (`_copy`, `_copy2`, `_IMP`).
+- Tests: `frontend/tests/designerLabelOid.test.js` (frontend rule, command routing, wiring) and `backend/tests/test_label_variable_name_migration.py` (backend rule, normalization). Labels imported from older templates / project `.db` files keep their source OIDs until the next backend restart runs the normalization.
+
 ---
 
 ### 11. Recycle-Bin Cleanup Policy

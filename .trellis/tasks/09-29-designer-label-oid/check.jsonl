@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check designer property-editor wiring, draft save guards, and the unchanged OID input visibility contract."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Check editor session reset on every hydration path and unchanged history/draft semantics."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check tests, lint, build, and code-quality requirements."}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Check the section 10 OID scope contract and its documentation update."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check idempotency, table guards, per-project uniqueness, and label-only scope of the startup normalization."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check backend test coverage and conventions."}
