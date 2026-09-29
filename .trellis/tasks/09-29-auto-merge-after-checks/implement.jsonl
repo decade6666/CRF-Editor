@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "Finish-path auto-merge contract (section 1) that this task rewrites"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend pytest conventions for the new workflow contract test"}
+{"file": ".trellis/tasks/09-29-auto-merge-after-checks/research/github-merge-after-ci.md", "reason": "Verified GitHub Actions and gh semantics the design relies on"}

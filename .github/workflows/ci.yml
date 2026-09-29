@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   push:
     branches:
       - draft
@@ -11,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   backend-tests:
@@ -158,3 +167,60 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  merge-owner-pr:
+    name: Merge owner PR into main
+    needs:
+      - backend-tests
+      - frontend-tests
+      - frontend-lint
+      - frontend-build
+    # No status function here, so GitHub applies success(): the job is skipped
+    # unless every needed job succeeded.
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'decade6666' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+
+    steps:
+      - name: Wait for gitleaks on the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          deadline=$((SECONDS + 600))
+          while true; do
+            if ! state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?check_name=gitleaks" --jq '
+              .check_runs as $runs
+              | if ($runs | length) == 0 then "missing"
+                elif any($runs[]; .status != "completed") then "pending"
+                elif all($runs[]; .conclusion == "success") then "success"
+                else "failure" end'); then
+              echo "::warning::Could not read gitleaks check runs; retrying until the deadline"
+              state=query-failed
+            fi
+            echo "gitleaks on $HEAD_SHA: $state"
+            case "$state" in
+              success) exit 0 ;;
+              failure) echo "::error::gitleaks did not pass on $HEAD_SHA"; exit 1 ;;
+            esac
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for gitleaks on $HEAD_SHA"
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Merge with a merge commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$PR_URL" --merge --match-head-commit "$HEAD_SHA"
