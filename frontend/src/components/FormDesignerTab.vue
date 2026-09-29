@@ -96,6 +96,7 @@ import {
   buildAutocompleteCandidates,
   buildCopyVariableName,
   CANDIDATE_STATE_ADDED,
+  CANDIDATE_STATE_CURRENT,
   findOidConflict,
   hydrateEditorFromCandidate,
 } from '../composables/fieldDefinitionAutocomplete';

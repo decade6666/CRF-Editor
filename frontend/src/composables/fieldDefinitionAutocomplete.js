@@ -7,7 +7,10 @@
  * - 候选经 isVisibleInFieldLibrary 过滤（排除「标签」「日志行」）；
  * - 排序复用共享 rankFuzzyMatches（OID + 标签双候选文本）；
  * - 当前实例引用的定义标「当前字段」；
- * - 已被当前表单其他实例引用的定义标「已添加」且不可选择（键盘/鼠标都拒绝）。
+ * - 已被当前表单其他实例引用的定义标「已添加」且不可选择（键盘/鼠标都拒绝）；
+ * - 候选附带 value = 原始关键词（不修剪）：el-autocomplete 选中时先写回 item[valueKey]
+ *   （默认 'value'）再 emit select，回显原输入可让被拒绝的「已添加」候选不清空输入框，
+ *   且写回值始终是字符串（undefined 会触发 emit 校验告警）。
  */
 
 import { rankFuzzyMatches } from './searchRanking.js'
@@ -26,7 +29,8 @@ export function buildAutocompleteCandidates({
   formFieldDefinitionIds = [],
   excludeOwnFormFieldId = null,
 }) {
-  const query = String(keyword ?? '').trim()
+  const keywordText = String(keyword ?? '')
+  const query = keywordText.trim()
   if (!query) return []
 
   const scopedFormIds = new Set(
@@ -42,7 +46,7 @@ export function buildAutocompleteCandidates({
     } else if (scopedFormIds.has(definition.id)) {
       state = CANDIDATE_STATE_ADDED
     }
-    return { definition, state, selectable: state !== CANDIDATE_STATE_ADDED }
+    return { definition, state, selectable: state !== CANDIDATE_STATE_ADDED, value: keywordText }
   })
 }
 
