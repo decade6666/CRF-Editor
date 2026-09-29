@@ -1,6 +1,7 @@
 """数据库 Session 管理"""
 
 import logging
+import re
 import time
 from typing import Optional
 
@@ -48,6 +49,7 @@ from src.config import get_config, is_production_env
 
 from src.models import Base
 from src.services.auth_service import has_usable_password_hash, hash_password
+from src.utils import generate_code
 
 
 logger = logging.getLogger("src.database")
@@ -996,6 +998,73 @@ def _normalize_log_row_presentation(engine) -> None:
             logger.info("已重置 %d 条 log 行为默认展示属性", result.rowcount)
 
 
+# 系统占位 OID 前缀规则（跨栈契约：与前端 formDesignerPropertyEditor.js 的
+# SYSTEM_FIELD_VARIABLE_NAME_RE 保持一致）：generate_code("FIELD") 生成值
+# 及其系统派生后缀（_copy、_IMP 等）均匹配该前缀。
+_LABEL_PLACEHOLDER_RE = re.compile(r"^FIELD_\d{14}_[A-Z0-9]{6}")
+
+
+def _generate_unique_label_variable_name(used: set) -> str:
+    """生成项目内未占用的标签系统占位 OID。"""
+    code = generate_code("FIELD")
+    while code in used:
+        code = generate_code("FIELD")
+    return code
+
+
+def _normalize_label_variable_names(engine) -> None:
+    """将标签字段定义上遗留的用户 OID 重铸为系统占位 OID（幂等，仅改写标签行）。"""
+    insp = inspect(engine)
+    if not insp.has_table("field_definition"):
+        return
+    cols = {c["name"] for c in insp.get_columns("field_definition")}
+    if not {"id", "project_id", "variable_name", "field_type"}.issubset(cols):
+        return
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, project_id, variable_name FROM field_definition "
+                "WHERE field_type = '标签'"
+            )
+        ).all()
+        targets = [
+            (row_id, project_id)
+            for row_id, project_id, variable_name in rows
+            if variable_name is None or not _LABEL_PLACEHOLDER_RE.match(variable_name)
+        ]
+        if not targets:
+            return
+
+        used_by_project: dict = {}
+        for project_id in {project_id for _, project_id in targets}:
+            used_by_project[project_id] = {
+                name
+                for (name,) in conn.execute(
+                    text(
+                        "SELECT variable_name FROM field_definition "
+                        "WHERE project_id = :pid"
+                    ),
+                    {"pid": project_id},
+                )
+                if name is not None
+            }
+
+        count = 0
+        for row_id, project_id in targets:
+            used = used_by_project[project_id]
+            new_name = _generate_unique_label_variable_name(used)
+            conn.execute(
+                text("UPDATE field_definition SET variable_name = :name WHERE id = :id"),
+                {"name": new_name, "id": row_id},
+            )
+            used.add(new_name)
+            count += 1
+
+        if count:
+            logger.info("已为 %d 条标签字段定义重新生成系统 OID", count)
+
+
 
 def _is_form_field_rowid_pk_compatible(engine) -> bool:
     """检查 form_field.id 是否仍是 SQLite 可自动生成的 rowid 主键语义。
@@ -1310,6 +1379,8 @@ def init_db():
     _move_orphan_projects_to_recycle_bin(engine)
 
     _normalize_log_row_presentation(engine)
+
+    _normalize_label_variable_names(engine)
 
     _migrate_add_performance_fk_indexes(engine)
 

@@ -73,6 +73,7 @@ import {
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer';
 import {
+  applyLabelOidTransition,
   buildBindingProfileCommand,
   buildDefinitionPayload,
   buildEditorStateFromSnapshot,
@@ -81,6 +82,8 @@ import {
   buildFormPropState,
   buildInstanceOnlyProfileCommand,
   buildInstanceUpsert,
+  buildLabelOidSession,
+  ensureLabelVariableName,
   normalizeDateFormat,
   normalizeHexColorInput,
   resolveSharedWriteTarget,
@@ -2064,6 +2067,7 @@ const editProp = reactive({
 const fieldPropBaseline = ref(null);
 const isSavingFieldProp = ref(false);
 let isHydratingFieldProp = false;
+let labelOidSession = buildLabelOidSession();
 let fieldPropSaveSession = 0;
 const fieldPropProjectId = ref(props.projectId);
 let lastHydratedFieldPropDraftKey = '';
@@ -2113,6 +2117,20 @@ watch(
     Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
   },
 );
+
+// 字段类型切换（仅用户选择触发）：标签 OID 由系统托管，切入/切出时迁移 OID
+function onDesignerFieldTypeChange(nextType) {
+  const next = applyLabelOidTransition({
+    variableName: editProp.variable_name,
+    session: labelOidSession,
+    previousType: editProp.field_type,
+    nextType,
+    generateVariableName: genFieldVarName,
+  });
+  labelOidSession = next.session;
+  editProp.variable_name = next.variableName;
+  editProp.field_type = nextType;
+}
 
 function getSelectedFormField(fieldId = selectedFieldId.value) {
   if (!fieldId) return null;
@@ -2229,6 +2247,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   selectedDefinitionId.value = null;
   candidateOid.value = null;
   candidateBeforeDefinition = null;
+  labelOidSession = buildLabelOidSession();
   if (!preserveEditor) {
     selectedFieldId.value = null;
     Object.assign(editProp, {
@@ -2268,6 +2287,10 @@ async function saveSelectedFieldProp() {
   if (!selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID || !isFieldPropDirty.value) return true;
   const ff = getSelectedFormField();
   if (!ff) return false;
+  // 标签 OID 由系统托管：空/非法（历史数据）时换成占位值，避免 OID 校验阻塞保存
+  if (editProp.field_type === '标签') {
+    editProp.variable_name = ensureLabelVariableName(editProp.variable_name, genFieldVarName);
+  }
   const snapshot = buildFieldPropSnapshot();
   let sessionId = null;
   isSavingFieldProp.value = true;
@@ -2361,6 +2384,7 @@ watch(currentFieldPropDraftKey, (draftKey) => {
 });
 
 function selectField(ff) {
+  labelOidSession = buildLabelOidSession(ff?.is_log_row ? null : ff?.field_definition);
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
   selectedDefinitionId.value = null;
@@ -2652,10 +2676,16 @@ async function saveDraftField() {
     ElMessage.error('当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型');
     return false;
   }
+  if (!['标签', '日志行'].includes(fd.field_type) && !isValidRequiredOid(fd.variable_name)) {
+    ElMessage.warning(OID_ERROR);
+    return false;
+  }
+  const draftVariableName =
+    fd.field_type === '标签' ? ensureLabelVariableName(fd.variable_name, genFieldVarName) : fd.variable_name;
   // 手输 OID 命中其他现有定义但未明确点击候选：阻止并提示
   const oidConflict = findOidConflict(
     fieldDefs.value.filter(isVisibleInFieldLibrary),
-    fd.variable_name,
+    draftVariableName,
     null,
   );
   if (oidConflict && selectedDefinitionId.value !== oidConflict.id) {
@@ -2665,7 +2695,7 @@ async function saveDraftField() {
   if (isReordering.value) return false;
   const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
   const editorState = {
-    variable_name: fd.variable_name ?? '',
+    variable_name: draftVariableName,
     label: fd.label ?? '',
     field_type: fd.field_type ?? '文本',
     integer_digits: fd.integer_digits ?? null,
@@ -5027,7 +5057,11 @@ function openAddForm() {
                   </el-autocomplete>
                 </el-form-item>
                 <el-form-item label="字段类型">
-                  <el-select v-model="editProp.field_type" style="width: 100%">
+                  <el-select
+                    :model-value="editProp.field_type"
+                    style="width: 100%"
+                    @update:model-value="onDesignerFieldTypeChange"
+                  >
                     <el-option
                       v-for="t in designerAvailableFieldTypes"
                       :key="t.value"

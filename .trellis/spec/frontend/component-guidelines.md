@@ -1046,3 +1046,35 @@ const FormDesigner = defineAsyncComponent(() =>
   branch.
 - `backend/tests/test_field_profile.py` locks insertion at a requested
   `order_index`; backend production code remains unchanged.
+
+## Scenario: FormDesignerTab Label OID Is System-Managed
+
+### 1. Scope / Trigger
+
+- Trigger: changing label (`标签`) field handling in
+  `frontend/src/components/FormDesignerTab.vue` or the label OID helpers in
+  `frontend/src/composables/formDesignerPropertyEditor.js`.
+- A label's `variable_name` is a system placeholder, never user input: labels
+  are hidden from the field library, yet `FieldDefinition` enforces a
+  project-wide unique `variable_name`, so a user OID kept on a label blocks
+  that OID invisibly.
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| The designer type selector is controlled (`:model-value` + `@update:model-value="onDesignerFieldTypeChange"`); the OID transition runs only in that handler | Hydration (`selectField`), candidate picks, and editor resets assign `editProp` directly and must never run the label transition |
+| `selectField` and `resetFieldPropAutoSaveState` rebuild `labelOidSession = buildLabelOidSession(...)` on every (re)selection | The seed comes only from the definition the field was loaded with (a label, or a system-placeholder OID), never from the live editor OID — otherwise a picked library candidate would be re-bound and silently converted into a hidden label |
+| Entering `标签` remembers the current OID and swaps in the session label OID (generating one on first use); leaving restores the remembered value (including `''`) | `文本 → 标签 → 文本` round-trips the typed OID; user OIDs never reach a label payload |
+| `saveSelectedFieldProp` and `saveDraftField` run `ensureLabelVariableName` for labels before building the request; non-label drafts fail fast with `OID_ERROR` | Historical empty/invalid label OIDs must not block saving; non-label OID validation stays client-side |
+| A loaded user-OID field switched to `标签` forks via `create_or_restore`; a loaded placeholder-OID field converts in place via `update_shared` | A named library definition must not silently become a hidden label; forking placeholder conversions would litter the library with orphan definitions |
+
+### 3. Validation
+
+- `frontend/tests/designerLabelOid.test.js` locks the pure helpers, the
+  `buildBindingProfileCommand` routing (round trip / in-place / fork /
+  no-candidate-rebind), and the component wiring (controlled select, session
+  resets, save guards).
+- The placeholder prefix `^FIELD_\d{14}_[A-Z0-9]{6}` is a cross-stack contract
+  with `backend/src/database.py::_LABEL_PLACEHOLDER_RE`; see
+  `.trellis/spec/guides/cross-stack-contracts.md` §10.

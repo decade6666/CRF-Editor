@@ -276,6 +276,26 @@ _resolve_import_code(existing_codes: set[str], source_code: Optional[str], prefi
 
 - `backend/tests/test_import_service.py`: OID preservation / empty-mint / `_IMP` ladder for form, unit, codelist; reuse branches keep target OIDs; double-import does not raise; whitespace strip; non-ASCII passthrough; intra-batch dedup across source projects; pure `test_resolve_import_code_ladder`.
 
+### Scenario: Label OID Startup Normalization
+
+#### 1. Scope / Trigger
+
+- Trigger: touching `_normalize_label_variable_names` or `_LABEL_PLACEHOLDER_RE` in `backend/src/database.py`, or changing how labels (`field_type = '标签'`) receive `variable_name`.
+- Labels are hidden from the field library but still occupy the project-wide `UniqueConstraint(project_id, variable_name)`, so a user-typed OID left on a label blocks that OID invisibly (409 for later fields).
+
+#### 2. Contracts
+
+- `_normalize_label_variable_names(engine)` runs in `init_db()` right after `_normalize_log_row_presentation(engine)`.
+- Placeholder rule `_LABEL_PLACEHOLDER_RE = ^FIELD_\d{14}_[A-Z0-9]{6}` (prefix match) must stay identical to the frontend `SYSTEM_FIELD_VARIABLE_NAME_RE` (cross-stack contract, see cross-stack-contracts §10).
+- Only `field_type = '标签'` rows whose `variable_name` is NULL or fails the rule are rewritten; each new name is `generate_code("FIELD")` drawn until unique within its project (the used-set covers all of the project's OIDs and grows per draw); everything happens in one `engine.begin()` transaction.
+- Idempotent by construction (placeholders match the rule); guards skip a missing table or missing `id`/`project_id`/`variable_name`/`field_type` columns; logs `已为 %d 条标签字段定义重新生成系统 OID` only when rows changed.
+- Labels imported from older templates / project `.db` files keep their source OIDs until the next restart — import paths intentionally do not normalize.
+- Residual risk (accepted): a form's `annotation_positions` may keep a key equal to a released OID; a future field reusing that OID inherits only that vertical offset.
+
+#### 3. Tests Required
+
+- `backend/tests/test_label_variable_name_migration.py`: user-typed label OIDs (`AGE`, `标签A`, `''`, lowercase suffix) re-minted; placeholder / `_copy` / `_IMP2` kept; non-label rows untouched; collision retry via monkeypatched `src.database.generate_code`; idempotent second run; missing table / missing column no-ops; released OID reusable in the same project.
+
 ### Scenario: Adding a New `form_field` Column
 
 #### 1. Scope / Trigger

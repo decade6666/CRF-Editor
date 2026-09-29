@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "FormDesignerTab property editor, draft write-back, explicit save, and copy-draft conventions apply to the label OID wiring."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Editor session state, draft lifecycle, dirty baseline, and designer history semantics must stay intact."}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Field definition visibility contract: labels are hidden from the field library and are designer-only structural elements."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend node:test, lint, build, and forbidden-pattern requirements."}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Section 10 OID/identifier charset scope contract that label OIDs must keep satisfying."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Frontend field-profile commands (update_shared / create_or_restore) depend on backend DefinitionPayload validation and fork semantics."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Lightweight startup migration/normalization pattern and OID copy contract for the label normalization step."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Startup normalization logs the changed row count through the module logger."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend pytest conventions for the new migration test."}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "Task branch, PR-to-main, and no-manual-merge finish path."}
