@@ -31,7 +31,7 @@
 - [x] The workflow syntax check passes. It uses actionlint if obtainable; otherwise a YAML parse plus the contract test, and the report says which. (actionlint could not be executed: the permission system blocked the downloaded binary. YAML parse, contract test, a real-API run of the extracted wait step, and a fake-`gh` simulation passed.)
 - [x] `sync-to-gitee.yml` is deleted, and no live doc references it. History logs under `.context/history/` stay as records.
 - [x] The backend full suite passes (proxy variables unset, as documented in `backend/.claude/CLAUDE.md`). 943 passed / 2 skipped / 4 xfailed.
-- [ ] Live check on this task's own PR: the merge job starts only after the four jobs succeed, waits for gitleaks, and merges the PR; the deleted auto-merge workflow does not run for this PR. Run IDs and timings are reported. If anything else merges the PR, that is reported as a failed check.
+- [x] Live check on this task's own PR: the merge job starts only after the four jobs succeed, waits for gitleaks, and merges the PR; the deleted auto-merge workflow does not run for this PR. Run IDs and timings are reported. If anything else merges the PR, that is reported as a failed check. Verified on PR #89 (run 36564034189): four jobs success 11:48:44–11:50:12Z, merge job 11:50:21–11:50:28Z after `gitleaks on 6e6d48f…: success`, merged 11:50:26Z by `app/github-actions` (merge commit 99f536c); the deleted workflows never ran for the PR. Second pass on PR #90 (run 36564626819): `gitleaks on e4ed92b…: success`, merged 11:55:53Z by `app/github-actions` (merge commit 68619f2). Nothing else merged either PR.
 
 ## Out of Scope
 
