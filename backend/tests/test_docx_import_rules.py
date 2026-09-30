@@ -206,6 +206,42 @@ def test_date_time_preserves_hh_mm_ss() -> None:
 
 
 
+def test_date_time_hour_only_detected_from_exported_placeholder() -> None:
+    text = "|__|__|__|__|年|__|__|月|__|__|日  |__|__|时"
+
+    field_type, config = M._detect_field_type(text)
+
+    assert field_type == "日期时间"
+    assert config == {"date_format": "yyyy-MM-dd HH"}
+
+
+
+def test_hour_only_time_detected_from_exact_cell() -> None:
+    field_type, config = M._detect_field_type("|__|__|时")
+
+    assert field_type == "时间"
+    assert config == {"date_format": "HH"}
+
+
+
+def test_hour_with_unit_label_stays_numeric() -> None:
+    field_type, config = M._detect_field_type("|__|__|小时")
+
+    assert field_type == "数值"
+    assert config == {"integer_digits": 2, "decimal_digits": 0}
+
+
+
+def test_vertical_layout_date_with_hour_stays_date() -> None:
+    text = "|__|__|__|__|年|__|__|月|__|__|日\n|__|__|时"
+
+    field_type, config = M._detect_field_type(text)
+
+    assert field_type == "日期"
+    assert config == {"date_format": "yyyy-MM-dd"}
+
+
+
 def test_build_choice_options_marks_description_fields() -> None:
     options = M._build_choice_options("○汉族  ○其他民族______", "○")
 

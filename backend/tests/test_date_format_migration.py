@@ -1,6 +1,8 @@
 """_migrate_normalize_date_formats 与离线脚本的规范化/幂等/保真测试。"""
 
+import re
 import sqlite3
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -86,13 +88,47 @@ def test_migration_skips_missing_table():
     _migrate_normalize_date_formats(engine)  # 不抛异常
 
 
+def test_migrates_legacy_uppercase_hour_format_and_keeps_hour_only_values(engine):
+    with engine.begin() as conn:
+        _seed(conn, [
+            {"id": 1, "field_type": "日期时间", "date_format": "YYYY-MM-DD HH"},
+            {"id": 2, "field_type": "时间", "date_format": "HH"},
+            {"id": 3, "field_type": "时间", "date_format": "hh AP"},
+        ])
+
+    _migrate_normalize_date_formats(engine)
+    _migrate_normalize_date_formats(engine)
+
+    with engine.begin() as conn:
+        assert _dump(conn) == [
+            (1, "日期时间", "yyyy-MM-dd HH"),
+            (2, "时间", "HH"),
+            (3, "时间", "hh AP"),
+        ]
+
+
+def _read_frontend_date_format_options():
+    """从前端共享模块 dateFormatOptions.js 解析 DATE_FORMAT_OPTIONS（唯一事实来源）。"""
+    repo_root = Path(__file__).resolve().parents[2]
+    source = (repo_root / "frontend" / "src" / "composables" / "dateFormatOptions.js").read_text(
+        encoding="utf-8"
+    )
+    body_match = re.search(r"export const DATE_FORMAT_OPTIONS = \{(.*?)\n\}", source, re.S)
+    assert body_match, "dateFormatOptions.js 缺少 DATE_FORMAT_OPTIONS 导出"
+    options = {}
+    # 键名交替按最长优先（日期时间 先于 日期），避免前缀键误吞
+    for key, list_body in re.findall(
+        r"['\"]?(日期时间|日期|时间)['\"]?\s*:\s*\[(.*?)\]", body_match.group(1), re.S
+    ):
+        options[key] = re.findall(r"['\"]([^'\"]+)['\"]", list_body)
+    assert set(options) == {"日期", "日期时间", "时间"}, f"前端选项键不符: {sorted(options)}"
+    assert all(options.values()), "前端选项列表存在空列表"
+    return options
+
+
 def test_canonical_map_covers_frontend_option_lists():
-    # 与前端 FormDesignerTab.vue 的 DATE_FORMAT_OPTIONS 逐项对齐
-    frontend_options = {
-        "日期": ["yyyy-MM-dd", "MM/dd/yyyy", "dd/MMM/yyyy", "dd-MMM-yyyy", "yyyy/MM/dd"],
-        "日期时间": ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm:ss", "dd/MM/yyyy HH:mm:ss"],
-        "时间": ["HH:mm:ss", "HH:mm", "hh:mm:ss AP", "hh:mm AP"],
-    }
+    # 与前端 dateFormatOptions.js 的 DATE_FORMAT_OPTIONS 逐项对齐
+    frontend_options = _read_frontend_date_format_options()
     for field_type, opts in frontend_options.items():
         lowered = {opt.lower(): opt for opt in opts}
         assert len(lowered) == len(opts), f"{field_type} 选项小写后存在重复，映射表会冲突"

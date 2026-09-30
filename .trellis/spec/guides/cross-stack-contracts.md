@@ -55,6 +55,12 @@ to a sub-line width by long sibling columns. Both ends apply it inside the same
 preview and export agree on column shares. `normal` and `unified` tables keep
 their own protections (`max(weight, WEIGHT_ASCII * 4)`) and are NOT affected.
 
+For `日期` / `日期时间` / `时间` fields, the **control weight is the weight of the
+rendered placeholder text on both sides** (`render_date_time_placeholder` in
+`field_rendering.py` ↔ `renderCtrl` in `useCRFRenderer.js`), so per-format changes
+(e.g. hour-only `HH` / `yyyy-MM-dd HH`) automatically re-plan the control column —
+see §12 for the format-option contract.
+
 **Contract Rules**:
 1. Any change to weight constants must update both files
 2. New test cases must be added to shared fixture (regenerate via `frontend/scripts/generatePlannerFixtures.mjs`)
@@ -721,6 +727,48 @@ RecycleBinSizeUnit = {"MB", "GB"}
 - [ ] Keep error mapping path-free when touching `template_fields.py`
 - [ ] Run backend tests: `backend/tests/test_template_field_index.py`
 - [ ] Run frontend tests: `frontend/tests/templateFieldSearch.test.js`
+---
+### 13. Date/Time Format Options
+
+**Contract ID**: `date-time-format-options`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **File** | `backend/src/database.py` (`_DATE_FORMAT_CANONICALS`), `backend/src/services/field_rendering.py`, `backend/src/services/export_service.py`, `backend/src/services/docx_import_service.py` (`_detect_field_type`) | `frontend/src/composables/dateFormatOptions.js`, `frontend/src/components/FieldsTab.vue`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/composables/useCRFRenderer.js` |
+| **Purpose** | Normalize stored formats, render export placeholders, detect formats on Word import | Single option-list source, preview placeholders, editor normalization |
+| **Validation** | `backend/tests/test_date_format_migration.py`, `backend/tests/test_date_time_placeholder.py`, `backend/tests/test_docx_import_rules.py` | `frontend/tests/dateTimeHourFormat.test.js` |
+
+**Shared Option Lists** (`dateFormatOptions.js` is the single source; the backend contract test parses this file with a regex — keep the literal `key: ['…']` shape):
+
+- 日期: `yyyy-MM-dd`, `MM/dd/yyyy`, `dd/MMM/yyyy`, `dd-MMM-yyyy`, `yyyy/MM/dd`
+- 日期时间: `yyyy-MM-dd HH:mm:ss`, `yyyy-MM-dd HH:mm`, `yyyy-MM-dd HH`, `yyyy/MM/dd HH:mm:ss`, `dd/MM/yyyy HH:mm:ss`
+- 时间: `HH:mm:ss`, `HH:mm`, `HH`, `hh:mm:ss AP`, `hh:mm AP`, `hh AP`
+- Defaults stay 日期 `yyyy-MM-dd` / 日期时间 `yyyy-MM-dd HH:mm` / 时间 `HH:mm`.
+
+**Placeholder parity** (preview `renderCtrl` ↔ export `render_date_time_placeholder`):
+
+| field_type | date_format | Preview | Export |
+|---|---|---|---|
+| 日期时间 | `yyyy-MM-dd HH` | `\|__\|__\|__\|__\|年\|__\|__\|月\|__\|__\|日  \|__\|__\|时` | same |
+| 时间 | `HH` | `\|__\|__\|时` | same |
+| 时间 | `hh AP` | `\|__\|__\|时  AP` | `\|__\|__\|时` |
+
+Precision resolution (`resolve_time_precision`): `ss` (case-insensitive) → second; standalone `h`/`hh` token → hour; otherwise minute (legacy fallback).
+
+**Contract Rules**:
+1. Adding/changing a date-format option must update `dateFormatOptions.js`, the backend `_DATE_FORMAT_CANONICALS` map (lowercase key → canonical spelling), and both contract tests together.
+2. Word import recognizes hour-only placeholders strictly: `…日  |__|__|时` (regex `日\s*\|__\|__\|时$`) → 日期时间 `yyyy-MM-dd HH`; a cell that is exactly `|__|__|时` → 时间 `HH`; `|__|__|小时` stays 数值. 12-hour formats cannot be detected because the export omits `AP`.
+3. Control weights for 日期 / 日期时间 / 时间 equal the weight of the exported placeholder text on both stacks (§1); accepted consequence: seconds-precision exports get slightly wider control columns than the pre-hour-format constants.
+4. **Accepted AP gap**: 12-hour formats render `  AP` in preview but not in the Word export (`hh AP`: preview 13 / export 9); the export also always prints 年月日 order regardless of the date pattern. Both gaps are documented, accepted divergences.
+5. Copy / project `.db` import / template import pass `date_format` through verbatim; stored values change only via the idempotent case normalization at startup.
+
+**Synchronization Checklist**:
+- [ ] Update `dateFormatOptions.js` (single literal source) — no local copies in `FieldsTab.vue` / `FormDesignerTab.vue`
+- [ ] Update `_DATE_FORMAT_CANONICALS` and let `test_canonical_map_covers_frontend_option_lists` re-parse the JS module
+- [ ] Keep `render_date_time_placeholder` / `resolve_time_precision` byte-equivalent with `renderCtrl` output for every listed format
+- [ ] Regenerate `planner_cases.json` via `frontend/scripts/generatePlannerFixtures.mjs` when placeholder text changes (diff must only add cases)
+- [ ] Run `backend/tests/test_date_time_placeholder.py test_date_format_migration.py test_docx_import_rules.py test_width_planning.py test_export_service.py`
+- [ ] Run `frontend/tests/dateTimeHourFormat.test.js` and `frontend/tests/columnWidthPlanning.test.js`
 
 ---
 

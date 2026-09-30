@@ -13,6 +13,7 @@ import { countDistinctForms, formatFieldImpactMessage } from '../composables/fie
 import { OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
+import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -33,13 +34,6 @@ const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单
 const availableFieldTypes = computed(() =>
   buildFieldTypeOptions(fieldTypes, projectDbType.value, editProp.field_type)
 )
-
-const DATE_FORMAT_OPTIONS = {
-  '日期': ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
-  '日期时间': ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm', 'yyyy/MM/dd HH:mm:ss', 'dd/MM/yyyy HH:mm:ss'],
-  '时间': ['HH:mm:ss', 'HH:mm', 'hh:mm:ss AP', 'hh:mm AP'],
-}
-const DEFAULT_DATE_FORMATS = { '日期': 'yyyy-MM-dd', '日期时间': 'yyyy-MM-dd HH:mm', '时间': 'HH:mm' }
 
 watch(() => editProp.field_type, (newType) => {
   Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))

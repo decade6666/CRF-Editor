@@ -85,13 +85,13 @@ const rareCjkField = () => ({
   field_definition: { field_type: '文本', label: '𠮷吉' },
 })
 
-const dateField = (label, dateFormat = 'yyyy-MM-dd') => ({
+const dateField = (label, dateFormat = 'yyyy-MM-dd', fieldType = '日期') => ({
   label_override: null,
   is_log_row: 0,
   inline_mark: 0,
   default_value: null,
   field_definition: {
-    field_type: '日期',
+    field_type: fieldType,
     label,
     date_format: dateFormat,
     options: null,
@@ -140,6 +140,30 @@ const cases = [
     kind: 'normal',
     description: '复选控件按 □ + 自定义文本权重参与两列分配',
     fields: [checkboxField('确认状态', '已阅读并确认受试者知情同意书')],
+  },
+  {
+    name: 'normal_time_hour_only_control_weight',
+    kind: 'normal',
+    description: '时间 HH 仅到小时 → 控件权重 = 导出占位文本 |__|__|时',
+    fields: [dateField('采样时间', 'HH', '时间')],
+  },
+  {
+    name: 'normal_datetime_hour_only_control_weight',
+    kind: 'normal',
+    description: '日期时间 yyyy-MM-dd HH 仅到小时 → 控件权重 = 日期占位 + 时',
+    fields: [dateField('访视日期时间', 'yyyy-MM-dd HH', '日期时间')],
+  },
+  {
+    name: 'normal_time_seconds_control_weight',
+    kind: 'normal',
+    description: '时间 HH:mm:ss → 控件权重按秒级占位文本（D3 秒级锚点）',
+    fields: [dateField('记录时间', 'HH:mm:ss', '时间')],
+  },
+  {
+    name: 'normal_datetime_seconds_control_weight',
+    kind: 'normal',
+    description: '日期时间 yyyy-MM-dd HH:mm:ss → 控件权重按秒级占位文本（D3 秒级锚点）',
+    fields: [dateField('用药日期时间', 'yyyy-MM-dd HH:mm:ss', '日期时间')],
   },
 
   // ── inline ──
@@ -227,6 +251,19 @@ const cases = [
       {
         type: 'regular_field',
         fields: [dateField('测量日期', 'yyyy-MM-dd')],
+      },
+    ],
+  },
+  {
+    name: 'unified_regular_datetime_hour_control_weight_spans_value_columns',
+    kind: 'unified',
+    columnCount: 7,
+    description:
+      'regular_field 日期时间控件（仅到小时）：label 权重分摊到前 3 列，含「时」占位符权重分摊到后 4 列',
+    segments: [
+      {
+        type: 'regular_field',
+        fields: [dateField('访视日期时间', 'yyyy-MM-dd HH', '日期时间')],
       },
     ],
   },

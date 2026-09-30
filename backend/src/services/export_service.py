@@ -143,6 +143,7 @@ from src.services.field_rendering import (
     build_inline_column_demands,
     build_inline_table_model,
     extract_default_lines,
+    render_date_time_placeholder,
     resolve_checkbox_label,
 )
 
@@ -3398,29 +3399,9 @@ class ExportService:
 
             return self._render_multi_choice_vertical(field_def)
 
-        elif field_type == "日期":
+        elif field_type in ("日期", "日期时间", "时间"):
 
-            return "|__|__|__|__|年|__|__|月|__|__|日"
-
-        elif field_type == "日期时间":
-
-            fmt = (getattr(field_def, "date_format", "") or "").lower()
-
-            if "ss" in fmt:
-
-                return "|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分|__|__|秒"
-
-            return "|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分"
-
-        elif field_type == "时间":
-
-            fmt = (getattr(field_def, "date_format", "") or "").lower()
-
-            if "ss" in fmt:
-
-                return "|__|__|时|__|__|分|__|__|秒"
-
-            return "|__|__|时|__|__|分"
+            return render_date_time_placeholder(field_type, getattr(field_def, "date_format", None))
 
         elif field_type == "数值":
 
