@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Width-planning synchronization checklist and fixture rules to verify"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality gates (node:test, lint, build, source-level guards)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gates (pytest, test placement)"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Single source for the date format option list; no duplicated placeholder strings"}
