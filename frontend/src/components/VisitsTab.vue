@@ -41,9 +41,8 @@ import {
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
-  renderCtrl,
   renderCtrlHtml,
-  toHtml,
+  renderCtrlTextHtml,
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
 import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
@@ -446,11 +445,11 @@ function getInlineRows(fields, fillCharsByCol = null) {
       return {
         lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(toRendererField(ff.field_definition), fillChars)),
+        fallback: renderCtrlTextHtml(toRendererField(ff.field_definition), fillChars),
       }
     }
     // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom）；
-    // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
+    // 非选项类等价于 renderCtrlTextHtml（自动生成填写线带视觉宽度上限）。与 TemplatePreviewDialog 保持一致。
     const ctrl = renderCtrlHtml(toRendererField(ff.field_definition), fillChars)
     return { lines: [ctrl], repeat: true, fallback: ctrl }
   })

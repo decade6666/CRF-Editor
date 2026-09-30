@@ -207,6 +207,8 @@ def test_export_inline_text_fill_line_scales_with_column_width(
         assert text and set(text) == {"_"}, f"应为纯下划线填写线: {text!r}"
         assert "\n" not in text
         assert FILL_LINE_MIN_CHARS <= len(text) <= FILL_LINE_MAX_CHARS
+        # 用户定标上限（2026-09-30）：inline 表导出文本填写线固定不超过 20 根
+        assert len(text) <= 20
     # 宽列填写线明显长于窄列（自适应，而非旧的固定 16）
     assert len(wide_cell) > len(narrow_cell)
 

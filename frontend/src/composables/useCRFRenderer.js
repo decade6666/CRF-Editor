@@ -31,10 +31,15 @@ const UNDERSCORE_CHAR_CM = 0.19   // 10.5pt 半角 '_' 物理步进宽度近似
 const CELL_HPAD_CM = 0.4          // 单元格左右内边距合计保守估计
 const FILL_LINE_SAFETY_CM = 0.2   // 额外安全余量，确保绝不换行
 const FILL_LINE_MIN_CHARS = 6     // 根数下限
-const FILL_LINE_MAX_CHARS = 80    // 根数上限
+const FILL_LINE_MAX_CHARS = 20    // 根数上限（用户定标 2026-09-30，超宽列不再加长）
 // 跨栈一致性 epsilon：吸收前后端列宽的 ULP 级浮点差异，必须与后端同名同值。
 const FILL_LINE_EPSILON = 1e-9
 const LEGACY_FILL_LINE = '________________'  // 旧固定 16 根（未接入列宽时回退）
+// 自动生成填写线的预览视觉宽度上限（em）：与根数上限对应（每根 ≈ 0.5em）。
+// 仅经由 renderCtrlHtml 作用于自动生成的首个填写线 span，用于截停 .word-page
+// 预览「整格唯一内容 flex 拉满」（main.css C-01 相邻规则）场景的可见线长；
+// 直连 toHtml 的用户手输下划线（默认值等）不受此上限约束。
+const GENERATED_FILL_LINE_MAX_WIDTH_EM = FILL_LINE_MAX_CHARS * 0.5
 
 /**
  * 根据列宽（厘米）估算填写线下划线根数。
@@ -362,11 +367,14 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
 }
 
-function buildFillLineHtml(length = 20, minLength = 4) {
+function buildFillLineHtml(length = 20, minLength = 4, maxWidthEm = 0) {
   const numericLength = Number(length)
   const safeLength = Math.max(minLength, Number.isFinite(numericLength) ? numericLength : 20)
   const minWidth = (safeLength * 0.5).toFixed(1)
-  return `<span class="fill-line" style="min-width:${minWidth}em"></span>`
+  const numericMax = Number(maxWidthEm)
+  const maxStyle =
+    Number.isFinite(numericMax) && numericMax > 0 ? `max-width:${numericMax.toFixed(1)}em;` : ''
+  return `<span class="fill-line" style="${maxStyle}min-width:${minWidth}em"></span>`
 }
 
 function resolveCheckboxText(field) {
@@ -442,13 +450,20 @@ function renderChoiceHtml(fieldType, rawOptions) {
   }).join(separator)}</span>`
 }
 
-export function toHtml(text) {
+export function toHtml(text, options = null) {
   if (!text) return ''
   // 转义 HTML 特殊字符（防止 XSS），保留换行
   const escaped = escapeHtml(text)
   // 将连续 4 个或以上的下划线替换为 border-bottom span
   // 每个 _ 约 0.5em 宽度
-  const html = escaped.replace(/_{4,}/g, (match) => buildFillLineHtml(match.length))
+  // options.fillLineMaxWidthEm > 0 时仅约束首个（自动生成的整格）填写线的视觉宽度；
+  // 后续下划线段来自用户内容（单位等），保持原样不设上限
+  let runIndex = 0
+  const maxEm = Number(options?.fillLineMaxWidthEm) || 0
+  const html = escaped.replace(/_{4,}/g, (match) => {
+    runIndex += 1
+    return buildFillLineHtml(match.length, 4, runIndex === 1 ? maxEm : 0)
+  })
   // 将紧跟在 fill-line span 之后的单位/文字包裹为 vertical-align:bottom 的 span
   // 使单位与填写线底边对齐，避免 inline-block 撑高行框导致单位偏上
   const aligned = html.replace(
@@ -477,7 +492,18 @@ export function renderCtrlHtml(field, fillLineChars = null) {
   if (isChoiceField(field.field_type)) {
     return renderChoiceHtml(field.field_type, field.options)
   }
-  return toHtml(renderCtrl(field, fillLineChars))
+  return renderCtrlTextHtml(field, fillLineChars)
+}
+
+/**
+ * 纯文本形态的生成控件 HTML（选项类字段也走 renderCtrl 文本输出，如 inline
+ * 多行默认值回退的按行拆分场景），与 renderCtrlHtml 携带同一自动填写线视觉上限；
+ * 直连 toHtml 的用户默认值路径不传该选项，手输下划线保持原样。
+ */
+export function renderCtrlTextHtml(field, fillLineChars = null) {
+  return toHtml(renderCtrl(field, fillLineChars), {
+    fillLineMaxWidthEm: GENERATED_FILL_LINE_MAX_WIDTH_EM,
+  })
 }
 
 /**

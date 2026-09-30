@@ -30,7 +30,7 @@ UNDERSCORE_CHAR_CM = 0.19   # 10.5pt 半角 '_' 的物理步进宽度近似（�
 CELL_HPAD_CM = 0.4          # 单元格左右内边距合计保守估计（Word 默认 ≈0.38cm）
 FILL_LINE_SAFETY_CM = 0.2   # 额外安全余量，确保绝不换行
 FILL_LINE_MIN_CHARS = 6     # 根数下限：避免窄列出现 0 根（与旧最短填写线语义一致）
-FILL_LINE_MAX_CHARS = 80    # 根数上限：防御异常超宽列
+FILL_LINE_MAX_CHARS = 20    # 根数上限：用户定标（2026-09-30），超宽列不再加长（≈20×0.19=3.8cm）
 # 跨栈一致性 epsilon：吸收前后端列宽（fraction × available_cm）的 ULP 级浮点差异，
 # 避免边界处前端 Math.floor 与后端取整相差 1 根。必须与前端同名同值。
 FILL_LINE_EPSILON = 1e-9
