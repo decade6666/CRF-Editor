@@ -63,8 +63,8 @@ import {
 import { useAcrfAnnotationDrag } from '../composables/useAcrfAnnotationDrag.js';
 import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js';
 import {
-  renderCtrl as renderCtrlBase,
   renderCtrlHtml,
+  renderCtrlTextHtml,
   toHtml,
   isChoiceField,
   isDefaultValueSupported,
@@ -1359,21 +1359,6 @@ function selectAutocompleteCandidate(item) {
 }
 
 // 渲染逻辑
-function renderCtrl(fd, fillLineChars = null) {
-  if (!fd) return '________________';
-  const field = {
-    field_type: fd.field_type,
-    label: fd.label,
-    checkbox_label: fd.checkbox_label,
-    options: fd.codelist?.options || [],
-    unit_symbol: fd.unit?.symbol,
-    integer_digits: fd.integer_digits,
-    decimal_digits: fd.decimal_digits,
-    date_format: fd.date_format,
-  };
-  return renderCtrlBase(field, fillLineChars);
-}
-
 function getPreviewField(ff) {
   if (!ff?.field_definition) return null;
   return {
@@ -1435,11 +1420,11 @@ function getInlineRows(fields, fillCharsByCol = null) {
       return {
         lines: lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
         repeat: false,
-        fallback: toHtml(renderCtrl(ff.field_definition, fillChars)),
+        fallback: renderCtrlTextHtml(getPreviewField(ff), fillChars),
       };
     }
     // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），
-    // 非选项类等价于 toHtml(renderCtrl(...))。与 TemplatePreviewDialog 保持一致。
+    // 非选项类等价于 renderCtrlTextHtml（自动生成填写线带视觉宽度上限）。与 TemplatePreviewDialog 保持一致。
     const ctrl = renderCtrlHtml(getPreviewField(ff), fillChars);
     return { lines: [ctrl], repeat: true, fallback: ctrl };
   });

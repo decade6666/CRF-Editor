@@ -33,7 +33,17 @@ def test_count_grows_with_column_width() -> None:
 
 
 def test_count_caps_at_max_chars() -> None:
+    # 用户定标（2026-09-30）：根数上限固定 20 根（≈20×0.19=3.8cm），超宽列不再加长
+    assert FILL_LINE_MAX_CHARS == 20
+    assert compute_fill_line_char_count(1000.0) == 20
     assert compute_fill_line_char_count(1000.0) == FILL_LINE_MAX_CHARS
+
+
+def test_count_reaches_cap_at_boundary_and_keeps_formula_below() -> None:
+    # 上限边界：列宽 ≥ 4.4cm（(4.4-0.6)/0.19=20）后不再加长；窄列仍按公式给 19
+    assert compute_fill_line_char_count(4.4) == FILL_LINE_MAX_CHARS
+    assert compute_fill_line_char_count(4.39) == 19
+    assert compute_fill_line_char_count(4.3) == 19
 
 
 def test_never_wraps_physical_width_within_column() -> None:
@@ -44,9 +54,11 @@ def test_never_wraps_physical_width_within_column() -> None:
 
 
 def test_float_boundary_matches_frontend_math_floor() -> None:
-    # 跨栈边界：column_cm=8.77 时前端 Math.floor 得 43；
-    # 后端必须用 math.floor(+epsilon) 取得同值（Python float `//` 会误得 42）。
-    assert compute_fill_line_char_count(8.77) == 43
+    # 跨栈边界（上限以内）：column_cm=3.83 时 raw=16.999…，前端 Math.floor(+epsilon) 得 17；
+    # 后端必须用 math.floor(+epsilon) 取得同值（Python float `//` 会误得 16）。
+    assert compute_fill_line_char_count(3.83) == 17
+    # 旧边界样例 8.77（raw 43）超过新上限，现被钳到 20
+    assert compute_fill_line_char_count(8.77) == FILL_LINE_MAX_CHARS
 
 
 def test_typical_portrait_control_column_is_wider_than_legacy_16() -> None:

@@ -267,6 +267,9 @@ def test_export_text_field_fill_line_scales_with_column_width(
     assert fill_cell_text == "_" * expected
     assert expected > 16
     assert "\n" not in fill_cell_text
+    # 用户定标上限（2026-09-30）：normal 表导出文本填写线固定为 20 根（宽列钳制）
+    assert expected == 20
+    assert len(fill_cell_text) <= 20
 
 
 
