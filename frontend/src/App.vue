@@ -22,6 +22,7 @@ import {
   Plus,
   Rank,
   RefreshRight,
+  Search,
   Setting,
   Sunny,
   UploadFilled,
@@ -53,6 +54,7 @@ const CodelistsTab = defineAsyncComponent(() => import('./components/CodelistsTa
 const UnitsTab = defineAsyncComponent(() => import('./components/UnitsTab.vue'));
 const DocxCompareDialog = defineAsyncComponent(() => import('./components/DocxCompareDialog.vue'));
 const TemplatePreviewDialog = defineAsyncComponent(() => import('./components/TemplatePreviewDialog.vue'));
+const TemplateFieldSearchDialog = defineAsyncComponent(() => import('./components/TemplateFieldSearchDialog.vue'));
 
 // 登录状态
 const isCheckingAuth = ref(!!localStorage.getItem('crf_token'));
@@ -626,6 +628,24 @@ const hasOpenedTemplatePreview = ref(false);
 const templatePreviewFormId = ref(null);
 const templatePreviewFormName = ref('');
 
+// 模板字段查询（非模态、可拖拽；关闭后保留关键词与结果，会话内仅首次加载）
+const showTemplateFieldSearch = ref(false);
+const hasOpenedTemplateFieldSearch = ref(false);
+
+async function openTemplateFieldSearch() {
+  hasOpenedTemplateFieldSearch.value = true;
+  if (showTemplateFieldSearch.value) {
+    // 已打开时先关再开：重新获取顶层 z-index，让面板回到后开的全屏设计器之上
+    showTemplateFieldSearch.value = false;
+    await nextTick();
+  }
+  showTemplateFieldSearch.value = true;
+}
+
+watch(editMode, (enabled) => {
+  if (!enabled) showTemplateFieldSearch.value = false;
+});
+
 // 将后端返回的项目+表单数据转换为 el-tree 所需格式
 function buildImportTreeData(projects) {
   return projects.map((p) => ({
@@ -1135,6 +1155,16 @@ function startResize(e) {
           ><el-icon aria-hidden="true"><Setting /></el-icon
         ></el-button>
         <el-button
+          v-if="editMode"
+          class="header-icon-btn"
+          text
+          circle
+          aria-label="模板字段查询"
+          title="模板字段查询"
+          @click="openTemplateFieldSearch"
+          ><el-icon aria-hidden="true"><Search /></el-icon
+        ></el-button>
+        <el-button
           class="header-icon-btn"
           text
           circle
@@ -1278,7 +1308,12 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane label="表单" name="designer">
               <div v-if="isTabActivated('designer')" class="content-inner">
-                <FormDesignerTab ref="formDesignerTabRef" :project-id="selectedProject.id" @import-template="openImportDialog" />
+                <FormDesignerTab
+                  ref="formDesignerTabRef"
+                  :project-id="selectedProject.id"
+                  @import-template="openImportDialog"
+                  @open-template-field-search="openTemplateFieldSearch"
+                />
               </div>
             </el-tab-pane>
             <el-tab-pane label="访视" name="visits">
@@ -1365,6 +1400,9 @@ function startResize(e) {
       :form-id="templatePreviewFormId"
       :form-name="templatePreviewFormName"
     />
+
+    <!-- 模板字段查询对话框 -->
+    <TemplateFieldSearchDialog v-if="hasOpenedTemplateFieldSearch" v-model="showTemplateFieldSearch" />
 
     <!-- 导入Word弹窗 -->
     <el-dialog v-model="showImportWordDialog" title="导入Word" width="620px" :close-on-click-modal="false">
