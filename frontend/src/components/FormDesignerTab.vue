@@ -108,6 +108,7 @@ import {
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
   getFormFieldLabelPreviewStyle,
+  getFormFieldListLabel,
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
@@ -4207,7 +4208,7 @@ function openAddForm() {
                       ><span class="ff-var-name">{{ ff.field_definition?.variable_name || '' }}</span></el-tooltip
                     ><span v-else class="ff-var-name" aria-hidden="true"></span></template
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
-                    getFormFieldDisplayLabel(ff)
+                    getFormFieldListLabel(ff)
                   }}</span
                   ><el-tag v-if="isDraftField(ff)" size="small" type="success" effect="plain" style="margin-left: 4px"
                     >未保存</el-tag
