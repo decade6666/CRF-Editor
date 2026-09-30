@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Use project frontend tests, lint and review conventions for the designer fix"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace log-row source, persistence, API and display contracts before changing one layer"}

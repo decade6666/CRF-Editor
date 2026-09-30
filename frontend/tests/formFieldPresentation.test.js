@@ -12,6 +12,7 @@ import {
   getFormFieldStructurePreviewStyle,
   getFormFieldTextColorStyle,
   getFormFieldLabelPreviewStyle,
+  getFormFieldListLabel,
   isFormFieldLabelBold,
   getFormFieldLabelFontSizeStyle,
 } from '../src/composables/formFieldPresentation.js';
@@ -68,6 +69,59 @@ test('list and preview labels both prefer label_override', () => {
   assert.equal(getFormFieldDisplayLabel(field), '快捷编辑标签');
   assert.equal(getFormFieldTextColorStyle(field), 'color:#112233');
   assert.equal(getFormFieldPreviewStyle(field), 'background:#FFEEDD;color:#112233');
+});
+
+test('list label falls back to log row default text for an imported log row with empty label', () => {
+  // Word 导入的 log 行实例：is_log_row=1、label_override 为 NULL 且无字段定义
+  const importedLogRow = createField({ is_log_row: 1, label_override: null, field_definition: null });
+
+  assert.equal(getFormFieldListLabel(importedLogRow), '以下为log行');
+});
+
+test('list label falls back to log row default text when label_override is an empty string', () => {
+  const logRow = createField({ is_log_row: 1, label_override: '', field_definition: null });
+
+  assert.equal(getFormFieldListLabel(logRow), '以下为log行');
+});
+
+test('list label keeps a non-empty log row label_override over the default text', () => {
+  const logRow = createField({ is_log_row: 1, label_override: '随访记录', field_definition: null });
+
+  assert.equal(getFormFieldListLabel(logRow), '随访记录');
+});
+
+test('ordinary field list label keeps the definition label without the log row fallback', () => {
+  const field = createField();
+
+  assert.equal(getFormFieldListLabel(field), '默认标签');
+});
+
+test('ordinary field resolving to an empty label stays empty in the list', () => {
+  // 回退仅适用于 log 行：普通字段标签为空时列表仍显示空
+  const field = createField({ label_override: null, field_definition: { label: '', field_type: '文本' } });
+
+  assert.equal(getFormFieldListLabel(field), '');
+});
+
+test('list label falls back to log row default text when the definition type is 日志行', () => {
+  // 定义类型为「日志行」且覆盖/定义标签均为空时同样回退（isLogRowField 的定义类型分支）
+  const logRow = createField({ label_override: null, field_definition: { label: '', field_type: '日志行' } });
+
+  assert.equal(getFormFieldListLabel(logRow), '以下为log行');
+});
+
+test('designer field list renders ff labels through the log-row-aware list label helper', () => {
+  // 设计器左侧字段列表的行标签必须走 getFormFieldListLabel（log 行空标签回退「以下为log行」），
+  // 与右侧预览一致；预览 / 属性卡等其他 call site 保持 getFormFieldDisplayLabel 不变
+  assert.match(
+    formDesignerSource,
+    /<span class="ff-label" :style="getFormFieldTextColorStyle\(ff\)">\{\{\s*getFormFieldListLabel\(ff\)\s*\}\}<\/span/,
+  );
+  assert.equal(countMatches(formDesignerSource, /getFormFieldListLabel\(ff\)/g), 1);
+  assert.match(
+    formDesignerSource,
+    /import \{[^}]*getFormFieldListLabel[^}]*\} from '\.\.\/composables\/formFieldPresentation';/,
+  );
 });
 
 test('preview style falls back to unified structural gray matching Word export when no bg_color is set', () => {
