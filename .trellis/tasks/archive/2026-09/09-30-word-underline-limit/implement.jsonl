@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend conventions for Word export and tests"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend preview conventions and regression scope"}
+{"file": ".trellis/tasks/09-30-word-underline-limit/research/backend-underline.md", "reason": "Backend export paths, 6-to-80 clamp, and existing regressions"}
+{"file": ".trellis/tasks/09-30-word-underline-limit/research/frontend-underline.md", "reason": "Frontend preview flex-fill behavior, rendering scope, and tests"}
