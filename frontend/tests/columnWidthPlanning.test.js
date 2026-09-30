@@ -42,6 +42,14 @@ const visitsSource = readFileSync(
   path.resolve(currentDir, '../src/components/VisitsTab.vue'),
   'utf8',
 )
+const formDesignerSource = readFileSync(
+  path.resolve(currentDir, '../src/components/FormDesignerTab.vue'),
+  'utf8',
+)
+const rendererSource = readFileSync(
+  path.resolve(currentDir, '../src/composables/useCRFRenderer.js'),
+  'utf8',
+)
 
 const UNDERSCORE_CHAR_CM = 0.19
 const CELL_HPAD_CM = 0.4
@@ -131,13 +139,19 @@ test('9.3d fill-line estimator: 6 个下划线映射为 3.0em', () => {
   assert.match(toHtml('________________'), /min-width:8\.0em/)
 })
 
-test('9.3e computeFillLineCharCount: 随列宽单调增长并夹在 [6, 80]', () => {
+test('9.3e computeFillLineCharCount: 随列宽单调增长并夹在 [6, 20]', () => {
   assert.equal(computeFillLineCharCount(0), 6)
   assert.equal(computeFillLineCharCount(-5), 6)
-  assert.equal(computeFillLineCharCount(1000), 80)
+  // 用户定标上限 20（2026-09-30）：超宽列不再加长
+  assert.equal(computeFillLineCharCount(1000), 20)
   assert.ok(computeFillLineCharCount(9.0) > computeFillLineCharCount(4.0))
-  // 跨栈边界：与后端 compute_fill_line_char_count(8.77) == 43 逐位一致
-  assert.equal(computeFillLineCharCount(8.77), 43)
+  // 跨栈边界（上限以内）：与后端 compute_fill_line_char_count(3.83) == 17 逐位一致
+  assert.equal(computeFillLineCharCount(3.83), 17)
+  // 上限边界：4.4cm 起固定 20，4.3cm 仍按公式 19
+  assert.equal(computeFillLineCharCount(4.4), 20)
+  assert.equal(computeFillLineCharCount(4.3), 19)
+  // 旧边界样例 8.77（raw 43）超过新上限，现被钳到 20
+  assert.equal(computeFillLineCharCount(8.77), 20)
 })
 
 test('9.3e2 computeFillLineCharCount: 物理宽度不超过列宽（绝不换行）', () => {
@@ -153,9 +167,44 @@ test('9.3f renderCtrl 接受 fillLineChars：文本字段输出对应根数的�
   assert.equal(renderCtrl(field), '________________')
 })
 
-test('9.3f2 renderCtrlHtml 透传 fillLineChars：min-width 随根数放大', () => {
+test('9.3f2 renderCtrlHtml 透传 fillLineChars：min-width 随根数放大，生成线带 10em 视觉上限', () => {
   const html = renderCtrlHtml({ field_type: '文本' }, 30)
   assert.match(html, /min-width:15\.0em/)
+  // 自动生成填写线的视觉宽度上限 = FILL_LINE_MAX_CHARS × 0.5em = 10em
+  // （.word-page flex 拉满场景下由 span 内联 max-width 截停；仅 renderCtrlHtml 生成路径携带）
+  assert.match(html, /max-width:10\.0em/)
+})
+
+test('9.3f3 toHtml 手输下划线（默认值路径）不受生成线视觉上限约束', () => {
+  const html = toHtml('________________')
+  assert.match(html, /min-width:8\.0em/)
+  assert.doesNotMatch(html, /max-width/)
+  // `|__|` 数值/日期槽（双下划线）不转换为填写线
+  assert.doesNotMatch(toHtml('|__|__|'), /fill-line/)
+})
+
+test('9.3f4 仅自动生成的首个填写线带 max-width；单位内手输下划线保持原样', () => {
+  const html = renderCtrlHtml({ field_type: '文本', unit_symbol: '____' }, 20)
+  // 生成线（首段）：10.0em 上限 + 10.0em min-width
+  assert.match(html, /max-width:10\.0em;min-width:10\.0em/)
+  // 整段 HTML 只有生成线一处 max-width（单位下划线段不受限）
+  assert.equal((html.match(/max-width:/g) || []).length, 1)
+})
+
+test('9.3f5 inline 多行默认值回退同样走 renderCtrlTextHtml，不得绕过生成线视觉上限', () => {
+  // renderCtrlHtml 与 renderCtrlTextHtml 携带同一 fillLineMaxWidthEm（首段生成线）
+  assert.match(
+    rendererSource,
+    /return renderCtrlTextHtml\(field, fillLineChars\)/,
+    'renderCtrlHtml non-choice branch should delegate to renderCtrlTextHtml',
+  )
+  // 设计器与访视的 inline 多行默认值回退必须复用 renderCtrlTextHtml（上限内），
+  // 不允许直连 toHtml(renderCtrl(...)) 绕过 .word-page flex 拉满截停
+  assert.match(formDesignerSource, /fallback: renderCtrlTextHtml\(getPreviewField\(ff\), fillChars\)/)
+  assert.match(visitsSource, /fallback: renderCtrlTextHtml\(toRendererField\(ff\.field_definition\), fillChars\)/)
+  assert.doesNotMatch(formDesignerSource, /fallback: toHtml\(renderCtrl/)
+  assert.doesNotMatch(visitsSource, /fallback: toHtml\(renderCtrl/)
+  assert.doesNotMatch(templatePreviewSource, /toHtml\(renderCtrl/)
 })
 
 test('9.4 inline_multiline_default_value: 多行默认值取最长行', () => {
