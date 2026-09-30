@@ -168,6 +168,98 @@
       ]
     },
     {
+      "name": "normal_time_hour_only_control_weight",
+      "kind": "normal",
+      "description": "时间 HH 仅到小时 → 控件权重 = 导出占位文本 |__|__|时",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "时间",
+            "label": "采样时间",
+            "date_format": "HH",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.47058823529411764,
+        0.5294117647058824
+      ]
+    },
+    {
+      "name": "normal_datetime_hour_only_control_weight",
+      "kind": "normal",
+      "description": "日期时间 yyyy-MM-dd HH 仅到小时 → 控件权重 = 日期占位 + 时",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "日期时间",
+            "label": "访视日期时间",
+            "date_format": "yyyy-MM-dd HH",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.21428571428571427,
+        0.7857142857142857
+      ]
+    },
+    {
+      "name": "normal_time_seconds_control_weight",
+      "kind": "normal",
+      "description": "时间 HH:mm:ss → 控件权重按秒级占位文本（D3 秒级锚点）",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "时间",
+            "label": "记录时间",
+            "date_format": "HH:mm:ss",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.22857142857142856,
+        0.7714285714285715
+      ]
+    },
+    {
+      "name": "normal_datetime_seconds_control_weight",
+      "kind": "normal",
+      "description": "日期时间 yyyy-MM-dd HH:mm:ss → 控件权重按秒级占位文本（D3 秒级锚点）",
+      "fields": [
+        {
+          "label_override": null,
+          "is_log_row": 0,
+          "inline_mark": 0,
+          "default_value": null,
+          "field_definition": {
+            "field_type": "日期时间",
+            "label": "用药日期时间",
+            "date_format": "yyyy-MM-dd HH:mm:ss",
+            "options": null
+          }
+        }
+      ],
+      "expected_fractions": [
+        0.16216216216216217,
+        0.8378378378378378
+      ]
+    },
+    {
       "name": "inline_choice_multi_option",
       "kind": "inline",
       "description": "单选多选项 → atom 权重仅由 marker + label 决定",
@@ -422,6 +514,40 @@
         0.18333333333333332,
         0.18333333333333332,
         0.18333333333333332
+      ]
+    },
+    {
+      "name": "unified_regular_datetime_hour_control_weight_spans_value_columns",
+      "kind": "unified",
+      "columnCount": 7,
+      "description": "regular_field 日期时间控件（仅到小时）：label 权重分摊到前 3 列，含「时」占位符权重分摊到后 4 列",
+      "segments": [
+        {
+          "type": "regular_field",
+          "fields": [
+            {
+              "label_override": null,
+              "is_log_row": 0,
+              "inline_mark": 0,
+              "default_value": null,
+              "field_definition": {
+                "field_type": "日期时间",
+                "label": "访视日期时间",
+                "date_format": "yyyy-MM-dd HH",
+                "options": null
+              }
+            }
+          ]
+        }
+      ],
+      "expected_fractions": [
+        0.07142857142857142,
+        0.07142857142857142,
+        0.07142857142857142,
+        0.19642857142857142,
+        0.19642857142857142,
+        0.19642857142857142,
+        0.19642857142857142
       ]
     }
   ]

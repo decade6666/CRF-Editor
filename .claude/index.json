@@ -101,6 +101,7 @@
         "backend/tests/test_ci_merge_gate.py",
         "backend/tests/test_codelists_router.py",
         "backend/tests/test_config.py",
+        "backend/tests/test_date_time_placeholder.py",
         "backend/tests/test_docx_import_contract.py",
         "backend/tests/test_docx_import_rules.py",
         "backend/tests/test_docx_screenshot_service.py",
@@ -184,6 +185,7 @@
       "composables": [
         "frontend/src/composables/acrfAnnotationGeometry.js",
         "frontend/src/composables/byteSize.js",
+        "frontend/src/composables/dateFormatOptions.js",
         "frontend/src/composables/designNotesSummary.js",
         "frontend/src/composables/docxAiSuggestionOverrides.js",
         "frontend/src/composables/exportDownloadState.js",
@@ -238,6 +240,7 @@
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/dateTimeHourFormat.test.js",
         "frontend/tests/dbTypeFieldAvailability.test.js",
         "frontend/tests/dbTypeFieldTypeWiring.test.js",
         "frontend/tests/designerFieldCopy.test.js",

@@ -516,10 +516,10 @@ export function renderCtrl(field, fillLineChars = null) {
     const hasDateChars = /[yYMdD]/.test(datePart)
 
     function renderPart(str, isDate) {
-      let result = '', boxCount = 0, sepCount = 0
+      let result = '', boxCount = 0, sepCount = 0, hasBox = false
       for (const c of str) {
         const isBox = isDate ? 'yYMdD'.includes(c) : 'HhmsS'.includes(c)
-        if (isBox) { boxCount++ }
+        if (isBox) { boxCount++; hasBox = true }
         else {
           if (boxCount > 0) { result += boxes(boxCount); boxCount = 0 }
           if (isDate && (c === '-' || c === '/')) { result += ['年', '月'][sepCount] || c; sepCount++ }
@@ -533,8 +533,8 @@ export function renderCtrl(field, fillLineChars = null) {
         }
       }
       if (boxCount > 0) result += boxes(boxCount)
-      // 时间部分末尾追加最后一个标签（HH:mm→分，HH:mm:ss→秒）
-      if (!isDate && sepCount > 0) {
+      // 时间部分末尾追加最后一个标签（HH→时，HH:mm→分，HH:mm:ss→秒）
+      if (!isDate && (sepCount > 0 || hasBox)) {
         const timeLabels = ['时', '分', '秒']
         result += timeLabels[sepCount] || ''
       }

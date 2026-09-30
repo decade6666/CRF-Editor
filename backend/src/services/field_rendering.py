@@ -4,6 +4,7 @@
 """
 from typing import List, Optional, Tuple
 import html
+import re
 
 from src.services.width_planning import (
     compute_text_weight,
@@ -12,11 +13,34 @@ from src.services.width_planning import (
     INLINE_HEADER_FLOOR,
 )
 
-CONTROL_PLACEHOLDER_WEIGHTS = {
-    "日期": compute_text_weight("|__|__|__|__|年|__|__|月|__|__|日"),
-    "日期时间": compute_text_weight("|__|__|__|__|年|__|__|月|__|__|日  |__|__|时|__|__|分"),
-    "时间": compute_text_weight("|__|__|时|__|__|分"),
+DATE_PLACEHOLDER = "|__|__|__|__|年|__|__|月|__|__|日"
+TIME_PLACEHOLDERS = {
+    "hour": "|__|__|时",
+    "minute": "|__|__|时|__|__|分",
+    "second": "|__|__|时|__|__|分|__|__|秒",
 }
+_HOUR_ONLY_RE = re.compile(r"(?:^|\s)h{1,2}(?:\s|$)")
+
+
+def resolve_time_precision(date_format: Optional[str]) -> str:
+    """按 date_format 的时间部分返回 hour / minute / second；无法识别时沿用 minute。"""
+    fmt = (date_format or "").lower()
+    if "ss" in fmt:
+        return "second"
+    if _HOUR_ONLY_RE.search(fmt):
+        return "hour"
+    return "minute"
+
+
+def render_date_time_placeholder(field_type: str, date_format: Optional[str]) -> Optional[str]:
+    """日期 / 日期时间 / 时间 控件占位文本（Word 导出与列宽共用）；其他类型返回 None。"""
+    if field_type == "日期":
+        return DATE_PLACEHOLDER
+    if field_type == "日期时间":
+        return f"{DATE_PLACEHOLDER}  {TIME_PLACEHOLDERS[resolve_time_precision(date_format)]}"
+    if field_type == "时间":
+        return TIME_PLACEHOLDERS[resolve_time_precision(date_format)]
+    return None
 
 
 NON_INLINE_DEFAULT_VALUE_FIELD_TYPES = {"文本", "数值"}
@@ -154,7 +178,11 @@ def build_field_control_weight(form_field) -> float:
             FILL_LINE_WEIGHT,
         )
 
-    return max(CONTROL_PLACEHOLDER_WEIGHTS.get(field_type, FILL_LINE_WEIGHT), FILL_LINE_WEIGHT)
+    placeholder = render_date_time_placeholder(field_type, getattr(field_def, "date_format", None))
+    if placeholder is not None:
+        return max(compute_text_weight(placeholder), FILL_LINE_WEIGHT)
+
+    return FILL_LINE_WEIGHT
 
 
 def build_inline_column_demands(

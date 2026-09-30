@@ -493,6 +493,7 @@ function stubFromDict(data) {
       label: fdRaw.label,
       checkbox_label: fdRaw.checkbox_label ?? null,
       options: fdRaw.options || null,
+      date_format: fdRaw.date_format ?? null,
     }
   }
   return {

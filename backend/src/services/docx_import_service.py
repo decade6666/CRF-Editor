@@ -448,7 +448,7 @@ def _table_to_html(table) -> str:
 def _detect_field_type(value_text: str) -> Tuple[str, dict]:
     """根据单元格内容格式推断字段类型和配置参数
 
-    检测顺序：日期时间/日期 → 时间 → 单/多选 → 小数数值 → 整数数值 → 标签/文本
+    检测顺序：日期时间/日期 → 时间 → 仅到小时时间 → 单/多选 → 小数数值 → 整数数值 → 标签/文本
     """
     text = value_text.strip()
     if not text:
@@ -458,12 +458,15 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
     has_time = bool(re.search(r"\|__\|.*[:：].*\|__\|", text)) or (
         "时" in text and "分" in text and "|" in text
     )
+    has_date_hour = has_date and not has_time and bool(re.search(r"日\s*\|__\|__\|时$", text))
     has_vertical_layout = "\n" in text or "\r" in text
 
-    if has_date and has_time:
+    if has_date and (has_time or has_date_hour):
         colon_count = text.count(":") + text.count("：")
         if has_vertical_layout:
             return "日期", {"date_format": "yyyy-MM-dd"}
+        if has_date_hour:
+            return "日期时间", {"date_format": "yyyy-MM-dd HH"}
         if colon_count >= 2:
             return "日期时间", {"date_format": "yyyy-MM-dd HH:mm:ss"}
         return "日期时间", {"date_format": "yyyy-MM-dd HH:mm"}
@@ -478,6 +481,10 @@ def _detect_field_type(value_text: str) -> Tuple[str, dict]:
         if colon_count >= 2:
             return "时间", {"date_format": "HH:mm:ss"}
         return "时间", {"date_format": "HH:mm"}
+
+    # 仅到小时: |__|__|时（导出端不打印 12 小时制 AP，无法区分，一律按 24 小时制）
+    if text == "|__|__|时":
+        return "时间", {"date_format": "HH"}
 
     if "○" in text:
         options = _build_choice_options(text, "○")

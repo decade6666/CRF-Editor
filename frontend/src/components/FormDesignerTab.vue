@@ -60,6 +60,7 @@ import {
   readAnnotationDelta01Cm,
 } from '../composables/acrfAnnotationGeometry.js';
 import { useAcrfAnnotationDrag } from '../composables/useAcrfAnnotationDrag.js';
+import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js';
 import {
   renderCtrl as renderCtrlBase,
   renderCtrlHtml,
@@ -2113,12 +2114,6 @@ const TEXT_COLOR_OPTIONS = [
 ];
 const customBgColorInput = ref(''),
   customTextColorInput = ref('');
-const DATE_FORMAT_OPTIONS = {
-  日期: ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MMM/yyyy', 'dd-MMM-yyyy', 'yyyy/MM/dd'],
-  日期时间: ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm', 'yyyy/MM/dd HH:mm:ss', 'dd/MM/yyyy HH:mm:ss'],
-  时间: ['HH:mm:ss', 'HH:mm', 'hh:mm:ss AP', 'hh:mm AP'],
-};
-const DEFAULT_DATE_FORMATS = { 日期: 'yyyy-MM-dd', 日期时间: 'yyyy-MM-dd HH:mm', 时间: 'HH:mm' };
 
 watch(
   () => editProp.field_type,

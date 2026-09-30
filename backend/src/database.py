@@ -1280,7 +1280,7 @@ def _migrate_add_performance_fk_indexes(engine):
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
 
 
-# 与前端 FormDesignerTab.vue 的 DATE_FORMAT_OPTIONS 逐项对齐（小写键 → 规范写法）。
+# 与前端 dateFormatOptions.js 的 DATE_FORMAT_OPTIONS 逐项对齐（小写键 → 规范写法）。
 # 旧数据曾由 docx_import_service 写入大写 YYYY-MM-DD，前端下拉只认小写选项。
 _DATE_FORMAT_CANONICALS = {
     "日期": {
@@ -1293,14 +1293,17 @@ _DATE_FORMAT_CANONICALS = {
     "日期时间": {
         "yyyy-mm-dd hh:mm:ss": "yyyy-MM-dd HH:mm:ss",
         "yyyy-mm-dd hh:mm": "yyyy-MM-dd HH:mm",
+        "yyyy-mm-dd hh": "yyyy-MM-dd HH",
         "yyyy/mm/dd hh:mm:ss": "yyyy/MM/dd HH:mm:ss",
         "dd/mm/yyyy hh:mm:ss": "dd/MM/yyyy HH:mm:ss",
     },
     "时间": {
         "hh:mm:ss": "HH:mm:ss",
         "hh:mm": "HH:mm",
+        "hh": "HH",
         "hh:mm:ss ap": "hh:mm:ss AP",
         "hh:mm ap": "hh:mm AP",
+        "hh ap": "hh AP",
     },
 }
 
