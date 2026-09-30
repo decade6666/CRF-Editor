@@ -1114,3 +1114,30 @@ const FormDesigner = defineAsyncComponent(() =>
   keyword behavior, and (source guard) that every `CANDIDATE_STATE_*`
   referenced in `FormDesignerTab.vue` is imported from the composable and that
   neither designer `el-autocomplete` sets `value-key`.
+
+## Scenario: Non-Modal Penetrable Dialog (`TemplateFieldSearchDialog`)
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing a dialog that must let the user keep working in
+  the page behind it instead of blocking with a modal backdrop — the
+  「模板字段查询」 pattern in
+  `frontend/src/components/TemplateFieldSearchDialog.vue`, mounted once from
+  `App.vue` (`v-if="hasOpenedTemplateFieldSearch"`, session-persistent
+  keyword/results).
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| `el-dialog` carries `:modal="false"` + `modal-penetrable` + `draggable` + `append-to-body` (plus `:close-on-click-modal="false"` and a unique class for width since scoped styles cannot reach the teleported root) | Removes the blocking backdrop so pointer events pass through, keeps the window repositionable via its header, and keeps it visible above the page |
+| Re-raising above freshly opened content goes through close → `await nextTick()` → reopen (`App.vue::openTemplateFieldSearch`) | Element Plus does not bump the z-index of an already-open non-modal dialog; toggling `update:modelValue` forces a re-append so the panel returns above a newly opened fullscreen designer |
+| When the dialog is lazy-mounted, its `modelValue` watcher needs `{ immediate: true }` | The lazy mount happens with `modelValue` already `true`, so without `immediate` the first open never triggers the initial data load (existing lazy-dialog rule) |
+| Pure behavior (search candidate texts, column/toast text, pagination) lives in `composables/templateFieldSearch.js`, clipboard access in `composables/clipboardCopy.js` | Keeps the component a thin view layer that stays testable under `node:test` without stubbing a browser |
+
+### 3. Validation
+
+- `frontend/tests/templateFieldSearch.test.js` locks the pure-helper behavior
+  (candidate texts, format/source/copy-toast text, `TEMPLATE_FIELD_PAGE_SIZE`),
+  the dialog attribute contract, and the entry gating (complete edit mode,
+  regular users; brief mode closes the dialog).
