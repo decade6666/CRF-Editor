@@ -26,7 +26,7 @@ test('App.vue wires FormDesignerTab import-template to openImportDialog', () => 
 })
 
 test('FormDesignerTab declares the import-template emit', () => {
-  assert.match(designerSource, /defineEmits\(\[['"]import-template['"]\]\)/)
+  assert.match(designerSource, /defineEmits\(\[['"]import-template['"],\s*['"]open-template-field-search['"]\]\)/)
 })
 
 test('form list toolbar keeps exact order: new -> import template -> batch delete -> search', () => {

@@ -698,7 +698,37 @@ RecycleBinSizeUnit = {"MB", "GB"}
 
 ---
 
-### 12. Date/Time Format Options
+### 12. Template Field Search Index
+
+**Contract ID**: `template-field-search`
+
+| Aspect | Backend | Frontend |
+|--------|---------|----------|
+| **Files** | `backend/src/routers/template_fields.py`, `backend/src/services/template_field_index_service.py` | `frontend/src/composables/templateFieldSearch.js`, `frontend/src/components/TemplateFieldSearchDialog.vue` |
+| **Purpose** | Read-only index of all usable template-library fields via `GET /api/template-fields` (auth `get_current_user` only, no project scope) | Non-modal draggable 「模板字段查询」 dialog: OID / label cross-search, click-cell-to-copy |
+
+**Response Shape** (`TemplateFieldIndexResponse { entries: TemplateFieldEntry[] }`): each entry carries `key` (`"<project_id>:<definition_id>"`), `variable_name`, `label`, `field_type`, `integer_digits`, `decimal_digits`, `date_format`, `checkbox_label`, `codelist_name`, `options` (`{code, decode}`), `unit_symbol`, `label_aliases` (deduped form-level `display_label`s in first-seen order), and `sources` (`{project_name, project_version, form_name, display_label}`; `form_name: null` means the definition exists only in the project field library).
+
+**Exclusion Rules**: `标签`-type field definitions, log rows (`form_field.is_log_row`), and soft-deleted projects (`project.deleted_at` non-null) never appear in the index.
+
+**Merge Rule**: definitions whose displayed attributes are all identical (`variable_name`, `label`, `field_type`, `integer_digits`, `decimal_digits`, `date_format`, `checkbox_label`, `codelist_name`, the full option list, `unit_symbol`) merge into one entry — `sources` accumulate and `label_aliases` dedupe; any difference keeps separate rows. Entry order follows template order (project id → form order → field order; library-only definitions last within each project).
+
+**Contract Rules**:
+
+1. The endpoint is strictly read-only: the template `.db` is opened through `ImportService._open_template_session` (whitelist + compatibility + `PRAGMA query_only`) and must never be written to or migrated.
+2. Error semantics: 400 未配置模板库 / 404 文件不存在 / 400 路径无效 / 400 `code=TEMPLATE_INCOMPATIBLE` / 500 generic — the filesystem path must never leak into a response.
+3. Legacy-column tolerance: `project.deleted_at`, `form_field.label_override`, and `field_definition.checkbox_label` are probed via `PRAGMA table_info` and treated as `NULL` when absent.
+4. Frontend search candidates are `variable_name + label + label_aliases` routed through `searchRanking.js`; an empty keyword returns all entries in template order; pagination is fixed at 50 per page.
+5. Click-cell-to-copy (toast 「已复制 …」) goes through `clipboardCopy.js`; the 来源 column opens a popover and is never a copy target.
+
+**Synchronization Checklist**:
+- [ ] Keep the entry field list aligned between the backend `TemplateFieldEntry` schema and the `templateFieldSearch.js` consumers
+- [ ] Keep exclusion / merge semantics aligned when changing either side
+- [ ] Keep error mapping path-free when touching `template_fields.py`
+- [ ] Run backend tests: `backend/tests/test_template_field_index.py`
+- [ ] Run frontend tests: `frontend/tests/templateFieldSearch.test.js`
+---
+### 13. Date/Time Format Options
 
 **Contract ID**: `date-time-format-options`
 

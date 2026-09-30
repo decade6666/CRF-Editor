@@ -19,6 +19,12 @@
 const WEIGHT_CHINESE = 2  // 中文字符权重
 const WEIGHT_ASCII = 1    // 英文/数字/标点权重
 export const CHECKBOX_DEFAULT_TEXT = '✔'  // 复选控件文本为空时的默认字符
+// 日期类字段未配置 date_format 时的默认格式（renderCtrl 与模板字段查询共用）
+export const DEFAULT_DATE_FORMATS = {
+  '日期': 'yyyy-MM-dd',
+  '日期时间': 'yyyy-MM-dd HH:mm',
+  '时间': 'HH:mm',
+}
 const FILL_LINE_WEIGHT = 6  // 填写线默认权重
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -546,9 +552,9 @@ export function renderCtrl(field, fillLineChars = null) {
     return (dateResult && timeResult) ? dateResult + '  ' + timeResult : dateResult || timeResult
   }
 
-  if (field.field_type === '日期') return renderDateFmt(field.date_format || 'yyyy-MM-dd')
-  if (field.field_type === '日期时间') return renderDateFmt(field.date_format || 'yyyy-MM-dd HH:mm')
-  if (field.field_type === '时间') return renderDateFmt(field.date_format || 'HH:mm')
+  if (field.field_type === '日期') return renderDateFmt(field.date_format || DEFAULT_DATE_FORMATS['日期'])
+  if (field.field_type === '日期时间') return renderDateFmt(field.date_format || DEFAULT_DATE_FORMATS['日期时间'])
+  if (field.field_type === '时间') return renderDateFmt(field.date_format || DEFAULT_DATE_FORMATS['时间'])
   if (field.field_type === '复选') return '□' + resolveCheckboxText(field)
   if (field.field_type === '单选') return (opts.length ? opts.map(o => '○' + o) : ['○是', '○否']).join('  ')
   if (field.field_type === '多选') return (opts.length ? opts.map(o => '□' + o) : ['□选项1', '□选项2']).join('  ')

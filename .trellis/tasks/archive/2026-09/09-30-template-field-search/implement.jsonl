@@ -1,0 +1,11 @@
+{"file": ".trellis/tasks/09-30-template-field-search/research/backend-template-library.md", "reason": "Template read pipeline, models, auth options, reusable test fixtures (file:line anchors)"}
+{"file": ".trellis/tasks/09-30-template-field-search/research/frontend-shell-and-search.md", "reason": "App shell/header, editMode gating, searchRanking, useApi, test patterns (file:line anchors)"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Router/service layering and router registration conventions"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Read-only template access rules, optional-column probing, read sessions"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "HTTPException with Chinese detail, ValueError mapping, generic 500 + logging"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "get_current_user dependency and authorization rules for the new endpoint"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where new components, composables, and tests live"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Lazy-mounted dialog immediate watcher, .list-toolbar contract, a11y patterns"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "searchRanking.js contract, useApi/apiUrl usage, error handling"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "useApi cache semantics and local component state conventions"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Label placeholder OID rule (§10) and where to add the new API contract section"}

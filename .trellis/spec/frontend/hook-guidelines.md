@@ -435,6 +435,22 @@ export function useCRFRenderer() {
 
 ---
 
+## Clipboard Access (`clipboardCopy.js` Is the Only Entry)
+
+- `frontend/src/composables/clipboardCopy.js` is the **only** file allowed to
+  touch `navigator.clipboard` or `document.execCommand('copy')`. Components
+  call `copyTextToClipboard(text)` and must not reach for the Clipboard API
+  themselves.
+- Rationale: `navigator.clipboard.writeText` exists only in secure contexts
+  (HTTPS / localhost), while the production nginx example is a plain-HTTP
+  deployment — the helper therefore tries `writeText` first and falls back to
+  a temporary readonly `<textarea>` + `execCommand('copy')`, returning `false`
+  when both paths fail.
+- Tests inject the environment (`{ navigator, document, isSecureContext }`)
+  instead of stubbing globals — see `frontend/tests/clipboardCopy.test.js`.
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Returning Reactive Values

@@ -27,6 +27,11 @@ export function isLogRowField(formField) {
   return fieldType === '日志行' || Boolean(formField?.is_log_row)
 }
 
+// 设计器字段列表的行标签：沿用覆盖标签/定义标签，log 行为空时回退默认提示（与预览文案一致）
+export function getFormFieldListLabel(formField) {
+  return getFormFieldDisplayLabel(formField) || (isLogRowField(formField) ? '以下为log行' : '')
+}
+
 export function getFormFieldStructurePreviewStyle(formField) {
   const defaultBackground = isLogRowField(formField) ? 'background:var(--preview-structure-bg);' : ''
   return getFormFieldPreviewStyle(formField, defaultBackground)

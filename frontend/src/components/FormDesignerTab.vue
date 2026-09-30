@@ -24,6 +24,7 @@ import {
   Plus,
   RefreshLeft,
   RefreshRight,
+  Search,
 } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
@@ -108,6 +109,7 @@ import {
   getFormFieldDisplayLabel,
   getFormFieldPreviewStyle,
   getFormFieldLabelPreviewStyle,
+  getFormFieldListLabel,
   getFormFieldTextColorStyle,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
@@ -119,7 +121,7 @@ import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composable
 import DesignNotesDialog from './DesignNotesDialog.vue';
 
 const props = defineProps({ projectId: { type: Number, required: true } });
-const emit = defineEmits(['import-template']);
+const emit = defineEmits(['import-template', 'open-template-field-search']);
 const refreshKey = inject('refreshKey', ref(0));
 const editMode = inject('editMode', ref(false));
 const projectDbType = inject('projectDbType', ref('其他'));
@@ -4076,6 +4078,16 @@ function openAddForm() {
               :active-value="'aCRF'"
               :inactive-value="'eCRF'"
             />
+            <el-tooltip content="模板字段查询" placement="top" :show-after="300">
+              <el-button
+                v-if="editMode"
+                size="small"
+                data-test="designer-template-field-search"
+                aria-label="模板字段查询"
+                @click="emit('open-template-field-search')"
+                ><el-icon aria-hidden="true"><Search /></el-icon
+              ></el-button>
+            </el-tooltip>
           </div>
         </div>
       </template>
@@ -4191,7 +4203,7 @@ function openAddForm() {
                       ><span class="ff-var-name">{{ ff.field_definition?.variable_name || '' }}</span></el-tooltip
                     ><span v-else class="ff-var-name" aria-hidden="true"></span></template
                   ><span class="ff-label" :style="getFormFieldTextColorStyle(ff)">{{
-                    getFormFieldDisplayLabel(ff)
+                    getFormFieldListLabel(ff)
                   }}</span
                   ><el-tag v-if="isDraftField(ff)" size="small" type="success" effect="plain" style="margin-left: 4px"
                     >未保存</el-tag

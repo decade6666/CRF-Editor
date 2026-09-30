@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend review checklist: tests, response models, additive API changes"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend review checklist: forbidden patterns, useApi-only requests, node:test"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify error mapping and no path disclosure in messages"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Verify auth dependency and security posture of the new endpoint"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify lazy dialog watcher, toolbar contract, a11y on copy cells"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "End-to-end data flow check: template db -> service -> API -> dialog"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse of searchRanking/useCRFRenderer/ImportService helpers, no duplication"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "PR merge gate: CI merges, no manual gh pr merge"}
+{"file": ".trellis/tasks/09-30-template-field-search/research/backend-template-library.md", "reason": "Fixture patterns and template read facts for test review"}
