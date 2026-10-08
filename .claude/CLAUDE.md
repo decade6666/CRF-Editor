@@ -135,16 +135,18 @@ sudo bash deploy/install-service.sh uninstall
 **Rule**: Always read prefs/ before modifying code, and log decisions according to the rules in workflow.md when making decisions.
 
 ## Git Workflow
-- **Any branch → main must be merged via PR**; directly running `git push origin main` is forbidden.
-- Process: complete development on a task/feature branch → create a PR (`<branch>` → `main`, ready for review) → **CI merge job merges after checks pass** → main updates. Do **not** manually run `gh pr merge` / force-merge unless the user explicitly authorizes an exception.
-- Workflow: `.github/workflows/ci.yml` job `merge-owner-pr` — fires only on `pull_request` events (opened / reopened / synchronize / ready_for_review) for owner `decade6666`, base `main`, same-repo head, non-draft; `needs` all four CI jobs (backend tests, frontend tests, lint, build) with implicit `success()`, then waits for the `gitleaks` check runs on the PR head SHA (a failed status query is retried; fails closed, 10-min cap) and runs `gh pr merge --merge --match-head-commit`. `--auto` is not used: this private repo is on the GitHub Free plan, where required checks are unavailable, so `--auto` merged immediately. PR-scoped concurrency (`cancel-in-progress`) means a newer push cancels the older run and its merge job. Bot merges via `GITHUB_TOKEN` trigger no push-based workflows on `main`.
-- Feature/`draft` branches can be pushed directly to remote; the `main` branch only accepts PR merges.
-- Detail + multi-CLI path: `.trellis/spec/guides/git-and-tooling-conventions.md` (`codeagent-wrapper` → `/usr/bin/codeagent-wrapper`).
+- **Direct commits to `main` (since 2026-10-08)**: updates are committed directly on `main` — no PR and no CI merge gate. The legacy `merge-owner-pr` job in `ci.yml` fires only on `pull_request` events and stays inert for direct pushes; `backend/tests/test_ci_merge_gate.py` still locks its file shape.
+- Commit messages: `<type>(<scope>): 中文描述` — Conventional Commits prefix with a Chinese description (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
+- Code changes: implement in a dedicated git worktree + task branch → merge locally into `main` after checks pass → remove the worktree and delete the branch.
+- `.trellis/` updates (task archives, journal, spec) go into standalone commits, never mixed with project code commits.
+- Multi-model collaboration retains only Haiku as the review model for frontend modifications (read-only sub-agent); Codex / Antigravity external-CLI collaboration is discontinued.
+- Detail: `.trellis/spec/guides/git-and-tooling-conventions.md`.
 
 ## Change Log
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-08` (task `spec-workflow-revision`): Git 工作流改版：提交描述改中文；更新直连 `main` 不再走 PR；代码修改走 worktree → 合并 → 清理；`.trellis/` 更新单独提交；多模型协作仅保留 Haiku 作前端审查。
 - `2026-09-30` (task `date-time-hour-format`): 日期时间 / 时间字段支持仅到小时格式。
 - `2026-09-30` (task `word-underline-limit`): 文本填写线根数上限 80→20（用户定标，≈3.8cm）。
 - `2026-09-30` (task `template-field-search`): Read-only template field search.

@@ -39,11 +39,13 @@
 - When a single change exceeds 30 lines, prefer running `/verify-change` and `/verify-quality`.
 - For security-sensitive changes involving authentication, authorization, input validation, import/export, secrets, uploads, and similar areas, run `/verify-security`.
 
-## PR Rules
+## Commit Rules
 
-- PRs are written for project maintainers. Titles may keep the Conventional Commits format, and the PR body must be in Chinese.
-- The PR description must include: summary, changes, test plan, and follow-ups; the test plan must list commands run and pass/fail status.
-- Keep `🤖 Generated with [Claude Code](https://claude.com/claude-code)` at the end of the PR body.
+- Updates are committed directly on `main` (user decision 2026-10-08); PRs and the CI merge gate are no longer part of the normal flow.
+- Commit messages keep the `<type>(<scope>):` prefix and write the description in Chinese (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
+- Code changes are implemented in a dedicated git worktree + task branch, merged locally into `main` after checks pass, then the worktree and the branch are removed.
+- Changes under `.trellis/` (task archives, journal, spec) get standalone commits and are never mixed with project code commits.
+- Frontend modifications are reviewed by a Haiku sub-agent (read-only); external CLIs (Codex / Antigravity) are not part of the default flow.
 
 ## Context Logging (decision records)
 
