@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layering and conventions entry point"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "WARNING vs INFO levels for the startup self-check"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Chinese user-visible error message conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Test and code-quality conventions for backend changes"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Section 4 docx-screenshot-evidence: failed status + Chinese message contract"}
+{"file": ".trellis/tasks/10-08-docx-screenshot-render-backend/research/diagnosis.md", "reason": "Root cause evidence, line refs, and contract constraints to preserve"}

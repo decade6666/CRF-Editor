@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review backend tests and code quality"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Verify section 4 contract kept and updated"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "Commit, PR, and worktree conventions"}
+{"file": ".trellis/tasks/10-08-docx-screenshot-render-backend/research/diagnosis.md", "reason": "Confirm preserved message invariants and scope boundaries"}
