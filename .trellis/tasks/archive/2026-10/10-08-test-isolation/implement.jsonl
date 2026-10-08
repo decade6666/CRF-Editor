@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared execution runbook: worktree, throwaway baseline env, safety rules"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layering and conventions entry point"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Existing test conventions to extend with isolation rules"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Engine/session setup used when seeding the per-test export DB"}
+{"file": ".context/prefs/coding-style.md", "reason": "Project coding style for the conftest changes"}
