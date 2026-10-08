@@ -20,7 +20,7 @@ graph TD
     B --> B3["src/models (11)"];
     B --> B4["src/schemas (9)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (66)"];
+    B --> B6["tests (65)"];
     A --> C["frontend"];
     C --> C1["src/components (16)"];
     C --> C2["src/composables (32)"];
@@ -35,7 +35,7 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (66 files, including 64 `test_*.py`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (65 files, including 63 `test_*.py`) |
 | frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (69 files, including 68 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
@@ -135,7 +135,7 @@ sudo bash deploy/install-service.sh uninstall
 **Rule**: Always read prefs/ before modifying code, and log decisions according to the rules in workflow.md when making decisions.
 
 ## Git Workflow
-- **Direct commits to `main` (since 2026-10-08)**: updates are committed directly on `main` — no PR and no CI merge gate. The legacy `merge-owner-pr` job in `ci.yml` fires only on `pull_request` events and stays inert for direct pushes; `backend/tests/test_ci_merge_gate.py` still locks its file shape.
+- **Direct commits to `main` (since 2026-10-08)**: updates are committed directly on `main` — no PR, no CI, and no GitHub Actions (all workflows removed 2026-10-08, together with the repo-root `.gitleaks.toml` and the `test_ci_merge_gate.py` contract test).
 - Commit messages: `<type>(<scope>): 中文描述` — Conventional Commits prefix with a Chinese description (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
 - Code changes: implement in a dedicated git worktree + task branch → merge locally into `main` after checks pass → remove the worktree and delete the branch.
 - `.trellis/` updates (task archives, journal, spec) go into standalone commits, never mixed with project code commits.
@@ -146,6 +146,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-08` (task `remove-github-actions`): 删除 GitHub Actions（`ci.yml` + `gitleaks.yml`）、仓库根 `.gitleaks.toml` 与 `test_ci_merge_gate.py` 契约测试，后端测试 66→65 文件。
 - `2026-10-08` (task `spec-workflow-revision`): Git 工作流改版：提交描述改中文；更新直连 `main` 不再走 PR；代码修改走 worktree → 合并 → 清理；`.trellis/` 更新单独提交；多模型协作仅保留 Haiku 作前端审查。
 - `2026-09-30` (task `date-time-hour-format`): 日期时间 / 时间字段支持仅到小时格式。
 - `2026-09-30` (task `word-underline-limit`): 文本填写线根数上限 80→20（用户定标，≈3.8cm）。
