@@ -584,6 +584,11 @@ def execute_docx_import(
 
         raise HTTPException(400, f"导入失败: {e}")
 
+    except FileNotFoundError:
+
+        # 过期清扫与本次导入并发：归属校验后文件被后台清理删除，按缺失上传应答
+        raise HTTPException(400, "临时文件已过期，请重新上传")
+
     except Exception:
 
         logger.exception("Word导入执行失败")

@@ -243,6 +243,28 @@ def test_should_reject_owner_temp_id_in_another_project_of_same_owner(client):
     assert file_path.exists()
 
 
+def test_should_answer_expired_upload_like_missing_one_when_swept_mid_execute(client, monkeypatch):
+    """清扫与执行导入并发（归属校验后文件被删除）时，按缺失上传返回统一 400。"""
+    token_a = login_as(client, "alice")
+    user_a = seed_user(client, "alice")
+    project_a = _create_project(client, token_a, "A项目")
+    temp_id, _ = _seed_upload(user_a, project_a)
+
+    def _vanishing_import(*_args, **_kwargs):
+        raise FileNotFoundError(temp_id)
+
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.import_forms", _vanishing_import
+    )
+    response = client.post(
+        f"/api/projects/{project_a}/import-docx/execute",
+        json={"temp_id": temp_id, "form_indices": [0]},
+        headers=auth_headers(token_a),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "临时文件已过期，请重新上传"
+
+
 # ── 过期清扫 ──
 
 
