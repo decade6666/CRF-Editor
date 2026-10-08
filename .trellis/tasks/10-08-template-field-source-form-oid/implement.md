@@ -32,8 +32,8 @@ Task: `.trellis/tasks/10-08-template-field-source-form-oid` in this worktree. Th
 - [x] Sonnet full-scope check/code review and Haiku read-only frontend review; fix confirmed issues and reverify. (final immutable-array/candidate-helper refinement, 48 template tests and optional-source boundaries checked; Haiku final small-diff review passed)
 - [x] Browser verification and final AC audit; record passed/failed/not-run distinctly. (DM/VS/alias search, inline sources, fallbacks, copy/paste, reopen state, clear/reset, refresh, 1450px light/dark + 600px narrow; final compiled asset index-BG2BlfWG.js checked and DM/metadata-exclusion reverified; console clean. Not performed: native touch, 10+-source performance, browser login-form flow)
 - [x] Present diff/verification summary and worktree/task paths; obtain explicit Git authorization. User selected local commit/merge/own-worktree cleanup only (no push).
-- [ ] Commit code and Trellis work separately; integrate the latest main in the task worktree and reverify before local main merge.
-- [ ] Archive task and record session bookkeeping in separate Trellis commits; remove only this task's worktree and branch; do not push.
+- [x] Commit code and Trellis work separately; integrate the latest main in the task worktree and reverify before local main merge. (done at HEAD `078aaa1` — separate code/spec commits; main `4c420a3` merged into the task branch with 4 doc-only conflicts resolved retaining both features; reverification all green: frontend targeted 74 / full 790 + lint/build exit 0, backend targeted 18 / full 1028 + 4 xfailed; six feature files unchanged in `f8eccf4..078aaa1`; Sonnet pre-commit security review clean; see verification.md Integration signoff. The local merge into `main` itself is NOT yet performed)
+- [ ] Local main merge, then archive task and record session bookkeeping in separate Trellis commits; remove only this task's worktree and branch; do not push. (Git completion PENDING; the post-integration browser spot check has passed and is recorded in verification.md)
 
 ## Test environment safety
 

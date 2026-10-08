@@ -214,6 +214,50 @@ login form; all app and template data belonged to the isolated temporary fixture
   subsequently authorized separate code/Trellis commits, local main merge and own-task
   worktree/branch cleanup. Remote push remains unauthorized; Git completion is recorded below.
 
+## Integration signoff (HEAD `078aaa1`, task branch after merging main `4c420a3`)
+
+- Merge scope: 4 doc-only merge conflicts resolved, retaining both features (this task's
+  template-search doc updates and the incoming main updates). The six feature
+  production/test files show no `f8eccf4..078aaa1` changes, so the prior scoped coverage
+  remains applicable (frontend line 100% / branch 91.53% / functions 100%; backend `trace`
+  statement coverage 100% on both changed modules) and the RED replay limitation recorded
+  above is unchanged.
+- Reverification at HEAD `078aaa1` (all exit 0; venv Python 3.10.21; explicit
+  worktree/backend cwd in every run; six proxy vars unset; background jobs disabled;
+  isolated config/data):
+  - Frontend: targeted 74 / full 790, 0 fail/cancelled/skipped; lint exit 0; build exit 0
+    (4.28 s). Logs: `/tmp/tfs-merge-{targeted,full,lint,build}.log`.
+  - Backend: targeted 18 (1.36 s) / full 1028 passed + 4 xfailed (51.17 s). Logs:
+    `/tmp/tfs-final-verify-20261008-153751-2425/{targeted,full}.log`.
+- The existing backend test-fixture short-key warnings are pre-existing and are not new
+  production-secret findings.
+- Sonnet pre-commit security review: no newly introduced issue.
+- Whitespace checks: `git diff --check main` passed; `git diff --cached --check` during
+  integration flagged only pre-existing trailing spaces in main's archived docx task
+  `design.md:42` / `implement.md:57` — independently reproduced on baseline and left
+  untouched per the user's only-this-task authorization.
+- Completed at this point: separate code/spec commits; main-in-task integration +
+  reverification; the post-integration browser spot check (below). PENDING (not claimed
+  complete): the actual local merge into `main`, task archive, journal, and own-task
+  worktree/branch cleanup.
+
+**Post-integration browser spot check (lead-executed, passed)**: the isolated port-8921 app
+served the actual production build (`/assets/index-bv4nI0Qf.js`, matching
+`frontend/dist/index.html`). Query ` DM ` returned exactly DM → DDMHNO → AGE → SEX → D_X_M →
+ZZZ — six unique rows with source form OID + name directly visible; a console error/warn
+query returned no messages. Screenshots:
+`/tmp/crf-tfs-live-kgCTRzqh/browser-integrated-dm.png` (initial 800px viewport) and
+`/tmp/crf-tfs-live-kgCTRzqh/browser-integrated-dm-wide.png` (1450px, visually inspected;
+all six rows and the complete source column readable). The 1450px check also returned the
+same six OIDs and source texts, with no console errors/warnings. Operational notes (no app-code
+changes): the reopened fixture JWT had expired and only that temporary regular-user session
+was renewed (data not rebuilt, no credentials printed); one DOM assertion initially targeted
+a nonexistent `.tfs-dialog` selector and was corrected to the actual `role=dialog` /
+`aria-label=模板字段查询` dialog before passing. A later wide-view automation probe ran
+before the dialog finished mounting; waiting for the actual dialog and result rows fixed
+the probe without application changes. Both own-task pages were closed and the temporary
+8921 backend was stopped; the shared browser and other sessions' pages were left running.
+
 ## Status summary
 
 Final snapshot: implementation + tests GREEN across all feasible regressions (backend 18
@@ -223,6 +267,9 @@ statement coverage 100% on both changed modules (no decrease vs base). Lead-exec
 browser validation and the final-build DM check passed. Lead cross-layer review,
 `trellis-check`, and both Haiku frontend review passes completed without confirmed
 remaining defects. Implementation acceptance criteria AC1–AC7 are satisfied within the
-explicitly recorded verification scope. Local Git completion is authorized; remaining
-steps are separate commits, integration/reverification against latest main, local main
-merge and own-task cleanup. Remote push/deployment is not authorized or performed.
+explicitly recorded verification scope. Separate code/Trellis commits and the main-in-task
+integration + reverification at HEAD `078aaa1` are complete (see Integration signoff).
+Still pending: the actual local merge into `main`, task archive, journal, and own-task
+worktree/branch cleanup (authorized, not yet performed). Remote push/deployment is not
+authorized or performed; the lead's post-integration browser spot check passed and is
+recorded in the Integration signoff section.
