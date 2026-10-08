@@ -191,7 +191,7 @@ POST /api/forms/{form_id}/fields/reorder
 2. `DocxScreenshotPanel.vue` starts `/screenshots/start` and polls `/screenshots/status`
 3. Field click uses `field_pages[currentFormName][field.index]` as the primary evidence locator
 4. If a field has no concrete page mapping, frontend shows a gentle `未定位到原文页` hint and must not force-jump to the form's first page
-5. On unsupported runtime (for example missing `pythoncom` / no Windows Word COM), backend task status must transition to `failed` with a user-visible Chinese error message instead of remaining stuck at `starting`
+5. On unsupported runtime (missing `pythoncom` / no Windows Word COM, or missing LibreOffice on Linux/macOS), backend task status must transition to `failed` with a user-visible Chinese error message instead of remaining stuck at `starting`. The auto-mode no-backend message is platform-aware (`_no_backend_message`): non-Windows names LibreOffice and never suggests the Word backend; Windows keeps the original text. Both variants start with 「无可用的文档渲染后端」. Startup runs a non-blocking self-check (`DocxScreenshotService.log_render_backend_status` from `main.py` lifespan): WARNING with an install hint when missing, INFO with the selected backend when ready.
 
 **Validation**:
 - Backend: `backend/tests/test_docx_screenshot_service.py`
@@ -237,7 +237,7 @@ class ScreenshotStatusResponse(BaseModel):
 | Compact index page contains many form names but short text | Must still be classified as TOC/index and skipped as content |
 | Reopen screenshot panel with identical sorted form-name signature | `start()` returns cached task and MUST NOT rerun page detection |
 | Reopen screenshot panel with changed sorted form-name signature | `start()` refreshes `page_ranges` / `field_pages` once |
-| No screenshot backend / render failure | Status transitions to `failed` with Chinese error message |
+| No screenshot backend / render failure | Status transitions to `failed` with a Chinese error message; non-Windows auto mode names LibreOffice (never the Word backend), and startup logged a WARNING with install guidance |
 | Field has no concrete page mapping | Frontend shows `未定位到原文页` and MUST NOT force-jump |
 
 #### 5. Good / Base / Bad Cases
