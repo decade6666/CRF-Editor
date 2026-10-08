@@ -1,135 +1,74 @@
 # Git & Tooling Conventions
 
-> **Purpose**: Project-local rules for PR merge ownership and multi-CLI dispatch paths.
-> Prevents agents from re-doing CI-owned merges or searching stale wrapper locations.
+> **Purpose**: Project-local rules for commit messages, the direct-to-`main` merge policy, worktree isolation, and model collaboration.
+> The 2026-10-08 user decisions below **supersede** the 2026-09-29 PR merge gate (kept at the end as legacy reference).
 
 ---
 
-## 1. any branch → main PR Merge Gate
+## 1. Commit Messages (Chinese descriptions)
 
-**What**: Owner-authored same-repo PRs targeting `main` (any head branch) are merged by the CI merge job `merge-owner-pr` in `.github/workflows/ci.yml`, **only after the four CI jobs and the `gitleaks` check pass on the PR head**. Agents and humans must **not** run manual `gh pr merge` (or equivalent) as part of the normal finish path.
+**What**: Keep the Conventional Commits shell, write the description in Chinese:
 
-**Why**:
-- The merge job `needs` all four CI jobs (backend tests, frontend tests, frontend lint, frontend build) with an implicit `success()`, then polls the `gitleaks` check runs on the PR head SHA before merging.
-- `gh pr merge --auto` is not used: this private repo is on the GitHub Free plan, where required checks are unavailable, so `--auto` merged immediately without waiting for CI.
-- Manual merge races CI, triggers unnecessary permission prompts, and can bypass the intended gate order.
-
-### Contract
-
-| Field | Rule |
-|-------|------|
-| Base | `main` only |
-| Head | **any branch** (same-repo; forks excluded) |
-| Author | `decade6666` (repo owner) |
-| Same-repo PR | head repo must equal base repo (no fork PRs) |
-| Draft PR flag | must be **ready for review** (`draft == false`) |
-| Merge method | merge commit (`gh pr merge --merge --match-head-commit <head sha>` from the `ci.yml` merge job, after the four CI jobs and gitleaks pass) |
-| Agent action after open | **stop** — wait for CI + the merge job; do not call `gh pr merge` |
-
-### Agent checklist (finish path)
-
-- [ ] Push the task/feature branch and open PR `<branch>` → `main` if missing
-- [ ] Ensure PR is not marked draft (ready for review)
-- [ ] Confirm CI workflows are running / green (or still pending)
-- [ ] **Do not** run `gh pr merge` / click Merge / force-merge
-- [ ] Report the PR URL and that the CI merge job merges it after the four jobs and gitleaks pass
-
-### Wrong vs Correct
-
-#### Wrong
-```bash
-# Agent tries to finish by merging immediately
-gh pr create --base main --head chore/foo ...
-gh pr merge 49 --merge   # ❌ CI-owned; may be denied or race checks
+```text
+<type>(<scope>): 中文描述
 ```
 
-#### Correct
+- Types: `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `ci`.
+- `type`/`scope`, code identifiers, and paths stay ASCII; the description (and any body) uses Chinese whenever practical.
+- No attribution trailers (`Co-Authored-By` etc.), per user rule.
+
+## 2. Direct Commits to `main` (No PR)
+
+**What** (since 2026-10-08): Updates are committed **directly on `main`** — no PR, no CI merge gate.
+
+| Item | Rule |
+|------|------|
+| Normal path | commit on `main`, or merge a task branch into `main` locally |
+| PRs | not opened for routine updates; do not run `gh pr create` / `gh pr merge` |
+| Push | push `main` after committing/merging |
+| CI | the four test jobs still run on push; the `merge-owner-pr` job fires only on `pull_request` events, so it stays inert for direct pushes |
+
+**Why**: single-owner repo; the PR + CI merge workflow added on 2026-09-29 is no longer the required path.
+
+## 3. Worktree Workflow (code changes)
+
+**What**: Any task that writes code or project files runs in a dedicated git worktree + task branch, merges back into `main` directly when done, then cleans up both the worktree and the branch.
+
 ```bash
-gh pr create --base main --head chore/foo ...
-# Optional: gh pr view <N> --json state,mergeStateStatus
-# Then stop. The ci.yml merge-owner-pr job merges the PR after the four CI
-# jobs and the gitleaks check pass on its head commit.
+git worktree add ../crf-editor-<task> -b <task-branch>
+# ... implement + commit + checks on <task-branch> ...
+git checkout main
+git merge <task-branch>            # direct local merge, no PR
+git worktree remove ../crf-editor-<task>
+git branch -d <task-branch>
 ```
 
-### Source of truth
+- Never implement a new code task directly on `main`.
+- Merge only after targeted tests / lint / build pass; push `main` afterwards.
+- Cleanup is part of the finish path — no leftover worktrees or merged branches.
 
-- Workflow job: `.github/workflows/ci.yml` → `jobs.merge-owner-pr`
-- Trigger types: `opened` / `reopened` / `synchronize` / `ready_for_review`
-- Concurrency: one group per PR (`github.event.pull_request.number`) with `cancel-in-progress: true` — a newer push cancels the older run and its merge job
-- Contract test: `backend/tests/test_ci_merge_gate.py` (runs inside the `Backend tests` CI job, so the gate checks its own configuration)
+## 4. Trellis Updates Get Standalone Commits
 
-### Notes
+**What**: Changes under `.trellis/` (task archives, journal, spec guides, runtime state) are committed on their own — never mixed with project code commits.
 
-- Re-running failed jobs also re-runs the previously skipped merge job, so a flaky job blocks the merge until green.
-- A `gitleaks` failure, or the wait timing out (10-minute cap), means no merge: the job fails closed and a manual merge then needs explicit user authorization. A failed status query (API error) logs a warning and is retried until the deadline; it is never read as success.
-- Bot merges made with `GITHUB_TOKEN` trigger no push-based workflows on `main` (the CI and gitleaks push runs).
+- Task archival keeps the existing `chore(task): …` commit shape, with a Chinese description where applicable.
+- If a task produces both code and `.trellis/` changes, split them into separate commits (code first, then the trellis housekeeping commit).
 
-### Exceptions (only with explicit user instruction)
+## 5. Multi-Model Collaboration: Haiku-Only Frontend Review
 
-- Emergency hot-fix when CI is broken and the user **explicitly** authorizes a manual merge
+**What** (since 2026-10-08): The external-CLI collaboration plane (Codex execution/review, Antigravity review via `codeagent-wrapper`) is **discontinued** for this project. The only retained reviewer model is **Haiku**, and only for **frontend modifications**.
+
+| Role | Mechanism | Scope |
+|------|-----------|-------|
+| Frontend change review | Claude-native sub-agent (`Agent` tool, `model: haiku`), read-only | Review the frontend diff for defects / edge cases; report findings, do not edit code |
+
+- Claude (lead model) keeps implementation, orchestration, and final decisions.
+- Backend changes have no separate reviewer model beyond Claude's own review.
+- Do not dispatch `codeagent-wrapper` / Codex / Antigravity by default anymore.
 
 ---
 
-## 2. `codeagent-wrapper` Path
+## Legacy reference (pre-2026-10-08)
 
-**What**: On this host, the multi-backend dispatcher is installed at:
-
-```text
-/usr/bin/codeagent-wrapper
-```
-
-It is an npm global bin symlink to:
-
-```text
-/usr/lib/node_modules/@decade666/trellis/bin/codeagent-wrapper.mjs
-```
-
-**Why**:
-- Older notes / personal rules may still mention `~/.claude/bin/codeagent-wrapper`, `~/.local/bin/codeagent-wrapper`, or `/tmp/trellis-wrapper-*` stubs.
-- Searching those paths wastes turns and can invoke the wrong binary.
-
-### Invocation contract
-
-```bash
-echo "<prompt>" | /usr/bin/codeagent-wrapper --backend <agy|codex|claude|grok|kimi> [--model <m>] - "$PWD"
-```
-
-| Aspect | Rule |
-|--------|------|
-| Preferred absolute path | `/usr/bin/codeagent-wrapper` |
-| PATH name | `codeagent-wrapper` (same binary when PATH is standard) |
-| stdin | task prompt (required; empty → exit 2) |
-| last positional | working directory |
-| stdout | backend plain-text reply |
-| stderr | progress / diagnostics |
-| exit | `0` ok · `2` bad args/empty prompt · `127` backend binary missing |
-
-### Overrides
-
-| Env | Purpose |
-|-----|---------|
-| `TRELLIS_CODEAGENT_WRAPPER` | Point at a different wrapper build (absolute path to `.mjs` or bin) |
-| `TRELLIS_{AGY,CODEX,CLAUDE,GROK,KIMI}_BIN` | Per-backend binary overrides |
-
-### Wrong vs Correct
-
-#### Wrong
-```bash
-# Stale locations — do not search these first
-~/.claude/bin/codeagent-wrapper
-~/.local/bin/codex
-/tmp/trellis-wrapper-*
-```
-
-#### Correct
-```bash
-/usr/bin/codeagent-wrapper --backend codex - "$PWD" < task.txt
-# or, if PATH includes /usr/bin:
-codeagent-wrapper --backend agy - "$PWD" < task.txt
-```
-
-### Related
-
-- Trellis workflow overview: `.trellis/workflow.md` → section `codeagent-wrapper — direct multi-backend dispatch`
-- Channel collab patterns: `trellis-channel/references/workflows.md`
-- CI merge gate: `.github/workflows/ci.yml` → job `merge-owner-pr` (see §1)
+- **PR merge gate (2026-09-29 → 2026-10-08)**: owner-authored same-repo PRs to `main` were merged by the CI job `merge-owner-pr` in `.github/workflows/ci.yml` after the four CI jobs and the `gitleaks` check passed. Contract test `backend/tests/test_ci_merge_gate.py` still locks that workflow file's shape and keeps passing — the gate is simply no longer on the normal path, because direct pushes never trigger it.
+- **`codeagent-wrapper` path**: `/usr/bin/codeagent-wrapper` (npm global bin → `/usr/lib/node_modules/@decade666/trellis/bin/codeagent-wrapper.mjs`) remains installed for Trellis platform internals, but is not part of this project's default collaboration flow.
