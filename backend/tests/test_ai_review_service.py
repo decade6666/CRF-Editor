@@ -263,9 +263,14 @@ def test_review_forms_rejects_negative_and_string_indexes(monkeypatch: pytest.Mo
     }
 
 
-def test_ai_review_status_endpoint_returns_progressive_results(engine) -> None:
+def test_ai_review_status_endpoint_returns_progressive_results(engine, monkeypatch: pytest.MonkeyPatch) -> None:
     user_id, project_id = _create_owned_project(engine)
     temp_id = "progressive-ai-status"
+    # 接口在读取任务前会校验上传归属；此处只关注状态响应，跳过归属查找。
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.get_owned_temp_path",
+        lambda _temp_id, **_kw: f"/tmp/fake-{_temp_id}.docx",
+    )
     ai_review_service._ai_tasks[temp_id] = AIReviewTask(
         status="running",
         total=3,
@@ -297,7 +302,7 @@ def test_ai_review_status_endpoint_returns_progressive_results(engine) -> None:
 
 def test_ai_review_cleanup_with_temp_cleanup(engine, monkeypatch: pytest.MonkeyPatch) -> None:
     user_id, project_id = _create_owned_project(engine)
-    temp_id = "cleanup-ai-review"
+    temp_id = "d" * 32
     cleanup_calls: list[tuple[str, str]] = []
     ai_review_service._ai_tasks[temp_id] = AIReviewTask(
         status="done",
@@ -307,8 +312,8 @@ def test_ai_review_cleanup_with_temp_cleanup(engine, monkeypatch: pytest.MonkeyP
     )
 
     monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.get_temp_path",
-        lambda _temp_id: Path("/tmp/fake.docx"),
+        "src.routers.import_docx.DocxImportService.get_owned_temp_path",
+        lambda _temp_id, **_kw: Path("/tmp/fake.docx"),
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.cleanup_temp",

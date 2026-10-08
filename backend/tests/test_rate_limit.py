@@ -112,7 +112,7 @@ def _create_owned_project(engine) -> int:
         (
             "import-docx/preview",
             lambda monkeypatch: (
-                monkeypatch.setattr("src.routers.import_docx.DocxImportService.save_temp_file", lambda content, filename: ("temp-1", Path("/tmp/fake.docx"))),
+                monkeypatch.setattr("src.routers.import_docx.DocxImportService.save_temp_file", lambda content, filename, **_kw: ("temp-1", Path("/tmp/fake.docx"))),
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.parse_full", lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}]),
                 monkeypatch.setattr("src.routers.import_docx.DocxScreenshotService.start", lambda **_kwargs: None),
                 monkeypatch.setattr("src.routers.import_docx.start_ai_review", _fake_start_ai_review),
@@ -121,7 +121,7 @@ def _create_owned_project(engine) -> int:
         (
             "import-docx/execute",
             lambda monkeypatch: (
-                monkeypatch.setattr("src.routers.import_docx.DocxImportService.get_temp_path", lambda _temp_id: Path("/tmp/fake.docx")),
+                monkeypatch.setattr("src.routers.import_docx.DocxImportService.get_owned_temp_path", lambda _temp_id, **_kw: Path("/tmp/fake.docx")),
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.cleanup_temp", lambda _temp_id: None),
                 monkeypatch.setattr("src.routers.import_docx.DocxImportService.import_forms", lambda *_args, **_kwargs: {"imported_form_count": 1, "detail": [{"name": "表单A", "field_count": 1, "form_id": 1}]}),
             ),
@@ -149,7 +149,7 @@ def test_docx_import_rate_limits_return_429_in_production(client, engine, monkey
             headers=auth_headers(token),
         )
     else:
-        payload = {"temp_id": "temp-1", "form_indices": [0]}
+        payload = {"temp_id": "b" * 32, "form_indices": [0]}
         for _ in range(3):
             resp = client.post(
                 f"/api/projects/{project_id}/{path_suffix}",
