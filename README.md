@@ -438,6 +438,14 @@ cd backend
 python -m pytest
 ```
 
+测试会话自动隔离到系统临时目录（数据库、上传、截图与 Word 导入临时路径全部重定向，会话结束自动清理），全新检出无需 `config.yaml` 或预置数据库即可直接运行全部后端测试。
+
+覆盖率统计（仅统计、不设门槛）：
+```bash
+cd backend
+python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
+```
+
 ### 前端
 ```bash
 cd frontend
@@ -445,8 +453,8 @@ node --test tests/*.test.js
 ```
 
 当前仓库中：
-- `backend/tests/` 当前包含 47 个 Python 测试文件（45 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
-- `frontend/tests/` 当前包含 65 个前端测试文件（64 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡，以及管理端机构弹窗编辑等契约
+- `backend/tests/` 当前包含 67 个 Python 测试文件（65 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
+- `frontend/tests/` 当前包含 69 个前端测试文件（68 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡，以及管理端机构弹窗编辑等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
 ### 提交前检查（pre-commit 门禁）

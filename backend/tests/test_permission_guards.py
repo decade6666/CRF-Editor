@@ -4,12 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as
 from main import app
 from src.config import AuthConfig, StorageConfig
+from src.models import Base
 from src.models.codelist import CodeList
 from src.models.field_definition import FieldDefinition
 from src.models.form import Form
@@ -299,7 +300,12 @@ def test_copy_visit_duplicates_associated_forms(client: TestClient, engine) -> N
         assert [visit_form.sequence for visit_form in copied_visit_forms] == [1, 2]
 
 
-def test_authenticated_user_can_export_owned_projects_database(client: TestClient, engine) -> None:
+def test_authenticated_user_can_export_owned_projects_database(
+    client: TestClient,
+    engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     token = login_as(client, "alice")
     login_as(client, "bob")
 
@@ -309,12 +315,31 @@ def test_authenticated_user_can_export_owned_projects_database(client: TestClien
         assert alice is not None
         assert bob is not None
 
+    # 导出路由经 get_config().db_path 直连数据库文件（绕过会话依赖），
+    # 这里自建临时文件库并按已删除 CI 预置库的语义播种，不依赖外部数据库。
+    source_path = tmp_path / "export_source.db"
+    file_engine = create_engine(f"sqlite:///{source_path}")
+
+    @event.listens_for(file_engine, "connect")
+    def _enable_foreign_keys(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys = ON")
+
+    Base.metadata.create_all(file_engine)
+    with Session(file_engine) as session:
         session.add_all([
+            User(id=alice.id, username="alice"),
+            User(id=bob.id, username="bob"),
             Project(name="Alice 导出项目A", version="1.0", owner_id=alice.id, order_index=1),
             Project(name="Alice 导出项目B", version="1.0", owner_id=alice.id, order_index=2),
             Project(name="Bob 导出项目", version="1.0", owner_id=bob.id, order_index=1),
         ])
         session.commit()
+    file_engine.dispose()
+
+    monkeypatch.setattr(
+        "src.routers.export.get_config",
+        lambda: SimpleNamespace(db_path=str(source_path)),
+    )
 
     resp = client.get("/api/projects/export/database", headers=auth_headers(token))
     assert resp.status_code == 200, resp.text

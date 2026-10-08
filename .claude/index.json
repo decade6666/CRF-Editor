@@ -142,6 +142,7 @@
         "backend/tests/test_settings_ai_test.py",
         "backend/tests/test_subresource_isolation.py",
         "backend/tests/test_template_field_index.py",
+        "backend/tests/test_test_environment_isolation.py",
         "backend/tests/test_user_admin.py",
         "backend/tests/test_utils.py",
         "backend/tests/test_wal.py",

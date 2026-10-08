@@ -51,13 +51,18 @@ def test_yaml_auth_expire_minutes_overrides_model_default(tmp_path: Path) -> Non
     assert config.auth.access_token_expire_minutes == 60
 
 
-def test_missing_auth_expire_minutes_falls_back_to_auth_default(tmp_path: Path) -> None:
+def test_missing_auth_expire_minutes_falls_back_to_auth_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
         "auth:\n"
         "  secret_key: test-secret-key-for-config\n",
         encoding="utf-8",
     )
+    # conftest 为整个会话注入了 CRF_AUTH_SECRET_KEY；本测试验证的是
+    # 「环境变量缺省时 YAML 值生效」，因此显式移除以还原该前提。
+    monkeypatch.delenv("CRF_AUTH_SECRET_KEY", raising=False)
 
     config = load_config(config_file)
 

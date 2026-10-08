@@ -87,3 +87,9 @@ image/
 # gitleaks local report artifacts
 gitleaks-report*.json
 gitleaks-report*.sarif
+
+# 覆盖率产物（pytest-cov）
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
