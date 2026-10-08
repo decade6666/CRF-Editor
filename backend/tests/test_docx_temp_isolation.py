@@ -79,6 +79,12 @@ def test_should_mint_32_hex_temp_id_bound_to_owner_and_project():
     stored_name = Path(file_path).name
     assert stored_name.startswith(f"{temp_id}_u7_p9_")
     assert stored_name.endswith("_样本.docx")
+    # 大写扩展名上传：扩展名统一转小写存储，归属查找与清扫才能命中
+    upper_id, upper_path = DocxImportService.save_temp_file(
+        b"PK\x03\x04 upper", "SAMPLE.DOCX", user_id=7, project_id=9
+    )
+    assert Path(upper_path).suffix == ".docx"
+    assert DocxImportService.get_owned_temp_path(upper_id, user_id=7, project_id=9) == str(upper_path)
 
 
 def test_should_find_upload_only_for_same_user_and_project():
@@ -111,7 +117,8 @@ _PATH_ENDPOINTS = [
     "screenshots/status",
     "screenshots/pages/1",
 ]
-_BAD_PATH_IDS = ["a", "a" * 31, "a" * 33, "A" * 32, "g" * 32]
+# 裸换行会被 HTTP 客户端拒绝；%0A 是真实可达的等价形状，starlette 路由前解码为换行。
+_BAD_PATH_IDS = ["a", "a" * 31, "a" * 33, "A" * 32, "g" * 32, "a" * 32 + "%0A"]
 
 
 @pytest.mark.parametrize("endpoint", _PATH_ENDPOINTS)
@@ -123,7 +130,7 @@ def test_should_return_422_for_malformed_temp_id_in_path(client, bad_id, endpoin
     assert response.status_code == 422, response.text
 
 
-@pytest.mark.parametrize("bad_id", ["", "a", "a" * 31, "a" * 33, "A" * 32, "g" * 32, f"../{'a' * 29}"])
+@pytest.mark.parametrize("bad_id", ["", "a", "a" * 31, "a" * 33, "A" * 32, "g" * 32, "a" * 32 + "\n", f"../{'a' * 29}"])
 def test_should_return_422_for_malformed_temp_id_in_execute_body(client, bad_id):
     token = login_as(client, "alice")
     project_id = _create_project(client, token, "A项目")
@@ -234,3 +241,114 @@ def test_should_reject_owner_temp_id_in_another_project_of_same_owner(client):
     assert exec_other.status_code == 400
     assert exec_other.json()["detail"] == "临时文件已过期，请重新上传"
     assert file_path.exists()
+
+
+def test_should_answer_expired_upload_like_missing_one_when_swept_mid_execute(client, monkeypatch):
+    """清扫与执行导入并发（归属校验后文件被删除）时，按缺失上传返回统一 400。"""
+    token_a = login_as(client, "alice")
+    user_a = seed_user(client, "alice")
+    project_a = _create_project(client, token_a, "A项目")
+    temp_id, _ = _seed_upload(user_a, project_a)
+
+    def _vanishing_import(*_args, **_kwargs):
+        raise FileNotFoundError(temp_id)
+
+    monkeypatch.setattr(
+        "src.routers.import_docx.DocxImportService.import_forms", _vanishing_import
+    )
+    response = client.post(
+        f"/api/projects/{project_a}/import-docx/execute",
+        json={"temp_id": temp_id, "form_indices": [0]},
+        headers=auth_headers(token_a),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "临时文件已过期，请重新上传"
+
+
+# ── 过期清扫 ──
+
+
+def _age_file(path: Path, hours: float) -> None:
+    import os
+
+    stamp = path.stat().st_mtime - hours * 3600
+    os.utime(path, (stamp, stamp))
+
+
+def test_should_purge_expired_uploads_with_their_artifacts(monkeypatch):
+    import time
+
+    old_id, old_new_format = _seed_upload(1, 1, temp_id="a" * 32)
+    _, fresh_new_format = _seed_upload(1, 1, temp_id="b" * 32)
+    legacy_old_format = Path(DocxImportService.TEMP_DIR) / f"{'c' * 12}_legacy.docx"
+    legacy_upper_format = Path(DocxImportService.TEMP_DIR) / f"{'d' * 12}_LEGACY.DOCX"
+    for path in (legacy_old_format, legacy_upper_format):
+        path.write_bytes(b"PK\x03\x04 placeholder")
+    for path in (old_new_format, legacy_old_format, legacy_upper_format):
+        _age_file(path, hours=25)
+
+    screenshot_calls: list[str] = []
+    monkeypatch.setattr(
+        DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid))
+    )
+    ars = ai_review_service
+    monkeypatch.setattr(ars, "_ai_tasks", {old_id: object()}, raising=False)
+
+    purged = DocxImportService.purge_expired_uploads(max_age_hours=24, now=time.time())
+
+    assert purged == 3
+    assert not old_new_format.exists(), "超过 24 小时的新格式上传必须被删除"
+    assert not legacy_old_format.exists(), "超过 24 小时的旧格式遗留文件必须被删除"
+    assert not legacy_upper_format.exists(), "大写扩展名的遗留文件同样必须被清扫"
+    assert fresh_new_format.exists(), "未过期的上传必须保留"
+    assert screenshot_calls == [old_id], "新格式过期上传必须连带清理截图缓存"
+    assert old_id not in ars._ai_tasks, "新格式过期上传必须连带清理 AI 复核任务"
+
+
+def test_should_purge_nothing_when_temp_dir_missing():
+    assert DocxImportService.purge_expired_uploads() == 0
+
+
+def test_should_start_docx_temp_sweep_only_when_background_jobs_enabled(monkeypatch):
+    import asyncio
+
+    import src.background_jobs as bj
+    import src.config as cfg
+
+    monkeypatch.delenv("CRF_DISABLE_BACKGROUND_JOBS", raising=False)
+    monkeypatch.setattr(bj, "_run_docx_temp_sweep_once_sync", lambda: 0)
+    monkeypatch.setattr(bj, "_run_cleanup_once_sync", lambda: {"purged_count": 0})
+
+    class _P:
+        interval_minutes = 60
+
+        class recycle_bin:
+            interval_minutes = 60
+
+    # 回收站循环在函数内延迟导入 get_config，只有 cfg 级 patch 生效。
+    monkeypatch.setattr(cfg, "get_config", lambda: _P())
+
+    async def _run():
+        class _FakeApp:
+            def __init__(self):
+                self.state = type("S", (), {})()
+
+        monkeypatch.setenv("CRF_DISABLE_BACKGROUND_JOBS", "1")
+        disabled_app = _FakeApp()
+        bj.start_background_jobs(disabled_app)
+        assert getattr(disabled_app.state, "docx_temp_sweep_task", None) is None
+        assert getattr(disabled_app.state, "recycle_bin_cleanup_task", None) is None
+
+        monkeypatch.setenv("CRF_DISABLE_BACKGROUND_JOBS", "0")
+        app = _FakeApp()
+        bj.start_background_jobs(app)
+        sweep_task = getattr(app.state, "docx_temp_sweep_task", None)
+        recycle_task = getattr(app.state, "recycle_bin_cleanup_task", None)
+        assert sweep_task is not None, "后台任务开启时必须创建 docx 临时文件清扫任务"
+        assert recycle_task is not None
+
+        await bj.stop_background_jobs(app)
+        assert getattr(app.state, "docx_temp_sweep_task", None) is None
+        assert getattr(app.state, "recycle_bin_cleanup_task", None) is None
+
+    asyncio.run(_run())

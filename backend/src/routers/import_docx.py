@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["import-docx"])
 
 # 路径参数与请求体共用的临时编号格式：32 位小写十六进制，不符合返回 422。
-TempId = Annotated[str, Path(pattern=TEMP_ID_PATTERN)]
+# min/max_length 兜住 pattern 的 search 语义放过尾部换行的形状（"$" 匹配末行前）。
+TempId = Annotated[str, Path(pattern=TEMP_ID_PATTERN, min_length=32, max_length=32)]
 
 
 
@@ -190,7 +191,7 @@ class DocxFormOverride(BaseModel):
 
 class DocxExecuteRequest(BaseModel):
 
-    temp_id: str = Field(pattern=TEMP_ID_PATTERN)
+    temp_id: str = Field(pattern=TEMP_ID_PATTERN, min_length=32, max_length=32)
 
     form_indices: List[int]
 
@@ -582,6 +583,11 @@ def execute_docx_import(
         logger.warning("Word导入参数错误: %s", e)
 
         raise HTTPException(400, f"导入失败: {e}")
+
+    except FileNotFoundError:
+
+        # 过期清扫与本次导入并发：归属校验后文件被后台清理删除，按缺失上传应答
+        raise HTTPException(400, "临时文件已过期，请重新上传")
 
     except Exception:
 
