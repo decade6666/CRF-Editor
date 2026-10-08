@@ -44,9 +44,23 @@ export function makeApiUrl(base) {
 const _viteEnv = typeof import.meta !== 'undefined' && import.meta ? import.meta.env : undefined;
 const apiUrl = makeApiUrl((_viteEnv && _viteEnv.BASE_URL) || '/');
 
+// 会话令牌守卫（跨栈契约 §3 第 4、5 条）：请求先记下发起时用的令牌，
+// 响应到达时只有令牌未变（未登出 / 未换用户 / 无他标签页登录）才允许写回刷新令牌或触发登出，
+// 免得迟到的响应污染新会话。未带令牌的请求捕获值为 null，按普通值参与比较。
+function _buildRequestAuth(extraHeaders = {}) {
+  const sentToken = localStorage.getItem('crf_token');
+  return {
+    sentToken,
+    headers: sentToken ? { ...extraHeaders, Authorization: `Bearer ${sentToken}` } : { ...extraHeaders },
+  };
+}
+
+function _isCurrentSession(sentToken) {
+  return localStorage.getItem('crf_token') === sentToken;
+}
+
 function _getAuthHeaders() {
-  const token = localStorage.getItem('crf_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return _buildRequestAuth().headers;
 }
 
 export { _getAuthHeaders as getAuthHeaders, apiUrl };
@@ -69,9 +83,9 @@ function _createHttpError(message, status) {
   return error;
 }
 
-async function _checkStatus(r) {
+async function _checkStatus(r, sentToken) {
   if (r.status === 401) {
-    _handle401();
+    if (_isCurrentSession(sentToken)) _handle401();
     throw _createHttpError('登录已过期，请重新登录', r.status);
   }
   if (r.status === 429) {
@@ -79,7 +93,7 @@ async function _checkStatus(r) {
     throw _createHttpError(detail || '操作过于频繁，请稍后重试', r.status);
   }
   if (!r.ok) throw _createHttpError(await _parseError(r), r.status);
-  _storeRefreshedToken(r);
+  if (_isCurrentSession(sentToken)) _storeRefreshedToken(r);
 }
 
 // ── 内存缓存层 ──
@@ -133,8 +147,9 @@ async function _safeJsonParse(r) {
 // API 请求工具
 export const api = {
   async get(url) {
-    const r = await fetch(apiUrl(url), { headers: _getAuthHeaders() });
-    await _checkStatus(r);
+    const { sentToken, headers } = _buildRequestAuth();
+    const r = await fetch(apiUrl(url), { headers });
+    await _checkStatus(r, sentToken);
     return _safeJsonParse(r);
   },
 
@@ -148,9 +163,11 @@ export const api = {
 
     // 捕获发起时的缓存世代：期间若有 invalidate/clear，响应到达时不再写回缓存
     const generation = _cacheGeneration;
-    const p = fetch(apiUrl(url), { headers: _getAuthHeaders() })
+    // 同样捕获发起时的令牌：期间若会话已变，响应到达时不再写回刷新令牌或触发登出
+    const { sentToken, headers } = _buildRequestAuth();
+    const p = fetch(apiUrl(url), { headers })
       .then(async (r) => {
-        await _checkStatus(r);
+        await _checkStatus(r, sentToken);
         const data = await _safeJsonParse(r);
         if (generation === _cacheGeneration) {
           _cache.set(url, { data, ts: Date.now() });
@@ -169,32 +186,35 @@ export const api = {
   invalidateCache,
   clearAllCache,
   async post(url, data) {
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
     const r = await fetch(apiUrl(url), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
+      headers,
       body: JSON.stringify(data),
     });
-    await _checkStatus(r);
+    await _checkStatus(r, sentToken);
     _autoInvalidate(url);
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async put(url, data) {
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
     const r = await fetch(apiUrl(url), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
+      headers,
       body: JSON.stringify(data),
     });
-    await _checkStatus(r);
+    await _checkStatus(r, sentToken);
     _autoInvalidate(url);
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async patch(url, data, options = {}) {
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
     const r = await fetch(apiUrl(url), {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ..._getAuthHeaders() },
+      headers,
       body: JSON.stringify(data),
     });
-    await _checkStatus(r);
+    await _checkStatus(r, sentToken);
     _autoInvalidate(url);
     for (const prefix of options.invalidate || []) {
       invalidateCache(prefix);
@@ -202,8 +222,9 @@ export const api = {
     return r.status === 204 ? null : _safeJsonParse(r);
   },
   async del(url) {
-    const r = await fetch(apiUrl(url), { method: 'DELETE', headers: _getAuthHeaders() });
-    await _checkStatus(r);
+    const { sentToken, headers } = _buildRequestAuth();
+    const r = await fetch(apiUrl(url), { method: 'DELETE', headers });
+    await _checkStatus(r, sentToken);
     _autoInvalidate(url);
   },
 };
