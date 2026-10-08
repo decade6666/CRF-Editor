@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "reviewer checks hook docs stay consistent with commit conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "quality bar for the staged .py syntax/format checks added to the hook"}
+{"file": ".context/prefs/workflow.md", "reason": "verifier confirms hook does not violate commit-only-on-request and worktree rules"}

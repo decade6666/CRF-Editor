@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "commit conventions and where the hook must be documented"}
+{"file": ".context/prefs/workflow.md", "reason": "commit trigger rules and worktree/branch flow the hook must not interfere with"}
+{"file": ".trellis/spec/guides/index.md", "reason": "thinking-guide index used to double-check scope before tooling changes"}
