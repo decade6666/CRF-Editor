@@ -22,6 +22,7 @@ from src.schemas.form import (
     serialize_annotation_positions,
 )
 from src.services.order_service import OrderService
+from src.services.form_field_copy import copy_form_field
 
 
 router = APIRouter(tags=["forms"])
@@ -304,16 +305,11 @@ def copy_form(
     )
     for form_field in src_fields:
         session.add(
-            FormField(
+            copy_form_field(
+                form_field,
                 form_id=new_form.id,
                 field_definition_id=form_field.field_definition_id,
-                is_log_row=form_field.is_log_row,
                 order_index=form_field.order_index,
-                required=form_field.required,
-                label_override=form_field.label_override,
-                help_text=form_field.help_text,
-                default_value=form_field.default_value,
-                inline_mark=form_field.inline_mark,
             )
         )
 
