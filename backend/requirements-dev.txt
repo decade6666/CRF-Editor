@@ -3,6 +3,7 @@
 
 # Testing
 pytest~=7.4.0
+pytest-cov~=4.1
 hypothesis~=6.92.0
 
 # 依赖锁定工具（用于生成 requirements.lock）

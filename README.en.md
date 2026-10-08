@@ -438,6 +438,14 @@ cd backend
 python -m pytest
 ```
 
+The backend test session is hermetic: database, upload, screenshot, and Word-import temp paths are all redirected to a system temp directory and cleaned up automatically, so a fresh checkout needs no `config.yaml` or pre-seeded database to run the full backend suite.
+
+Coverage (statistics only, no gate):
+```bash
+cd backend
+python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
+```
+
 ### Frontend
 ```bash
 cd frontend
@@ -445,8 +453,8 @@ node --test tests/*.test.js
 ```
 
 In the current repository:
-- `backend/tests/` currently contains 47 Python test files (45 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 65 frontend test files (64 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
+- `backend/tests/` currently contains 67 Python test files (65 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 69 frontend test files (68 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ## Contributing
