@@ -20,18 +20,30 @@ def resolve_logo_path(project: Project) -> Optional[Path]:
     return Path(get_config().upload_path) / "logos" / project.company_logo_path
 
 
-def purge_project(session: Session, project: Project) -> None:
-    """彻底删除项目及其关联数据图与 Logo 文件。
+def remove_logo_file(path: Optional[Path]) -> None:
+    """删除 Logo 文件；None 或文件已不存在时静默跳过，删除失败只记 warning。
+
+    调用方必须先在数据库提交项目删除，再调用本函数——这样进程被杀最多留下
+    孤儿文件，不会出现「文件已删但项目回到回收站」的半删状态。
+    """
+    if path is None:
+        return
+    try:
+        # missing_ok：不先判断存在再删，避免竞态，且 stat 类错误同样只记 warning
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("删除 Logo 文件失败 %s: %s", path, exc)
+
+
+def purge_project(session: Session, project: Project) -> Optional[Path]:
+    """彻底删除项目及其关联数据图，返回待删除的 Logo 文件路径（无 Logo 为 None）。
 
     调用方保证 project 已存在于回收站中（deleted_at 非空）。
-    Logo 文件删除失败仅记录 warning，不影响数据库删除结果——
-    数据库 commit 先于文件 unlink，进程被杀最多留下孤儿文件，不会有半删的数据图。
+    本函数只做数据库删除（delete + flush），不碰文件系统：调用方必须在
+    session.commit() 成功之后调用 remove_logo_file()——否则提交失败时
+    项目会回到回收站，而 Logo 文件已经丢失。
     """
     logo_path = resolve_logo_path(project)
     session.delete(project)
     session.flush()
-    if logo_path and logo_path.exists():
-        try:
-            logo_path.unlink()
-        except OSError as exc:
-            logger.warning("删除 Logo 文件失败 %s: %s", logo_path, exc)
+    return logo_path

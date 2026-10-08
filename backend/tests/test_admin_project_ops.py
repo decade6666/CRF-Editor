@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import select, func
+from sqlalchemy import event, select, func
 from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as, seed_user
@@ -315,11 +315,26 @@ def test_hard_delete_removes_project_logo_file(client, engine):
     logo_path = logo_dir / 'deleted-logo.png'
     logo_path.write_bytes(b'fake-logo')
 
+    # 记录每次提交时项目行是否已消失、Logo 文件是否仍在
+    observations: list[tuple[bool, bool]] = []
+
+    def _record(_session) -> None:
+        with Session(engine) as probe:
+            project_gone = probe.get(Project, deleted_id) is None
+        observations.append((project_gone, logo_path.exists()))
+
+    event.listen(Session, 'after_commit', _record)
     try:
         resp = client.delete(f'/api/admin/projects/{deleted_id}/hard-delete', headers=auth_headers(admin_token))
         assert resp.status_code == 204, resp.text
+
+        # 删除项目的那次提交时，Logo 文件必须仍然存在（先提交数据库、后删文件）
+        purge_observations = [exists for gone, exists in observations if gone]
+        assert purge_observations, '未观察到删除项目的提交'
+        assert purge_observations[0] is True, '数据库提交时 Logo 文件已被提前删除'
         assert not logo_path.exists()
     finally:
+        event.remove(Session, 'after_commit', _record)
         if logo_path.exists():
             logo_path.unlink()
 

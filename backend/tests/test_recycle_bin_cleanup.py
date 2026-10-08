@@ -1,4 +1,5 @@
 """回收站定时清理 + 项目体积估算回归测试。"""
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from src.models.unit import Unit
 from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
+from src.services.project_purge_service import remove_logo_file
 from src.services.project_size_service import (
     estimate_project_sizes,
     estimate_recycled_project_sizes,
@@ -410,18 +412,36 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
 
         logos_dir = tmp_path / "logos"
         logos_dir.mkdir(parents=True)
-        (logos_dir / "logo_run.png").write_bytes(b"png" * 30)
+        logo_path = logos_dir / "logo_run.png"
+        logo_path.write_bytes(b"png" * 30)
 
-        with patch("src.services.project_purge_service.get_config") as m, \
-             patch("src.services.project_size_service.get_config") as m2:
-            m.return_value.upload_path = str(tmp_path)
-            m2.return_value.upload_path = str(tmp_path)
-            report = run_recycle_bin_cleanup(
-                session,
-                _make_policy(age_enabled=True, age_value=1, age_unit="day"),
-                now=now,
-            )
+        # 记录每次提交时项目行是否已消失、Logo 文件是否仍在
+        observations: list[tuple[bool, bool]] = []
+
+        def _record(_session) -> None:
+            with Session(engine) as probe:
+                project_gone = probe.get(Project, project_ids[0]) is None
+            observations.append((project_gone, logo_path.exists()))
+
+        event.listen(Session, "after_commit", _record)
+        try:
+            with patch("src.services.project_purge_service.get_config") as m, \
+                 patch("src.services.project_size_service.get_config") as m2:
+                m.return_value.upload_path = str(tmp_path)
+                m2.return_value.upload_path = str(tmp_path)
+                report = run_recycle_bin_cleanup(
+                    session,
+                    _make_policy(age_enabled=True, age_value=1, age_unit="day"),
+                    now=now,
+                )
+        finally:
+            event.remove(Session, "after_commit", _record)
         assert report["purged_count"] == 1
+
+        # 删除项目的那次提交时，Logo 文件必须仍然存在（先提交数据库、后删文件）
+        purge_observations = [exists for gone, exists in observations if gone]
+        assert purge_observations, "未观察到删除项目的提交"
+        assert purge_observations[0] is True, "数据库提交时 Logo 文件已被提前删除"
 
         # 数据图已清
         assert session.get(Project, project_ids[0]) is None
@@ -452,3 +472,61 @@ def test_run_cleanup_skips_project_restored_between_plan_and_purge(engine):
 
         assert report["purged_count"] == 0
         assert session.get(Project, pid) is not None
+
+
+def test_run_cleanup_keeps_logo_when_commit_fails(engine, tmp_path, monkeypatch):
+    """提交失败时项目回到回收站，Logo 文件必须保留（不能先删文件后提交）。"""
+    now = datetime(2026, 1, 10, 0, 0, 0)
+    with Session(engine) as session:
+        admin = User(username="u1", hashed_password="x", is_admin=False, auth_version=0)
+        session.add(admin)
+        session.flush()
+        p = _create_project_graph(session, admin.id, "p", order_index=1, deleted_at=now - timedelta(days=100))
+        p.company_logo_path = "logo_keep.png"
+        session.commit()
+        pid = p.id
+
+        logos_dir = tmp_path / "logos"
+        logos_dir.mkdir(parents=True)
+        logo_path = logos_dir / "logo_keep.png"
+        logo_path.write_bytes(b"png" * 30)
+
+        real_commit = Session.commit
+
+        def _fail_commit(self):
+            if self is session:
+                raise RuntimeError("commit failed")
+            return real_commit(self)
+
+        monkeypatch.setattr(Session, "commit", _fail_commit)
+
+        with patch("src.services.project_purge_service.get_config") as m, \
+             patch("src.services.project_size_service.get_config") as m2:
+            m.return_value.upload_path = str(tmp_path)
+            m2.return_value.upload_path = str(tmp_path)
+            report = run_recycle_bin_cleanup(
+                session,
+                _make_policy(age_enabled=True, age_value=1, age_unit="day"),
+                now=now,
+            )
+
+    assert report["purged_count"] == 0
+    assert logo_path.exists(), "提交失败时 Logo 文件必须保留"
+    with Session(engine) as check:
+        assert check.get(Project, pid) is not None
+
+
+def test_remove_logo_file_warns_without_raising_on_oserror(tmp_path, monkeypatch, caplog):
+    """删 Logo 文件失败只记 warning，不把异常抛给调用方。"""
+    logo_path = tmp_path / "broken-logo.png"
+    logo_path.write_bytes(b"png")
+
+    def _raise_oserror(self, missing_ok=False):
+        raise OSError("设备忙")
+
+    monkeypatch.setattr(Path, "unlink", _raise_oserror)
+
+    with caplog.at_level(logging.WARNING, logger="src.services.project_purge_service"):
+        remove_logo_file(logo_path)  # 不应抛出
+
+    assert any("删除 Logo 文件失败" in record.getMessage() for record in caplog.records)
