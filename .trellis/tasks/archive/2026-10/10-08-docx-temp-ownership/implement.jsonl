@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared execution runbook: worktree, test env, safety rules, review gates"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layering and conventions entry point"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Authorization and resource-ownership rules for the new upload checks"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "HTTP error conventions; foreign ids reuse existing not-found responses"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Log levels for the new background sweep loop"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Section 4 Word import screenshot evidence contract to extend"}
+{"file": ".trellis/tasks/10-08-review-remediation/research/review-2026-10-08.md", "reason": "Original review evidence for the IDOR finding"}

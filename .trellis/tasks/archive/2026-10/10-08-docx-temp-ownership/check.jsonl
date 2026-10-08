@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared review gates, docs-sync checklist, report template"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test and code-quality conventions"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Verify ownership checks on every temp_id endpoint"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Verify section 4 updated and frontend contract unchanged"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "Commit, merge, and worktree conventions"}
