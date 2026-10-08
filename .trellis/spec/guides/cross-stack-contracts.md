@@ -192,9 +192,12 @@ POST /api/forms/{form_id}/fields/reorder
 3. Field click uses `field_pages[currentFormName][field.index]` as the primary evidence locator
 4. If a field has no concrete page mapping, frontend shows a gentle `未定位到原文页` hint and must not force-jump to the form's first page
 5. On unsupported runtime (missing `pythoncom` / no Windows Word COM, or missing LibreOffice on Linux/macOS), backend task status must transition to `failed` with a user-visible Chinese error message instead of remaining stuck at `starting`. The auto-mode no-backend message is platform-aware (`_no_backend_message`): non-Windows names LibreOffice and never suggests the Word backend; Windows keeps the original text. Both variants start with 「无可用的文档渲染后端」. Startup runs a non-blocking self-check (`DocxScreenshotService.log_render_backend_status` from `main.py` lifespan): WARNING with an install hint when missing, INFO with the selected backend when ready.
+6. Temp-id format and ownership: `temp_id` is a 32-lowercase-hex string minted on upload (`TEMP_ID_PATTERN = ^[0-9a-f]{32}$` in `docx_import_service.py`). The stored filename encodes the upload owner: `{temp_id}_u{user_id}_p{project_id}_{original}.docx`. Every temp-id surface (the `execute` request body plus the four `{temp_id}` path routes) validates the pattern and returns 422 on a malformed id. A temp id may only be used by the uploading user inside the uploading project.
+7. Existence non-disclosure: a foreign id (another user's, or the same user's other project) MUST be answered byte-identically to a nonexistent id — the project convention of 403 for foreign projects is deliberately NOT followed here, because upload ids are 128-bit unguessable values and confirming existence would leak information. A frontend client therefore never needs to distinguish these cases.
+8. Upload expiry: uploads older than 24 h (`UPLOAD_TTL_HOURS`) are purged together with their screenshot cache and AI-review task by an in-process sweep (`background_jobs.py`: once at startup, then hourly; disabled with `CRF_DISABLE_BACKGROUND_JOBS`). Legacy pre-fix filenames (12-hex ids) are un-attributable and are file-unlinked only.
 
 **Validation**:
-- Backend: `backend/tests/test_docx_screenshot_service.py`
+- Backend: `backend/tests/test_docx_screenshot_service.py`, `backend/tests/test_docx_temp_isolation.py`
 - Frontend: `frontend/tests/docxBimodalPreview.test.js`
 - Browser/manual: open Word import preview and confirm the dialog contains both `原始文档截图` and `导入效果`
 
@@ -239,6 +242,9 @@ class ScreenshotStatusResponse(BaseModel):
 | Reopen screenshot panel with changed sorted form-name signature | `start()` refreshes `page_ranges` / `field_pages` once |
 | No screenshot backend / render failure | Status transitions to `failed` with a Chinese error message; non-Windows auto mode names LibreOffice (never the Word backend), and startup logged a WARNING with install guidance |
 | Field has no concrete page mapping | Frontend shows `未定位到原文页` and MUST NOT force-jump |
+| Malformed temp id (execute body or any `{temp_id}` path) | 422 via Pydantic/FastAPI pattern validation; frontend never sends one (it echoes the server-minted id) |
+| Foreign temp id (not the caller's own upload in this project) | Byte-identical to a missing id: `execute` 400 「临时文件已过期，请重新上传」; `screenshots/start` 400 「临时文件不存在，请重新上传」; `screenshots/status` 200 `idle`; `screenshots/pages/{n}` 404 「截图不存在或尚未生成」; `ai-review/status` 404 「AI复核任务不存在或已过期」 |
+| Upload older than 24 h | Hourly sweep removes the file, its screenshot cache dir, and its AI task; in-flight clients then see the same missing-id responses |
 
 #### 5. Good / Base / Bad Cases
 - **Good**: outline has `1. 知情同意 -> p7`, `2. 访视日期 -> p8`; `page_ranges` starts at 7/8 even if pages 4-6 are compact index pages.
