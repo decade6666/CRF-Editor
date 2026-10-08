@@ -26,7 +26,7 @@
 | Normal path | commit on `main`, or merge a task branch into `main` locally |
 | PRs | not opened for routine updates; do not run `gh pr create` / `gh pr merge` |
 | Push | push `main` after committing/merging |
-| CI | the four test jobs still run on push; the `merge-owner-pr` job fires only on `pull_request` events, so it stays inert for direct pushes |
+| CI | none — GitHub Actions workflows were removed on 2026-10-08; run the backend / frontend suites locally before merging |
 
 **Why**: single-owner repo; the PR + CI merge workflow added on 2026-09-29 is no longer the required path.
 
@@ -68,7 +68,7 @@ git branch -d <task-branch>
 
 ---
 
-## Legacy reference (pre-2026-10-08)
+## Legacy reference
 
-- **PR merge gate (2026-09-29 → 2026-10-08)**: owner-authored same-repo PRs to `main` were merged by the CI job `merge-owner-pr` in `.github/workflows/ci.yml` after the four CI jobs and the `gitleaks` check passed. Contract test `backend/tests/test_ci_merge_gate.py` still locks that workflow file's shape and keeps passing — the gate is simply no longer on the normal path, because direct pushes never trigger it.
+- **PR merge gate (2026-09-29 → 2026-10-08)**: owner-authored same-repo PRs to `main` were merged by the CI job `merge-owner-pr` in `.github/workflows/ci.yml` after the four CI jobs and the `gitleaks` check passed. The whole mechanism was removed on 2026-10-08: both workflow files (including `gitleaks.yml`), the repo-root `.gitleaks.toml`, and the contract test `backend/tests/test_ci_merge_gate.py` are deleted — local test runs are now the only gate before merging.
 - **`codeagent-wrapper` path**: `/usr/bin/codeagent-wrapper` (npm global bin → `/usr/lib/node_modules/@decade666/trellis/bin/codeagent-wrapper.mjs`) remains installed for Trellis platform internals, but is not part of this project's default collaboration flow.
