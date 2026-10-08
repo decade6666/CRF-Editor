@@ -104,6 +104,123 @@ def test_start_marks_task_failed_when_explicit_backend_is_unavailable(
     assert task.error == expected
 
 
+def test_no_backend_message_names_libreoffice_on_non_windows() -> None:
+    message = screenshot_module._no_backend_message(False)
+
+    assert "无可用的文档渲染后端" in message
+    assert "LibreOffice" in message
+    assert "Word 后端" not in message
+    assert "MS Word" not in message
+
+
+def test_no_backend_message_keeps_windows_word_hint() -> None:
+    message = screenshot_module._no_backend_message(True)
+
+    assert message == "无可用的文档渲染后端，请安装 LibreOffice 或配置 Word 后端"
+
+
+def test_start_uses_platform_aware_error_on_non_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_backend_config(monkeypatch, "auto")
+    monkeypatch.setattr(DocxScreenshotService, "BASE_DIR", str(tmp_path / "screenshots"))
+    monkeypatch.setattr("src.services.docx_screenshot_service.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr(DocxScreenshotService, "_is_word_backend_available", staticmethod(lambda: False))
+    monkeypatch.setattr("src.services.docx_screenshot_service.find_libreoffice", lambda: None)
+    monkeypatch.setattr(screenshot_module, "_is_windows", lambda: False)
+
+    task = DocxScreenshotService.start("test-no-backend-linux", "/tmp/fake.docx", [])
+
+    assert task.status == "failed"
+    assert task.error == screenshot_module._no_backend_message(False)
+
+
+def test_log_render_backend_status_warns_with_install_hint_on_non_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _patch_backend_config(monkeypatch, "auto")
+    monkeypatch.setattr(DocxScreenshotService, "_is_word_backend_available", staticmethod(lambda: False))
+    monkeypatch.setattr("src.services.docx_screenshot_service.find_libreoffice", lambda: None)
+    monkeypatch.setattr(screenshot_module, "_is_windows", lambda: False)
+
+    with caplog.at_level(logging.INFO, logger="src.services.docx_screenshot_service"):
+        DocxScreenshotService.log_render_backend_status()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "无可用的文档渲染后端" in warnings[0].getMessage()
+    assert "libreoffice-writer-nogui" in warnings[0].getMessage()
+
+
+def test_log_render_backend_status_warns_without_install_hint_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _patch_backend_config(monkeypatch, "auto")
+    monkeypatch.setattr(DocxScreenshotService, "_is_word_backend_available", staticmethod(lambda: False))
+    monkeypatch.setattr("src.services.docx_screenshot_service.find_libreoffice", lambda: None)
+    monkeypatch.setattr(screenshot_module, "_is_windows", lambda: True)
+
+    with caplog.at_level(logging.INFO, logger="src.services.docx_screenshot_service"):
+        DocxScreenshotService.log_render_backend_status()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "apt install" not in warnings[0].getMessage()
+
+
+def test_log_render_backend_status_warns_for_explicit_unavailable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _patch_backend_config(monkeypatch, "libreoffice")
+    monkeypatch.setattr("src.services.docx_screenshot_service.find_libreoffice", lambda: None)
+
+    with caplog.at_level(logging.INFO, logger="src.services.docx_screenshot_service"):
+        DocxScreenshotService.log_render_backend_status()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "指定的 LibreOffice 文档渲染后端不可用" in warnings[0].getMessage()
+
+
+def test_log_render_backend_status_info_when_libreoffice_available(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _patch_backend_config(monkeypatch, "auto")
+    monkeypatch.setattr(DocxScreenshotService, "_is_word_backend_available", staticmethod(lambda: False))
+    monkeypatch.setattr("src.services.docx_screenshot_service.find_libreoffice", lambda: "/usr/bin/soffice")
+
+    with caplog.at_level(logging.INFO, logger="src.services.docx_screenshot_service"):
+        DocxScreenshotService.log_render_backend_status()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    infos = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert warnings == []
+    assert len(infos) == 1
+    assert "libreoffice" in infos[0].getMessage()
+
+
+def test_lifespan_runs_render_backend_self_check_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import main
+    from fastapi.testclient import TestClient
+
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        DocxScreenshotService,
+        "log_render_backend_status",
+        classmethod(lambda cls: calls.append(True)),
+    )
+
+    with TestClient(main.app):
+        pass
+
+    assert calls == [True]
+
+
 def test_auto_backend_prefers_word_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_backend_config(monkeypatch, "auto")
     monkeypatch.setattr(DocxScreenshotService, "_is_word_backend_available", staticmethod(lambda: True))

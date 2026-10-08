@@ -146,6 +146,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-08` (task `docx-screenshot-render-backend`): Word 导入截图渲染后端缺失时平台化报错（Linux 提示安装 LibreOffice）+ 启动自检；README 与部署环境变量样例补齐依赖说明。
 - `2026-10-08` (task `spec-workflow-revision`): Git 工作流改版：提交描述改中文；更新直连 `main` 不再走 PR；代码修改走 worktree → 合并 → 清理；`.trellis/` 更新单独提交；多模型协作仅保留 Haiku 作前端审查。
 - `2026-09-30` (task `date-time-hour-format`): 日期时间 / 时间字段支持仅到小时格式。
 - `2026-09-30` (task `word-underline-limit`): 文本填写线根数上限 80→20（用户定标，≈3.8cm）。
