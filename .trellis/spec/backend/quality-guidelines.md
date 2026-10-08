@@ -272,14 +272,70 @@ def auth_headers(client: TestClient):
     return {"Authorization": f"Bearer {token}"}
 ```
 
+### Test Session Isolation (hermetic)
+
+#### 1. Scope / Trigger
+
+Apply to every backend pytest invocation. Tests must not read or write repo-owned runtime resources: the real `config.yaml`, `crf_editor.db`, repo-root `uploads/`, or `backend/uploads/docx_temp`.
+
+#### 2. Signatures
+
+- `backend/tests/conftest.py`: module-level `TEST_ROOT: Path` and `UPLOAD_DIR = TEST_ROOT / "uploads"` are initialized before `import main`.
+- `test_root() -> Iterator[Path]` is a session fixture; `_isolate_docx_dirs() -> Iterator[None]` is an autouse session fixture.
+- Coverage command: `python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered`.
+
+#### 3. Contracts
+
+- Before importing `main`, conftest forcibly assigns `CRF_DATABASE_PATH = TEST_ROOT / "crf_editor.db"` and `CRF_STORAGE_UPLOAD_PATH = UPLOAD_DIR`, regardless of inherited values. If `CRF_AUTH_SECRET_KEY` is absent or blank, generate a random test secret; remove inherited `CRF_ENV` so production mode is enabled only by individual tests.
+- The session fixture redirects both `DocxScreenshotService.BASE_DIR` and `DocxImportService.TEMP_DIR` to `TEST_ROOT / "docx_temp"`. `_TEST_CONFIG.storage.upload_path` uses the same `UPLOAD_DIR` constant.
+- `test_root` removes `TEST_ROOT` on session teardown; an `atexit` handler is the fallback for normal process exits that never request the fixture (e.g. `--collect-only` or partial selections). A fresh worktree needs no `config.yaml` or seeded database.
+- Coverage is statistics-only, with no threshold. Do not add `--cov` to `pytest.ini` `addopts`, so a missing optional plugin cannot break ordinary test runs.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Developer shell points DB/upload paths outside the temp root | conftest overwrites both paths before `main` loads cached config |
+| `CRF_AUTH_SECRET_KEY` is absent or empty and no config file exists | conftest supplies a random non-empty secret before import-time app validation |
+| Shell exports `CRF_ENV=production` | conftest removes it; production-only tests must opt in with `monkeypatch.setenv` |
+| Any guarded runtime path resolves outside `TEST_ROOT` | `tests/test_test_environment_isolation.py` fails with the offending path |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: use the conftest `TEST_ROOT` or pytest `tmp_path` for test files; patch config paths at the actual module boundary when code bypasses the session dependency (e.g. the export permission test).
+- **Base**: a test that only reads source fixtures may use their checked-in paths read-only.
+- **Bad**: open the repo's real database/config/upload paths, or stat/mtime those files as an isolation guard; a live development server may touch them and make such checks unreliable.
+
+#### 6. Tests Required
+
+Keep `tests/test_test_environment_isolation.py` green. It must assert that resolved `load_config().db_path`, `load_config().upload_path`, `DocxScreenshotService.BASE_DIR`, and `DocxImportService.TEMP_DIR` are all below `test_root`, and that inherited `CRF_ENV` is absent. Add regressions whenever a new test path can bypass these redirects. Coverage output is recorded for comparison but is not a pass/fail gate.
+
+#### 7. Wrong vs Correct
+
+**Wrong** — a route that reads `get_config().db_path` directly bypasses the injected in-memory session, so relying on the `client` fixture alone may access the repo database:
+
+```python
+response = client.get("/api/projects/export/database", headers=headers)
+```
+
+**Correct** — seed a file database under `tmp_path` and patch the config getter at the route module that imported it:
+
+```python
+source_path = tmp_path / "export_source.db"
+monkeypatch.setattr(
+    "src.routers.export.get_config",
+    lambda: SimpleNamespace(db_path=str(source_path)),
+)
+```
+
 ### Running Tests
 
 ```bash
 # Run all tests
 cd backend && python -m pytest
 
-# Run with coverage
-python -m pytest --cov=src --cov-report=term-missing
+# Run with coverage (statistics only, no gate)
+python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
 
 # Run specific test file
 python -m pytest tests/test_auth.py -v
