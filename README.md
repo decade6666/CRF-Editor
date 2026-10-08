@@ -44,7 +44,7 @@ CRF（Case Report Form，病例报告表）编辑器是一个用于临床研究�
 - **组件库**：Element Plus
 - **拖拽排序**：vuedraggable + sortablejs
 - **测试框架**：node:test + 轻量属性测试工具（testProperty.js）
-- **可选运行时**：LibreOffice（用于服务器侧预计算 Word 目录页码；缺失时保留非空回退页码，并由 Word 域后续校正）
+- **可选运行时**：LibreOffice（Linux/macOS 下 Word 导入原文截图必需；同时用于服务器侧预计算 Word 目录页码——缺失时截图面板不可用，目录保留非空回退页码并由 Word 域后续校正）
 
 ### 项目结构
 
@@ -95,8 +95,8 @@ CRF-Editor/
 
 - Python 3.10 或更高版本
 - Node.js 18 或更高版本（前端开发时需要）
-- LibreOffice（可选，用于服务器侧预计算 Word 目录真实页码；未安装时保留非空回退页码，并由 Word/WPS 更新域校正页码）
-- Windows + MS Word（可选，仅 Word 导入原文截图证据面板需要）
+- LibreOffice（Linux/macOS 下 Word 导入原文截图证据面板必需，Ubuntu/Debian 可执行 `sudo apt install libreoffice-writer-nogui`；同时用于服务器侧预计算 Word 目录真实页码——缺失时截图面板不可用，目录保留非空回退页码并由 Word/WPS 更新域校正）
+- Windows + MS Word（可选，Word 导入原文截图证据面板的 Windows 渲染后端，需另装 `pywin32` 与 `docx2pdf`；也可改用 LibreOffice）
 
 ### 安装步骤
 
@@ -311,6 +311,9 @@ npm ci && npm run build
 cd ..
 python3 -m venv backend/.venv-linux
 backend/.venv-linux/bin/python -m pip install -r backend/requirements.txt
+
+# 3. 安装文档渲染后端 LibreOffice（Word 导入原文截图必需；缺失时截图面板不可用，目录页码回退由 Word 域校正；安装后即时生效，截图无需重启服务）
+sudo apt install -y libreoffice-writer-nogui fonts-noto-cjk   # Ubuntu/Debian；无 Windows 字体的服务器需一并安装中文字体
 ```
 
 ### 一键安装

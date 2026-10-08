@@ -44,7 +44,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Component Library**: Element Plus
 - **Drag Ordering**: vuedraggable + sortablejs
 - **Testing Framework**: node:test + a lightweight property-test helper (testProperty.js)
-- **Optional Runtime**: LibreOffice for server-side Word table-of-contents page-number precomputation; missing LibreOffice keeps non-empty fallback page numbers and Word field correction
+- **Optional Runtime**: LibreOffice — required by the Word-import original-document screenshot panel on Linux/macOS, and also used for server-side Word table-of-contents page-number precomputation; missing LibreOffice keeps the screenshot panel unavailable and non-empty fallback page numbers with Word field correction
 
 ### Project Structure
 
@@ -95,8 +95,8 @@ These documents support AI-assisted development by recording module boundaries, 
 
 - Python 3.10 or higher
 - Node.js 18 or higher (for frontend development)
-- LibreOffice (optional, for server-side real page numbers in Word table-of-contents entries; without it, exported files keep non-empty fallback page numbers, and Word/WPS can correct them by updating fields)
-- Windows + MS Word (optional, only required by the Word-import original-document screenshot evidence panel)
+- LibreOffice (required by the Word-import original-document screenshot evidence panel on Linux/macOS, e.g. `sudo apt install libreoffice-writer-nogui` on Ubuntu/Debian; also used for server-side real page numbers in Word table-of-contents entries — without it the screenshot panel is unavailable and exported files keep non-empty fallback page numbers that Word/WPS can correct by updating fields)
+- Windows + MS Word (optional, the Windows render backend of the Word-import screenshot evidence panel; requires additionally installing `pywin32` and `docx2pdf`, or LibreOffice can be used instead)
 
 ### Installation Steps
 
@@ -311,6 +311,9 @@ npm ci && npm run build
 cd ..
 python3 -m venv backend/.venv-linux
 backend/.venv-linux/bin/python -m pip install -r backend/requirements.txt
+
+# 3. Install the document render backend LibreOffice (required by the Word-import screenshot panel; without it the panel is unavailable and TOC page numbers fall back to Word field correction; effective immediately, no service restart needed for screenshots)
+sudo apt install -y libreoffice-writer-nogui fonts-noto-cjk   # Ubuntu/Debian; install CJK fonts too when the server has no Windows fonts
 ```
 
 ### One-click Installation

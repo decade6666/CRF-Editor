@@ -141,6 +141,9 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    # 启动自检：提前暴露 Word 导入截图渲染后端缺失（如 Linux 未装 LibreOffice），只记日志不阻断启动
+    DocxScreenshotService.log_render_backend_status()
+
     # 启动后台任务（回收站定时清理）；测试环境通过 CRF_DISABLE_BACKGROUND_JOBS 关闭
     from src.background_jobs import start_background_jobs, stop_background_jobs
 

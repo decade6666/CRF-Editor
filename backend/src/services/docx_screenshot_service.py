@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import unicodedata
@@ -53,6 +54,18 @@ class ScreenshotTask:
 class _PdfBackendSelection:
     backend: DocxScreenshotBackend
     soffice_path: Optional[str] = None
+
+
+def _is_windows() -> bool:
+    """当前运行环境是否为 Windows（决定无后端时的报错文案）。"""
+    return sys.platform == "win32"
+
+
+def _no_backend_message(is_windows: bool) -> str:
+    """auto 模式下找不到任何 docx→PDF 渲染后端时的报错文案。"""
+    if is_windows:
+        return "无可用的文档渲染后端，请安装 LibreOffice 或配置 Word 后端"
+    return "无可用的文档渲染后端：服务器未检测到 LibreOffice（soffice），请安装 LibreOffice 后重试"
 
 
 class DocxScreenshotService:
@@ -212,7 +225,20 @@ class DocxScreenshotService:
         if soffice:
             return _PdfBackendSelection(DocxScreenshotBackend.LIBREOFFICE, soffice)
 
-        raise RuntimeError("无可用的文档渲染后端，请安装 LibreOffice 或配置 Word 后端")
+        raise RuntimeError(_no_backend_message(_is_windows()))
+
+    @classmethod
+    def log_render_backend_status(cls) -> None:
+        """启动自检：检查 Word 导入截图渲染后端是否可用并记录日志（不抛异常）。"""
+        try:
+            selection = cls._select_pdf_backend()
+        except RuntimeError as exc:
+            install_hint = (
+                "" if _is_windows() else "，Ubuntu/Debian 可执行 sudo apt install libreoffice-writer-nogui"
+            )
+            logger.warning("Word 导入截图渲染后端不可用：%s%s", exc, install_hint)
+            return
+        logger.info("Word 导入截图渲染后端就绪：%s", selection.backend.value)
 
     @classmethod
     def _run(cls, temp_id: str, docx_path: str, task: ScreenshotTask, forms_data: List[dict]) -> None:
