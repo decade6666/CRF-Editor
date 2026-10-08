@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
 
 
+def _remove_temp_file(path: str) -> None:
+    """删除导出临时文件，失败不影响响应。"""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 @router.post("/projects/{project_id}/export/word")
 def export_word(
     project_id: int,
@@ -78,12 +86,14 @@ def export_word(
         record_counter("output_size_bytes", os.path.getsize(tmp_path))
     except HTTPException:
         raise
+    except ExportError as exc:
+        # 具体导出错误原样透出（main.py 的 export_error_handler 转成 detail + code）
+        logger.warning("导出Word文档失败：%s", exc.message)
+        _remove_temp_file(tmp_path)
+        raise
     except Exception:
         logger.exception("导出Word文档失败")
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _remove_temp_file(tmp_path)
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
     with perf_span("file_response_prepare"):

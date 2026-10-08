@@ -5,6 +5,7 @@ from zipfile import ZipFile
 
 from docx import Document
 from lxml import etree
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -21,6 +22,7 @@ from src.models.visit_form import VisitForm
 from src.services.export_service import (
     ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU,
     ACRF_ANNOTATION_EMU_PER_01CM,
+    ExportError,
     ExportService,
     LayoutDecision,
     Segment,
@@ -695,12 +697,14 @@ def test_acrf_export_rejects_invalid_annotation_positions(tmp_path: Path) -> Non
             )
             _attach_form_to_visit(session, visit, form, sequence=1)
 
-            ok = ExportService(session).export_project_to_word(
-                project.id,
-                str(tmp_path / "invalid-acrf.docx"),
-                annotated=True,
-            )
+            with pytest.raises(ExportError) as exc_info:
+                ExportService(session).export_project_to_word(
+                    project.id,
+                    str(tmp_path / "invalid-acrf.docx"),
+                    annotated=True,
+                )
 
-            assert ok is False
+            assert exc_info.value.code == "EXPORT_DATA_INCOMPATIBLE"
+            assert "annotation_positions" in exc_info.value.message
     finally:
         engine.dispose()
