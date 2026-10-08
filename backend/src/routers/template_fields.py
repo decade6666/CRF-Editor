@@ -30,6 +30,7 @@ class TemplateFieldSource(BaseModel):
     project_name: str
     project_version: Optional[str] = None
     form_name: Optional[str] = None      # None = 定义仅存在于项目字段库
+    form_code: Optional[str] = None      # 表单 OID（form.code）；历史库缺列或空白时为 None
     display_label: Optional[str] = None  # 表单级 label_override，与定义 label 不同时返回
 
 

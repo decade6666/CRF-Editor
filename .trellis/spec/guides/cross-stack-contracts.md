@@ -711,9 +711,27 @@ RecycleBinSizeUnit = {"MB", "GB"}
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
 | **Files** | `backend/src/routers/template_fields.py`, `backend/src/services/template_field_index_service.py` | `frontend/src/composables/templateFieldSearch.js`, `frontend/src/components/TemplateFieldSearchDialog.vue` |
-| **Purpose** | Read-only index of all usable template-library fields via `GET /api/template-fields` (auth `get_current_user` only, no project scope) | Non-modal draggable 「模板字段查询」 dialog: OID / label cross-search, click-cell-to-copy |
+| **Purpose** | Read-only index of all usable template-library fields via `GET /api/template-fields` (auth `get_current_user` only, no project scope) | Non-modal draggable 「模板字段查询」 dialog: OID / label / source-form-OID search, inline source lines, click-cell-to-copy |
 
-**Response Shape** (`TemplateFieldIndexResponse { entries: TemplateFieldEntry[] }`): each entry carries `key` (`"<project_id>:<definition_id>"`), `variable_name`, `label`, `field_type`, `integer_digits`, `decimal_digits`, `date_format`, `checkbox_label`, `codelist_name`, `options` (`{code, decode}`), `unit_symbol`, `label_aliases` (deduped form-level `display_label`s in first-seen order), and `sources` (`{project_name, project_version, form_name, display_label}`; `form_name: null` means the definition exists only in the project field library).
+**Scope / Trigger**: touching any of the four files above, the `TemplateFieldSource` response shape, the template-search ranking composition, or the 来源 column display.
+
+**Signatures**:
+
+```python
+GET /api/template-fields -> TemplateFieldIndexResponse                       # backend/src/routers/template_fields.py
+build_template_field_index(template_path: str) -> List[dict]                # backend/src/services/template_field_index_service.py
+class TemplateFieldSource(BaseModel):                                       # form_code: Optional[str] = None
+    project_name: str; project_version / form_name / form_code / display_label: Optional[str]
+```
+
+```javascript
+rankTemplateFieldMatches(entries, keyword) -> object[]   // frontend/src/composables/templateFieldSearch.js
+templateFieldSearchTexts(entry)                          // field candidates: variable_name + label + label_aliases
+templateFieldFormCodes(entry)                            // form candidates: sources[].form_code only
+formatTemplateFieldSource(source) -> string              // 'form_code form_name（显示为：xx）' / name-only / 仅字段库
+```
+
+**Response Shape** (`TemplateFieldIndexResponse { entries: TemplateFieldEntry[] }`): each entry carries `key` (`"<project_id>:<definition_id>"`), `variable_name`, `label`, `field_type`, `integer_digits`, `decimal_digits`, `date_format`, `checkbox_label`, `codelist_name`, `options` (`{code, decode}`), `unit_symbol`, `label_aliases` (deduped form-level `display_label`s in first-seen order), and `sources` (`{project_name, project_version, form_name, form_code, display_label}`; `form_code: string | null` is `form.code` after whitespace cleanup — `null` when the form has no OID, the value is blank, the legacy `form.code` column is missing, or the source is library-only (`form_name: null`, which means the definition exists only in the project field library)).
 
 **Exclusion Rules**: `标签`-type field definitions, log rows (`form_field.is_log_row`), and soft-deleted projects (`project.deleted_at` non-null) never appear in the index.
 
@@ -723,9 +741,47 @@ RecycleBinSizeUnit = {"MB", "GB"}
 
 1. The endpoint is strictly read-only: the template `.db` is opened through `ImportService._open_template_session` (whitelist + compatibility + `PRAGMA query_only`) and must never be written to or migrated.
 2. Error semantics: 400 未配置模板库 / 404 文件不存在 / 400 路径无效 / 400 `code=TEMPLATE_INCOMPATIBLE` / 500 generic — the filesystem path must never leak into a response.
-3. Legacy-column tolerance: `project.deleted_at`, `form_field.label_override`, and `field_definition.checkbox_label` are probed via `PRAGMA table_info` and treated as `NULL` when absent.
-4. Frontend search candidates are `variable_name + label + label_aliases` routed through `searchRanking.js`; an empty keyword returns all entries in template order; pagination is fixed at 50 per page.
-5. Click-cell-to-copy (toast 「已复制 …」) goes through `clipboardCopy.js`; the 来源 column opens a popover and is never a copy target.
+3. Legacy-column tolerance: `project.deleted_at`, `form_field.label_override`, `field_definition.checkbox_label`, and `form.code` are probed via `PRAGMA table_info` and treated as `NULL` when absent — a missing `form.code` column must never block the index or mutate the template.
+4. Frontend search composes the shared `searchRanking.js` unchanged: field-level candidates (`variable_name + label + label_aliases`) and source-form-OID candidates (`sources[].form_code`) are ranked separately by `rankFuzzyMatches`, then partitioned into strong (normalized candidate contains the keyword) vs weak (shared fuzzy tiers) and concatenated as field-strong → form-strong → field-weak → form-weak, deduplicated by first reference (`rankTemplateFieldMatches` in `templateFieldSearch.js`). Form names, project names, and versions are never search candidates. An empty keyword returns all entries in template order; pagination is fixed at 50 per page.
+5. Click-cell-to-copy (toast 「已复制 …」) goes through `clipboardCopy.js`; the 来源 column renders inline read-only multi-line sources (`formatTemplateFieldSource`: `form_code form_name（显示为：xx）`, name-only when the OID is missing, `仅字段库` for library-only) with wrapping and no truncation, popover, or copy behavior.
+
+**Validation & Error Matrix**:
+
+| Condition | Expected behavior |
+|---|---|
+| Unauthenticated request | 401 via `get_current_user` (no project scope, any regular/admin user allowed) |
+| No template library configured | 400 未配置模板库 |
+| Configured file missing | 404 文件不存在 |
+| Path outside whitelist / not `.db` | 400 路径无效 |
+| Incompatible template schema | 400 `code=TEMPLATE_INCOMPATIBLE` |
+| Unexpected service error | 500 generic; the filesystem path never appears in any response |
+| Form has populated `code` | `sources[].form_code` = whitespace-stripped value (blank/NULL → `null` via `_clean_optional`) |
+| Legacy template lacks the `form.code` column | Index still returns 200 with `form_code: null` everywhere; template bytes unchanged, no `ALTER TABLE` |
+| Library-only definition | One source with `form_name: null`, `form_code: null`, `display_label: null` |
+| Blank keyword | Original template order; page reset on keyword change; 50 rows per page |
+
+**Good / Base / Bad Cases**:
+
+- **Good**: a current template with `FCODE_MAIN` / NULL / blank-OID forms surfaces `FCODE_MAIN`, `null`, `null`; searching `DM` lists the field-substring hit before the form-OID-exact hit before any fuzzy hit, once each.
+- **Base**: form without OID renders its name only; both absent renders `仅字段库`; a definition on two forms of merged projects shows two source lines with each form's own OID.
+- **Bad**: `ALTER TABLE` on the template to "fix" a missing column; feeding `[...fieldTexts, ...formCodes]` into a single `rankFuzzyMatches` call; adding form names / project metadata as candidates; reintroducing a 来源 popover or copy behavior.
+
+**Wrong vs Correct** (search composition):
+
+```javascript
+// Wrong — one merged candidate list: a form-OID exact match (tier 0) would outrank a
+// field substring match (tier 1), breaking the user-selected group priority.
+rankFuzzyMatches(entries, kw, (e) => [...templateFieldSearchTexts(e), ...templateFieldFormCodes(e)])
+
+// Correct — rank both domains separately with the unchanged shared ranker, partition
+// strong/weak, concatenate fieldStrong → formStrong → fieldWeak → formWeak, dedup by
+// first reference. Within-group quality/ordering stays owned by searchRanking.js.
+```
+
+**Test Assertion Points**:
+
+- Backend `backend/tests/test_template_field_index.py`: populated/NULL/blank codes in multi-source entries; merged-source codes; library-only `null`; legacy missing-`form.code` fixture must rebuild the `form` table FK-safe (`PRAGMA legacy_alter_table = ON`; referencing FKs still target `form`; `PRAGMA foreign_key_check` empty) and leave source bytes unchanged; API response keys include `form_code` serialized as `string | null`.
+- Frontend `frontend/tests/templateFieldSearch.test.js`: four-group order (field substring beats form exact; form exact beats field subsequence/typo); field-weak + form-strong dual hit lands in group 2 exactly once; exact-before-substring inside strong groups; shared fuzzy quality (span, then edit distance) inside weak groups; equal-rank ties stable; merged multi-source form hits; typo-tolerance-aware expectations (3-char keyword ±1 edit); metadata exclusion; blank/whitespace keyword; no input mutation; inline formatting fallbacks; dialog wiring without popover/copy.
 
 **Synchronization Checklist**:
 - [ ] Keep the entry field list aligned between the backend `TemplateFieldEntry` schema and the `templateFieldSearch.js` consumers

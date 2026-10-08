@@ -436,7 +436,7 @@ def batch_delete(ids: list[int], session: Session):
 
 Reading an external template `.db` (template import, template field search) must go through `ImportService._open_template_session` — it enforces the path whitelist, runs compatibility checks, and enables `PRAGMA query_only` so no statement can mutate the source. Never open a template path with a bare engine/session, and never migrate or add columns to a template library.
 
-- Probe optional legacy columns (`project.deleted_at`, `form_field.label_override`, `field_definition.checkbox_label`) with `PRAGMA table_info(<table>)` and project `NULL` in their place when absent — do not fail and do not migrate.
+- Probe optional legacy columns (`project.deleted_at`, `form.code`, `form_field.label_override`, `field_definition.checkbox_label`) with `PRAGMA table_info(<table>)` and project `NULL` in their place when absent — do not fail and do not migrate.
 - Prefer whole-table raw `text()` reads filtered/grouped in Python over ORM models and long `IN (...)` parameter lists; the template schema may lag the live models.
 - Close the session in a `finally` block, and keep the filesystem path out of error messages (`routers/template_fields.py` maps failures to 400 未配置模板库 / 404 文件不存在 / 400 路径无效 / 400 `TEMPLATE_INCOMPATIBLE` / 500).
 - Reference implementation: `backend/src/services/template_field_index_service.py`.

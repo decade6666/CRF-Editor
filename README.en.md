@@ -16,7 +16,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **List Ordering and Ordinal Quick Edit**: Code lists, options, units, fields, visits, visit-form relations, and the form list in the designer all support drag ordering; double-clicking the ordinal cell opens direct target-position input backed by the existing reorder endpoints
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode; form / field / codelist OIDs are restricted at edit time to letters, digits, `-`, `_`, `.` only — invalid characters are blocked immediately without rewriting existing data, while codelist option codes are free-form like labels
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel; Word import AI review suggestions can be accepted selectively at three levels (per suggestion / per form / all, default off), and the "import effect" preview reflects accepted field types in real time; unfinished import uploads are automatically cleaned up after 24 hours by default
-- **Template Field Search**: In complete edit mode, a read-only non-modal draggable "Template Field Search" dialog cross-references all usable template-library fields by OID / label (label-type fields, log rows, and soft-deleted projects are excluded automatically), reuses the shared fuzzy-search ranking, and copies the clicked cell content with one click
+- **Template Field Search**: In complete edit mode, a read-only non-modal draggable "Template Field Search" dialog cross-references all usable template-library fields by OID / label / source-form OID (label-type fields, log rows, and soft-deleted projects are excluded automatically); results rank in four groups (field exact/substring > form-OID exact/substring > field fuzzy > form-OID fuzzy) reusing the shared fuzzy rules, the source column shows inline multi-line "form OID + form name" (name only when the OID is missing, "library only" for library-only definitions); sources are read-only, while clicking a populated cell in any other column copies its content
 - **Export Flows**: Supports Word export (eCRF / aCRF) and database export; Word export includes a short-term rate limit and width-adaptive fill lines, pre-rendered table-of-contents entries with real page numbers when LibreOffice is available, and aCRF floating OID / domain annotation boxes that do not disturb eCRF table text; preview and export share the same annotation geometry and red visual style, and a strict preview/export table-field parity comparator is included
 - **Project Copy and Logo Handling**: Supports deep project copy and runtime logo upload / copy / delete coordination
 - **Form Preview**: Preview form field layout directly from the visits management panel, reuse the Word-preview row-height resize experience, and show export-matched persistent annotations in aCRF view; the visits preview and the designer preview now share a fixed A4 page, and aCRF red annotation boxes default to vertical-center alignment within the cell
@@ -456,6 +456,27 @@ In the current repository:
 - `backend/tests/` currently contains 67 Python test files (65 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
 - `frontend/tests/` currently contains 69 frontend test files (68 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
+
+### Pre-commit Gate
+
+The repository ships a versioned `.githooks/pre-commit` hook that runs four checks automatically before every `git commit` (target: a few seconds; no test suites or builds):
+
+1. gitleaks staged-secret scan (rules and allowlist live in the repo-root `.gitleaks.toml`; if gitleaks or that config file is missing, the hook fails and blocks the commit);
+2. `git diff --cached --check` for whitespace errors and conflict markers;
+3. `python3 -m py_compile` syntax check on each staged `.py` file;
+4. `ruff format --check` on staged `.py` files when `ruff` is available on PATH (skipped with a one-line notice when absent; enabled automatically once installed).
+
+Enable it (once per development machine):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Notes:
+
+- The setting is stored in `.git/config` and is **shared by all worktrees** of this repository — enabling it in one worktree routes commits in every other worktree through the hook as well.
+- gitleaks must be installed first: download the single binary for your platform from the [gitleaks GitHub releases](https://github.com/gitleaks/gitleaks/releases) and place it at `~/.local/bin/gitleaks` (make sure `~/.local/bin` is on PATH).
+- `git commit --no-verify` can bypass the hook in an emergency, but must not be used routinely; for gitleaks false positives, follow the allowlist process in `.gitleaks.toml`.
 
 ## Contributing
 

@@ -1,0 +1,93 @@
+#!/bin/sh
+# pre-commit 门禁钩子：本仓库 CI 已于 2026-10-08 删除，本钩子是提交前的本机自检。
+# 覆盖四道检查：
+#   1) gitleaks 暂存区密钥扫描（规则与 allowlist 见仓库根 .gitleaks.toml）；
+#   2) git diff --cached --check 空白错误与冲突标记；
+#   3) 暂存 .py 文件逐个 python3 -m py_compile 语法检查；
+#   4) ruff 可用时对暂存 .py 文件跑 ruff format --check（未安装则提示一行并跳过）。
+# 启用方式：git config core.hooksPath .githooks（一次性）。该配置写入 .git/config，
+# 对本仓库的所有 worktree 共享：任一 worktree 启用后，其他 worktree 的提交同样生效。
+# 紧急绕过：git commit --no-verify 仅供紧急情况使用，不得日常使用；
+# gitleaks 误报请按 .gitleaks.toml 的 allowlist 流程处理，而不是绕过钩子。
+
+set -u
+
+hook_start=$(date +%s%3N)
+case $hook_start in
+'' | *[!0-9]*) hook_start=$(( $(date +%s) * 1000 )) ;;
+esac
+
+_now_ms() {
+    _ms=$(date +%s%3N)
+    case $_ms in
+    '' | *[!0-9]*) _ms=$(( $(date +%s) * 1000 )) ;;
+    esac
+    printf '%s' "$_ms"
+}
+
+fail() {
+    printf '%s\n' "$1" >&2
+    printf 'pre-commit 钩子中止，耗时 %ss\n' \
+        "$(awk -v s="$hook_start" -v e="$(_now_ms)" 'BEGIN { printf "%.1f", (e - s) / 1000 }')" >&2
+    exit 1
+}
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) ||
+    fail "无法定位仓库根目录（git rev-parse 失败），pre-commit 钩子中止。"
+cd "$ROOT" || fail "无法进入仓库根目录：$ROOT"
+
+# ---- Gate 1: gitleaks 暂存区密钥扫描（fail closed，缺 gitleaks 也拦截）----
+if ! command -v gitleaks >/dev/null 2>&1; then
+    fail "未检测到 gitleaks，已拦截本次提交（fail closed）。请先安装：从官方 GitHub Releases（https://github.com/gitleaks/gitleaks/releases）下载对应平台的单个二进制文件，放置为 ~/.local/bin/gitleaks 并确保 ~/.local/bin 在 PATH 中，然后重试。"
+fi
+
+if [ ! -f "$ROOT/.gitleaks.toml" ]; then
+    fail "gitleaks 配置文件缺失：$ROOT/.gitleaks.toml（仓库根 allowlist 配置），已拦截提交；请先从仓库恢复该文件。"
+fi
+
+gitleaks git --staged --config "$ROOT/.gitleaks.toml" --exit-code 1 --no-banner --verbose
+gl_status=$?
+if [ "$gl_status" -eq 1 ]; then
+    fail "gitleaks 已拦截本次提交：若上方输出为命中报告（含规则与文件），请移除密钥并评估是否需要轮换已暴露的凭据，确认误报请走 .gitleaks.toml 的 allowlist 流程（不要使用 --no-verify）；若上方输出为 gitleaks 运行错误（ERR/FTL），请按提示修复后重试。"
+fi
+if [ "$gl_status" -ne 0 ]; then
+    fail "gitleaks 扫描异常退出（状态码 $gl_status，详情见上方输出），已拦截提交。"
+fi
+
+# ---- Gate 2: 空白错误与冲突标记 ----
+if ! git diff --cached --check; then
+    fail "git diff --cached --check 发现空白错误或冲突标记（尾随空格、缩进混用、冲突标记等），请修正后重新暂存提交。"
+fi
+
+# ---- Gate 3 + Gate 4: 暂存 .py 语法检查 + 条件 ruff 格式检查 ----
+# quotePath=false：非 ASCII 文件名原样输出，避免被 git C 转义成带引号形式而绕过 *.py 匹配。
+if ! staged_files=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR); then
+    fail "获取暂存文件列表失败，pre-commit 钩子中止。"
+fi
+
+have_ruff=0
+if command -v ruff >/dev/null 2>&1; then
+    have_ruff=1
+else
+    echo "提示：未检测到 ruff，跳过暂存 Python 文件的格式检查（安装 ruff 后自动启用）。"
+fi
+
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case $f in
+    *.py)
+        # py_compile 会在源码旁生成 __pycache__（已被仓库 .gitignore 忽略，不会误入暂存区）。
+        if ! python3 -m py_compile -- "$f"; then
+            fail "Python 语法检查失败：$f"
+        fi
+        if [ "$have_ruff" -eq 1 ] && ! ruff format --check "$f"; then
+            fail "ruff format --check 未通过：$f（请运行 ruff format 修正后重新暂存提交）"
+        fi
+        ;;
+    esac
+done <<EOF
+$staged_files
+EOF
+
+elapsed=$(awk -v s="$hook_start" -v e="$(_now_ms)" 'BEGIN { printf "%.1f", (e - s) / 1000 }')
+echo "pre-commit 钩子完成，耗时 ${elapsed}s"
