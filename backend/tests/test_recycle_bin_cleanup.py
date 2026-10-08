@@ -320,6 +320,51 @@ def test_size_rule_excludes_age_selected_projects(engine):
         assert old.id not in plan.size_ids  # 不重复计入
 
 
+def test_plan_total_bytes_after_deducts_each_selected_project_once(engine):
+    """计划剩余总量 = 清理前总量 − 年龄规则命中量 − 容量规则命中量，命中项目只扣一次。"""
+    now = datetime(2026, 1, 10, 0, 0, 0)
+    with Session(engine) as session:
+        admin = User(username="u1", hashed_password="x", is_admin=False, auth_version=0)
+        session.add(admin)
+        session.flush()
+        # old 由年龄规则命中；其余三个删除时间较新，由容量规则按删除时间最早优先命中
+        old = _create_owned_project(session, admin.id, "old", order_index=1,
+                                    deleted_at=now - timedelta(days=100))
+        fo = Form(project_id=old.id, name="fo", code="FO", order_index=1)
+        fo.design_notes = "x" * 200_000
+        session.add(fo)
+        recent = []
+        for i in range(3):
+            p = _create_owned_project(session, admin.id, f"p{i}", order_index=i + 2,
+                                      deleted_at=now - timedelta(days=10 - i))
+            f = Form(project_id=p.id, name=f"f{i}", code=f"F{i}", order_index=1)
+            f.design_notes = "y" * (3_000_000 + i * 100_000)
+            session.add(f)
+            recent.append(p)
+        session.commit()
+
+        projects = [old, *recent]
+        sizes = estimate_project_sizes(session, [p.id for p in projects])
+        total_before = sum(sizes.values())
+        # 阈值取「剩余总量减去最早可清项目后向上取整到 MB」，使容量规则只命中 recent[0]
+        survivor_target = sum(sizes[p.id] for p in recent) - sizes[recent[0].id]
+        mb_value = max(1, (survivor_target + 1024 ** 2 - 1) // (1024 ** 2))
+
+        plan = build_cleanup_plan(
+            session,
+            _make_policy(age_enabled=True, age_value=30, age_unit="day",
+                         size_enabled=True, size_value=mb_value, size_unit="MB",
+                         min_retain_hours=0),
+            now=now,
+        )
+
+        assert plan.age_ids == [old.id]
+        assert plan.size_ids == [recent[0].id]
+        selected = set(plan.all_target_ids)
+        assert plan.total_bytes_before == total_before
+        assert plan.total_bytes_after == total_before - sum(sizes[pid] for pid in selected)
+
+
 def test_min_retain_hours_protects_recent_projects(engine):
     now = datetime(2026, 1, 10, 0, 0, 0)
     with Session(engine) as session:
