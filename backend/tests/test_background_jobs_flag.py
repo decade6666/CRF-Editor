@@ -78,6 +78,9 @@ def test_start_background_jobs_creates_task_when_enabled(monkeypatch):
         import src.background_jobs as bj
 
         monkeypatch.setattr(bj, "_run_cleanup_once_sync", lambda: {"purged_count": 0})
+        # 不 patch 的话，启用分支会真实执行 purge_expired_uploads，
+        # 删掉 cwd 相对路径 uploads/docx_temp 下的真实上传文件。
+        monkeypatch.setattr(bj, "_run_docx_temp_sweep_once_sync", lambda: 0)
         # 缩短 sleep 以便快速取消
         import src.config as cfg
 

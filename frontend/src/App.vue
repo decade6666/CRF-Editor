@@ -1333,7 +1333,7 @@ function startResize(e) {
 
     <!-- 新建项目弹窗 -->
     <el-dialog v-model="showCreateProject" title="新建项目" width="400px" :close-on-click-modal="false">
-      <el-form :model="newProject" label-width="80px">
+      <el-form :model="newProject" label-width="90px">
         <el-form-item label="项目名称"><el-input v-model="newProject.name" /></el-form-item>
         <el-form-item label="版本号"><el-input v-model="newProject.version" /></el-form-item>
         <el-form-item label="数据库类型">

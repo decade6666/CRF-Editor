@@ -2,15 +2,15 @@
 
 import logging
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Request, UploadFile
 
 from fastapi.responses import FileResponse
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,7 @@ from src.models.project import Project
 
 from src.models.user import User
 
-from src.services.docx_import_service import DocxImportService
+from src.services.docx_import_service import TEMP_ID_PATTERN, DocxImportService
 from src.perf import perf_span, record_counter, record_payload_size
 
 from src.services.field_type_policy import (
@@ -37,7 +37,6 @@ from src.services.ai_review_service import (
     VALID_FIELD_TYPES,
     cleanup_old_ai_tasks,
     get_ai_task,
-    remove_ai_task,
     start_ai_review,
 )
 
@@ -50,6 +49,10 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["import-docx"])
+
+# 路径参数与请求体共用的临时编号格式：32 位小写十六进制，不符合返回 422。
+# min/max_length 兜住 pattern 的 search 语义放过尾部换行的形状（"$" 匹配末行前）。
+TempId = Annotated[str, Path(pattern=TEMP_ID_PATTERN, min_length=32, max_length=32)]
 
 
 
@@ -188,7 +191,7 @@ class DocxFormOverride(BaseModel):
 
 class DocxExecuteRequest(BaseModel):
 
-    temp_id: str
+    temp_id: str = Field(pattern=TEMP_ID_PATTERN, min_length=32, max_length=32)
 
     form_indices: List[int]
 
@@ -281,10 +284,9 @@ def _serialize_ai_suggestions(
     }
 
 
-def _cleanup_docx_temp(temp_id: str) -> None:
-    DocxImportService.cleanup_temp(temp_id)
-    DocxScreenshotService.cleanup(temp_id)
-    remove_ai_task(temp_id)
+def _owned_upload(temp_id: str, project_id: int, user: User) -> Optional[str]:
+    """当前用户在该项目下的上传文件路径；编号非本人/非本项目/不存在均返回 None。"""
+    return DocxImportService.get_owned_temp_path(temp_id, user_id=user.id, project_id=project_id)
 
 
 def _build_ai_review_status_response(task) -> AIReviewStatusResponse:
@@ -351,9 +353,7 @@ async def preview_docx_import(
         record_counter("file_size_bytes", len(content))
 
         temp_id, file_path = DocxImportService.save_temp_file(
-
-            content, file.filename
-
+            content, file.filename, user_id=current_user.id, project_id=project_id
         )
 
     except ValueError as e:
@@ -375,7 +375,7 @@ async def preview_docx_import(
 
     except Exception:
 
-        _cleanup_docx_temp(temp_id)
+        DocxImportService.discard_upload(temp_id)
 
         logger.exception("Word文档解析失败")
 
@@ -385,7 +385,7 @@ async def preview_docx_import(
 
     if not full_forms:
 
-        _cleanup_docx_temp(temp_id)
+        DocxImportService.discard_upload(temp_id)
 
         raise HTTPException(400, "未在文档中识别到任何表单")
 
@@ -445,7 +445,7 @@ async def get_ai_review_status(
 
     project_id: int,
 
-    temp_id: str,
+    temp_id: TempId,
 
     session: Session = Depends(get_session),
 
@@ -456,6 +456,8 @@ async def get_ai_review_status(
     """查询 AI 复核后台任务状态。"""
 
     verify_project_owner(project_id, current_user, session)
+    if not _owned_upload(temp_id, project_id, current_user):
+        raise HTTPException(404, "AI复核任务不存在或已过期")
     task = get_ai_task(temp_id)
     if not task:
         raise HTTPException(404, "AI复核任务不存在或已过期")
@@ -495,7 +497,7 @@ def execute_docx_import(
 
 
     with perf_span("temp_lookup"):
-        file_path = DocxImportService.get_temp_path(payload.temp_id)
+        file_path = _owned_upload(payload.temp_id, project_id, current_user)
 
     if not file_path:
 
@@ -582,6 +584,11 @@ def execute_docx_import(
 
         raise HTTPException(400, f"导入失败: {e}")
 
+    except FileNotFoundError:
+
+        # 过期清扫与本次导入并发：归属校验后文件被后台清理删除，按缺失上传应答
+        raise HTTPException(400, "临时文件已过期，请重新上传")
+
     except Exception:
 
         logger.exception("Word导入执行失败")
@@ -591,7 +598,7 @@ def execute_docx_import(
     finally:
 
         with perf_span("cleanup"):
-            _cleanup_docx_temp(payload.temp_id)
+            DocxImportService.discard_upload(payload.temp_id)
 
 
 
@@ -651,7 +658,7 @@ async def start_docx_screenshot(
 
     project_id: int,
 
-    temp_id: str,
+    temp_id: TempId,
 
     body: ScreenshotStartRequest = None,
 
@@ -665,37 +672,11 @@ async def start_docx_screenshot(
 
     project = verify_project_owner(project_id, current_user, session)
 
-
-
-    file_path = DocxImportService.get_temp_path(temp_id)
+    file_path = _owned_upload(temp_id, project_id, current_user)
 
     if not file_path:
 
         raise HTTPException(400, "临时文件不存在，请重新上传")
-
-
-
-    # 确保file_path是docx文件而不是目录
-
-    from pathlib import Path
-
-    file_path_obj = Path(file_path)
-
-    if file_path_obj.is_dir():
-
-        # 如果是目录，查找temp_dir中以temp_id开头的.docx文件
-
-        temp_dir = Path(DocxImportService.TEMP_DIR)
-
-        docx_files = list(temp_dir.glob(f"{temp_id}_*.docx"))
-
-        if not docx_files:
-
-            raise HTTPException(400, "临时文件不存在，请重新上传")
-
-        file_path = str(docx_files[0])
-
-
 
     # 优先使用前端传递的forms_data，避免重新解析导致字段label不一致
 
@@ -762,7 +743,7 @@ async def get_screenshot_status(
 
     project_id: int,
 
-    temp_id: str,
+    temp_id: TempId,
 
     session: Session = Depends(get_session),
 
@@ -774,7 +755,8 @@ async def get_screenshot_status(
 
     verify_project_owner(project_id, current_user, session)
 
-
+    if not _owned_upload(temp_id, project_id, current_user):
+        return ScreenshotStatusResponse(status="idle")
 
     task = DocxScreenshotService.get_task(temp_id)
 
@@ -826,7 +808,7 @@ async def get_screenshot_page(
 
     project_id: int,
 
-    temp_id: str,
+    temp_id: TempId,
 
     page: int,
 
@@ -846,7 +828,8 @@ async def get_screenshot_page(
 
         raise HTTPException(400, "页码从 1 开始")
 
-
+    if not _owned_upload(temp_id, project_id, current_user):
+        raise HTTPException(404, "截图不存在或尚未生成")
 
     img_path = DocxScreenshotService.get_page_path(temp_id, page)
 

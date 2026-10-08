@@ -24,6 +24,10 @@ from src.routers import import_docx
 from src.services.ai_review_service import AIReviewTask
 from src.services.docx_import_service import DocxImportService
 
+# 临时编号现为 32 位小写十六进制（DocxExecuteRequest 按 pattern 校验）。
+TEMP_ID = "b" * 32
+PREVIEW_TEMP_ID = "c" * 32
+
 
 def _create_owned_project(engine) -> tuple[int, int]:
     with Session(engine) as session:
@@ -49,8 +53,8 @@ def test_execute_docx_import_returns_form_id_matching_db_record(engine, monkeypa
     """import-docx/execute 返回的 form_id 必须与数据库中的 Form.id 一致。"""
     user_id, project_id = _create_owned_project(engine)
     monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.get_temp_path",
-        lambda _temp_id: Path("/tmp/fake.docx"),
+        "src.routers.import_docx.DocxImportService.get_owned_temp_path",
+        lambda _temp_id, **_kw: Path("/tmp/fake.docx"),
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.cleanup_temp",
@@ -71,7 +75,7 @@ def test_execute_docx_import_returns_form_id_matching_db_record(engine, monkeypa
         response = import_docx.execute_docx_import(
             project_id=project_id,
             request=Request({"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}),
-            payload=import_docx.DocxExecuteRequest(temp_id="tmp-1", form_indices=[0]),
+            payload=import_docx.DocxExecuteRequest(temp_id=TEMP_ID, form_indices=[0]),
             session=session,
             current_user=current_user,
         )
@@ -92,8 +96,8 @@ def test_execute_docx_import_detail_contains_required_fields(engine, monkeypatch
     """import-docx/execute 返回的 detail 每项必须含 name、field_count、form_id 三个字段。"""
     user_id, project_id = _create_owned_project(engine)
     monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.get_temp_path",
-        lambda _temp_id: Path("/tmp/fake.docx"),
+        "src.routers.import_docx.DocxImportService.get_owned_temp_path",
+        lambda _temp_id, **_kw: Path("/tmp/fake.docx"),
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.cleanup_temp",
@@ -117,7 +121,7 @@ def test_execute_docx_import_detail_contains_required_fields(engine, monkeypatch
         response = import_docx.execute_docx_import(
             project_id=project_id,
             request=Request({"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}),
-            payload=import_docx.DocxExecuteRequest(temp_id="tmp-1", form_indices=[0, 1]),
+            payload=import_docx.DocxExecuteRequest(temp_id=TEMP_ID, form_indices=[0, 1]),
             session=session,
             current_user=current_user,
         )
@@ -134,8 +138,8 @@ def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> N
     user_id, project_id = _create_owned_project(engine)
 
     monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.get_temp_path",
-        lambda _temp_id: Path("/tmp/fake.docx"),
+        "src.routers.import_docx.DocxImportService.get_owned_temp_path",
+        lambda _temp_id, **_kw: Path("/tmp/fake.docx"),
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.cleanup_temp",
@@ -161,7 +165,7 @@ def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> N
                 project_id=project_id,
                 request=Request({"type": "http", "method": "POST", "path": "/execute"}),
                 payload=import_docx.DocxExecuteRequest(
-                    temp_id="tmp-checkbox",
+                    temp_id=TEMP_ID,
                     form_indices=[0],
                     ai_overrides=[
                         import_docx.DocxFormOverride(
@@ -185,7 +189,7 @@ def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -
     user_id, project_id = _create_owned_project(engine)
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.save_temp_file",
-        lambda _content, _filename: ("tmp-preview-1", Path("/tmp/fake.docx")),
+        lambda _content, _filename, **_kw: (PREVIEW_TEMP_ID, Path("/tmp/fake.docx")),
     )
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.parse_full",
@@ -215,9 +219,9 @@ def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -
             )
         )
 
-    assert response.temp_id == "tmp-preview-1"
+    assert response.temp_id == PREVIEW_TEMP_ID
     assert response.ai_error is None
-    assert response.ai_task_id == "tmp-preview-1"
+    assert response.ai_task_id == PREVIEW_TEMP_ID
     assert len(response.forms) == 1
     assert response.forms[0].name == "表单A"
 

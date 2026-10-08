@@ -175,8 +175,10 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 
-def _create_temp_docx_upload(path: Path) -> tuple[str, Path]:
-    temp_id, stored_path = DocxImportService.save_temp_file(path.read_bytes(), path.name)
+def _create_temp_docx_upload(path: Path, *, user_id: int, project_id: int) -> tuple[str, Path]:
+    temp_id, stored_path = DocxImportService.save_temp_file(
+        path.read_bytes(), path.name, user_id=user_id, project_id=project_id
+    )
     return temp_id, Path(stored_path)
 
 
@@ -301,10 +303,13 @@ def run_backend_baseline(*, mode: str, fixture_name: str) -> Path:
             try:
                 _seed_fixture_into_engine(engine, fixture.db_path)
                 ids = _collect_ids(engine)
+                owner = _load_owner(engine, fixture.owner_username)
                 docx_bytes = fixture.upload_docx_path.read_bytes()
                 import_db_bytes = fixture.db_path.read_bytes()
                 merge_db_bytes = fixture.merge_db_path.read_bytes()
-                temp_id, _ = _create_temp_docx_upload(fixture.upload_docx_path)
+                temp_id, _ = _create_temp_docx_upload(
+                    fixture.upload_docx_path, user_id=owner.id, project_id=ids["project_id"]
+                )
                 with _patched_test_app(engine, collector) as client:
                     token = login_as(client, fixture.owner_username, fixture.owner_password)
                     scenarios = _build_scenarios(temp_id, ids, docx_bytes, import_db_bytes, merge_db_bytes)
@@ -313,7 +318,9 @@ def run_backend_baseline(*, mode: str, fixture_name: str) -> Path:
                             is_warmup = iteration <= SCENARIO_WARMUP_COUNT
                             scenario_payload = scenario.payload
                             if scenario.name == "docx_execute":
-                                temp_id, _ = _create_temp_docx_upload(fixture.upload_docx_path)
+                                temp_id, _ = _create_temp_docx_upload(
+                                    fixture.upload_docx_path, user_id=owner.id, project_id=ids["project_id"]
+                                )
                                 scenario_payload = {"temp_id": temp_id, "form_indices": [0, 1, 2]}
                             if scenario.files is not None:
                                 response = client.post(scenario.path, files=scenario.files, headers=auth_headers(token))
