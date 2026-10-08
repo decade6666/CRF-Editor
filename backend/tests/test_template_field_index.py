@@ -147,6 +147,97 @@ def _build_search_template(tmp_path: Path) -> Path:
     return db_path
 
 
+def _build_form_code_template(tmp_path: Path) -> Path:
+    """构造表单 OID 场景模板：正常/NULL/空白 OID 表单 + 多来源 + 仅字段库。"""
+    db_path = tmp_path / "template_form_code.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with factory() as session:
+        project = Project(name="OID项目", version="v1.0")
+        session.add(project)
+        session.flush()
+
+        form_main = Form(project_id=project.id, name="主表单", code="FCODE_MAIN", order_index=1)
+        form_null = Form(project_id=project.id, name="无OID表单", code=None, order_index=2)
+        form_blank = Form(project_id=project.id, name="空白OID表单", code="   ", order_index=3)
+        session.add_all([form_main, form_null, form_blank])
+        session.flush()
+
+        multi = FieldDefinition(
+            project_id=project.id, variable_name="MULTI_SRC", label="多来源字段",
+            field_type="文本", order_index=10,
+        )
+        lib_only = FieldDefinition(
+            project_id=project.id, variable_name="OID_LIB_ONLY", label="库内字段",
+            field_type="文本", order_index=20,
+        )
+        aliased = FieldDefinition(
+            project_id=project.id, variable_name="ALIASED", label="别名",
+            field_type="文本", order_index=30,
+        )
+        session.add_all([multi, lib_only, aliased])
+        session.flush()
+
+        session.add_all(
+            [
+                FormField(form_id=form_main.id, field_definition_id=multi.id, order_index=10),
+                FormField(form_id=form_null.id, field_definition_id=multi.id, order_index=10),
+                FormField(form_id=form_blank.id, field_definition_id=multi.id, order_index=10),
+                FormField(
+                    form_id=form_main.id, field_definition_id=aliased.id, order_index=20,
+                    label_override="显示别名",
+                ),
+            ]
+        )
+        session.commit()
+
+    engine.dispose()
+    return db_path
+
+
+def _drop_form_code_column(db_path: Path) -> None:
+    """把 form 表重建为没有 code 列的历史结构（当前唯一约束引用 code，无法直接 DROP）。
+
+    legacy_alter_table=ON 让 RENAME 不改写 form_field / field / visit_form 的外键引用；
+    否则默认行为会把引用改写到 form_with_code，DROP 后留下指向不存在表的失效外键，
+    与真实历史库（外键仍指向 form）不一致。
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("PRAGMA legacy_alter_table = ON")
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE form RENAME TO form_with_code")
+        conn.execute(
+            """
+            CREATE TABLE form (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                domain VARCHAR(255),
+                order_index INTEGER,
+                design_notes TEXT,
+                annotation_positions TEXT,
+                paper_orientation VARCHAR(16) NOT NULL DEFAULT 'auto',
+                UNIQUE(project_id, name)
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO form (id, project_id, name, domain, order_index, design_notes, "
+            "annotation_positions, paper_orientation) "
+            "SELECT id, project_id, name, domain, order_index, design_notes, "
+            "annotation_positions, paper_orientation FROM form_with_code"
+        )
+        conn.execute("DROP TABLE form_with_code")
+        conn.commit()
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
+
+
 def _find_entry(entries: list[dict], variable_name: str) -> dict:
     matches = [entry for entry in entries if entry["variable_name"] == variable_name]
     assert len(matches) == 1, f"expected exactly one entry for {variable_name}: {matches}"
@@ -214,11 +305,11 @@ def test_service_merges_identical_definitions_in_template_order(tmp_path: Path) 
     assert len(merged) == 1
     sources = merged[0]["sources"]
     assert [
-        (source["project_name"], source["project_version"], source["form_name"])
+        (source["project_name"], source["project_version"], source["form_code"], source["form_name"])
         for source in sources
     ] == [
-        ("模板项目A", "v1.0", "第二表单"),
-        ("模板项目B", "v2.0", "入组表"),
+        ("模板项目A", "v1.0", "FA2", "第二表单"),
+        ("模板项目B", "v2.0", "FB1", "入组表"),
     ]
 
 
@@ -246,9 +337,64 @@ def test_service_library_only_definition_has_no_form_name(tmp_path: Path) -> Non
             "project_name": "模板项目A",
             "project_version": "v1.0",
             "form_name": None,
+            "form_code": None,
             "display_label": None,
         }
     ]
+
+
+def test_service_sources_carry_form_codes_and_blank_becomes_null(tmp_path: Path) -> None:
+    db_path = _build_form_code_template(tmp_path)
+
+    entries = build_template_field_index(str(db_path))
+
+    multi = _find_entry(entries, "MULTI_SRC")
+    assert [
+        (source["form_code"], source["form_name"]) for source in multi["sources"]
+    ] == [
+        ("FCODE_MAIN", "主表单"),
+        (None, "无OID表单"),
+        (None, "空白OID表单"),
+    ]
+
+    lib_only = _find_entry(entries, "OID_LIB_ONLY")
+    assert [source["form_code"] for source in lib_only["sources"]] == [None]
+
+    aliased = _find_entry(entries, "ALIASED")
+    assert aliased["sources"][0]["form_code"] == "FCODE_MAIN"
+    assert aliased["sources"][0]["display_label"] == "显示别名"
+
+
+def test_service_legacy_template_without_form_code_column(tmp_path: Path) -> None:
+    db_path = _build_form_code_template(tmp_path)
+    _drop_form_code_column(db_path)
+    before = db_path.read_bytes()
+
+    # 夹具自检：重建后的 form 无 code 列，且引用 form 的外键仍指向 form（无失效引用）。
+    conn = sqlite3.connect(db_path)
+    try:
+        assert "code" not in [row[1] for row in conn.execute("PRAGMA table_info(form)")]
+        for referencing in ("form_field", "field", "visit_form"):
+            targets = [row[2] for row in conn.execute(f"PRAGMA foreign_key_list({referencing})")]
+            assert "form" in targets, f"{referencing} should keep an FK to form, got {targets}"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+    entries = build_template_field_index(str(db_path))
+
+    # 缺少 code 列时来源照常返回，form_code 一律为 None，且不回写源库。
+    assert [entry["variable_name"] for entry in entries] == [
+        "MULTI_SRC", "ALIASED", "OID_LIB_ONLY",
+    ]
+    for entry in entries:
+        for source in entry["sources"]:
+            assert source["form_code"] is None
+    multi = _find_entry(entries, "MULTI_SRC")
+    assert [source["form_name"] for source in multi["sources"]] == [
+        "主表单", "无OID表单", "空白OID表单",
+    ]
+    assert db_path.read_bytes() == before
 
 
 def test_service_label_override_becomes_display_label_and_aliases(tmp_path: Path) -> None:
@@ -363,9 +509,13 @@ def test_router_returns_200_for_regular_user_without_project(
     first = payload["entries"][0]
     assert set(first.keys()) == entry_keys
     assert set(first["sources"][0].keys()) == {
-        "project_name", "project_version", "form_name", "display_label",
+        "project_name", "project_version", "form_name", "form_code", "display_label",
     }
     assert [entry["variable_name"] for entry in payload["entries"]][0] == "NUMBER_A"
+    # form_code 序列化为 string | null（含仅字段库来源的 null）。
+    by_name = {entry["variable_name"]: entry for entry in payload["entries"]}
+    assert by_name["NUMBER_A"]["sources"][0]["form_code"] == "FA1"
+    assert by_name["LIB_ONLY"]["sources"][0]["form_code"] is None
 
 
 def test_router_returns_401_without_token(client: TestClient) -> None:

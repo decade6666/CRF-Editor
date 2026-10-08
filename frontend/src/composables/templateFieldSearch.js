@@ -1,19 +1,69 @@
 /**
- * 模板字段查询的纯逻辑：搜索候选文本、格式列文案、来源行文案、复制提示与分页常量。
- * 数据形状来自 GET /api/template-fields（TemplateFieldEntry，见任务 design.md §2.1）。
+ * 模板字段查询的纯逻辑：搜索候选文本、字段/表单四组优先级排序、格式列文案、
+ * 来源行文案、复制提示与分页常量。
+ * 数据形状来自 GET /api/template-fields（TemplateFieldEntry，见 cross-stack-contracts §12）。
  */
 
 import { CHECKBOX_DEFAULT_TEXT, DEFAULT_DATE_FORMATS, isChoiceField } from './useCRFRenderer.js'
+import { normalizeSearchText, rankFuzzyMatches } from './searchRanking.js'
 
 export const TEMPLATE_FIELD_PAGE_SIZE = 50
 
 /**
- * rankFuzzyMatches 的候选文本提取器：OID + 标签 + 表单级显示标签。
+ * rankFuzzyMatches 的字段级候选文本提取器：OID + 标签 + 表单级显示标签。
  * @param {object} entry - TemplateFieldEntry
  * @returns {string[]}
  */
 export function templateFieldSearchTexts(entry) {
   return [entry?.variable_name, entry?.label, ...(entry?.label_aliases || [])]
+}
+
+/**
+ * rankFuzzyMatches 的表单 OID 候选文本提取器（不含表单名/项目元数据）。
+ * @param {object} entry - TemplateFieldEntry
+ * @returns {string[]}
+ */
+export function templateFieldFormCodes(entry) {
+  return (entry?.sources || []).map((source) => source?.form_code)
+}
+
+function hasStrongCandidate(item, keyword, getCandidates) {
+  // 两个内部提取器恒返回数组（normalize 后的空值由 length 检查跳过），无需再泛化包装。
+  return getCandidates(item).some((value) => {
+    const text = normalizeSearchText(value)
+    return text.length > 0 && text.includes(keyword)
+  })
+}
+
+/** 把已排序结果按「候选文本包含关键词」划分为强匹配（精确/包含）与其余弱匹配。 */
+function partitionByStrength(rankedItems, keyword, getCandidates) {
+  const isStrong = (item) => hasStrongCandidate(item, keyword, getCandidates)
+  return [rankedItems.filter(isStrong), rankedItems.filter((item) => !isStrong(item))]
+}
+
+/**
+ * 模板字段查询专用排序：字段强匹配 > 表单 OID 强匹配 > 字段模糊 > 表单 OID 模糊。
+ * 组内沿用共享 rankFuzzyMatches 的匹配强度与稳定顺序；同一entry只在其最高组出现一次；
+ * 空白关键词原样返回模板顺序。不修改入参。
+ * @param {object[]} entries - 模板顺序的 TemplateFieldEntry 列表
+ * @param {string} keyword - 用户输入的搜索词
+ * @returns {object[]}
+ */
+export function rankTemplateFieldMatches(entries, keyword) {
+  const normalizedKeyword = normalizeSearchText(keyword)
+  if (!normalizedKeyword) return entries
+
+  const fieldRanked = rankFuzzyMatches(entries, normalizedKeyword, templateFieldSearchTexts)
+  const formRanked = rankFuzzyMatches(entries, normalizedKeyword, templateFieldFormCodes)
+  const [fieldStrong, fieldWeak] = partitionByStrength(fieldRanked, normalizedKeyword, templateFieldSearchTexts)
+  const [formStrong, formWeak] = partitionByStrength(formRanked, normalizedKeyword, templateFieldFormCodes)
+
+  const seen = new Set()
+  return [...fieldStrong, ...formStrong, ...fieldWeak, ...formWeak].filter((entry) => {
+    if (seen.has(entry)) return false
+    seen.add(entry)
+    return true
+  })
 }
 
 function hasDigitValue(value) {
@@ -55,25 +105,17 @@ export function formatTemplateFieldFormat(entry) {
 }
 
 /**
- * 来源数量：放在表单上的来源数（不含仅字段库）。
- * @param {object} entry - TemplateFieldEntry
- * @returns {number}
- */
-export function countTemplateFieldForms(entry) {
-  return (entry?.sources || []).filter((source) => source?.form_name).length
-}
-
-/**
- * 单条来源的可读文案：「项目 版本 / 表单（显示为：xx）」，仅字段库来源尾部为「仅字段库」。
+ * 单条来源的内联文案：「表单OID 表单名称（显示为：xx）」；
+ * 无 OID 时仅表单名称，两者皆无（仅字段库）时为「仅字段库」。
  * @param {object} source - TemplateFieldSource
  * @returns {string}
  */
 export function formatTemplateFieldSource(source) {
   if (!source) return ''
-  const head = [source.project_name, source.project_version].filter(Boolean).join(' ')
-  const tail = source.form_name || '仅字段库'
+  const head = [source.form_code, source.form_name].filter(Boolean).join(' ')
+  if (!head) return '仅字段库'
   const suffix = source.display_label ? `（显示为：${source.display_label}）` : ''
-  return `${head} / ${tail}${suffix}`
+  return `${head}${suffix}`
 }
 
 /**

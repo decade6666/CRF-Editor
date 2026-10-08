@@ -1133,7 +1133,8 @@ const FormDesigner = defineAsyncComponent(() =>
 | `el-dialog` carries `:modal="false"` + `modal-penetrable` + `draggable` + `append-to-body` (plus `:close-on-click-modal="false"` and a unique class for width since scoped styles cannot reach the teleported root) | Removes the blocking backdrop so pointer events pass through, keeps the window repositionable via its header, and keeps it visible above the page |
 | Re-raising above freshly opened content goes through close → `await nextTick()` → reopen (`App.vue::openTemplateFieldSearch`) | Element Plus does not bump the z-index of an already-open non-modal dialog; toggling `update:modelValue` forces a re-append so the panel returns above a newly opened fullscreen designer |
 | When the dialog is lazy-mounted, its `modelValue` watcher needs `{ immediate: true }` | The lazy mount happens with `modelValue` already `true`, so without `immediate` the first open never triggers the initial data load (existing lazy-dialog rule) |
-| Pure behavior (search candidate texts, column/toast text, pagination) lives in `composables/templateFieldSearch.js`, clipboard access in `composables/clipboardCopy.js` | Keeps the component a thin view layer that stays testable under `node:test` without stubbing a browser |
+| Pure behavior (search candidate texts, the four-bucket field/form ranking, column/toast text, pagination) lives in `composables/templateFieldSearch.js`, clipboard access in `composables/clipboardCopy.js` | Keeps the component a thin view layer that stays testable under `node:test` without stubbing a browser |
+| The 来源 column renders inline read-only multi-line sources (`formatTemplateFieldSource`: `form_code form_name（显示为：xx）` / name-only / `仅字段库`) with wrapping and no truncation or click-to-expand; it is never a copy target and has no popover | Sources must be identifiable at a glance without another click, while copy targets stay limited to the single-value cells |
 
 ### 3. Validation
 

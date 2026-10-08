@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend testing, additive response schema and service boundaries"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend tests, build/lint, immutable inputs and accessibility"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Keep fuzzy ranking centralized; avoid a new global framework"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify form.code -> service -> response schema -> search/display data flow"}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Worktree isolation, no unsolicited commits/push, separate Trellis commits when authorized"}
