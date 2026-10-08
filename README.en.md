@@ -449,6 +449,27 @@ In the current repository:
 - `frontend/tests/` currently contains 65 frontend test files (64 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
+### Pre-commit Gate
+
+The repository ships a versioned `.githooks/pre-commit` hook that runs four checks automatically before every `git commit` (target: a few seconds; no test suites or builds):
+
+1. gitleaks staged-secret scan (rules and allowlist live in the repo-root `.gitleaks.toml`; if gitleaks or that config file is missing, the hook fails and blocks the commit);
+2. `git diff --cached --check` for whitespace errors and conflict markers;
+3. `python3 -m py_compile` syntax check on each staged `.py` file;
+4. `ruff format --check` on staged `.py` files when `ruff` is available on PATH (skipped with a one-line notice when absent; enabled automatically once installed).
+
+Enable it (once per development machine):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Notes:
+
+- The setting is stored in `.git/config` and is **shared by all worktrees** of this repository — enabling it in one worktree routes commits in every other worktree through the hook as well.
+- gitleaks must be installed first: download the single binary for your platform from the [gitleaks GitHub releases](https://github.com/gitleaks/gitleaks/releases) and place it at `~/.local/bin/gitleaks` (make sure `~/.local/bin` is on PATH).
+- `git commit --no-verify` can bypass the hook in an emergency, but must not be used routinely; for gitleaks false positives, follow the allowlist process in `.gitleaks.toml`.
+
 ## Contributing
 
 1. Fork the repository

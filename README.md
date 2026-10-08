@@ -449,6 +449,27 @@ node --test tests/*.test.js
 - `frontend/tests/` 当前包含 65 个前端测试文件（64 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡，以及管理端机构弹窗编辑等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
+### 提交前检查（pre-commit 门禁）
+
+仓库提供版本化的 `.githooks/pre-commit` 钩子，在每次 `git commit` 前自动执行四道检查（目标几秒内完成，不运行测试套件与构建）：
+
+1. gitleaks 暂存区密钥扫描（规则与 allowlist 见仓库根 `.gitleaks.toml`；gitleaks 或该配置文件缺失时钩子直接失败并拦截提交）；
+2. `git diff --cached --check` 空白错误与冲突标记检查；
+3. 对暂存的 `.py` 文件逐个执行 `python3 -m py_compile` 语法检查；
+4. 本机存在 `ruff` 时对暂存 `.py` 文件执行 `ruff format --check`（未安装则提示一行并跳过，安装后自动启用）。
+
+启用方式（每台开发机执行一次）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+注意事项：
+
+- 该配置写入 `.git/config`，对本仓库的**所有 worktree 共享**——在任一 worktree 启用后，其他 worktree 的提交同样经过该钩子。
+- 使用前需安装 gitleaks：从 [gitleaks GitHub Releases](https://github.com/gitleaks/gitleaks/releases) 下载对应平台的单个二进制文件，放置为 `~/.local/bin/gitleaks`（确保 `~/.local/bin` 在 PATH 中）。
+- `git commit --no-verify` 可在紧急情况下绕过钩子，但仅限紧急使用，不得日常使用；gitleaks 误报请按 `.gitleaks.toml` 的 allowlist 流程处理。
+
 ## 参与贡献
 
 1. Fork 本仓库

@@ -1,0 +1,37 @@
+# gitleaks configuration for CRF-Editor
+# Extends the default rule set and allowlists only known placeholder secrets.
+# Uses the modern [[allowlists]] array-of-tables (replaces the deprecated
+# single [allowlist] table removed in gitleaks v9).
+
+title = "CRF-Editor gitleaks config"
+
+[extend]
+useDefault = true
+
+# Allowlist scope is deliberately narrow: we do NOT exclude whole directories
+# (tests / specs / openspec / ci.yml). Excluding a directory would let a real
+# secret committed there bypass scanning entirely. Instead we allowlist:
+#   1. conventional placeholder-only example files, and
+#   2. the exact, anchored placeholder strings that appear in docs/CI.
+[[allowlists]]
+description = "Placeholder-only example config files"
+paths = [
+  '''\.env\.example$''',
+  '''config\.yaml\.example$''',
+]
+
+[[allowlists]]
+description = "Exact non-secret placeholder strings used in docs, examples, and CI"
+# Anchored so only the exact literal is allowlisted, never a superstring.
+regexTarget = "secret"
+regexes = [
+  '''^replace-with-a-long-random-secret$''',
+  '''^ci-test-secret-key-with-at-least-32-bytes$''',
+  '''^ci-bootstrap-password-123$''',
+  '''^my-secret-key-12345$''',
+  # Intentional wrong/existing passwords in auth/admin tests
+  '''^wrong-pass-123$''',
+  '''^existing-pass-123$''',
+  # Truncated JWT sample in the retired openspec auth docs
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.\.\.$''',
+]

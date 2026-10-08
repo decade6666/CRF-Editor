@@ -76,6 +76,7 @@ cd frontend && npm run lint
 cd frontend && npm run format
 cd backend && python -m pytest
 cd frontend && node --test tests/*.test.js
+git config core.hooksPath .githooks  # 一次性启用本机 pre-commit 门禁（所有 worktree 共享）
 sudo bash deploy/install-service.sh          # 安装 systemd 生产服务（后台运行 + 开机自启）
 sudo bash deploy/install-service.sh uninstall
 ```
@@ -146,6 +147,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-08` (task `pre-commit-gate`): 本机 pre-commit 钩子（gitleaks 暂存区扫描 + 空白/语法/条件格式自检），补上 CI 删除后缺失的提交前检查。
 - `2026-10-08` (task `template-field-source-form-oid`): 模板字段查询来源列内联化（表单OID+名称多行只读）+ 表单 OID 搜索（字段强 > 表单强 > 字段模糊 > 表单模糊四组排序）；API `sources[].form_code` 增量字段、历史库缺列只读探测。
 - `2026-10-08` (task `docx-temp-ownership`): Word 导入临时文件越权修复：编号改 32 位十六进制并绑定上传者+项目，5 个接口同校验，24 小时自动清理；前端零改动。
 - `2026-10-08` (task `docx-screenshot-render-backend`): Word 导入截图渲染后端缺失时平台化报错（Linux 提示安装 LibreOffice）+ 启动自检；README 与部署环境变量样例补齐依赖说明。

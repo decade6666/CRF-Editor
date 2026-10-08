@@ -26,7 +26,7 @@
 | Normal path | commit on `main`, or merge a task branch into `main` locally |
 | PRs | not opened for routine updates; do not run `gh pr create` / `gh pr merge` |
 | Push | push `main` after committing/merging |
-| CI | none — GitHub Actions workflows were removed on 2026-10-08; run the backend / frontend suites locally before merging |
+| CI | none — GitHub Actions workflows were removed on 2026-10-08; the local pre-commit gate (§6), once enabled per development machine, checks every commit, and the backend / frontend suites must still be run locally before merging |
 
 **Why**: single-owner repo; the PR + CI merge workflow added on 2026-09-29 is no longer the required path.
 
@@ -65,6 +65,28 @@ git branch -d <task-branch>
 - Claude (lead model) keeps implementation, orchestration, and final decisions.
 - Backend changes have no separate reviewer model beyond Claude's own review.
 - Do not dispatch `codeagent-wrapper` / Codex / Antigravity by default anymore.
+
+## 6. Local Pre-commit Gate
+
+**What** (since 2026-10-08): a versioned `.githooks/pre-commit` hook replaces the deleted CI checks at commit time. Enable it once per development machine:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Four gates run on every `git commit` (no test suites, no builds, no npm; a few seconds total, elapsed time printed at the end):
+
+| Gate | Check | Failure behavior |
+|------|-------|------------------|
+| 1 | gitleaks staged scan: `gitleaks git --staged --config <repo-root>/.gitleaks.toml --exit-code 1 --no-banner --verbose` (`--verbose` required: v8.30.1 prints only a count otherwise, not the RuleID/file/line) | commit blocked; gitleaks missing from PATH or `.gitleaks.toml` missing also blocks (fail closed) with a dedicated Chinese hint |
+| 2 | `git diff --cached --check` (whitespace errors, conflict markers) | commit blocked |
+| 3 | staged `*.py` files (from `git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR`; `quotePath=false` keeps non-ASCII filenames literal so the `*.py` match cannot silently skip them): `python3 -m py_compile` per file | commit blocked, failing file named |
+| 4 | `ruff format --check` on staged `*.py` files when `ruff` is on PATH | commit blocked; when ruff is absent, exactly one notice line is printed and the check is skipped |
+
+- **Worktree semantics**: `core.hooksPath` lives in `.git/config`, which is shared by every worktree of this repository — enabling it in one worktree activates the hook for commits in all worktrees. The script and config are versioned, so each worktree checks out its own copy.
+- **gitleaks version facts** (verified 2026-10-08, v8.30.1): staged scanning uses `gitleaks git --staged`; the old `protect` subcommand is deprecated since v8.19.0. The repo-root `.gitleaks.toml` (restored byte-identical from `8ed19cd^`) extends the default rule set and uses the `[[allowlists]]` array-of-tables syntax. Note for fake-key tests: the default rules do not flag the AWS example key (`AKIA…EXAMPLE`) or very short PEM bodies; `ghp_` / `xoxb-` style tokens are detected.
+- **`--no-verify` policy**: `git commit --no-verify` exists for emergencies only and must not be used routinely; gitleaks false positives go through the `.gitleaks.toml` allowlist process instead of bypassing the hook.
+- **backend-format integration**: Gate 4 is conditional — once the `backend-format` task lands and `ruff` is installed on PATH, the format check lights up automatically with no hook change. When wiring that up, verify against the installed ruff version: (a) whether `ruff format --check` accepts a `--` end-of-options separator (staged files named like `-foo.py` currently hit flag parsing, failing with a misleading message); (b) distinguish exit code 1 (would reformat) from 2 (runtime/config error) so the block message stays accurate.
 
 ---
 
