@@ -33,12 +33,13 @@ def _load_template_data(session: Session) -> dict:
     """整表读取模板数据并在 Python 侧过滤（不用 ORM、不用 IN 参数列表）。"""
     columns = {
         "project_deleted_at": "deleted_at" in _table_columns(session, "project"),
+        "form_code": "code" in _table_columns(session, "form"),
         "form_field_label_override": "label_override" in _table_columns(session, "form_field"),
         "field_definition_checkbox_label": "checkbox_label" in _table_columns(session, "field_definition"),
     }
     return {
         "projects": _load_active_projects(session, columns["project_deleted_at"]),
-        "forms_by_project": _group_forms(_load_forms(session)),
+        "forms_by_project": _group_forms(_load_forms(session, columns["form_code"])),
         "fields_by_form": _group_form_fields(
             _load_form_fields(session, columns["form_field_label_override"])
         ),
@@ -60,18 +61,22 @@ def _load_active_projects(session: Session, has_deleted_at: bool) -> List[dict]:
     return [{"id": row[0], "name": row[1], "version": row[2]} for row in rows]
 
 
-def _load_forms(session: Session) -> List[dict]:
+def _load_forms(session: Session, has_code: bool) -> List[dict]:
+    code_column = "code" if has_code else "NULL"
     rows = session.execute(
-        text("SELECT id, project_id, name FROM form ORDER BY project_id, order_index, id")
+        text(
+            f"SELECT id, project_id, name, {code_column} "
+            "FROM form ORDER BY project_id, order_index, id"
+        )
     ).all()
-    return [{"id": row[0], "project_id": row[1], "name": row[2]} for row in rows]
+    return [{"id": row[0], "project_id": row[1], "name": row[2], "code": row[3]} for row in rows]
 
 
 def _group_forms(forms: List[dict]) -> Dict[int, List[dict]]:
     grouped: Dict[int, List[dict]] = {}
     for form in forms:
         grouped.setdefault(form["project_id"], []).append(
-            {"id": form["id"], "name": form["name"]}
+            {"id": form["id"], "name": form["name"], "code": form["code"]}
         )
     return grouped
 
@@ -185,6 +190,7 @@ def _collect_form_entries(data: dict, entries: List[dict], index_by_key: Dict[tu
                     "project_name": project["name"],
                     "project_version": project["version"],
                     "form_name": form["name"],
+                    "form_code": _clean_optional(form["code"]),
                     "display_label": _display_label(
                         form_field["label_override"], definition["label"]
                     ),
@@ -210,6 +216,7 @@ def _collect_library_only_entries(
                 "project_name": project["name"],
                 "project_version": project["version"],
                 "form_name": None,
+                "form_code": None,
                 "display_label": None,
             }
             _append_entry(entries, index_by_key, data, definition, source)

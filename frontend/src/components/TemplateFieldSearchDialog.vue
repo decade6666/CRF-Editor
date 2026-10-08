@@ -3,15 +3,13 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '../composables/useApi'
-import { rankFuzzyMatches } from '../composables/searchRanking'
 import { copyTextToClipboard } from '../composables/clipboardCopy'
 import {
   TEMPLATE_FIELD_PAGE_SIZE,
   buildCopyToastText,
-  countTemplateFieldForms,
   formatTemplateFieldFormat,
   formatTemplateFieldSource,
-  templateFieldSearchTexts,
+  rankTemplateFieldMatches,
 } from '../composables/templateFieldSearch'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
@@ -40,7 +38,7 @@ watch(keyword, () => {
   page.value = 1
 })
 
-const ranked = computed(() => rankFuzzyMatches(entries.value, keyword.value, templateFieldSearchTexts))
+const ranked = computed(() => rankTemplateFieldMatches(entries.value, keyword.value))
 const pageRows = computed(() =>
   ranked.value.slice((page.value - 1) * TEMPLATE_FIELD_PAGE_SIZE, page.value * TEMPLATE_FIELD_PAGE_SIZE),
 )
@@ -97,7 +95,7 @@ async function copyCell(text) {
           ref="searchInputRef"
           v-model="keyword"
           class="tfs-search-input"
-          placeholder="输入标签或 OID 搜索"
+          placeholder="输入标签、字段 OID 或表单 OID 搜索"
           clearable
           size="small"
           :prefix-icon="Search"
@@ -183,20 +181,13 @@ async function copyCell(text) {
               <span v-else class="tfs-empty">—</span>
             </template>
           </el-table-column>
-          <el-table-column label="来源" min-width="100">
+          <el-table-column label="来源" min-width="230">
             <template #default="{ row }">
-              <el-popover placement="left" trigger="click" :width="360">
-                <template #reference>
-                  <button type="button" class="tfs-source-btn">
-                    {{ countTemplateFieldForms(row) > 0 ? `${countTemplateFieldForms(row)} 个表单` : '仅字段库' }}
-                  </button>
-                </template>
-                <div class="tfs-source-list">
-                  <div v-for="(source, index) in row.sources" :key="index" class="tfs-source-line">
-                    {{ formatTemplateFieldSource(source) }}
-                  </div>
+              <div class="tfs-source-list">
+                <div v-for="(source, index) in row.sources" :key="index" class="tfs-source-line">
+                  {{ formatTemplateFieldSource(source) }}
                 </div>
-              </el-popover>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -225,7 +216,7 @@ async function copyCell(text) {
 }
 
 .tfs-search-input {
-  width: 220px;
+  width: clamp(220px, 28vw, 340px);
 }
 
 .tfs-count {
@@ -269,31 +260,18 @@ async function copyCell(text) {
   outline-offset: 1px;
 }
 
-.tfs-source-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  color: var(--color-primary);
-  cursor: pointer;
-}
-
-.tfs-source-btn:hover {
-  text-decoration: underline;
-}
-
-.tfs-source-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
-}
-
 .tfs-source-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: var(--font-sm);
   word-break: break-all;
+}
+
+/* 来源单元格只读多行展示：允许换行，不截断、不点击展开。 */
+.tfs-source-line {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .tfs-empty {
