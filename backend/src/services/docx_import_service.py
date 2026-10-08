@@ -14,6 +14,8 @@ import uuid
 
 import logging
 
+import time
+
 from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -55,6 +57,9 @@ NOTE_SKIP_PREFIXES = ("注：", "注:", "周岁", "赛美斯", "太美", "方案
 # 的查找都必须同时校验归属；不符合格式的编号一律视为不存在。
 TEMP_ID_PATTERN = r"^[0-9a-f]{32}$"
 _TEMP_ID_RE = re.compile(TEMP_ID_PATTERN)
+
+# 上传文件保留时长：放弃的导入（含遗留旧格式文件）超过该时长后被后台清扫删除。
+UPLOAD_TTL_HOURS = 24
 
 
 def _is_placeholder_text(text: str, *, strip_choice_markers: bool = False) -> bool:
@@ -1306,8 +1311,12 @@ class DocxImportService:
         temp_dir = Path(DocxImportService.TEMP_DIR)
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_id = uuid.uuid4().hex
-        # 安全处理：只取文件名部分，过滤路径分隔符
+        # 安全处理：只取文件名部分，过滤路径分隔符；扩展名统一转小写，
+        # 保证按 *.docx 的查找与清扫能覆盖 .DOCX 等大写扩展名上传
         basename = os.path.basename(filename).replace("..", "")
+        stem, ext = os.path.splitext(basename)
+        if ext:
+            basename = stem + ext.lower()
         safe_name = f"{temp_id}_u{user_id}_p{project_id}_{basename}"
         file_path = str(temp_dir / safe_name)
         with perf_span("temp_file_write"):
@@ -1356,6 +1365,42 @@ class DocxImportService:
 
         DocxScreenshotService.cleanup(temp_id)
         remove_ai_task(temp_id)
+
+    @staticmethod
+    def purge_expired_uploads(
+        *, max_age_hours: int = UPLOAD_TTL_HOURS, now: Optional[float] = None
+    ) -> int:
+        """删除超过 max_age_hours 的上传文件，返回删除的文件数。
+
+        新格式（32 位编号开头）连同截图缓存与 AI 复核任务一并丢弃；
+        旧格式（12 位编号）无法归属，仅删文件本身——其截图缓存会在每次
+        服务关停时被 cleanup_old_caches 清空，AI 任务只在内存中。
+        """
+        temp_dir = Path(DocxImportService.TEMP_DIR)
+        if not temp_dir.exists():
+            return 0
+        cutoff = (now if now is not None else time.time()) - max_age_hours * 3600
+        purged = 0
+        # 后缀不区分大小写：路由按 lower().endswith(".docx") 放行上传，
+        # 大写扩展名的历史文件（.DOCX）同样要被清扫，不能只用 *.docx glob。
+        docx_files = sorted(p for p in temp_dir.iterdir() if p.suffix.lower() == ".docx")
+        for path in docx_files:
+            try:
+                if path.stat().st_mtime >= cutoff:
+                    continue
+                # 编号与文件名的边界是第一个下划线；编号本身是纯十六进制，不含下划线。
+                candidate_id = path.name.split("_", 1)[0]
+                if _TEMP_ID_RE.fullmatch(candidate_id):
+                    DocxImportService.discard_upload(candidate_id)
+                    removed = not path.exists()
+                else:
+                    path.unlink()
+                    removed = True
+                if removed:
+                    purged += 1
+            except OSError:
+                logger.warning("清扫 Word 导入临时文件失败: path=%s", path)
+        return purged
 
 
 
