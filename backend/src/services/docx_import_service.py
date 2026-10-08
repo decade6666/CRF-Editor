@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 
 NOTE_SKIP_PREFIXES = ("注：", "注:", "周岁", "赛美斯", "太美", "方案版本号")
 
+# Word 导入临时编号：完整 32 位小写十六进制。上传文件名内嵌
+# 「上传者 + 项目」归属（{temp_id}_u{user_id}_p{project_id}_原名），所有按编号
+# 的查找都必须同时校验归属；不符合格式的编号一律视为不存在。
+TEMP_ID_PATTERN = r"^[0-9a-f]{32}$"
+_TEMP_ID_RE = re.compile(TEMP_ID_PATTERN)
+
 
 def _is_placeholder_text(text: str, *, strip_choice_markers: bool = False) -> bool:
     candidate = text
@@ -1286,94 +1292,70 @@ class DocxImportService:
 
 
     @staticmethod
-
-    def save_temp_file(content: bytes, filename: str) -> Tuple[str, str]:
-
-        """保存上传的文件到临时目录，返回 (temp_id, file_path)
-
-
+    def save_temp_file(content: bytes, filename: str, *, user_id: int, project_id: int) -> Tuple[str, str]:
+        """保存上传的文件到临时目录，返回 (temp_id, file_path)。
 
         对文件名做安全处理，防止路径遍历攻击。
-
+        文件名内嵌上传归属（{temp_id}_u{user_id}_p{project_id}_原名），
+        后续所有按编号的查找都要求同一用户在同一项目内。
         """
-
         if len(content) > DocxImportService.MAX_FILE_SIZE:
-
             raise ValueError(
-
                 f"文件大小超过限制（最大 {DocxImportService.MAX_FILE_SIZE // 1024 // 1024}MB）"
-
             )
-
         temp_dir = Path(DocxImportService.TEMP_DIR)
-
         temp_dir.mkdir(parents=True, exist_ok=True)
-
-        temp_id = uuid.uuid4().hex[:12]
-
+        temp_id = uuid.uuid4().hex
         # 安全处理：只取文件名部分，过滤路径分隔符
-
         basename = os.path.basename(filename).replace("..", "")
-
-        safe_name = f"{temp_id}_{basename}"
-
+        safe_name = f"{temp_id}_u{user_id}_p{project_id}_{basename}"
         file_path = str(temp_dir / safe_name)
-
         with perf_span("temp_file_write"):
             with open(file_path, "wb") as f:
                 f.write(content)
         return temp_id, file_path
 
-
     @staticmethod
+    def get_owned_temp_path(temp_id: str, *, user_id: int, project_id: int) -> Optional[str]:
+        """返回「同一用户在同一项目」上传的临时文件路径；格式不符或不存在返回 None。
 
-    def get_temp_path(temp_id: str) -> Optional[str]:
-
-        """根据 temp_id 查找临时文件路径（只返回.docx文件，不返回目录）"""
-
-        temp_dir = Path(DocxImportService.TEMP_DIR)
-
-        if not temp_dir.exists():
-
+        路由层已把编号约束为 32 位十六进制，这里的再校验是纵深防御，
+        覆盖绕过路由的内部调用方（清扫、清理）。
+        """
+        if not _TEMP_ID_RE.fullmatch(temp_id):
             return None
-
-        for f in temp_dir.iterdir():
-
-            if f.name.startswith(temp_id) and f.is_file() and f.suffix == ".docx":
-
-                return str(f)
-
-        return None
-
-
+        temp_dir = Path(DocxImportService.TEMP_DIR)
+        if not temp_dir.exists():
+            return None
+        matches = sorted(temp_dir.glob(f"{temp_id}_u{user_id}_p{project_id}_*.docx"))
+        return str(matches[0]) if matches else None
 
     @staticmethod
-
     def cleanup_temp(temp_id: str) -> None:
-
-        """清理临时文件（安全清理，避免异常覆盖原始错误）"""
-
+        """清理临时文件（安全清理，避免异常覆盖原始错误）。"""
         try:
-
-            path = DocxImportService.get_temp_path(temp_id)
-
-            if path and os.path.exists(path):
-
-                path_obj = Path(path)
-
-                if path_obj.is_file():
-
+            if not _TEMP_ID_RE.fullmatch(temp_id):
+                return
+            for path in Path(DocxImportService.TEMP_DIR).glob(f"{temp_id}_*.docx"):
+                if path.is_file():
                     os.remove(path)
-
-                elif path_obj.is_dir():
-
-                    import shutil
-
-                    shutil.rmtree(path)
-
         except Exception as e:
-
             logger.warning("清理临时文件失败: temp_id=%s, 错误: %s", temp_id, str(e))
+
+    @staticmethod
+    def discard_upload(temp_id: str) -> None:
+        """丢弃一次上传及其全部衍生资源：临时文件、截图缓存、AI 复核任务。
+
+        路由（预览失败、执行导入收尾）与过期清扫共用。
+        """
+        if not _TEMP_ID_RE.fullmatch(temp_id):
+            return
+        DocxImportService.cleanup_temp(temp_id)
+        from src.services.ai_review_service import remove_ai_task
+        from src.services.docx_screenshot_service import DocxScreenshotService
+
+        DocxScreenshotService.cleanup(temp_id)
+        remove_ai_task(temp_id)
 
 
 

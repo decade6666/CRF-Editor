@@ -21,13 +21,14 @@ from src.services.docx_import_service import DocxImportService
 EXPECTED_SCENARIO_COUNT = 15
 
 
-def test_create_temp_docx_upload_roundtrips_with_docx_service(tmp_path: Path) -> None:
+def test_create_temp_docx_upload_roundtrips_with_docx_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(DocxImportService, "TEMP_DIR", str(tmp_path / "docx_temp"))
     source = tmp_path / "perf.docx"
     source.write_bytes(b"PK\x03\x04perf-docx")
 
-    temp_id, stored_path = _create_temp_docx_upload(source)
+    temp_id, stored_path = _create_temp_docx_upload(source, user_id=1, project_id=1)
     try:
-        resolved_path = DocxImportService.get_temp_path(temp_id)
+        resolved_path = DocxImportService.get_owned_temp_path(temp_id, user_id=1, project_id=1)
         assert Path(resolved_path) == stored_path
         assert stored_path.exists()
     finally:
