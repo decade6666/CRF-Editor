@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import html
 
-from src.perf import perf_span, record_counter
 from src.schemas.form import normalize_annotation_key, parse_annotation_positions
 
 
@@ -400,30 +399,24 @@ class ExportService:
 
             # 一次性 eager load 完整关系树，消除导出链路上的 N+1 查询
 
-            with perf_span("project_tree_load"):
-                project = self.project_repo.get_with_full_tree(project_id)
+            project = self.project_repo.get_with_full_tree(project_id)
 
             if not project:
 
                 return False
 
-            forms_count = len(getattr(project, "forms", []) or [])
-            fields_count = sum(len(getattr(form, "form_fields", []) or []) for form in getattr(project, "forms", []) or [])
-            record_counter("forms_count", forms_count)
-            record_counter("fields_count", fields_count)
 
             # 存储列宽覆盖供后续使用
             self._column_width_overrides = column_width_overrides or {}
 
             # 创建 Word 文档
-            with perf_span("docx_generate"):
-                doc = Document()
+            doc = Document()
 
-                # 统一文档字体和样式
+            # 统一文档字体和样式
 
-                self._apply_document_style(doc)
+            self._apply_document_style(doc)
 
-                self._enable_update_fields_on_open(doc)
+            self._enable_update_fields_on_open(doc)
 
 
 
@@ -513,8 +506,7 @@ class ExportService:
 
             # 保存文档
 
-            with perf_span("file_response_prepare"):
-                doc.save(output_path)
+            doc.save(output_path)
 
             # 服务器侧用 LibreOffice 渲染算出真实页码写回目录（失败自动回退）
 
@@ -1569,9 +1561,8 @@ class ExportService:
 
         from src.services import toc_pagination
 
-        with perf_span("toc_page_bake"):
 
-            pages = toc_pagination.compute_heading_pages(output_path)
+        pages = toc_pagination.compute_heading_pages(output_path)
 
         if not pages:
 

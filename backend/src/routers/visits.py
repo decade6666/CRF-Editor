@@ -24,7 +24,6 @@ from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
 
 from src.schemas import BatchDeleteRequest
 
-from src.perf import perf_span
 
 from src.services.order_service import OrderService
 from src.models.visit_form import VisitForm
@@ -405,24 +404,22 @@ def reorder_visit_forms(
         raise HTTPException(404, "访视不存在")
     verify_project_owner(visit.project_id, current_user, session)
 
-    with perf_span("order_scope_load"):
-        visit_forms = list(
-            session.scalars(
-                select(VisitForm)
-                .where(VisitForm.visit_id == visit_id)
-                .order_by(VisitForm.sequence, VisitForm.id)
-            ).all()
-        )
-        valid_form_ids = {item.form_id for item in visit_forms}
+    visit_forms = list(
+        session.scalars(
+            select(VisitForm)
+            .where(VisitForm.visit_id == visit_id)
+            .order_by(VisitForm.sequence, VisitForm.id)
+        ).all()
+    )
+    valid_form_ids = {item.form_id for item in visit_forms}
 
-    with perf_span("order_validate"):
-        if not id_list:
-            raise HTTPException(400, "ID 列表不能为空")
-        request_form_id_set = set(id_list)
-        if len(request_form_id_set) != len(id_list):
-            raise HTTPException(400, "ID 列表包含重复项")
-        if request_form_id_set != valid_form_ids:
-            raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
+    if not id_list:
+        raise HTTPException(400, "ID 列表不能为空")
+    request_form_id_set = set(id_list)
+    if len(request_form_id_set) != len(id_list):
+        raise HTTPException(400, "ID 列表包含重复项")
+    if request_form_id_set != valid_form_ids:
+        raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
 
     visit_form_by_form_id = {item.form_id: item for item in visit_forms}
     ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in id_list]
