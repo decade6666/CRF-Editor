@@ -123,3 +123,63 @@ def test_remove_temp_file_logs_warning_instead_of_swallowing(
         _remove_temp_file(str(target))  # 不应抛出
 
     assert any("删除导出临时文件失败" in record.getMessage() for record in caplog.records)
+
+
+def _create_plain_project(client: TestClient, token: str) -> int:
+    resp = client.post(
+        "/api/projects",
+        json={"name": "导出失败分支项目", "version": "1.0", "db_type": "其他", "trial_name": "测试项目"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def _raise_unlink(path: object, *args: Any, **kwargs: Any) -> None:
+    raise PermissionError("文件被占用")
+
+
+def test_export_word_generate_failure_survives_unlink_oserror(
+    client: TestClient,
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生成失败分支：临时文件删除撞上 OSError 也不得把具体原因吞成通用 500。"""
+
+    def _fail_generate(*args: Any, **kwargs: Any) -> bool:
+        return False
+
+    token = login_as(client, "alice")
+    project_id = _create_plain_project(client, token)
+    monkeypatch.setattr("src.routers.export.ExportService.export_project_to_word", _fail_generate)
+    monkeypatch.setattr(os, "unlink", _raise_unlink)
+
+    resp = client.post(f"/api/projects/{project_id}/export/word", json={}, headers=auth_headers(token))
+
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["detail"] == "导出失败，请检查项目数据是否完整"
+
+
+def test_export_word_validate_failure_survives_unlink_oserror(
+    client: TestClient,
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """产出校验失败分支：临时文件删除撞上 OSError 同样不得吞掉具体 reason。"""
+
+    def _ok_generate(*args: Any, **kwargs: Any) -> bool:
+        return True
+
+    def _fail_validate(path: str) -> tuple[bool, str]:
+        return False, "校验原因样例"
+
+    token = login_as(client, "alice")
+    project_id = _create_plain_project(client, token)
+    monkeypatch.setattr("src.routers.export.ExportService.export_project_to_word", _ok_generate)
+    monkeypatch.setattr("src.routers.export.ExportService._validate_output", _fail_validate)
+    monkeypatch.setattr(os, "unlink", _raise_unlink)
+
+    resp = client.post(f"/api/projects/{project_id}/export/word", json={}, headers=auth_headers(token))
+
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["detail"] == "导出失败: 校验原因样例"
