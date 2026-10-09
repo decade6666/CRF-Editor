@@ -2,7 +2,6 @@
 // 确定保存并通知父组件 / 保存失败提示四条行为（设计 D6.1）。
 import { describe, expect, it, vi } from 'vitest';
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import DesignNotesDialog from '../../src/components/DesignNotesDialog.vue';
 import { api } from '../../src/composables/useApi.js';
@@ -22,7 +21,6 @@ function dialogLayer() {
 
 async function openDialog(wrapper) {
   await wrapper.setProps({ modelValue: true });
-  await nextTick();
 }
 
 describe('DesignNotesDialog', () => {

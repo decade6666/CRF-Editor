@@ -94,7 +94,7 @@ These documents support AI-assisted development by recording module boundaries, 
 ### Requirements
 
 - Python 3.10 or higher
-- Node.js 18 or higher (for frontend development)
+- Node.js: building the frontend alone needs `^20.19.0 || >=22.12.0` (required by Vite 7); full frontend development including the vitest 5 component mount tests needs `^22.12.0 || ^24.0.0 || >=26.0.0`
 - LibreOffice (required by the Word-import original-document screenshot evidence panel on Linux/macOS, e.g. `sudo apt install libreoffice-writer-nogui` on Ubuntu/Debian; also used for server-side real page numbers in Word table-of-contents entries — without it the screenshot panel is unavailable and exported files keep non-empty fallback page numbers that Word/WPS can correct by updating fields)
 - Windows + MS Word (optional, the Windows render backend of the Word-import screenshot evidence panel; requires additionally installing `pywin32` and `docx2pdf`, or LibreOffice can be used instead)
 
@@ -456,11 +456,11 @@ node --test tests/*.test.js # run only the node:test source-level suite
 
 The two suites are disjoint and can run independently:
 - `tests/*.test.js`: `node --test` source-level regression checks (flat in the `tests/` root)
-- `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions)
+- `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions; includes a Vue-warning gate — any Vue warning during a test, including during unmount, fails that test, implemented in `tests/component/vueWarnGate.js`)
 
 In the current repository:
 - `backend/tests/` currently contains 69 Python test files (67 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 74 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 4 vitest component-mount test files under `tests/component/` — 3 `.spec.js` files and a shared `setup.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
+- `frontend/tests/` currently contains 76 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 6 vitest component-mount test files under `tests/component/` — 4 `.spec.js` files, a shared `setup.js`, and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ### Pre-commit Gate

@@ -48,7 +48,7 @@
 - Every `feat` / `fix` must include corresponding tests.
 - Write a failing test first, then the minimal implementation, then run regression validation.
 - Coverage must not decrease; the target is at least 80%.
-- Backend uses `pytest`; frontend uses `node:test`.
+- Backend uses `pytest`; frontend uses `node:test` plus vitest + @vue/test-utils (happy-dom) component mount tests under `tests/component/`; `npm test` runs both suites.
 - Changes involving authentication, permissions, project isolation, import/export, or column width contracts must add corresponding regressions.
 
 ## Security

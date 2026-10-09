@@ -1,9 +1,11 @@
 // DOM 环境冒烟测试（设计 D6.3）：证明 happy-dom + 全局 Element Plus 注册可以挂载
 // el-table / el-select / el-tooltip 这些拆分任务依赖的重组件，且无需 DOM polyfill。
-// 内联组件在渲染函数里用 resolveComponent 按全局注册名取组件，因此本用例同时验证 setup.js 的插件注册生效。
+// 内联组件用 template 字符串书写：模板编译出的 slot 是编译时生成的，el-select 在渲染函数外读默认 slot 时
+// 不再触发「Slot "default" invoked outside of the render function」警告（此前的 h() 函数式 slot 会触发，
+// 而警告门禁已将任何 Vue 警告判为失败）；el-* 标签仍按全局注册名解析，本用例同时验证 setup.js 的插件注册生效。
 import { describe, expect, it } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, h, ref, resolveComponent } from 'vue';
+import { defineComponent, ref } from 'vue';
 
 const EnvironmentSmoke = defineComponent({
   setup() {
@@ -12,34 +14,23 @@ const EnvironmentSmoke = defineComponent({
       { code: 'A1', text: '甲一' },
       { code: 'A2', text: '乙二' },
     ];
-    return () => {
-      const elTable = resolveComponent('el-table');
-      const elTableColumn = resolveComponent('el-table-column');
-      const elSelect = resolveComponent('el-select');
-      const elOption = resolveComponent('el-option');
-      const elTooltip = resolveComponent('el-tooltip');
-      return h('div', { class: 'env-smoke' }, [
-        h(elTable, { data: rows }, () => [
-          h(elTableColumn, { prop: 'code', label: '编码' }),
-          h(elTableColumn, { prop: 'text', label: '文本' }),
-        ]),
-        h(
-          elSelect,
-          {
-            modelValue: selected.value,
-            'onUpdate:modelValue': (value) => {
-              selected.value = value;
-            },
-            'data-test': 'env-smoke-select',
-          },
-          () => [h(elOption, { label: '选项一', value: 'op1' }), h(elOption, { label: '选项二', value: 'op2' })],
-        ),
-        h(elTooltip, { content: '提示文本' }, () =>
-          h('button', { class: 'env-smoke-tooltip-trigger', type: 'button' }, '触发'),
-        ),
-      ]);
-    };
+    return { selected, rows };
   },
+  template: `
+    <div class="env-smoke">
+      <el-table :data="rows">
+        <el-table-column prop="code" label="编码" />
+        <el-table-column prop="text" label="文本" />
+      </el-table>
+      <el-select v-model="selected" data-test="env-smoke-select">
+        <el-option label="选项一" value="op1" />
+        <el-option label="选项二" value="op2" />
+      </el-select>
+      <el-tooltip content="提示文本">
+        <button class="env-smoke-tooltip-trigger" type="button">触发</button>
+      </el-tooltip>
+    </div>
+  `,
 });
 
 describe('Element Plus 挂载环境', () => {

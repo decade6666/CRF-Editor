@@ -94,7 +94,7 @@ CRF-Editor/
 ### 环境要求
 
 - Python 3.10 或更高版本
-- Node.js 18 或更高版本（前端开发时需要）
+- Node.js：仅构建前端需 `^20.19.0 || >=22.12.0`（Vite 7 要求）；完整前端开发（含 vitest 5 组件挂载测试）需 `^22.12.0 || ^24.0.0 || >=26.0.0`
 - LibreOffice（Linux/macOS 下 Word 导入原文截图证据面板必需，Ubuntu/Debian 可执行 `sudo apt install libreoffice-writer-nogui`；同时用于服务器侧预计算 Word 目录真实页码——缺失时截图面板不可用，目录保留非空回退页码并由 Word/WPS 更新域校正）
 - Windows + MS Word（可选，Word 导入原文截图证据面板的 Windows 渲染后端，需另装 `pywin32` 与 `docx2pdf`；也可改用 LibreOffice）
 
@@ -456,11 +456,11 @@ node --test tests/*.test.js # 仅运行 node:test 源码级回归测试
 
 两套测试互不重叠、可独立运行：
 - `tests/*.test.js`：`node --test` 源码级回归测试（平铺在 `tests/` 根目录）
-- `tests/component/**/*.spec.js`：vitest + @vue/test-utils + happy-dom 组件挂载测试（真实渲染组件并断言交互，共享 `tests/component/setup.js` 全局注册与 mock 约定）
+- `tests/component/**/*.spec.js`：vitest + @vue/test-utils + happy-dom 组件挂载测试（真实渲染组件并断言交互，共享 `tests/component/setup.js` 全局注册与 mock 约定；含 Vue 警告门禁——测试期间出现任何 Vue 警告（含卸载阶段）即判该用例失败，实现于 `tests/component/vueWarnGate.js`）
 
 当前仓库中：
 - `backend/tests/` 当前包含 69 个 Python 测试文件（67 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
-- `frontend/tests/` 当前包含 74 个前端测试文件（69 个 `.test.js` + `testProperty.js` 的 node:test，另加 `tests/component/` 下 4 个 vitest 组件挂载测试文件（3 个 `.spec.js` + 共享 `setup.js`）），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡、管理端机构弹窗编辑，以及 `useApi` 会话令牌竞态守卫等契约
+- `frontend/tests/` 当前包含 76 个前端测试文件（69 个 `.test.js` + `testProperty.js` 的 node:test，另加 `tests/component/` 下 6 个 vitest 组件挂载测试文件（4 个 `.spec.js` + 共享 `setup.js` + `vueWarnGate.js`）），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡、管理端机构弹窗编辑，以及 `useApi` 会话令牌竞态守卫等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
 ### 提交前检查（pre-commit 门禁）
