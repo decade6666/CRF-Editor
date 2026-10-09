@@ -438,7 +438,7 @@ cd backend
 python -m pytest
 ```
 
-The backend test session is hermetic: database, upload, screenshot, and Word-import temp paths are all redirected to a system temp directory and cleaned up automatically, so a fresh checkout needs no `config.yaml` or pre-seeded database to run the full backend suite.
+The backend test session is hermetic: database, upload, screenshot, and Word-import temp paths are all redirected to a system temp directory and cleaned up automatically. Config sources are isolated too: the test process never reads the repo-root `config.yaml` and never inherits `CRF_*` config-override variables from the developer shell (except the three conftest forces), so a fresh checkout needs no `config.yaml` or pre-seeded database to run the full backend suite.
 
 Coverage (statistics only, no gate):
 ```bash

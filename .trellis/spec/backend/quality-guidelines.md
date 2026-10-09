@@ -276,7 +276,7 @@ def auth_headers(client: TestClient):
 
 #### 1. Scope / Trigger
 
-Apply to every backend pytest invocation. Tests must not read or write repo-owned runtime resources: the real `config.yaml`, `crf_editor.db`, repo-root `uploads/`, or `backend/uploads/docx_temp`.
+Apply to every backend pytest invocation. Tests must not read or write repo-owned runtime resources: the real `config.yaml`, `crf_editor.db`, repo-root `uploads/`, or `backend/uploads/docx_temp`. The session's config *sources* are isolated too: `CONFIG_FILE` points at a nonexistent file under the test root, and `CRF_*` config-override variables from the developer shell never enter the session.
 
 #### 2. Signatures
 
@@ -286,7 +286,8 @@ Apply to every backend pytest invocation. Tests must not read or write repo-owne
 
 #### 3. Contracts
 
-- Before importing `main`, conftest forcibly assigns `CRF_DATABASE_PATH = TEST_ROOT / "crf_editor.db"` and `CRF_STORAGE_UPLOAD_PATH = UPLOAD_DIR`, regardless of inherited values. If `CRF_AUTH_SECRET_KEY` is absent or blank, generate a random test secret; remove inherited `CRF_ENV` so production mode is enabled only by individual tests.
+- Before importing `main`, conftest forcibly assigns `CRF_DATABASE_PATH = TEST_ROOT / "crf_editor.db"` and `CRF_STORAGE_UPLOAD_PATH = UPLOAD_DIR`, regardless of inherited values. `CRF_AUTH_SECRET_KEY` is always re-generated randomly per session (a shell value must not leak in); inherited `CRF_ENV` is removed so production mode is enabled only by individual tests.
+- After the `sys.path` insert and still before `import main`, conftest pops every `_ENV_OVERRIDE_MAP` variable except the three forced keys (`CRF_DATABASE_PATH`, `CRF_STORAGE_UPLOAD_PATH`, `CRF_AUTH_SECRET_KEY`) and rebinds `src.config.CONFIG_FILE = TEST_ROOT / "config.yaml"` — a path that does not exist at session start, so reads return defaults and unpatched writes land in the temp root. Both changes must precede `import main` because `get_config` caches on first evaluation there.
 - The session fixture redirects both `DocxScreenshotService.BASE_DIR` and `DocxImportService.TEMP_DIR` to `TEST_ROOT / "docx_temp"`. `_TEST_CONFIG.storage.upload_path` uses the same `UPLOAD_DIR` constant.
 - `test_root` removes `TEST_ROOT` on session teardown; an `atexit` handler is the fallback for normal process exits that never request the fixture (e.g. `--collect-only` or partial selections). A fresh worktree needs no `config.yaml` or seeded database.
 - Coverage is statistics-only, with no threshold. Do not add `--cov` to `pytest.ini` `addopts`, so a missing optional plugin cannot break ordinary test runs.
@@ -296,9 +297,11 @@ Apply to every backend pytest invocation. Tests must not read or write repo-owne
 | Condition | Required behavior |
 |---|---|
 | Developer shell points DB/upload paths outside the temp root | conftest overwrites both paths before `main` loads cached config |
-| `CRF_AUTH_SECRET_KEY` is absent or empty and no config file exists | conftest supplies a random non-empty secret before import-time app validation |
+| `CRF_AUTH_SECRET_KEY` is set in the shell | conftest overwrites it with a session-random value before import-time app validation |
 | Shell exports `CRF_ENV=production` | conftest removes it; production-only tests must opt in with `monkeypatch.setenv` |
 | Any guarded runtime path resolves outside `TEST_ROOT` | `tests/test_test_environment_isolation.py` fails with the offending path |
+| `CONFIG_FILE` no longer resolves under the test root | the path guard `test_should_redirect_config_file_under_test_root` fails |
+| An unforced `_ENV_OVERRIDE_MAP` variable is inherited from the shell | the env guard `test_should_not_inherit_config_override_env` fails, listing variable names only (never values — they may be secrets) |
 
 #### 5. Good / Base / Bad Cases
 
@@ -308,7 +311,7 @@ Apply to every backend pytest invocation. Tests must not read or write repo-owne
 
 #### 6. Tests Required
 
-Keep `tests/test_test_environment_isolation.py` green. It must assert that resolved `load_config().db_path`, `load_config().upload_path`, `DocxScreenshotService.BASE_DIR`, and `DocxImportService.TEMP_DIR` are all below `test_root`, and that inherited `CRF_ENV` is absent. Add regressions whenever a new test path can bypass these redirects. Coverage output is recorded for comparison but is not a pass/fail gate.
+Keep `tests/test_test_environment_isolation.py` green. It must assert that resolved `load_config().db_path`, `load_config().upload_path`, `DocxScreenshotService.BASE_DIR`, and `DocxImportService.TEMP_DIR` are all below `test_root`, that inherited `CRF_ENV` is absent, that `CONFIG_FILE` resolves under `test_root`, and that no unforced `_ENV_OVERRIDE_MAP` variable is present in the session environment. Add regressions whenever a new test path can bypass these redirects. Coverage output is recorded for comparison but is not a pass/fail gate.
 
 #### 7. Wrong vs Correct
 
@@ -316,6 +319,19 @@ Keep `tests/test_test_environment_isolation.py` green. It must assert that resol
 
 ```python
 response = client.get("/api/projects/export/database", headers=headers)
+```
+
+**Wrong** — importing `CONFIG_FILE` by name freezes its value at import time, bypassing later redirects and patches:
+
+```python
+from src.config import CONFIG_FILE  # never do this in tests
+```
+
+**Correct** — patch by string so the module global is read at call time and restored afterwards:
+
+```python
+with patch("src.config.CONFIG_FILE", tmp_path / "config.yaml"):
+    ...
 ```
 
 **Correct** — seed a file database under `tmp_path` and patch the config getter at the route module that imported it:

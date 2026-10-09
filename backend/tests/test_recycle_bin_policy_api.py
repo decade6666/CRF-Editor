@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as, seed_user
-from src.config import CONFIG_FILE
 from src.models.project import Project
 from src.models.user import User
 

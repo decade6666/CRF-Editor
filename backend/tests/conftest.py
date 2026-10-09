@@ -22,14 +22,15 @@ os.environ.setdefault("CRF_DISABLE_BACKGROUND_JOBS", "1")
 # 夹具的调用路径也保证删除；夹具内的 rmtree 提前执行，二者幂等共存。
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="crf-editor-tests-"))
 UPLOAD_DIR = TEST_ROOT / "uploads"
+# 会话数据库位置单一来源：环境变量强制项与 _TEST_CONFIG 共用，避免两处字面量漂移。
+DB_PATH = TEST_ROOT / "crf_editor.db"
 atexit.register(functools.partial(shutil.rmtree, TEST_ROOT, ignore_errors=True))
 # 强制覆盖（赋值而非 setdefault）：不受开发者 shell 里同名环境变量的影响；
 # get_config 在 import main 时首次求值并缓存，必须在此之前设置完毕。
-os.environ["CRF_DATABASE_PATH"] = str(TEST_ROOT / "crf_editor.db")
+os.environ["CRF_DATABASE_PATH"] = str(DB_PATH)
 os.environ["CRF_STORAGE_UPLOAD_PATH"] = str(UPLOAD_DIR)
-# 全新 worktree 没有 config.yaml 时，main 导入期校验需要非空 secret_key。
-if not os.environ.get("CRF_AUTH_SECRET_KEY", "").strip():
-    os.environ["CRF_AUTH_SECRET_KEY"] = secrets.token_hex(32)
+# 配置文件已重定向（见下方），secret_key 只能来自环境变量；每次会话随机生成，不沿用开发者 shell 的值。
+os.environ["CRF_AUTH_SECRET_KEY"] = secrets.token_hex(32)
 # 生产模式只允许个别测试用 monkeypatch 显式开启，防止继承外部环境。
 os.environ.pop("CRF_ENV", None)
 
@@ -43,6 +44,23 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+import src.config as _config_module
+
+# 切断真实配置的另外两条入口，必须早于 import main（get_config 在那里首次求值并缓存）：
+# 1) 开发者 shell 中其余 CRF_* 配置覆盖项一律清除，只保留上方强制设置的三项；
+# 2) CONFIG_FILE 指向会话临时根下不存在的文件：读取只得到默认值，未打补丁的写入也只落在临时根。
+# 注意：守卫 test_should_not_inherit_config_override_env 自持一份 _FORCED_CONFIG_ENV 副本作绊线
+# （见 .trellis/spec/backend/quality-guidelines.md「Test Session Isolation」）；在此新增强制键时须同步守卫副本。
+_FORCED_CONFIG_ENV = frozenset(
+    {"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"}
+)
+for _name in _config_module._ENV_OVERRIDE_MAP.keys() - _FORCED_CONFIG_ENV:
+    os.environ.pop(_name, None)
+_config_module.CONFIG_FILE = TEST_ROOT / "config.yaml"
+# 自愈导入顺序：若任何插件 / 收集链在本次重绑定之前就触发了 get_config 求值（缓存了真实
+# 配置），此处强制清空缓存，让 import main 首次求值必然走重定向后的来源。
+_config_module.get_config.cache_clear()
+
 warnings.filterwarnings(
     "ignore",
     message="Please use `import python_multipart` instead.",
@@ -50,16 +68,19 @@ warnings.filterwarnings(
 )
 
 from main import app
-from src.config import AppConfig, AdminConfig, AuthConfig, StorageConfig
+from src.config import AppConfig, AdminConfig, AuthConfig, DatabaseConfig, StorageConfig
 from src.database import get_plain_session, get_session
 from src.models import Base
 from src.services.docx_import_service import DocxImportService
 from src.services.docx_screenshot_service import DocxScreenshotService
 
-# 测试用配置：固定有效 secret_key，上传目录指向会话临时根目录，其余字段走默认值。
+# 测试用配置：固定有效 secret_key，数据库与上传目录指向会话临时根目录（database.path 若缺省
+# 会相对解析到仓库根的 crf_editor.db——后台清理循环等未打补丁的 get_config 消费方因此绝不能
+# 拿到仓库根路径），其余字段走默认值。
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
     admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
+    database=DatabaseConfig(path=str(DB_PATH)),
     storage=StorageConfig(upload_path=str(UPLOAD_DIR)),
 )
 
