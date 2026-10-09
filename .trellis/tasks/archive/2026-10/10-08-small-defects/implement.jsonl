@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared execution runbook: worktree, test env, safety rules, review gates"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layering and conventions entry point"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Session types; get_plain_session for explicit-commit composite writes (F4)"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "ExportError propagation and HTTP error conventions (F2)"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "logger.exception for unhandled 500s (F5)"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Composable conventions for the useApi.js token change (F3)"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Section 3 auth token rules 4-5 to rewrite (F3); file is large, read section 3 directly"}
