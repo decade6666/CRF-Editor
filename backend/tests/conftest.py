@@ -27,9 +27,8 @@ atexit.register(functools.partial(shutil.rmtree, TEST_ROOT, ignore_errors=True))
 # get_config 在 import main 时首次求值并缓存，必须在此之前设置完毕。
 os.environ["CRF_DATABASE_PATH"] = str(TEST_ROOT / "crf_editor.db")
 os.environ["CRF_STORAGE_UPLOAD_PATH"] = str(UPLOAD_DIR)
-# 全新 worktree 没有 config.yaml 时，main 导入期校验需要非空 secret_key。
-if not os.environ.get("CRF_AUTH_SECRET_KEY", "").strip():
-    os.environ["CRF_AUTH_SECRET_KEY"] = secrets.token_hex(32)
+# 配置文件已重定向（见下方），secret_key 只能来自环境变量；每次会话随机生成，不沿用开发者 shell 的值。
+os.environ["CRF_AUTH_SECRET_KEY"] = secrets.token_hex(32)
 # 生产模式只允许个别测试用 monkeypatch 显式开启，防止继承外部环境。
 os.environ.pop("CRF_ENV", None)
 
@@ -42,6 +41,18 @@ from sqlalchemy.pool import StaticPool
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+
+import src.config as _config_module
+
+# 切断真实配置的另外两条入口，必须早于 import main（get_config 在那里首次求值并缓存）：
+# 1) 开发者 shell 中其余 CRF_* 配置覆盖项一律清除，只保留上方强制设置的三项；
+# 2) CONFIG_FILE 指向会话临时根下不存在的文件：读取只得到默认值，未打补丁的写入也只落在临时根。
+_FORCED_CONFIG_ENV = frozenset(
+    {"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"}
+)
+for _name in _config_module._ENV_OVERRIDE_MAP.keys() - _FORCED_CONFIG_ENV:
+    os.environ.pop(_name, None)
+_config_module.CONFIG_FILE = TEST_ROOT / "config.yaml"
 
 warnings.filterwarnings(
     "ignore",
