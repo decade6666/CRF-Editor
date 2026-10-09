@@ -49,12 +49,17 @@ import src.config as _config_module
 # 切断真实配置的另外两条入口，必须早于 import main（get_config 在那里首次求值并缓存）：
 # 1) 开发者 shell 中其余 CRF_* 配置覆盖项一律清除，只保留上方强制设置的三项；
 # 2) CONFIG_FILE 指向会话临时根下不存在的文件：读取只得到默认值，未打补丁的写入也只落在临时根。
+# 注意：守卫 test_should_not_inherit_config_override_env 自持一份 _FORCED_CONFIG_ENV 副本作绊线
+# （见 .trellis/spec/backend/quality-guidelines.md「Test Session Isolation」）；在此新增强制键时须同步守卫副本。
 _FORCED_CONFIG_ENV = frozenset(
     {"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"}
 )
 for _name in _config_module._ENV_OVERRIDE_MAP.keys() - _FORCED_CONFIG_ENV:
     os.environ.pop(_name, None)
 _config_module.CONFIG_FILE = TEST_ROOT / "config.yaml"
+# 自愈导入顺序：若任何插件 / 收集链在本次重绑定之前就触发了 get_config 求值（缓存了真实
+# 配置），此处强制清空缓存，让 import main 首次求值必然走重定向后的来源。
+_config_module.get_config.cache_clear()
 
 warnings.filterwarnings(
     "ignore",

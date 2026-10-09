@@ -13,6 +13,9 @@ from src.services.docx_import_service import DocxImportService
 from src.services.docx_screenshot_service import DocxScreenshotService
 
 # conftest 主动强制设置的配置覆盖项；其余 _ENV_OVERRIDE_MAP 变量不得从开发者 shell 继承。
+# 此副本是故意的绊线（与 conftest 的 _FORCED_CONFIG_ENV 不共享导入）：conftest 新增/移除强制键
+# 时本守卫会先失败提醒同步；若失败信息出现，请核对两处清单而不是直接删掉断言——详见
+# .trellis/spec/backend/quality-guidelines.md「Test Session Isolation」。
 _FORCED_CONFIG_ENV = {"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"}
 
 
