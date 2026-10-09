@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared execution runbook: worktree lifecycle, backend test env, safety rules"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend conventions entry point"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Test Session Isolation (hermetic) contract to extend with config-file and env rules"}
+{"file": ".context/prefs/coding-style.md", "reason": "Project coding style for the conftest changes"}
