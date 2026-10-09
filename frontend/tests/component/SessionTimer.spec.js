@@ -6,8 +6,8 @@ import { nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import SessionTimer from '../../src/components/SessionTimer.vue';
 import { api } from '../../src/composables/useApi.js';
+import { TOKEN_STORAGE_KEY } from '../../src/composables/useSessionTimer.js';
 
-const TOKEN_STORAGE_KEY = 'crf_token';
 const FIXED_NOW_MS = Date.parse('2026-10-09T00:00:00Z');
 
 // 与 src/composables/useSessionTimer.js 的 decodeBase64Url 相对应的 base64url 编码。
