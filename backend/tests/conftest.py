@@ -22,10 +22,12 @@ os.environ.setdefault("CRF_DISABLE_BACKGROUND_JOBS", "1")
 # 夹具的调用路径也保证删除；夹具内的 rmtree 提前执行，二者幂等共存。
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="crf-editor-tests-"))
 UPLOAD_DIR = TEST_ROOT / "uploads"
+# 会话数据库位置单一来源：环境变量强制项与 _TEST_CONFIG 共用，避免两处字面量漂移。
+DB_PATH = TEST_ROOT / "crf_editor.db"
 atexit.register(functools.partial(shutil.rmtree, TEST_ROOT, ignore_errors=True))
 # 强制覆盖（赋值而非 setdefault）：不受开发者 shell 里同名环境变量的影响；
 # get_config 在 import main 时首次求值并缓存，必须在此之前设置完毕。
-os.environ["CRF_DATABASE_PATH"] = str(TEST_ROOT / "crf_editor.db")
+os.environ["CRF_DATABASE_PATH"] = str(DB_PATH)
 os.environ["CRF_STORAGE_UPLOAD_PATH"] = str(UPLOAD_DIR)
 # 配置文件已重定向（见下方），secret_key 只能来自环境变量；每次会话随机生成，不沿用开发者 shell 的值。
 os.environ["CRF_AUTH_SECRET_KEY"] = secrets.token_hex(32)
@@ -73,7 +75,7 @@ from src.services.docx_screenshot_service import DocxScreenshotService
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
     admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
-    database=DatabaseConfig(path=str(TEST_ROOT / "crf_editor.db")),
+    database=DatabaseConfig(path=str(DB_PATH)),
     storage=StorageConfig(upload_path=str(UPLOAD_DIR)),
 )
 
