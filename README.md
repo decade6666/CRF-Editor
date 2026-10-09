@@ -484,6 +484,26 @@ git config core.hooksPath .githooks
 - 使用前需安装 gitleaks：从 [gitleaks GitHub Releases](https://github.com/gitleaks/gitleaks/releases) 下载对应平台的单个二进制文件，放置为 `~/.local/bin/gitleaks`（确保 `~/.local/bin` 在 PATH 中）。
 - `git commit --no-verify` 可在紧急情况下绕过钩子，但仅限紧急使用，不得日常使用；gitleaks 误报请按 `.gitleaks.toml` 的 allowlist 流程处理。
 
+### 后端代码格式化（ruff format）
+
+后端使用 [ruff](https://docs.astral.sh/ruff/) 的格式化器统一代码风格（仅 format，不启用任何 lint 规则）：
+
+- 版本固定在 `backend/requirements-dev.txt`（`ruff==0.16.10`）；配置见 `backend/ruff.toml`（行宽 120、双引号）。
+- 格式化与检查：
+
+```bash
+cd backend && python -m ruff format .          # 格式化
+cd backend && python -m ruff format --check .  # 仅检查（退出码 1 表示存在待格式化文件；其他非零表示运行/配置错误）
+```
+
+- 2026-10-09 已用一次只改格式不改语义的提交统一 `backend/` 全部 Python 文件（134 个文件，其中 17 个同时统一了历史 CRCRLF 行尾）；该提交登记在仓库根 `.git-blame-ignore-revs`，执行以下命令后 `git blame` 会自动跳过它，保持行级历史可读：
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+- 提交前钩子的第 4 道检查依赖 PATH 中存在 `ruff`：未安装时跳过并提示一行，安装后自动启用；待格式化（退出码 1）与运行出错（其他非零）分别报错。
+
 ## 参与贡献
 
 1. Fork 本仓库

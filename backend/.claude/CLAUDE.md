@@ -103,10 +103,13 @@ cd backend && python -m pytest --cov=src --cov=main --cov-report=term-missing:sk
 cd backend && python -m pytest tests/test_config.py -q
 cd backend && python -m pytest tests/test_auth.py tests/test_user_admin.py -q
 cd backend && python scripts/compare_word_table_parity.py <preview.json> <export.docx>
+cd backend && python -m ruff format .          # format all backend Python files (ruff pinned in requirements-dev.txt, config in ruff.toml)
+cd backend && python -m ruff format --check .  # check only (exit code 1 = files need formatting; other non-zero = runtime/config error)
 ```
 
 ## Development Conventions
 - Layering: `routers -> repositories/services -> models/schemas`.
+- New or changed backend code must pass `ruff format --check .` (format-only config; no lint rules are enabled). The one-shot format commit is registered in the repo-root `.git-blame-ignore-revs` so `git blame` skips it after `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 - Put heavy logic in `services/`, keeping the interface layer lightweight.
 - Data structure evolution is maintained by lightweight migrations in `src/database.py`.
 - API responses should primarily be stable JSON; error messages should preferably return Chinese `detail` values that can be displayed directly.
