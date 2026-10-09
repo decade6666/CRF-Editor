@@ -114,17 +114,6 @@ class FieldProfileCommand(BaseModel):
     cleanup_definition_id: Optional[int] = None
 
 
-class FieldProfileResult(BaseModel):
-    """字段 profile 执行结果 envelope。"""
-
-    form_field_id: Optional[int] = None
-    form_field: Optional[object] = None
-    final_definition_id: Optional[int] = None
-    definition_created: bool = False
-    definition_restored: bool = False
-    cleanup: Optional[dict] = None
-
-
 class FieldProfileResponse(BaseModel):
     """两个字段 profile 路由的统一响应。"""
 

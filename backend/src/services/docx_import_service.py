@@ -40,7 +40,6 @@ from src.models.field_definition import FieldDefinition
 
 from src.models.codelist import CodeList, CodeListOption
 from src.models.unit import Unit
-from src.perf import perf_span, record_counter
 from src.utils import generate_code
 from src.services.order_service import OrderService
 from src.services.field_type_policy import allows_multiselect, is_multiselect_field_type
@@ -1319,9 +1318,8 @@ class DocxImportService:
             basename = stem + ext.lower()
         safe_name = f"{temp_id}_u{user_id}_p{project_id}_{basename}"
         file_path = str(temp_dir / safe_name)
-        with perf_span("temp_file_write"):
-            with open(file_path, "wb") as f:
-                f.write(content)
+        with open(file_path, "wb") as f:
+            f.write(content)
         return temp_id, file_path
 
     @staticmethod
@@ -1454,18 +1452,17 @@ class DocxImportService:
 
         allow_multiselect=False 时，将「多选」/「多选（纵向）」拆为标签+复选（或内联复选）。
         """
-        with perf_span("docx_parse"):
-            doc = Document(file_path)
-            forms = DocxImportService._extract_forms(doc)
-            if allow_multiselect:
-                return forms
-            return [
-                {
-                    **form,
-                    "fields": _split_multiselect_fields(form.get("fields") or []),
-                }
-                for form in forms
-            ]
+        doc = Document(file_path)
+        forms = DocxImportService._extract_forms(doc)
+        if allow_multiselect:
+            return forms
+        return [
+            {
+                **form,
+                "fields": _split_multiselect_fields(form.get("fields") or []),
+            }
+            for form in forms
+        ]
 
 
     # ── 核心解析：按顺序遍历文档元素，匹配标题与表格 ──
@@ -1619,11 +1616,6 @@ class DocxImportService:
             i for i in form_indices if 0 <= i < len(all_forms)
         ))
         selected = [all_forms[i] for i in valid_indices]
-        record_counter("forms_count", len(selected))
-        record_counter(
-            "fields_count",
-            sum(len(form.get("fields", [])) for form in selected),
-        )
         if not selected:
             return {"imported_form_count": 0, "detail": []}
 
@@ -1690,45 +1682,42 @@ class DocxImportService:
 
         # 缓存已有数据，避免重复创建
 
-        with perf_span("db_read"):
-            existing_forms = {
-                f.name for f in s.scalars(
-                    select(Form).where(Form.project_id == target_project_id)
-                ).all()
-            }
-            existing_units: Dict[str, int] = {
-                u.symbol: u.id for u in s.scalars(
-                    select(Unit).where(Unit.project_id == target_project_id)
-                ).all()
-            }
-            existing_codelists: Dict[str, int] = {
-                c.name: c.id for c in s.scalars(
-                    select(CodeList).where(CodeList.project_id == target_project_id)
-                ).all()
-            }
-            existing_vars: set = {
-                fd.variable_name for fd in s.scalars(
-                    select(FieldDefinition).where(
-                        FieldDefinition.project_id == target_project_id
-                    )
-                ).all()
-            }
-
-        with perf_span("db_write"):
-            for form_index, form_data in zip(valid_indices, selected):
-                field_overrides = override_map.get(form_index, {})
-                result = self._create_form(
-                    s, target_project_id, form_data,
-                    existing_forms, existing_units,
-                    existing_codelists, existing_vars,
-                    field_overrides=field_overrides,
+        existing_forms = {
+            f.name for f in s.scalars(
+                select(Form).where(Form.project_id == target_project_id)
+            ).all()
+        }
+        existing_units: Dict[str, int] = {
+            u.symbol: u.id for u in s.scalars(
+                select(Unit).where(Unit.project_id == target_project_id)
+            ).all()
+        }
+        existing_codelists: Dict[str, int] = {
+            c.name: c.id for c in s.scalars(
+                select(CodeList).where(CodeList.project_id == target_project_id)
+            ).all()
+        }
+        existing_vars: set = {
+            fd.variable_name for fd in s.scalars(
+                select(FieldDefinition).where(
+                    FieldDefinition.project_id == target_project_id
                 )
-                summary["imported_form_count"] += 1
-                summary["detail"].append(result)
+            ).all()
+        }
+
+        for form_index, form_data in zip(valid_indices, selected):
+            field_overrides = override_map.get(form_index, {})
+            result = self._create_form(
+                s, target_project_id, form_data,
+                existing_forms, existing_units,
+                existing_codelists, existing_vars,
+                field_overrides=field_overrides,
+            )
+            summary["imported_form_count"] += 1
+            summary["detail"].append(result)
 
         # 显式flush，让数据库约束错误在此处抛出，而不是延迟到事务提交
-        with perf_span("flush"):
-            s.flush()
+        s.flush()
         return summary
 
 
@@ -1794,8 +1783,7 @@ class DocxImportService:
 
         )
         s.add(new_form)
-        with perf_span("flush"):
-            s.flush()
+        s.flush()
 
 
         field_count = 0
@@ -2034,8 +2022,7 @@ class DocxImportService:
 
                 )
                 s.add(new_unit)
-                with perf_span("flush"):
-                    s.flush()
+                s.flush()
                 unit_id = new_unit.id
                 existing_units[unit_symbol] = unit_id
 
@@ -2080,8 +2067,7 @@ class DocxImportService:
 
                     )
                     s.add(new_cl)
-                    with perf_span("flush"):
-                        s.flush()
+                    s.flush()
                     codelist_id = new_cl.id
                     existing_codelists[cl_name] = codelist_id
                     for i, opt_text in enumerate(normalized_options, start=1):
@@ -2126,6 +2112,5 @@ class DocxImportService:
 
         )
         s.add(fd)
-        with perf_span("flush"):
-            s.flush()
+        s.flush()
         return fd

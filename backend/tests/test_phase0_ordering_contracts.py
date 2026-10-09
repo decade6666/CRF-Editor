@@ -405,6 +405,49 @@ def test_reorder_codelists_persists_dense_order_in_readback(
     assert [item["order_index"] for item in payload] == [1, 2]
 
 
+def test_reorder_forms_persists_dense_order_in_readback(
+    client: TestClient,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    first = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单A", "code": "FORM_A"},
+        headers=auth_headers(auth_token),
+    )
+    second = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单B", "code": "FORM_B"},
+        headers=auth_headers(auth_token),
+    )
+    third = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单C", "code": "FORM_C"},
+        headers=auth_headers(auth_token),
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert third.status_code == 201, third.text
+
+    reordered_ids = [third.json()["id"], first.json()["id"], second.json()["id"]]
+    resp = client.post(
+        f"/api/projects/{target_project_id}/forms/reorder",
+        json=reordered_ids,
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"message": "Reordered"}
+
+    readback = client.get(
+        f"/api/projects/{target_project_id}/forms",
+        headers=auth_headers(auth_token),
+    )
+    assert readback.status_code == 200, readback.text
+    payload = readback.json()
+    assert [item["id"] for item in payload] == reordered_ids
+    assert [item["order_index"] for item in payload] == [1, 2, 3]
+
+
 
 def test_reorder_visit_forms_persists_dense_sequence_in_readback(
     client: TestClient,

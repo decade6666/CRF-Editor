@@ -26,7 +26,6 @@ from src.models.project import Project
 from src.models.user import User
 
 from src.services.docx_import_service import TEMP_ID_PATTERN, DocxImportService
-from src.perf import perf_span, record_counter, record_payload_size
 
 from src.services.field_type_policy import (
     MULTISELECT_REJECT_MSG,
@@ -329,11 +328,9 @@ async def preview_docx_import(
 
     """上传Word文档并预览解析出的表单列表"""
 
-    with perf_span("rate_limit"):
-        limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
+    limit_import_action(request, current_user.id, f"docx-preview:{project_id}")
 
-    with perf_span("auth_owner"):
-        project = verify_project_owner(project_id, current_user, session)
+    project = verify_project_owner(project_id, current_user, session)
 
 
 
@@ -347,10 +344,7 @@ async def preview_docx_import(
 
     try:
 
-        with perf_span("upload_read"):
-            content = await file.read()
-        record_payload_size(len(content))
-        record_counter("file_size_bytes", len(content))
+        content = await file.read()
 
         temp_id, file_path = DocxImportService.save_temp_file(
             content, file.filename, user_id=current_user.id, project_id=project_id
@@ -390,13 +384,6 @@ async def preview_docx_import(
         raise HTTPException(400, "未在文档中识别到任何表单")
 
 
-    forms_count = len(full_forms)
-    fields_count = sum(
-        len([field for field in form.get("fields", []) if field.get("type") != "log_row"])
-        for form in full_forms
-    )
-    record_counter("forms_count", forms_count)
-    record_counter("fields_count", fields_count)
 
     preview_forms = _build_preview_forms(full_forms)
     filtered_forms_data = _build_filtered_forms_data(full_forms)
@@ -423,13 +410,12 @@ async def preview_docx_import(
 
 
 
-    with perf_span("response_build"):
-        response = DocxPreviewResponse(
-            forms=preview_forms,
-            temp_id=temp_id,
-            ai_error=None,
-            ai_task_id=ai_task_id,
-        )
+    response = DocxPreviewResponse(
+        forms=preview_forms,
+        temp_id=temp_id,
+        ai_error=None,
+        ai_task_id=ai_task_id,
+    )
     return response
 
 
@@ -488,16 +474,13 @@ def execute_docx_import(
 
     """执行导入：将选中的表单写入数据库"""
 
-    with perf_span("rate_limit"):
-        limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
+    limit_import_action(request, current_user.id, f"docx-execute:{project_id}")
 
-    with perf_span("auth_owner"):
-        project = verify_project_owner(project_id, current_user, session)
+    project = verify_project_owner(project_id, current_user, session)
 
 
 
-    with perf_span("temp_lookup"):
-        file_path = _owned_upload(payload.temp_id, project_id, current_user)
+    file_path = _owned_upload(payload.temp_id, project_id, current_user)
 
     if not file_path:
 
@@ -597,8 +580,7 @@ def execute_docx_import(
 
     finally:
 
-        with perf_span("cleanup"):
-            DocxImportService.discard_upload(payload.temp_id)
+        DocxImportService.discard_upload(payload.temp_id)
 
 
 

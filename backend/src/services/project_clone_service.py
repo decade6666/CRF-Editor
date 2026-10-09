@@ -12,7 +12,6 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from src.config import get_config
-from src.perf import perf_span
 from src.schemas.form import preserve_annotation_positions_storage
 from src.models.codelist import CodeList, CodeListOption
 from src.models.field_definition import FieldDefinition
@@ -168,8 +167,7 @@ class ProjectCloneService:
     @staticmethod
     def clone(project_id: int, new_owner_id: int, session: Session) -> Project:
         """克隆项目及全部子资源。"""
-        with perf_span("project_tree_load"):
-            graph = ProjectGraphLoader.load(project_id, session)
+        graph = ProjectGraphLoader.load(project_id, session)
         return ProjectCloneService.clone_from_graph(graph, new_owner_id, session)
 
     @staticmethod
@@ -205,161 +203,158 @@ class ProjectCloneService:
             or 0
         ) + 1
 
-        with perf_span("clone_entities"):
-            new_project = Project(
-                name=new_name,
-                version=src.version,
-                db_type=src.db_type or "其他",
-                trial_name=src.trial_name,
-                crf_version=src.crf_version,
-                crf_version_date=src.crf_version_date,
-                protocol_number=src.protocol_number,
-                screening_number_format=src.screening_number_format,
-                sponsor=src.sponsor,
-                company_logo_path=None,
-                data_management_unit=src.data_management_unit,
-                owner_id=new_owner_id,
-                order_index=next_order,
+        new_project = Project(
+            name=new_name,
+            version=src.version,
+            db_type=src.db_type or "其他",
+            trial_name=src.trial_name,
+            crf_version=src.crf_version,
+            crf_version_date=src.crf_version_date,
+            protocol_number=src.protocol_number,
+            screening_number_format=src.screening_number_format,
+            sponsor=src.sponsor,
+            company_logo_path=None,
+            data_management_unit=src.data_management_unit,
+            owner_id=new_owner_id,
+            order_index=next_order,
+        )
+        session.add(new_project)
+        session.flush()
+
+        for unit_idx, unit in enumerate(graph.units, start=1):
+            new_unit = Unit(
+                project_id=new_project.id,
+                symbol=unit.symbol,
+                code=unit.code,
+                order_index=unit_idx,
             )
-            session.add(new_project)
+            session.add(new_unit)
             session.flush()
+            id_map["unit"][unit.id] = new_unit.id
 
-            for unit_idx, unit in enumerate(graph.units, start=1):
-                new_unit = Unit(
-                    project_id=new_project.id,
-                    symbol=unit.symbol,
-                    code=unit.code,
-                    order_index=unit_idx,
-                )
-                session.add(new_unit)
-                session.flush()
-                id_map["unit"][unit.id] = new_unit.id
-
-            for cl_idx, codelist in enumerate(graph.codelists, start=1):
-                new_codelist = CodeList(
-                    project_id=new_project.id,
-                    name=codelist.name,
-                    code=codelist.code,
-                    description=codelist.description,
-                    order_index=cl_idx,
-                )
-                session.add(new_codelist)
-                session.flush()
-                id_map["codelist"][codelist.id] = new_codelist.id
-
-                for opt_idx, option in enumerate(graph.options_map.get(codelist.id, []), start=1):
-                    session.add(CodeListOption(
-                        codelist_id=new_codelist.id,
-                        code=option.code,
-                        decode=option.decode,
-                        order_index=opt_idx,
-                    ))
-
+        for cl_idx, codelist in enumerate(graph.codelists, start=1):
+            new_codelist = CodeList(
+                project_id=new_project.id,
+                name=codelist.name,
+                code=codelist.code,
+                description=codelist.description,
+                order_index=cl_idx,
+            )
+            session.add(new_codelist)
             session.flush()
+            id_map["codelist"][codelist.id] = new_codelist.id
 
-            for fd_idx, field_definition in enumerate(graph.field_definitions, start=1):
-                new_field_definition = FieldDefinition(
-                    project_id=new_project.id,
-                    variable_name=field_definition.variable_name,
-                    label=field_definition.label,
-                    field_type=field_definition.field_type,
-                    checkbox_label=field_definition.checkbox_label,
-                    integer_digits=field_definition.integer_digits,
-                    decimal_digits=field_definition.decimal_digits,
-                    date_format=field_definition.date_format,
-                    codelist_id=(
-                        id_map["codelist"].get(field_definition.codelist_id)
-                        if (
-                            field_definition.field_type != "复选"
-                            and field_definition.codelist_id
-                        )
-                        else None
-                    ),
-                    unit_id=(
-                        id_map["unit"].get(field_definition.unit_id)
-                        if field_definition.unit_id
-                        else None
-                    ),
-                    is_multi_record=field_definition.is_multi_record,
-                    table_type=field_definition.table_type,
-                    order_index=fd_idx,
-                )
-                session.add(new_field_definition)
-                session.flush()
-                id_map["field_definition"][field_definition.id] = new_field_definition.id
-
-            for form_idx, form in enumerate(graph.forms, start=1):
-                try:
-                    annotation_positions = preserve_annotation_positions_storage(
-                        form.annotation_positions
-                    )
-                except ValueError as exc:
-                    raise ValueError(
-                        f"表单 {form.name} 的 annotation_positions 非法: {exc}"
-                    ) from exc
-
-                new_form = Form(
-                    project_id=new_project.id,
-                    name=form.name,
-                    code=form.code,
-                    domain=form.domain,
-                    order_index=form_idx,
-                    design_notes=form.design_notes,
-                    annotation_positions=annotation_positions,
-                    paper_orientation=getattr(form, "paper_orientation", "auto") or "auto",
-                )
-                session.add(new_form)
-                session.flush()
-                id_map["form"][form.id] = new_form.id
-
-                for ff_idx, form_field in enumerate(graph.form_fields_map.get(form.id, []), start=1):
-                    session.add(copy_form_field(
-                        form_field,
-                        form_id=new_form.id,
-                        field_definition_id=(
-                            id_map["field_definition"].get(form_field.field_definition_id)
-                            if form_field.field_definition_id
-                            else None
-                        ),
-                        order_index=ff_idx,
-                    ))
-
-            session.flush()
-
-            for visit in graph.visits:
-                new_visit = Visit(
-                    project_id=new_project.id,
-                    name=visit.name,
-                    code=visit.code,
-                    sequence=visit.sequence,
-                )
-                session.add(new_visit)
-                session.flush()
-                id_map["visit"][visit.id] = new_visit.id
-
-            for visit_form in graph.visit_forms:
-                new_visit_id = id_map["visit"].get(visit_form.visit_id)
-                new_form_id = id_map["form"].get(visit_form.form_id)
-                if new_visit_id is None or new_form_id is None:
-                    continue
-                session.add(VisitForm(
-                    visit_id=new_visit_id,
-                    form_id=new_form_id,
-                    sequence=visit_form.sequence,
+            for opt_idx, option in enumerate(graph.options_map.get(codelist.id, []), start=1):
+                session.add(CodeListOption(
+                    codelist_id=new_codelist.id,
+                    code=option.code,
+                    decode=option.decode,
+                    order_index=opt_idx,
                 ))
 
+        session.flush()
+
+        for fd_idx, field_definition in enumerate(graph.field_definitions, start=1):
+            new_field_definition = FieldDefinition(
+                project_id=new_project.id,
+                variable_name=field_definition.variable_name,
+                label=field_definition.label,
+                field_type=field_definition.field_type,
+                checkbox_label=field_definition.checkbox_label,
+                integer_digits=field_definition.integer_digits,
+                decimal_digits=field_definition.decimal_digits,
+                date_format=field_definition.date_format,
+                codelist_id=(
+                    id_map["codelist"].get(field_definition.codelist_id)
+                    if (
+                        field_definition.field_type != "复选"
+                        and field_definition.codelist_id
+                    )
+                    else None
+                ),
+                unit_id=(
+                    id_map["unit"].get(field_definition.unit_id)
+                    if field_definition.unit_id
+                    else None
+                ),
+                is_multi_record=field_definition.is_multi_record,
+                table_type=field_definition.table_type,
+                order_index=fd_idx,
+            )
+            session.add(new_field_definition)
             session.flush()
+            id_map["field_definition"][field_definition.id] = new_field_definition.id
+
+        for form_idx, form in enumerate(graph.forms, start=1):
+            try:
+                annotation_positions = preserve_annotation_positions_storage(
+                    form.annotation_positions
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"表单 {form.name} 的 annotation_positions 非法: {exc}"
+                ) from exc
+
+            new_form = Form(
+                project_id=new_project.id,
+                name=form.name,
+                code=form.code,
+                domain=form.domain,
+                order_index=form_idx,
+                design_notes=form.design_notes,
+                annotation_positions=annotation_positions,
+                paper_orientation=getattr(form, "paper_orientation", "auto") or "auto",
+            )
+            session.add(new_form)
+            session.flush()
+            id_map["form"][form.id] = new_form.id
+
+            for ff_idx, form_field in enumerate(graph.form_fields_map.get(form.id, []), start=1):
+                session.add(copy_form_field(
+                    form_field,
+                    form_id=new_form.id,
+                    field_definition_id=(
+                        id_map["field_definition"].get(form_field.field_definition_id)
+                        if form_field.field_definition_id
+                        else None
+                    ),
+                    order_index=ff_idx,
+                ))
+
+        session.flush()
+
+        for visit in graph.visits:
+            new_visit = Visit(
+                project_id=new_project.id,
+                name=visit.name,
+                code=visit.code,
+                sequence=visit.sequence,
+            )
+            session.add(new_visit)
+            session.flush()
+            id_map["visit"][visit.id] = new_visit.id
+
+        for visit_form in graph.visit_forms:
+            new_visit_id = id_map["visit"].get(visit_form.visit_id)
+            new_form_id = id_map["form"].get(visit_form.form_id)
+            if new_visit_id is None or new_form_id is None:
+                continue
+            session.add(VisitForm(
+                visit_id=new_visit_id,
+                form_id=new_form_id,
+                sequence=visit_form.sequence,
+            ))
+
+        session.flush()
 
         if src.company_logo_path:
-            with perf_span("logo_copy"):
-                copied_logo_name = ProjectCloneService._copy_logo_file(
-                    src.company_logo_path,
-                    session,
-                )
+            copied_logo_name = ProjectCloneService._copy_logo_file(
+                src.company_logo_path,
+                session,
+            )
             if copied_logo_name:
                 new_project.company_logo_path = copied_logo_name
-                with perf_span("flush"):
-                    session.flush()
+                session.flush()
 
         return new_project
 
