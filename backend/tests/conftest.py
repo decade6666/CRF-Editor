@@ -61,16 +61,19 @@ warnings.filterwarnings(
 )
 
 from main import app
-from src.config import AppConfig, AdminConfig, AuthConfig, StorageConfig
+from src.config import AppConfig, AdminConfig, AuthConfig, DatabaseConfig, StorageConfig
 from src.database import get_plain_session, get_session
 from src.models import Base
 from src.services.docx_import_service import DocxImportService
 from src.services.docx_screenshot_service import DocxScreenshotService
 
-# 测试用配置：固定有效 secret_key，上传目录指向会话临时根目录，其余字段走默认值。
+# 测试用配置：固定有效 secret_key，数据库与上传目录指向会话临时根目录（database.path 若缺省
+# 会相对解析到仓库根的 crf_editor.db——后台清理循环等未打补丁的 get_config 消费方因此绝不能
+# 拿到仓库根路径），其余字段走默认值。
 _TEST_CONFIG = AppConfig(
     auth=AuthConfig(secret_key="test-secret-key-for-testing"),
     admin=AdminConfig(username="admin", bootstrap_password="bootstrap-pass-123"),
+    database=DatabaseConfig(path=str(TEST_ROOT / "crf_editor.db")),
     storage=StorageConfig(upload_path=str(UPLOAD_DIR)),
 )
 
