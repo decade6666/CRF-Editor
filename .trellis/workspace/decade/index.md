@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-10-09
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~391 | Active |
+| `journal-1.md` | ~426 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-10-09 | legacy-cleanup 本地合入、浏览器补验与归档 | `f56a92d`, `24cc83e` | `main` |
 | 12 | 2026-10-09 | backend-format 本地合入与归档 | `2f702eb`, `0bb61d6` | `main` |
 | 9 | 2026-10-09 | 模板字段查询：来源直显表单 OID 与名称 + 表单 OID 检索 | `f8eccf4`, `cb5fcaa`, `078aaa1`, `1bef604` | `worktree-template-field-source-form-oid` |
 | 8 | 2026-10-08 | 10-08-test-isolation：后端测试会话隔离真实资源并引入覆盖率统计 | `68868e2`, `ff68f81`, `a7c37e9`, `90a1962` | `main` |

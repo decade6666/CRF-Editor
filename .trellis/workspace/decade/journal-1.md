@@ -389,3 +389,38 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Next Steps
 
 - 推进既有 export-layer-cleanup 子任务；不推送。
+
+
+## Session 13: legacy-cleanup 本地合入、浏览器补验与归档
+<!-- trellis-session: v=2 fp=4ed94b609f10f197 -->
+
+**Date**: 2026-10-09
+**Task**: legacy-cleanup 本地合入、浏览器补验与归档
+**Branch**: `main`
+
+### Summary
+
+退役性能埋点与死代码清理已本地合入；补录隔离浏览器冒烟结果并完成独立任务归档。
+
+### Main Changes
+
+- 代码合入 f56a92d；归档提交 24cc83e；无推送或部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f56a92d` | chore(merge): 合入退役代码清理分支 |
+| `24cc83e` | chore(task): 归档退役代码清理任务 |
+
+### Testing
+
+- [OK] 后端 1027 passed / 4 xfailed、覆盖率 84%；前端 818 node:test + 11 vitest 通过，lint/build 通过。补充浏览器窄范围冒烟：登录、表单/设计器切换、新建字段保存、快速编辑打开通过；33 个请求均 200/201。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 继续 export-layer-cleanup；backend-dedup 等待 codelists.py 文件租约释放。
