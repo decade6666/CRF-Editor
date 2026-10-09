@@ -16,16 +16,16 @@
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (14)"];
-    B --> B2["src/services (25)"];
+    B --> B2["src/services (26)"];
     B --> B3["src/models (11)"];
     B --> B4["src/schemas (9)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (67)"];
+    B --> B6["tests (69)"];
     A --> C["frontend"];
     C --> C1["src/components (16)"];
     C --> C2["src/composables (32)"];
     C --> C3["src/styles"];
-    C --> C4["tests (69)"];
+    C --> C4["tests (70)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,8 +35,8 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (67 files, including 65 `test_*.py`) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (69 files, including 68 `.test.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (69 files, including 67 `test_*.py`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (70 files, including 69 `.test.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
@@ -105,7 +105,7 @@ sudo bash deploy/install-service.sh uninstall
 - Column width fixtures: `backend/tests/fixtures/planner_cases.json` is output from the generator as a single source of truth, and is used simultaneously by the backend `backend/tests/test_width_planning.py` and the frontend `frontend/tests/columnWidthPlanning.test.js`.
 - Checkbox field contract: `复选` is a single codelist-free checkbox with conceptual option OID `1`, which is never persisted or shown in the dictionary library. Its optional field-definition `checkbox_label` falls back to the default character `✔` (not the field label) when empty; normal rendering is `label | □checkbox text`. Keep `backend/src/models/field_definition.py`, `backend/src/database.py`, `backend/src/schemas/field.py`, `backend/src/services/field_rendering.py`, `backend/src/services/export_service.py`, `backend/src/services/import_service.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `frontend/src/components/FieldsTab.vue`, `frontend/src/components/FormDesignerTab.vue`, and `frontend/src/composables/useCRFRenderer.js` aligned. It is not DOCX auto-detected and creates no aCRF option-level OID annotation.
 - Ordering contract: the backend `backend/src/services/order_service.py` and the frontend `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` need to keep consistent interface semantics.
-- Authentication contract: the backend `backend/src/routers/auth.py`, `backend/src/services/auth_service.py` and the frontend `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/AdminView.vue` need to be checked in sync.
+- Authentication contract: the backend `backend/src/routers/auth.py`, `backend/src/services/auth_service.py` and the frontend `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/AdminView.vue`, `frontend/src/composables/useApi.js` need to be checked in sync; the `useApi.js` write-back of `X-Refreshed-Token` and its 401 sign-out are session-scoped — only a response whose request carried the still-current `crf_token` may write the token or dispatch `crf:auth-expired` (see `.trellis/spec/guides/cross-stack-contracts.md` §3 rules 4–5).
 - Form orientation contract: the backend `backend/src/models/form.py`, `backend/src/schemas/form.py`, `backend/src/database.py`, `backend/src/routers/forms.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/export_service.py` need to be synced with the frontend `frontend/src/components/FormDesignerTab.vue`; when `paper_orientation` changes, validate `test_form_paper_orientation.py`, `test_export_paper_orientation.py`, `test_project_copy.py` and the frontend source-level tests in sync.
 - Word import screenshot evidence contract: the backend `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` and the frontend `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue` need to keep consistent semantics for task status, page positioning, and failure prompts.
 - Strict preview/export parity: the frontend `frontend/src/styles/main.css` `.wp-form-title` must keep `text-align: left`; `backend/src/services/word_table_parity.py` and `backend/scripts/compare_word_table_parity.py` are used to compare the form / row / cell text of the browser preview JSON and the exported `.docx`; see `.trellis/spec/guides/cross-stack-contracts.md` §5.
@@ -149,6 +149,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-08` (task `small-defects`): 六个已核实小缺陷修复（每条一提交）：表单复制不再丢失字段样式（项目复制 / 模板导入 / 表单复制三条路径共用按 `FormField` 模型列推导的 `form_field_copy.copy_form_field`）、Word 导出 `ExportError` 原样返回 400 `{detail, code}` 并清理临时文件、迟到响应不再覆盖或清除新会话令牌（`useApi.js` 会话令牌守卫，契约 §3 第 4、5 条）、彻底删除项目先提交数据库再删 Logo 文件、未处理异常 500 记录完整堆栈、回收站清理计划剩余容量只扣一次。
 - `2026-10-08` (task `test-isolation`): 后端测试会话隔离真实资源（数据库 / 上传 / 截图 / Word 导入临时路径重定向到会话临时根目录，全新 worktree 零配置直跑），引入 pytest-cov 覆盖率统计（基线 84%）。
 - `2026-10-08` (task `pre-commit-gate`): 本机 pre-commit 钩子（gitleaks 暂存区扫描 + 空白/语法/条件格式自检），补上 CI 删除后缺失的提交前检查。
 - `2026-10-08` (task `template-field-source-form-oid`): 模板字段查询来源列内联化（表单OID+名称多行只读）+ 表单 OID 搜索（字段强 > 表单强 > 字段模糊 > 表单模糊四组排序）；API `sources[].form_code` 增量字段、历史库缺列只读探测。
