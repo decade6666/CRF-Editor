@@ -102,7 +102,6 @@ import {
   findOidConflict,
   hydrateEditorFromCandidate,
 } from '../composables/fieldDefinitionAutocomplete';
-import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline';
 import {
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
@@ -1235,12 +1234,6 @@ async function onDrop(e, targetIdx) {
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = null;
   if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy()) return;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_reorder_field',
-    project_id: props.projectId,
-    form_id: selectedForm.value?.id ?? null,
-  });
   const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
   if (srcIdx === -1 || srcIdx === targetIdx) return;
   if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
@@ -1869,8 +1862,6 @@ async function selectForm(nextForm) {
   const selectionSession = formSelectionSession;
   const projectId = props.projectId;
   const selectionAttempt = ++formSelectionAttempt;
-  const eventName = currentForm ? 'designer_switch_form' : 'designer_select_form';
-  markPerfStart(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
     if (!isFormSelectionAttemptCurrent(selectionAttempt, selectionSession, projectId)) return;
@@ -1906,7 +1897,6 @@ async function selectForm(nextForm) {
   selectedIds.value = [];
   selectedForm.value = nextForm || null;
   syncFormPropEditor(selectedForm.value);
-  markPerfEnd(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
 }
 
 // 快速编辑
@@ -1925,13 +1915,6 @@ const quickEditProp = reactive({
 function openQuickEdit(ff) {
   if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
   if (ff?.is_log_row || ff?.field_definition?.field_type === '日志行') return;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_edit_label',
-    project_id: props.projectId,
-    form_id: selectedForm.value?.id ?? null,
-    field_id: ff?.id ?? null,
-  });
   quickEditField.value = ff;
   Object.assign(quickEditProp, {
     label: getFormFieldDisplayLabel(ff) || '',
@@ -2008,13 +1991,6 @@ async function toggleInline(ff) {
   if (!historyContext || !canToggleInline(ff)) return;
   const formId = historyContext.formId;
   const nextInlineMark = ff.inline_mark ? 0 : 1;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_toggle_inline',
-    project_id: props.projectId,
-    form_id: formId,
-    field_id: ff?.id ?? null,
-  });
   try {
     await confirmFormChange();
     if (!isCurrentDesignerHistoryContext(historyContext) || isReordering.value) return;
@@ -3271,19 +3247,12 @@ async function handleDesignerBeforeClose(done) {
 }
 
 async function openDesigner() {
-  markPerfStart('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   try {
     await ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs: true });
     syncFormPropEditor(selectedForm.value);
     showDesigner.value = true;
     refreshDesignerPreviewOverrides();
-    markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   } catch (error) {
-    markPerfEnd('designer_open_fullscreen', {
-      project_id: props.projectId,
-      form_id: selectedForm.value?.id ?? null,
-      error: true,
-    });
     ElMessage.error(`设计器辅助数据加载失败：${error?.message || designerAuxiliaryLoadError.value || '未知错误'}`);
   }
 }
