@@ -54,13 +54,11 @@ backend/
 │   │   ├── export_service.py
 │   │   ├── order_service.py   # Sorting logic
 │   │   └── width_planning.py  # Column width calculation
-│   ├── repositories/          # Data access layer (6 files)
+│   ├── repositories/          # Data access layer (4 modules + __init__.py)
 │   │   ├── base_repository.py # Generic CRUD base class
 │   │   ├── project_repository.py
-│   │   ├── visit_repository.py
-│   │   ├── form_repository.py
-│   │   ├── field_repository.py
-│   │   └── option_repository.py
+│   │   ├── field_definition_repository.py
+│   │   └── form_field_repository.py
 │   ├── models/                # SQLAlchemy ORM models (11 files)
 │   │   ├── __init__.py
 │   │   ├── user.py
