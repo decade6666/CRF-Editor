@@ -43,7 +43,7 @@ CRF（Case Report Form，病例报告表）编辑器是一个用于临床研究�
 - **框架**：Vue 3 + Vite
 - **组件库**：Element Plus
 - **拖拽排序**：vuedraggable + sortablejs
-- **测试框架**：node:test + 轻量属性测试工具（testProperty.js）
+- **测试框架**：node:test + 轻量属性测试工具（testProperty.js）；vitest + @vue/test-utils + happy-dom 组件挂载测试（`tests/component/`）
 - **可选运行时**：LibreOffice（Linux/macOS 下 Word 导入原文截图必需；同时用于服务器侧预计算 Word 目录页码——缺失时截图面板不可用，目录保留非空回退页码并由 Word 域后续校正）
 
 ### 项目结构
@@ -71,7 +71,7 @@ CRF-Editor/
 │   │   ├── composables/     # Vue composables
 │   │   ├── styles/          # 全局样式
 │   │   └── App.vue          # 根组件
-│   ├── tests/               # node:test 前端回归测试
+│   ├── tests/               # node:test 回归测试 + tests/component/ vitest 挂载测试
 │   ├── package.json         # 前端依赖与脚本
 │   ├── vite.config.js       # Vite 配置
 │   └── README.md            # 前端模块说明
@@ -449,12 +449,18 @@ python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
 ### 前端
 ```bash
 cd frontend
-node --test tests/*.test.js
+npm test                    # node --test tests/*.test.js && vitest run（任一失败即失败）
+npm run test:component      # 仅运行 vitest 组件挂载测试
+node --test tests/*.test.js # 仅运行 node:test 源码级回归测试
 ```
+
+两套测试互不重叠、可独立运行：
+- `tests/*.test.js`：`node --test` 源码级回归测试（平铺在 `tests/` 根目录）
+- `tests/component/**/*.spec.js`：vitest + @vue/test-utils + happy-dom 组件挂载测试（真实渲染组件并断言交互，共享 `tests/component/setup.js` 全局注册与 mock 约定）
 
 当前仓库中：
 - `backend/tests/` 当前包含 67 个 Python 测试文件（65 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
-- `frontend/tests/` 当前包含 69 个前端测试文件（68 个 `.test.js` + `testProperty.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡，以及管理端机构弹窗编辑等契约
+- `frontend/tests/` 当前包含 69 个 node:test 文件（68 个 `.test.js` + `testProperty.js`），另有 `tests/component/` 下 4 个 vitest 组件挂载测试文件（3 个 `.spec.js` + 共享 `setup.js`）；node:test 覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡，以及管理端机构弹窗编辑等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
 ### 提交前检查（pre-commit 门禁）

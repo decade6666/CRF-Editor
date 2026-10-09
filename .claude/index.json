@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-30T00:00:00-07:00",
+  "timestamp": "2026-10-09T00:00:00-07:00",
   "version": "1.4.1",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -223,7 +223,8 @@
       ],
       "config_files": [
         "frontend/package.json",
-        "frontend/vite.config.js"
+        "frontend/vite.config.js",
+        "frontend/vitest.config.js"
       ],
       "scripts": [
         "frontend/scripts/collectBuildMetrics.mjs",
@@ -299,7 +300,11 @@
         "frontend/tests/useOrdinalQuickEdit.test.js",
         "frontend/tests/visitFlowWorkspace.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",
-        "frontend/tests/wordPageGeometry.test.js"
+        "frontend/tests/wordPageGeometry.test.js",
+        "frontend/tests/component/DesignNotesDialog.spec.js",
+        "frontend/tests/component/SessionTimer.spec.js",
+        "frontend/tests/component/elementPlusEnvironment.spec.js",
+        "frontend/tests/component/setup.js"
       ],
       "coverage": {
         "estimated_files": 95,
@@ -309,7 +314,7 @@
       "gaps": [
         {
           "type": "no_browser_e2e",
-          "description": "No browser-level E2E suites such as Playwright / Cypress were found; the current suite is primarily node:test source-level regression tests."
+          "description": "No browser-level E2E suites such as Playwright / Cypress were found; the current suite combines node:test source-level regression tests (tests/*.test.js) with vitest + @vue/test-utils + happy-dom component mount tests (tests/component/*.spec.js)."
         }
       ]
     },
