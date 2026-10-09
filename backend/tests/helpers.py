@@ -1,13 +1,18 @@
 """认证测试辅助。"""
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Dict, Optional
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 from src.database import get_session
+from src.models.project import Project
 from src.models.user import User
 from src.services.auth_service import hash_password, verify_password
 from src.services.user_admin_service import is_reserved_admin_username
@@ -88,3 +93,28 @@ def login_as(client: TestClient, username: str, password: str = "test-pass-123")
 def auth_headers(token: str) -> Dict[str, str]:
     """生成 Bearer Authorization 头。"""
     return {"Authorization": f"Bearer {token}"}
+
+
+@contextmanager
+def commit_probe(
+    engine: Engine, project_id: int, logo_path: Path
+) -> Iterator[list[tuple[bool, bool]]]:
+    """监听 after_commit，记录每次提交时「项目行是否已消失、Logo 文件是否仍在」。
+
+    用于锁定「先提交数据库、后删文件」的清理顺序；退出时（含异常）移除监听器。
+    断言取第一次观测到项目行消失的那次提交——鉴权依赖会话在请求结束时的提交
+    会合法地晚于删文件，因此不能断言每次提交都在。
+    """
+    observations: list[tuple[bool, bool]] = []
+
+    def _record(_session: Session) -> None:
+        with Session(engine) as probe:
+            observations.append(
+                (probe.get(Project, project_id) is None, logo_path.exists())
+            )
+
+    event.listen(Session, "after_commit", _record)
+    try:
+        yield observations
+    finally:
+        event.remove(Session, "after_commit", _record)

@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
 
 
+def _remove_temp_file(path: str) -> None:
+    """删除导出临时文件；失败仅记 warning，不抛给调用方。"""
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        # 静默吞错被明令禁止：残留临时文件必须留痕（见 coding-style 错误处理约定）
+        logger.warning("删除导出临时文件失败 %s: %s", path, exc)
+
+
 @router.post("/projects/{project_id}/export/word")
 def export_word(
     project_id: int,
@@ -67,23 +76,25 @@ def export_word(
                 annotated=annotated,
             )
         if not ok:
-            os.unlink(tmp_path)
+            _remove_temp_file(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
 
         with perf_span("output_validate"):
             valid, reason = ExportService._validate_output(tmp_path)
         if not valid:
-            os.unlink(tmp_path)
+            _remove_temp_file(tmp_path)
             raise HTTPException(500, f"导出失败: {reason}")
         record_counter("output_size_bytes", os.path.getsize(tmp_path))
     except HTTPException:
         raise
+    except ExportError as exc:
+        # 具体导出错误原样透出（main.py 的 export_error_handler 转成 detail + code）
+        logger.warning("导出Word文档失败：%s", exc.message)
+        _remove_temp_file(tmp_path)
+        raise
     except Exception:
         logger.exception("导出Word文档失败")
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _remove_temp_file(tmp_path)
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
     with perf_span("file_response_prepare"):

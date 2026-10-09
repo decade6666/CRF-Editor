@@ -525,6 +525,12 @@ class ExportService:
 
 
 
+        except ExportError:
+
+            # 具体导出错误（detail + code）交给上层原样返回，不吞成通用失败
+
+            raise
+
         except Exception:
 
             logger.exception("导出失败 project_id=%s", project_id)

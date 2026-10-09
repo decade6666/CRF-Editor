@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "Shared review gates, docs-sync checklist, report template"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test and code-quality conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend test and code-quality conventions (F3)"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Verify the session-scoped token handling keeps auth guarantees"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Verify section 3 rewritten consistently with useApi.js; read section 3 directly"}

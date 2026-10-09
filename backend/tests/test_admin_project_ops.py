@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
 from sqlalchemy import select, func
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as, seed_user
+from helpers import auth_headers, commit_probe, login_as, seed_user
 from src.config import get_config
 from src.models.project import Project
 from src.models.user import User
@@ -315,13 +317,43 @@ def test_hard_delete_removes_project_logo_file(client, engine):
     logo_path = logo_dir / 'deleted-logo.png'
     logo_path.write_bytes(b'fake-logo')
 
+    # 记录每次提交时项目行是否已消失、Logo 文件是否仍在（锁定先提交后删文件）
     try:
-        resp = client.delete(f'/api/admin/projects/{deleted_id}/hard-delete', headers=auth_headers(admin_token))
-        assert resp.status_code == 204, resp.text
-        assert not logo_path.exists()
+        with commit_probe(engine, deleted_id, logo_path) as observations:
+            resp = client.delete(f'/api/admin/projects/{deleted_id}/hard-delete', headers=auth_headers(admin_token))
+            assert resp.status_code == 204, resp.text
+
+            # 删除项目的那次提交时，Logo 文件必须仍然存在（先提交数据库、后删文件）
+            purge_observations = [exists for gone, exists in observations if gone]
+            assert purge_observations, '未观察到删除项目的提交'
+            assert purge_observations[0] is True, '数据库提交时 Logo 文件已被提前删除'
+            assert not logo_path.exists()
     finally:
         if logo_path.exists():
             logo_path.unlink()
+
+
+def test_hard_delete_tolerates_malformed_logo_path(
+    client: TestClient, engine: Engine
+) -> None:
+    """数据库中被篡改出非法 Logo 文件名时，彻底删除仍成功（清理按「文件不存在」处理）。"""
+    admin_token = login_as(client, 'admin')
+    seed_user(client, 'owner_user')
+
+    with Session(engine) as session:
+        owner = session.scalar(select(User).where(User.username == 'owner_user'))
+        deleted = _create_project_graph(session, owner.id, '非法Logo项目', order_index=1, deleted_at=datetime.now(timezone.utc))
+        # Logo 上传路径有安全校验，产生不了这种文件名；这里模拟直接改库写入的存量脏数据
+        deleted.company_logo_path = 'bad\x00logo.png'
+        session.commit()
+        deleted_id = deleted.id
+
+    resp = client.delete(f'/api/admin/projects/{deleted_id}/hard-delete', headers=auth_headers(admin_token))
+
+    # 不因非法文件名报错；项目行已删除，Logo 文件与缺失文件同策略静默跳过
+    assert resp.status_code == 204, resp.text
+    with Session(engine) as check:
+        assert check.get(Project, deleted_id) is None
 
 
 def test_hard_delete_only_accepts_recycled_projects_and_physically_removes_that_graph(client, engine):

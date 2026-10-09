@@ -26,6 +26,7 @@ from src.models.unit import Unit
 from src.utils import generate_code, is_safe_path
 from src.schemas.form import preserve_annotation_positions_storage
 from src.services.order_service import OrderService
+from src.services.form_field_copy import copy_form_field
 
 
 class OptionMetadata(TypedDict):
@@ -864,20 +865,11 @@ class ImportService:
                     new_fd_id = field_def_id_map.get(ff.field_definition_id)
 
 
-                new_ff = FormField(
+                new_ff = copy_form_field(
+                    ff,
                     form_id=new_form.id,
                     field_definition_id=new_fd_id,
-                    is_log_row=ff.is_log_row,
                     order_index=new_order_index,
-                    required=ff.required,
-                    label_override=ff.label_override,
-                    help_text=ff.help_text,
-                    default_value=ff.default_value,
-                    inline_mark=ff.inline_mark,
-                    bg_color=ff.bg_color,  # Task 3.6: 复制背景色
-                    text_color=ff.text_color,  # Task 3.6: 复制文字色
-                    label_bold=ff.label_bold,
-                    label_font_size=ff.label_font_size,
                 )
                 s.add(new_ff)
                 summary["created_form_fields"] += 1

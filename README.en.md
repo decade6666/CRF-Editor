@@ -459,8 +459,8 @@ The two suites are disjoint and can run independently:
 - `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions)
 
 In the current repository:
-- `backend/tests/` currently contains 67 Python test files (65 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 69 node:test files (68 `.test.js` files plus `testProperty.js`), plus 4 vitest component-mount test files under `tests/component/` (3 `.spec.js` files and a shared `setup.js`); node:test covers source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
+- `backend/tests/` currently contains 69 Python test files (67 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 74 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 4 vitest component-mount test files under `tests/component/` — 3 `.spec.js` files and a shared `setup.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ### Pre-commit Gate

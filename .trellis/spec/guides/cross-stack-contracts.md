@@ -153,8 +153,8 @@ POST /api/forms/{form_id}/fields/reorder
 1. Frontend stores the access token in `localStorage['crf_token']`
 2. Frontend attaches the token as `Authorization: Bearer <token>` via `getAuthHeaders()`
 3. Backend validates `sub → user.id`、`username` and `ver → user.auth_version` in `get_current_user()`
-4. On any 401, `useApi.js` removes `crf_token` and dispatches `crf:auth-expired`; `App.vue` clears session shell state
-5. Successful protected responses may carry `X-Refreshed-Token`; `useApi.js` must overwrite `localStorage['crf_token']` when present
+4. Every `useApi.js` request captures the token it was sent with (read in the same step that builds its `Authorization` header, so the captured value is exactly what was sent; a request sent without a token captures `null`). On a 401 whose captured token still equals `localStorage['crf_token']` when the response arrives, `useApi.js` removes `crf_token` and dispatches `crf:auth-expired`; `App.vue` clears session shell state. A late 401 from a superseded session (logged out, or another user / another tab logged in) must NOT remove the newer token nor dispatch the event — the request itself still rejects as usual
+5. Successful protected responses may carry `X-Refreshed-Token`; `useApi.js` must overwrite `localStorage['crf_token']` only if the response's captured token still equals the current `localStorage['crf_token']`. A late response from a superseded session must not resurrect or replace the newer token. A `cachedGet` caller that joins an in-flight request (dedup hit) is governed by that request's captured token. Requests that bypass `useApi.js` — such as the Word export download, project Logo, screenshot pages, `el-upload` actions, and login — do not process `X-Refreshed-Token` or dispatch the global `crf:auth-expired` event for a 401; this gap is accepted. Login intentionally stores its successful `access_token` and handles login failures separately
 6. Password change or admin password reset still invalidates old tokens by incrementing `auth_version`
 7. Frontend MAY decode JWT payload `exp` for display purposes; this decode MUST NOT be treated as authoritative — backend `get_current_user` remains the only authority for token validity.
 8. Frontend MAY trigger `GET /api/auth/me` solely to request a fresh `X-Refreshed-Token`; this MUST NOT bypass the standard rate-limit or 401 handling.
@@ -162,6 +162,7 @@ POST /api/forms/{form_id}/fields/reorder
 **Validation**:
 - Backend: `backend/tests/test_auth.py`
 - Frontend: `frontend/tests/appSettingsShell.test.js`
+- Frontend session-scoped write-back (rules 4–5): `frontend/tests/useApiSessionRace.test.js`
 
 ---
 
