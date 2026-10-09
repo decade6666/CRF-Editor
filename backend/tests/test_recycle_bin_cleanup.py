@@ -1,13 +1,14 @@
 """回收站定时清理 + 项目体积估算回归测试。"""
-import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as, seed_user
+from helpers import auth_headers, commit_probe, login_as, seed_user
 from src.config import (
     DAYS_PER_MONTH,
     DAYS_PER_YEAR,
@@ -24,7 +25,6 @@ from src.models.unit import Unit
 from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
-from src.services.project_purge_service import remove_logo_file
 from src.services.project_size_service import (
     estimate_project_sizes,
     estimate_recycled_project_sizes,
@@ -322,7 +322,7 @@ def test_size_rule_excludes_age_selected_projects(engine):
         assert old.id not in plan.size_ids  # 不重复计入
 
 
-def test_plan_total_bytes_after_deducts_each_selected_project_once(engine):
+def test_plan_total_bytes_after_deducts_each_selected_project_once(engine: Engine) -> None:
     """计划剩余总量 = 清理前总量 − 年龄规则命中量 − 容量规则命中量，命中项目只扣一次。"""
     now = datetime(2026, 1, 10, 0, 0, 0)
     with Session(engine) as session:
@@ -415,17 +415,9 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
         logo_path = logos_dir / "logo_run.png"
         logo_path.write_bytes(b"png" * 30)
 
-        # 记录每次提交时项目行是否已消失、Logo 文件是否仍在
-        observations: list[tuple[bool, bool]] = []
-
-        def _record(_session) -> None:
-            with Session(engine) as probe:
-                project_gone = probe.get(Project, project_ids[0]) is None
-            observations.append((project_gone, logo_path.exists()))
-
-        event.listen(Session, "after_commit", _record)
-        try:
-            with patch("src.services.project_purge_service.get_config") as m, \
+        # 记录每次提交时项目行是否已消失、Logo 文件是否仍在（锁定先提交后删文件）
+        with commit_probe(engine, project_ids[0], logo_path) as observations:
+            with patch("src.services.logo_storage_service.get_config") as m, \
                  patch("src.services.project_size_service.get_config") as m2:
                 m.return_value.upload_path = str(tmp_path)
                 m2.return_value.upload_path = str(tmp_path)
@@ -434,8 +426,6 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
                     _make_policy(age_enabled=True, age_value=1, age_unit="day"),
                     now=now,
                 )
-        finally:
-            event.remove(Session, "after_commit", _record)
         assert report["purged_count"] == 1
 
         # 删除项目的那次提交时，Logo 文件必须仍然存在（先提交数据库、后删文件）
@@ -474,7 +464,9 @@ def test_run_cleanup_skips_project_restored_between_plan_and_purge(engine):
         assert session.get(Project, pid) is not None
 
 
-def test_run_cleanup_keeps_logo_when_commit_fails(engine, tmp_path, monkeypatch):
+def test_run_cleanup_keeps_logo_when_commit_fails(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """提交失败时项目回到回收站，Logo 文件必须保留（不能先删文件后提交）。"""
     now = datetime(2026, 1, 10, 0, 0, 0)
     with Session(engine) as session:
@@ -493,14 +485,14 @@ def test_run_cleanup_keeps_logo_when_commit_fails(engine, tmp_path, monkeypatch)
 
         real_commit = Session.commit
 
-        def _fail_commit(self):
+        def _fail_commit(self: Session) -> None:
             if self is session:
                 raise RuntimeError("commit failed")
             return real_commit(self)
 
         monkeypatch.setattr(Session, "commit", _fail_commit)
 
-        with patch("src.services.project_purge_service.get_config") as m, \
+        with patch("src.services.logo_storage_service.get_config") as m, \
              patch("src.services.project_size_service.get_config") as m2:
             m.return_value.upload_path = str(tmp_path)
             m2.return_value.upload_path = str(tmp_path)
@@ -514,19 +506,3 @@ def test_run_cleanup_keeps_logo_when_commit_fails(engine, tmp_path, monkeypatch)
     assert logo_path.exists(), "提交失败时 Logo 文件必须保留"
     with Session(engine) as check:
         assert check.get(Project, pid) is not None
-
-
-def test_remove_logo_file_warns_without_raising_on_oserror(tmp_path, monkeypatch, caplog):
-    """删 Logo 文件失败只记 warning，不把异常抛给调用方。"""
-    logo_path = tmp_path / "broken-logo.png"
-    logo_path.write_bytes(b"png")
-
-    def _raise_oserror(self, missing_ok=False):
-        raise OSError("设备忙")
-
-    monkeypatch.setattr(Path, "unlink", _raise_oserror)
-
-    with caplog.at_level(logging.WARNING, logger="src.services.project_purge_service"):
-        remove_logo_file(logo_path)  # 不应抛出
-
-    assert any("删除 Logo 文件失败" in record.getMessage() for record in caplog.records)

@@ -126,7 +126,6 @@ def client(engine):
          patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.project_purge_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.project_size_service.get_config", return_value=_TEST_CONFIG), \
          patch("src.services.recycle_bin_cleanup_service.get_config", return_value=_TEST_CONFIG), \
          patch("main.init_db"):
