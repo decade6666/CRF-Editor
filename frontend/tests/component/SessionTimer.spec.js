@@ -1,5 +1,6 @@
 // SessionTimer 挂载测试：组件级接线（v-if、状态样式、title / aria-label、点击续期），
 // 与 tests/sessionTimer.test.js 的 composable 级行为测试互补（设计 D6.2）。
+import { Buffer } from 'node:buffer';
 import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
@@ -13,7 +14,7 @@ const FIXED_NOW_MS = Date.parse('2026-10-09T00:00:00Z');
 // 与 src/composables/useSessionTimer.js 的 decodeBase64Url 相对应的 base64url 编码。
 function makeToken(expiresInSeconds) {
   const payload = { sub: '1', username: 'tester', ver: 5, exp: expiresInSeconds };
-  const base64url = btoa(JSON.stringify(payload)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  const base64url = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   return `e30.${base64url}.sig`;
 }
 
@@ -51,12 +52,11 @@ describe('SessionTimer', () => {
     vi.advanceTimersByTime(1000);
     await nextTick();
 
+    expect(wrapper.find('.session-timer__text').text()).toBe('299(s)');
     expect(ElMessage.warning).toHaveBeenCalledTimes(1);
   });
 
   it('localStorage 无令牌时不渲染倒计时按钮', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(FIXED_NOW_MS);
     const wrapper = mount(SessionTimer);
 
     expect(wrapper.find('.session-timer').exists()).toBe(false);

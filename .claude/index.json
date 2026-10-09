@@ -308,7 +308,9 @@
         "frontend/tests/component/DesignNotesDialog.spec.js",
         "frontend/tests/component/SessionTimer.spec.js",
         "frontend/tests/component/elementPlusEnvironment.spec.js",
-        "frontend/tests/component/setup.js"
+        "frontend/tests/component/setup.js",
+        "frontend/tests/component/vueWarnGate.js",
+        "frontend/tests/component/vueWarnGate.spec.js"
       ],
       "coverage": {
         "estimated_files": 96,

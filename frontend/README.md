@@ -54,7 +54,7 @@ python main.py
 
 ## 测试说明
 - `tests/*.test.js` 使用 `node:test` 做源码级回归校验
-- `tests/component/**/*.spec.js` 使用 vitest + @vue/test-utils + happy-dom 做组件挂载测试（真实渲染组件并断言交互；全局注册与 mock 约定收敛在 `tests/component/setup.js`）
+- `tests/component/**/*.spec.js` 使用 vitest + @vue/test-utils + happy-dom 做组件挂载测试（真实渲染组件并断言交互；全局注册与 mock 约定收敛在 `tests/component/setup.js`；含 Vue 警告门禁——测试期间出现任何 Vue 警告即判该用例失败，实现于 `tests/component/vueWarnGate.js`）
 - 现有测试主要覆盖：
   - 应用壳层与设置弹窗结构
   - 端口与代理约定

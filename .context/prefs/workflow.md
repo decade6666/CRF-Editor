@@ -34,7 +34,7 @@
 ## Verification Rules
 
 - Backend changes must run at least the corresponding `pytest` cases.
-- Frontend changes must run at least the corresponding `node --test` cases; if UI behavior is involved, prefer launching the app and validating the main path manually.
+- Frontend changes must run at least the corresponding `node --test` cases; if UI behavior is involved, prefer launching the app and validating the main path manually. When components are touched, also run the vitest component mount tests (`npm run test:component`; `npm test` runs both suites).
 - New features / bug fixes target at least 80% coverage.
 - When a single change exceeds 30 lines, prefer running `/verify-change` and `/verify-quality`.
 - For security-sensitive changes involving authentication, authorization, input validation, import/export, secrets, uploads, and similar areas, run `/verify-security`.

@@ -55,9 +55,11 @@ frontend/
 │   ├── ...
 │   └── component/          # vitest + @vue/test-utils mount tests (runner: npm run test:component)
 │       ├── setup.js            # shared global Element Plus registration, ElMessage spies, auto-unmount
+│       ├── vueWarnGate.js      # Vue-warning gate helper (no .spec.js suffix, never collected)
 │       ├── DesignNotesDialog.spec.js
 │       ├── SessionTimer.spec.js
-│       └── elementPlusEnvironment.spec.js
+│       ├── elementPlusEnvironment.spec.js
+│       └── vueWarnGate.spec.js # self-tests both warning-gate channels
 └── dist/                   # Build output (served by backend in production)
 ```
 
