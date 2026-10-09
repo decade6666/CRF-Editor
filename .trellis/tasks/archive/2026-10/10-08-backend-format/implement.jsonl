@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".context/prefs/coding-style.md", "reason": "existing style baseline (PEP 8, type annotations) the format config must stay close to"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "backend quality bar and test expectations for the format commit"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "commit splitting and blame-ignore-revs documentation home"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "confirms which backend directories the formatter must cover"}
