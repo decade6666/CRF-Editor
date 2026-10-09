@@ -4,6 +4,7 @@ ExportError 必须原样透出：HTTP 400 + 具体 detail + code，
 而不是被吞成 500「导出失败，请稍后重试或联系管理员」；
 失败时路由创建的临时 .docx 必须删除。
 """
+
 import logging
 import os
 import tempfile
@@ -59,9 +60,7 @@ def _seed_project_with_invalid_annotation_positions(session: Session, owner_id: 
     )
     session.add(field_definition)
     session.flush()
-    session.add(
-        FormField(form_id=form.id, field_definition_id=field_definition.id, order_index=1, inline_mark=0)
-    )
+    session.add(FormField(form_id=form.id, field_definition_id=field_definition.id, order_index=1, inline_mark=0))
     session.flush()
     return project.id
 

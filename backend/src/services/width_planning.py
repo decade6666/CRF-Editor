@@ -6,6 +6,7 @@
 - 宽度度量 = 2C（中文按 2、英文/数字按 1）
 - 超页宽回退 = 3B（等比缩放，不退化为等宽分配）
 """
+
 from __future__ import annotations
 
 import math
@@ -15,7 +16,7 @@ from typing import List, Tuple, TypedDict
 
 # 字符权重常量
 WEIGHT_CHINESE = 2  # 中文字符权重
-WEIGHT_ASCII = 1    # 英文/数字/标点权重
+WEIGHT_ASCII = 1  # 英文/数字/标点权重
 
 # 填写线默认权重（代表语义长度，不以实际字符数计算）
 FILL_LINE_WEIGHT = 6
@@ -26,11 +27,11 @@ FILL_LINE_WEIGHT = 6
 # 必须保持同名同值，否则预览 JSON 与导出 docx 的下划线根数无法逐字一致。
 # 设计：保守留余量，确保导出文本字符不换行（宁短勿折行）。
 # ─────────────────────────────────────────────────────────────────────────────
-UNDERSCORE_CHAR_CM = 0.19   # 10.5pt 半角 '_' 的物理步进宽度近似（≈0.185cm，向上取整保守）
-CELL_HPAD_CM = 0.4          # 单元格左右内边距合计保守估计（Word 默认 ≈0.38cm）
-FILL_LINE_SAFETY_CM = 0.2   # 额外安全余量，确保绝不换行
-FILL_LINE_MIN_CHARS = 6     # 根数下限：避免窄列出现 0 根（与旧最短填写线语义一致）
-FILL_LINE_MAX_CHARS = 20    # 根数上限：用户定标（2026-09-30），超宽列不再加长（≈20×0.19=3.8cm）
+UNDERSCORE_CHAR_CM = 0.19  # 10.5pt 半角 '_' 的物理步进宽度近似（≈0.185cm，向上取整保守）
+CELL_HPAD_CM = 0.4  # 单元格左右内边距合计保守估计（Word 默认 ≈0.38cm）
+FILL_LINE_SAFETY_CM = 0.2  # 额外安全余量，确保绝不换行
+FILL_LINE_MIN_CHARS = 6  # 根数下限：避免窄列出现 0 根（与旧最短填写线语义一致）
+FILL_LINE_MAX_CHARS = 20  # 根数上限：用户定标（2026-09-30），超宽列不再加长（≈20×0.19=3.8cm）
 # 跨栈一致性 epsilon：吸收前后端列宽（fraction × available_cm）的 ULP 级浮点差异，
 # 避免边界处前端 Math.floor 与后端取整相差 1 根。必须与前端同名同值。
 FILL_LINE_EPSILON = 1e-9
@@ -64,26 +65,29 @@ STRUCTURAL_FIELD_TYPES = {"标签", "日志行"}
 @dataclass(frozen=True)
 class WidthToken:
     """宽度 token：表格单元格内容的语义表示。"""
-    kind: str       # label | control | choice_atom | literal | unit
-    text: str       # 原始文本
-    weight: float   # 计算后的权重
+
+    kind: str  # label | control | choice_atom | literal | unit
+    text: str  # 原始文本
+    weight: float  # 计算后的权重
 
 
 @dataclass(frozen=True)
 class ColumnDemand:
     """列需求：单列的宽度需求信息。"""
-    column_key: str       # 列内稳定标识
+
+    column_key: str  # 列内稳定标识
     intrinsic_weight: float  # 内容驱动的内在权重
-    min_weight: float     # 最小权重（可选保护）
+    min_weight: float  # 最小权重（可选保护）
 
 
 @dataclass(frozen=True)
 class WidthPlan:
     """宽度规划：一张横向表的完整宽度分配方案。"""
+
     column_count: int
     demands: List[ColumnDemand]
     normalized_fractions: List[float]  # 归一化后的列比例
-    fallback_applied: bool              # 是否应用了缩放回退
+    fallback_applied: bool  # 是否应用了缩放回退
 
 
 class RegularFieldDemand(TypedDict):
@@ -101,18 +105,18 @@ def compute_char_weight(char: str) -> float:
     code = ord(char)
     # CJK 统一汉字范围（基本区 + 扩展 A–I + 兼容汉字 + 兼容补充）
     if (
-        0x4E00 <= code <= 0x9FFF      # 基本区
-        or 0x3400 <= code <= 0x4DBF   # 扩展 A
-        or 0x20000 <= code <= 0x2A6DF # 扩展 B
-        or 0x2A700 <= code <= 0x2B73F # 扩展 C
-        or 0x2B740 <= code <= 0x2B81F # 扩展 D
-        or 0x2B820 <= code <= 0x2CEAF # 扩展 E
-        or 0x2CEB0 <= code <= 0x2EBEF # 扩展 F
-        or 0x2EBF0 <= code <= 0x2EE5F # 扩展 I
-        or 0x30000 <= code <= 0x3134F # 扩展 G
-        or 0x31350 <= code <= 0x323AF # 扩展 H
-        or 0xF900 <= code <= 0xFAFF   # 兼容汉字
-        or 0x2F800 <= code <= 0x2FA1F # 兼容补充
+        0x4E00 <= code <= 0x9FFF  # 基本区
+        or 0x3400 <= code <= 0x4DBF  # 扩展 A
+        or 0x20000 <= code <= 0x2A6DF  # 扩展 B
+        or 0x2A700 <= code <= 0x2B73F  # 扩展 C
+        or 0x2B740 <= code <= 0x2B81F  # 扩展 D
+        or 0x2B820 <= code <= 0x2CEAF  # 扩展 E
+        or 0x2CEB0 <= code <= 0x2EBEF  # 扩展 F
+        or 0x2EBF0 <= code <= 0x2EE5F  # 扩展 I
+        or 0x30000 <= code <= 0x3134F  # 扩展 G
+        or 0x31350 <= code <= 0x323AF  # 扩展 H
+        or 0xF900 <= code <= 0xFAFF  # 兼容汉字
+        or 0x2F800 <= code <= 0x2FA1F  # 兼容补充
     ):
         return WEIGHT_CHINESE
     return WEIGHT_ASCII
@@ -168,11 +172,13 @@ def build_column_demands(
         # 计算内在权重（取最大值代表该列需求）
         intrinsic = max(weights) if weights else WEIGHT_ASCII
 
-        demands.append(ColumnDemand(
-            column_key=f"col_{col_idx}",
-            intrinsic_weight=intrinsic,
-            min_weight=WEIGHT_ASCII * 4,  # 最小保护宽度
-        ))
+        demands.append(
+            ColumnDemand(
+                column_key=f"col_{col_idx}",
+                intrinsic_weight=intrinsic,
+                min_weight=WEIGHT_ASCII * 4,  # 最小保护宽度
+            )
+        )
 
     return demands
 
@@ -393,10 +399,7 @@ def build_normal_table_demands(fields) -> List[ColumnDemand]:
     def _is_structural(ff) -> bool:
         field_def = getattr(ff, "field_definition", None)
         field_type = getattr(field_def, "field_type", None) if field_def else None
-        return (
-            field_type in STRUCTURAL_FIELD_TYPES
-            or bool(getattr(ff, "is_log_row", 0))
-        )
+        return field_type in STRUCTURAL_FIELD_TYPES or bool(getattr(ff, "is_log_row", 0))
 
     effective = [ff for ff in (fields or []) if ff is not None and not _is_structural(ff)]
 
@@ -413,9 +416,9 @@ def build_normal_table_demands(fields) -> List[ColumnDemand]:
     control_weight = 0.0
     for ff in effective:
         field_def = getattr(ff, "field_definition", None)
-        label_text = getattr(ff, "label_override", None) or (
-            getattr(field_def, "label", None) if field_def else None
-        ) or ""
+        label_text = (
+            getattr(ff, "label_override", None) or (getattr(field_def, "label", None) if field_def else None) or ""
+        )
         label_weight = max(label_weight, compute_text_weight(label_text))
 
         control_weight = max(control_weight, build_field_control_weight(ff))

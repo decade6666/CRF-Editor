@@ -3,6 +3,7 @@
 顺序固定：事务外准备新文件（upload 写 UUID / preset 快照复制）→ 事务内写项目行 →
 flush 失败删新文件、旧状态原样 → 成功后再删旧文件（失败仅 warning）。
 """
+
 import logging
 from contextlib import contextmanager
 from typing import Iterator, Optional
@@ -49,9 +50,7 @@ def update_project_profile(
         if preset is None:
             raise HTTPException(404, "机构预设不存在")
         if preset.logo_path:
-            new_logo_rel = storage.copy_file_for_project(
-                storage.ORGANIZATION_NAMESPACE, preset.logo_path
-            )
+            new_logo_rel = storage.copy_file_for_project(storage.ORGANIZATION_NAMESPACE, preset.logo_path)
         else:
             clear_logo = True
     elif logo_action == "clear":

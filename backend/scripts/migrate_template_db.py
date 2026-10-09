@@ -7,6 +7,7 @@
     python scripts/migrate_template_db.py template_v1.db template_v2.db
     python scripts/migrate_template_db.py template_v1.db  # 输出到 template_v1_migrated.db
 """
+
 import argparse
 import shutil
 import sqlite3
@@ -76,16 +77,15 @@ def migrate_template(input_path: Path, output_path: Path) -> dict:
     try:
         for table, required_cols in REQUIRED_COLUMNS.items():
             # 检查表是否存在
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table,)
-            )
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
             if not cursor.fetchone():
-                report["migrations"].append({
-                    "table": table,
-                    "status": "skipped",
-                    "reason": "表不存在",
-                })
+                report["migrations"].append(
+                    {
+                        "table": table,
+                        "status": "skipped",
+                        "reason": "表不存在",
+                    }
+                )
                 continue
 
             existing_cols = get_existing_columns(conn, table)
@@ -94,16 +94,20 @@ def migrate_template(input_path: Path, output_path: Path) -> dict:
             if missing:
                 add_missing_columns(conn, table, missing)
                 conn.commit()
-                report["migrations"].append({
-                    "table": table,
-                    "status": "migrated",
-                    "added_columns": missing,
-                })
+                report["migrations"].append(
+                    {
+                        "table": table,
+                        "status": "migrated",
+                        "added_columns": missing,
+                    }
+                )
             else:
-                report["migrations"].append({
-                    "table": table,
-                    "status": "already_compatible",
-                })
+                report["migrations"].append(
+                    {
+                        "table": table,
+                        "status": "already_compatible",
+                    }
+                )
 
         # 验证迁移后兼容性
         for table, required_cols in REQUIRED_COLUMNS.items():

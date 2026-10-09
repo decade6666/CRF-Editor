@@ -53,8 +53,6 @@ def test_should_not_inherit_config_override_env() -> None:
     失败信息只列变量名，绝不打印值——它们可能含密钥。
     """
     inherited = sorted(
-        name
-        for name in config_module._ENV_OVERRIDE_MAP
-        if name not in _FORCED_CONFIG_ENV and name in os.environ
+        name for name in config_module._ENV_OVERRIDE_MAP if name not in _FORCED_CONFIG_ENV and name in os.environ
     )
     assert inherited == [], f"测试会话继承了外部配置变量: {inherited}"

@@ -5,6 +5,7 @@
 「上传者 + 项目」归属，所有带编号的接口先做归属校验；别人的编号与
 不存在的编号返回完全相同的响应。
 """
+
 from __future__ import annotations
 
 import re
@@ -47,9 +48,7 @@ def _create_project(client: TestClient, token: str, name: str) -> int:
 
 
 def _upload_for(user_id: int, project_id: int, content: bytes = b"PK\x03\x04 placeholder docx") -> tuple[str, Path]:
-    temp_id, file_path = DocxImportService.save_temp_file(
-        content, "样本.docx", user_id=user_id, project_id=project_id
-    )
+    temp_id, file_path = DocxImportService.save_temp_file(content, "样本.docx", user_id=user_id, project_id=project_id)
     return temp_id, Path(file_path)
 
 
@@ -80,9 +79,7 @@ def test_should_mint_32_hex_temp_id_bound_to_owner_and_project():
     assert stored_name.startswith(f"{temp_id}_u7_p9_")
     assert stored_name.endswith("_样本.docx")
     # 大写扩展名上传：扩展名统一转小写存储，归属查找与清扫才能命中
-    upper_id, upper_path = DocxImportService.save_temp_file(
-        b"PK\x03\x04 upper", "SAMPLE.DOCX", user_id=7, project_id=9
-    )
+    upper_id, upper_path = DocxImportService.save_temp_file(b"PK\x03\x04 upper", "SAMPLE.DOCX", user_id=7, project_id=9)
     assert Path(upper_path).suffix == ".docx"
     assert DocxImportService.get_owned_temp_path(upper_id, user_id=7, project_id=9) == str(upper_path)
 
@@ -160,9 +157,7 @@ def test_should_answer_foreign_temp_id_like_missing_one_on_every_endpoint(client
     # 攻击面是 B 在自己的项目下引用 A 的编号（项目归属校验对 B 的项目放行）。
     page_png = file_path.parent / "page.png"
     page_png.write_bytes(b"\x89PNG fake")
-    DocxScreenshotService._set_task(
-        temp_id, ScreenshotTask(status="done", pages=[str(page_png)], page_count=1)
-    )
+    DocxScreenshotService._set_task(temp_id, ScreenshotTask(status="done", pages=[str(page_png)], page_count=1))
     ai_review_service._ai_tasks[temp_id] = AIReviewTask(status="done", total=2, completed=2)
 
     for endpoint in _PATH_ENDPOINTS:
@@ -209,9 +204,7 @@ def test_should_keep_owner_upload_when_other_user_executes_it(client, engine):
     assert response.json()["detail"] == "临时文件已过期，请重新上传"
     assert file_path.exists(), "B 执行导入后 A 的上传文件必须仍在磁盘上"
     with Session(engine) as session:
-        forms_in_b = session.scalar(
-            select(func.count()).select_from(Form).where(Form.project_id == project_b)
-        )
+        forms_in_b = session.scalar(select(func.count()).select_from(Form).where(Form.project_id == project_b))
     assert forms_in_b == 0, "B 的项目里不得出现 A 的表单"
 
 
@@ -253,9 +246,7 @@ def test_should_answer_expired_upload_like_missing_one_when_swept_mid_execute(cl
     def _vanishing_import(*_args, **_kwargs):
         raise FileNotFoundError(temp_id)
 
-    monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.import_forms", _vanishing_import
-    )
+    monkeypatch.setattr("src.routers.import_docx.DocxImportService.import_forms", _vanishing_import)
     response = client.post(
         f"/api/projects/{project_a}/import-docx/execute",
         json={"temp_id": temp_id, "form_indices": [0]},
@@ -288,9 +279,7 @@ def test_should_purge_expired_uploads_with_their_artifacts(monkeypatch):
         _age_file(path, hours=25)
 
     screenshot_calls: list[str] = []
-    monkeypatch.setattr(
-        DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid))
-    )
+    monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid)))
     ars = ai_review_service
     monkeypatch.setattr(ars, "_ai_tasks", {old_id: object()}, raising=False)
 

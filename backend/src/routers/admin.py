@@ -1,4 +1,5 @@
 """管理员路由：身份查询 + 导入功能 + 用户管理"""
+
 import os
 import sqlite3
 import tempfile
@@ -62,6 +63,7 @@ def list_recycle_bin(
 ):
     """管理员查看所有用户的回收站。"""
     from src.models.project import Project
+
     stmt = (
         select(Project, User.username)
         .outerjoin(User, User.id == Project.owner_id)
@@ -94,9 +96,7 @@ def batch_delete_projects(
     """批量软删除项目。"""
     from src.models.project import Project
 
-    projects = session.scalars(
-        select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)
-    ).all()
+    projects = session.scalars(select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)).all()
     if len(projects) != len(data.project_ids):
         raise HTTPException(400, "project_ids 包含不存在的项目")
     invalid = [project.id for project in projects if project.deleted_at is not None]
@@ -111,9 +111,7 @@ def batch_delete_projects(
 
 def _resolve_restore_name(session: Session, owner_id: int, base_name: str) -> str:
     existing_names = set(
-        session.scalars(
-            select(Project.name).where(Project.owner_id == owner_id, Project.deleted_at.is_(None))
-        ).all()
+        session.scalars(select(Project.name).where(Project.owner_id == owner_id, Project.deleted_at.is_(None))).all()
     )
     candidate = f"{base_name} (恢复)"
     if candidate not in existing_names:
@@ -237,9 +235,7 @@ def batch_move_projects(
     if not target_user:
         raise HTTPException(404, "目标用户不存在")
 
-    projects = session.scalars(
-        select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)
-    ).all()
+    projects = session.scalars(select(Project).where(Project.id.in_(data.project_ids)).order_by(Project.id)).all()
     if len(projects) != len(data.project_ids):
         raise HTTPException(400, "project_ids 包含不存在的项目")
     invalid = [project.id for project in projects if project.deleted_at is not None]
@@ -366,9 +362,7 @@ def preview_cleanup(
     sizes = estimate_project_sizes(session, list(targets))
     # 取项目名与所有者
     rows = session.execute(
-        select(Project, User.username)
-        .outerjoin(User, User.id == Project.owner_id)
-        .where(Project.id.in_(list(targets)))
+        select(Project, User.username).outerjoin(User, User.id == Project.owner_id).where(Project.id.in_(list(targets)))
     ).all()
     info = {}
     for project, username in rows:

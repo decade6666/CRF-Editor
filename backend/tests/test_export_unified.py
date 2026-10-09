@@ -5,6 +5,7 @@
 - legacy 路径回归：纯 normal/inline 表单不受影响
 - unified 表格结构：单一 N 列表格 + landscape section
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -121,6 +122,7 @@ def add_field_to_form(
 
 # ========== Task 3.1: 纯 normal 表单回归测试 ==========
 
+
 def test_export_normal_form_remains_2col_portrait(session: Session, tmp_path: Path) -> None:
     """验证纯 normal 表单仍为 2 列表格 + portrait 方向。"""
     project, _ = create_minimal_project(session)
@@ -173,9 +175,8 @@ def test_export_normal_form_remains_2col_portrait(session: Session, tmp_path: Pa
 
 # ========== Task 3.2: 纯 inline 表单回归测试 ==========
 
-def test_export_inline_text_fill_line_scales_with_column_width(
-    session: Session, tmp_path: Path
-) -> None:
+
+def test_export_inline_text_fill_line_scales_with_column_width(session: Session, tmp_path: Path) -> None:
     """inline 表整格文本填写线按各列实际宽度自适应：窄列短、宽列长，且不换行。"""
     from src.services.width_planning import FILL_LINE_MAX_CHARS, FILL_LINE_MIN_CHARS
 
@@ -250,6 +251,7 @@ def test_export_inline_form_max4_remains_portrait(session: Session, tmp_path: Pa
 
 # ========== Task 3.3: mixed + max_block_width ≤ 4 回归测试 ==========
 
+
 def test_export_mixed_block_le4_remains_split_table(session: Session, tmp_path: Path) -> None:
     """验证 max_block_width ≤ 4 时仍为 split-table 路径。"""
     project, _ = create_minimal_project(session)
@@ -295,6 +297,7 @@ def test_export_mixed_block_le4_remains_split_table(session: Session, tmp_path: 
 
 # ========== Task 3.4: unified 基本场景测试 ==========
 
+
 def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp_path: Path) -> None:
     """验证混合表单 (max_block_width > 4) 输出单一表格 + landscape section。"""
     project, _ = create_minimal_project(session)
@@ -339,6 +342,7 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
 
 
 # ========== Task 3.5: unified 字段顺序测试 ==========
+
 
 @pytest.mark.xfail(
     reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
@@ -401,6 +405,7 @@ def test_export_unified_field_order_matches_order_index(session: Session, tmp_pa
 
 # ========== Task 3.7: unified label/log 行测试 ==========
 
+
 @pytest.mark.xfail(
     reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
     strict=False,
@@ -457,6 +462,7 @@ def test_export_unified_full_row_span_equals_N(session: Session, tmp_path: Path)
 
 # ========== Task 3.8: unified 窄 block 测试 ==========
 
+
 def test_export_unified_narrow_block_merge_spans(session: Session, tmp_path: Path) -> None:
     """验证 M < N 时 merge spans 正确。"""
     project, _ = create_minimal_project(session)
@@ -500,6 +506,7 @@ def test_export_unified_narrow_block_merge_spans(session: Session, tmp_path: Pat
 
 
 # ========== Task 3.9: section 方向恢复测试 ==========
+
 
 def test_export_landscape_form_followed_by_portrait(session: Session, tmp_path: Path) -> None:
     """验证 landscape form 后续 form 为 portrait。"""
@@ -554,6 +561,7 @@ def test_export_landscape_form_followed_by_portrait(session: Session, tmp_path: 
 
 
 # ========== Task 3.11: merge 后样式保留测试 ==========
+
 
 def test_export_unified_preserves_cell_shading(session: Session, tmp_path: Path) -> None:
     """验证底纹/颜色在 merge 后的 cell 上保留。"""
@@ -638,13 +646,13 @@ def test_export_unified_applies_borders_to_rows_added_after_table_creation(sessi
     assert unified_table is not None, "应存在 5 列 unified 表格"
 
     first_row = unified_table.rows[0]
-    borders = first_row.cells[0]._tc.tcPr.find(qn('w:tcBorders'))
+    borders = first_row.cells[0]._tc.tcPr.find(qn("w:tcBorders"))
     assert borders is not None, "动态添加的 unified 行应具有边框定义"
 
     for border_name in ["top", "left", "bottom", "right"]:
-        border = borders.find(qn(f'w:{border_name}'))
+        border = borders.find(qn(f"w:{border_name}"))
         assert border is not None, f"应存在 {border_name} 边框"
-        assert border.get(qn('w:val')) == 'single', f"{border_name} 边框应为 single"
+        assert border.get(qn("w:val")) == "single", f"{border_name} 边框应为 single"
 
 
 def test_export_unified_table_has_table_level_borders(session: Session, tmp_path: Path) -> None:
@@ -691,15 +699,15 @@ def test_export_unified_table_has_table_level_borders(session: Session, tmp_path
     tblPr = unified_table._tbl.tblPr
     assert tblPr is not None, "表格应具有 tblPr 属性"
 
-    tblBorders = tblPr.find(qn('w:tblBorders'))
+    tblBorders = tblPr.find(qn("w:tblBorders"))
     assert tblBorders is not None, "unified 表格应具有表级 tblBorders"
 
     # 验证所有边框类型（含内部网格线 insideH/insideV）
     for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-        border = tblBorders.find(qn(f'w:{border_name}'))
+        border = tblBorders.find(qn(f"w:{border_name}"))
         assert border is not None, f"表级边框应包含 {border_name}"
-        assert border.get(qn('w:val')) == 'single', f"{border_name} 应为 single 类型"
-        assert border.get(qn('w:sz')) == '4', f"{border_name} 边框宽度应为 4"
+        assert border.get(qn("w:val")) == "single", f"{border_name} 应为 single 类型"
+        assert border.get(qn("w:sz")) == "4", f"{border_name} 边框宽度应为 4"
 
 
 # ========== Task 4.3: 选择项渲染回归测试 ==========
@@ -723,7 +731,6 @@ def create_choice_field_def(
     session.add(fd)
     session.flush()
     return fd
-
 
 
 def test_export_inline_choice_renders_plain_option_text(
@@ -789,11 +796,13 @@ def test_export_choice_options_render_in_order(session: Session, tmp_path: Path)
     session.add(codelist)
     session.flush()
 
-    session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="疑似", order_index=2),
-        CodeListOption(codelist_id=codelist.id, code="3", decode="排除", order_index=3),
-    ])
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="疑似", order_index=2),
+            CodeListOption(codelist_id=codelist.id, code="3", decode="排除", order_index=3),
+        ]
+    )
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "诊断", codelist.id, "单选")
@@ -835,21 +844,15 @@ def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> 
     session.flush()
 
     # 故意打乱 id 顺序，但设置明确的 order_index
-    opt3 = CodeListOption(
-        codelist_id=codelist.id, code="C", decode="第三", order_index=3
-    )
+    opt3 = CodeListOption(codelist_id=codelist.id, code="C", decode="第三", order_index=3)
     session.add(opt3)
     session.flush()
 
-    opt1 = CodeListOption(
-        codelist_id=codelist.id, code="A", decode="第一", order_index=1
-    )
+    opt1 = CodeListOption(codelist_id=codelist.id, code="A", decode="第一", order_index=1)
     session.add(opt1)
     session.flush()
 
-    opt2 = CodeListOption(
-        codelist_id=codelist.id, code="B", decode="第二", order_index=2
-    )
+    opt2 = CodeListOption(codelist_id=codelist.id, code="B", decode="第二", order_index=2)
     session.add(opt2)
     session.flush()
 
@@ -942,10 +945,10 @@ def test_export_unified_multi_blocks_share_table_level_width(session: Session, t
     # 验证第 5 列（index=4）比第 1 列（index=0）更宽
     # （因为第二个 block 的长标签在 slot 4 注入了更大需求）
     tbl_xml = unified_table._tbl
-    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
+    grid_cols = tbl_xml.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
     if grid_cols and len(grid_cols) == 5:
-        w0 = int(grid_cols[0].get(qn('w:w'), '0'))
-        w4 = int(grid_cols[4].get(qn('w:w'), '0'))
+        w0 = int(grid_cols[0].get(qn("w:w"), "0"))
+        w4 = int(grid_cols[4].get(qn("w:w"), "0"))
         assert w4 > w0, f"长标签列（slot 4）应比短标签列（slot 0）更宽: w0={w0}, w4={w4}"
 
 
@@ -979,10 +982,12 @@ def test_export_choice_marker_stays_simsun_with_text_color(session: Session, tmp
     codelist = CodeList(project_id=project.id, name="着色选项", code="CL_COLOR")
     session.add(codelist)
     session.flush()
-    session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="正常", order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="异常", order_index=2),
-    ])
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="正常", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="异常", order_index=2),
+        ]
+    )
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "着色单选", codelist.id, "单选")
@@ -1020,10 +1025,12 @@ def test_export_horizontal_choice_marker_touches_label(session: Session, tmp_pat
     session.add(codelist)
     session.flush()
 
-    session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
-    ])
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
+        ]
+    )
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "横向测试", codelist.id, "单选")
@@ -1068,10 +1075,12 @@ def test_export_vertical_choice_marker_touches_label(session: Session, tmp_path:
     session.add(codelist)
     session.flush()
 
-    session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="排除", order_index=2),
-    ])
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="确诊", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="排除", order_index=2),
+        ]
+    )
     session.flush()
 
     fd = create_choice_field_def(session, project.id, "纵向测试", codelist.id, "多选（纵向）")
@@ -1094,9 +1103,7 @@ def test_export_vertical_choice_marker_touches_label(session: Session, tmp_path:
     assert "_" not in joined
 
 
-def test_export_vertical_choice_options_have_inter_option_gap(
-    session: Session, tmp_path: Path
-) -> None:
+def test_export_vertical_choice_options_have_inter_option_gap(session: Session, tmp_path: Path) -> None:
     """纵向选项之间留出段前间距：首项段前为 0，其余项段前为 VERTICAL_OPTION_GAP_PT。
 
     与前端预览 `.choice-group--vertical .choice-atom + .choice-atom { margin-top }`
@@ -1149,9 +1156,7 @@ def test_export_vertical_choice_options_have_inter_option_gap(
     assert (first_gap is None) or (first_gap.pt == 0), f"首项不应有段前间距，实际: {first_gap}"
     for para in option_paras[1:]:
         gap = para.paragraph_format.space_before
-        assert gap is not None and gap.pt == expected_gap, (
-            f"非首项段前间距应为 {expected_gap}pt，实际: {gap}"
-        )
+        assert gap is not None and gap.pt == expected_gap, f"非首项段前间距应为 {expected_gap}pt，实际: {gap}"
 
     # docGrid(15.6pt 行网格)下必须对每个选项段落关闭 snapToGrid，否则首项
     # before=0 与其余项 before=3pt 会被网格吸附成“首项到第二项间距偏大”。
@@ -1343,9 +1348,7 @@ def test_export_unified_cell_widths_match_gridcol(session: Session, tmp_path: Pa
         )
 
     # 最后一列对应长标签字段，宽度应明显大于第一列
-    assert grid_widths[4] > grid_widths[0], (
-        f"长标签列应比短标签列更宽: w0={grid_widths[0]}, w4={grid_widths[4]}"
-    )
+    assert grid_widths[4] > grid_widths[0], f"长标签列应比短标签列更宽: w0={grid_widths[0]}, w4={grid_widths[4]}"
 
 
 def test_resolve_label_font_pt_maps档位到磅值() -> None:

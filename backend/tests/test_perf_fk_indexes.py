@@ -3,6 +3,7 @@
 验证 _migrate_add_performance_fk_indexes 可重复执行不报错，且目标外键列索引已创建。
 纯性能结构，不改变任何查询结果。
 """
+
 from sqlalchemy import create_engine, inspect
 
 from src.database import _migrate_add_performance_fk_indexes

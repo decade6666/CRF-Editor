@@ -2,6 +2,7 @@
 
 提供预览端和导出端共用的字段渲染逻辑，确保一致性。
 """
+
 from typing import List, Optional, Tuple
 import html
 import re
@@ -229,6 +230,6 @@ def _get_option_labels_for_width(field_def) -> List[str]:
         return []
     options = sorted(
         field_def.codelist.options,
-        key=lambda o: (o.order_index if o.order_index is not None else float('inf'), o.id or 0)
+        key=lambda o: (o.order_index if o.order_index is not None else float("inf"), o.id or 0),
     )
     return [opt.decode for opt in options if opt.decode]

@@ -1,4 +1,5 @@
 """FieldDefinition 模型 - 项目级字段库定义"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
 class FieldDefinition(Base):
     """字段定义模型 - 项目级字段库"""
+
     __tablename__ = "field_definition"
     __table_args__ = (
         UniqueConstraint("project_id", "variable_name", name="uq_field_def_var_name"),
@@ -27,10 +29,7 @@ class FieldDefinition(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("project.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     variable_name: Mapped[str] = mapped_column(String(100), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     field_type: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -44,18 +43,12 @@ class FieldDefinition(Base):
     date_format: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # 编码字典和单位
-    codelist_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("codelist.id", ondelete="SET NULL"),
-        nullable=True
-    )
-    unit_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("unit.id", ondelete="SET NULL"),
-        nullable=True
-    )
+    codelist_id: Mapped[Optional[int]] = mapped_column(ForeignKey("codelist.id", ondelete="SET NULL"), nullable=True)
+    unit_id: Mapped[Optional[int]] = mapped_column(ForeignKey("unit.id", ondelete="SET NULL"), nullable=True)
 
     # 多记录表格配置
     is_multi_record: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    table_type: Mapped[str] = mapped_column(String(20), nullable=False, default='固定行')
+    table_type: Mapped[str] = mapped_column(String(20), nullable=False, default="固定行")
 
     # 序号
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -83,16 +76,9 @@ class FieldDefinition(Base):
         return codelist_id
 
     # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now()
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
     # 关系
@@ -100,6 +86,5 @@ class FieldDefinition(Base):
     codelist: Mapped[Optional["CodeList"]] = relationship()
     unit: Mapped[Optional["Unit"]] = relationship()
     form_fields: Mapped[List["FormField"]] = relationship(
-        back_populates="field_definition",
-        cascade="all, delete-orphan"
+        back_populates="field_definition", cascade="all, delete-orphan"
     )

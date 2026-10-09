@@ -8,3 +8,6 @@ hypothesis~=6.92.0
 
 # 依赖锁定工具（用于生成 requirements.lock）
 pip-tools~=7.3.0
+
+# Formatting
+ruff==0.16.10

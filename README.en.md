@@ -484,6 +484,26 @@ Notes:
 - gitleaks must be installed first: download the single binary for your platform from the [gitleaks GitHub releases](https://github.com/gitleaks/gitleaks/releases) and place it at `~/.local/bin/gitleaks` (make sure `~/.local/bin` is on PATH).
 - `git commit --no-verify` can bypass the hook in an emergency, but must not be used routinely; for gitleaks false positives, follow the allowlist process in `.gitleaks.toml`.
 
+### Backend Code Formatting (ruff format)
+
+The backend uses the [ruff](https://docs.astral.sh/ruff/) formatter to keep code style uniform (format only; no lint rules are enabled):
+
+- The version is pinned in `backend/requirements-dev.txt` (`ruff==0.16.10`); configuration lives in `backend/ruff.toml` (line length 120, double quotes).
+- Format and check:
+
+```bash
+cd backend && python -m ruff format .          # format
+cd backend && python -m ruff format --check .  # check only (exit code 1 = files need formatting; other non-zero = runtime/config error)
+```
+
+- On 2026-10-09 a single format-only commit (no semantic changes) unified every Python file under `backend/` (134 files, 17 of which also had legacy CRCRLF line endings normalized); that commit is registered in the repo-root `.git-blame-ignore-revs`, and after running the command below `git blame` skips it automatically, keeping line-level history readable:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+- The pre-commit hook's 4th check requires `ruff` on PATH: it is skipped with a one-line notice when absent and enabled automatically once installed; "would be reformatted" (exit code 1) and runtime errors (any other non-zero) are reported separately.
+
 ## Contributing
 
 1. Fork the repository

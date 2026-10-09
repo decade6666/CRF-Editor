@@ -4,6 +4,7 @@ DB 是唯一事实源；文件操作全部补偿式，顺序固定：
 准备新文件（事务外）→ DB 事务 → commit → 删除旧文件（失败仅 warning）。
 绝不出现 DB 指向不存在文件。
 """
+
 import logging
 import uuid
 from pathlib import Path
@@ -30,12 +31,7 @@ def namespace_dir(namespace: str) -> Path:
 def safe_resolve(namespace: str, rel_name: str) -> Path:
     """安全解析相对文件名：拒绝绝对路径 / 目录穿越 / 嵌套路径 / 反斜杠。"""
     raw = Path(rel_name)
-    if (
-        raw.is_absolute()
-        or raw.name != rel_name
-        or ".." in raw.parts
-        or "\\" in rel_name
-    ):
+    if raw.is_absolute() or raw.name != rel_name or ".." in raw.parts or "\\" in rel_name:
         raise ValueError("Logo 文件不安全: 非法路径")
     return namespace_dir(namespace) / rel_name
 

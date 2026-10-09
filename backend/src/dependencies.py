@@ -1,4 +1,5 @@
 """共享 FastAPI 依赖"""
+
 import jwt
 from fastapi import Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordBearer
@@ -29,9 +30,7 @@ def get_current_user(
     if user.auth_version != identity.auth_version:
         raise HTTPException(status_code=401, detail="未授权")
     if response is not None:
-        response.headers[_REFRESHED_TOKEN_HEADER] = create_access_token(
-            user.id, user.username, user.auth_version
-        )
+        response.headers[_REFRESHED_TOKEN_HEADER] = create_access_token(user.id, user.username, user.auth_version)
     return user
 
 
@@ -47,6 +46,7 @@ def require_admin(
 def verify_project_owner(project_id: int, current_user: User, session: Session):
     """校验项目存在且属于 current_user，返回 Project；失败抛 404/403。"""
     from src.models.project import Project
+
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -58,6 +58,7 @@ def verify_project_owner(project_id: int, current_user: User, session: Session):
 def verify_form_owner(form_id: int, current_user: User, session: Session):
     """校验表单存在且属于当前用户。"""
     from src.models.form import Form
+
     form = session.get(Form, form_id)
     if not form:
         raise HTTPException(status_code=404, detail="表单不存在")
@@ -68,6 +69,7 @@ def verify_form_owner(form_id: int, current_user: User, session: Session):
 def verify_field_definition_owner(fd_id: int, current_user: User, session: Session):
     """校验字段定义存在且属于当前用户。"""
     from src.models.field_definition import FieldDefinition
+
     field_definition = session.get(FieldDefinition, fd_id)
     if not field_definition:
         raise HTTPException(status_code=404, detail="字段定义不存在")
@@ -78,6 +80,7 @@ def verify_field_definition_owner(fd_id: int, current_user: User, session: Sessi
 def verify_form_field_owner(ff_id: int, current_user: User, session: Session):
     """校验表单字段实例存在且属于当前用户。"""
     from src.models.form_field import FormField
+
     form_field = session.get(FormField, ff_id)
     if not form_field:
         raise HTTPException(status_code=404, detail="表单字段不存在")
@@ -88,6 +91,7 @@ def verify_form_field_owner(ff_id: int, current_user: User, session: Session):
 def verify_project_codelist_owner(codelist_id: int, project_id: int, current_user: User, session: Session):
     """校验编码字典属于指定项目且当前用户可访问。"""
     from src.models.codelist import CodeList
+
     codelist = session.get(CodeList, codelist_id)
     if not codelist:
         raise HTTPException(status_code=404, detail="编码字典不存在")
@@ -100,6 +104,7 @@ def verify_project_codelist_owner(codelist_id: int, project_id: int, current_use
 def verify_project_unit_owner(unit_id: int, project_id: int, current_user: User, session: Session):
     """校验单位属于指定项目且当前用户可访问。"""
     from src.models.unit import Unit
+
     unit = session.get(Unit, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="单位不存在")

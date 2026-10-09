@@ -3,6 +3,7 @@
 验证 POST /import-docx/execute 返回的 detail[].form_id 与实际落库 Form.id 一致，
 且 Form 属于目标项目。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -74,7 +75,9 @@ def test_execute_docx_import_returns_form_id_matching_db_record(engine, monkeypa
         assert current_user is not None
         response = import_docx.execute_docx_import(
             project_id=project_id,
-            request=Request({"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}),
+            request=Request(
+                {"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}
+            ),
             payload=import_docx.DocxExecuteRequest(temp_id=TEMP_ID, form_indices=[0]),
             session=session,
             current_user=current_user,
@@ -120,7 +123,9 @@ def test_execute_docx_import_detail_contains_required_fields(engine, monkeypatch
         assert current_user is not None
         response = import_docx.execute_docx_import(
             project_id=project_id,
-            request=Request({"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}),
+            request=Request(
+                {"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/execute"}
+            ),
             payload=import_docx.DocxExecuteRequest(temp_id=TEMP_ID, form_indices=[0, 1]),
             session=session,
             current_user=current_user,
@@ -154,7 +159,8 @@ def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> N
         },
     )
     monkeypatch.setattr(
-        "src.routers.import_docx.limit_import_action", lambda *_args, **_kwargs: None,
+        "src.routers.import_docx.limit_import_action",
+        lambda *_args, **_kwargs: None,
     )
 
     with Session(engine) as session:
@@ -170,9 +176,7 @@ def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> N
                     ai_overrides=[
                         import_docx.DocxFormOverride(
                             form_index=0,
-                            overrides=[
-                                import_docx.DocxAIFieldOverride(index=0, field_type="复选")
-                            ],
+                            overrides=[import_docx.DocxAIFieldOverride(index=0, field_type="复选")],
                         )
                     ],
                 ),
@@ -212,7 +216,9 @@ def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -
         response = asyncio.run(
             import_docx.preview_docx_import(
                 project_id=project_id,
-                request=Request({"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/preview"}),
+                request=Request(
+                    {"type": "http", "method": "POST", "path": f"/api/projects/{project_id}/import-docx/preview"}
+                ),
                 file=_FakeUploadFile("test.docx", b"fake-docx"),
                 session=session,
                 current_user=current_user,
@@ -264,9 +270,7 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
         assert imported_form is not None
 
         defs = session.scalars(
-            select(FieldDefinition)
-            .where(FieldDefinition.project_id == project_id)
-            .order_by(FieldDefinition.id)
+            select(FieldDefinition).where(FieldDefinition.project_id == project_id).order_by(FieldDefinition.id)
         ).all()
         defs_by_label = {field_def.label: field_def for field_def in defs}
 
@@ -275,13 +279,9 @@ def test_import_forms_applies_ai_overrides_by_real_field_index_after_log_row(eng
         assert defs_by_label["字段A"].field_type == "文本"
         assert defs_by_label["字段B"].field_type == "文本"
         assert defs_by_label["字段B"].codelist_id is None
-        assert session.scalar(
-            select(CodeList).where(CodeList.project_id == project_id)
-        ) is None
+        assert session.scalar(select(CodeList).where(CodeList.project_id == project_id)) is None
 
         form_fields = session.scalars(
-            select(FormField)
-            .where(FormField.form_id == imported_form_id)
-            .order_by(FormField.order_index)
+            select(FormField).where(FormField.form_id == imported_form_id).order_by(FormField.order_index)
         ).all()
         assert [field.is_log_row for field in form_fields] == [0, 1, 0]

@@ -1,4 +1,5 @@
 """Project Repository"""
+
 from datetime import datetime
 from typing import List, Optional
 
@@ -40,10 +41,7 @@ class ProjectRepository(BaseRepository[Project]):
     def reorder(self, owner_id: int, ordered_ids: List[int]) -> None:
         """重新排序项目"""
         OrderService.reorder_batch(
-            self.session,
-            Project,
-            (Project.owner_id == owner_id) & Project.deleted_at.is_(None),
-            ordered_ids
+            self.session, Project, (Project.owner_id == owner_id) & Project.deleted_at.is_(None), ordered_ids
         )
 
     def create_with_owner(self, project: Project, owner_id: int) -> Project:
@@ -67,11 +65,7 @@ class ProjectRepository(BaseRepository[Project]):
 
     def get_with_visits(self, project_id: int) -> Optional[Project]:
         """获取项目及其访视（仅一级）"""
-        stmt = (
-            select(Project)
-            .where(Project.id == project_id)
-            .options(selectinload(Project.visits))
-        )
+        stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.visits))
         return self.session.scalar(stmt)
 
     def get_with_full_tree(self, project_id: int) -> Optional[Project]:
@@ -97,16 +91,15 @@ class ProjectRepository(BaseRepository[Project]):
                 selectinload(Project.visits).selectinload(Visit.visit_forms).selectinload(VisitForm.form),
                 # 表单 → 表单字段 → 字段定义 → 字典及选项
                 selectinload(Project.forms)
-                    .selectinload(Form.form_fields)
-                    .selectinload(FormField.field_definition)
-                    .selectinload(FieldDefinition.codelist)
-                    .selectinload(CodeList.options),
+                .selectinload(Form.form_fields)
+                .selectinload(FormField.field_definition)
+                .selectinload(FieldDefinition.codelist)
+                .selectinload(CodeList.options),
                 # 表单 → 表单字段 → 字段定义 → 单位
                 selectinload(Project.forms)
-                    .selectinload(Form.form_fields)
-                    .selectinload(FormField.field_definition)
-                    .selectinload(FieldDefinition.unit),
+                .selectinload(Form.form_fields)
+                .selectinload(FormField.field_definition)
+                .selectinload(FieldDefinition.unit),
             )
         )
         return self.session.scalar(stmt)
-

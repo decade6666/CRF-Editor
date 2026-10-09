@@ -18,6 +18,8 @@ from src.services.export_service import (
     export_project_database,
     export_user_projects_database,
 )
+
+
 @pytest.fixture
 def engine():
     _engine = create_engine(
@@ -95,7 +97,9 @@ def test_export_word_returns_docx_file(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Document().save(output_path) or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: (
+            Document().save(output_path) or True
+        ),
     )
     monkeypatch.setattr(
         ExportService,
@@ -150,7 +154,9 @@ def test_export_word_rejects_invalid_docx(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Path(output_path).write_bytes(b"PK") or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: (
+            Path(output_path).write_bytes(b"PK") or True
+        ),
     )
     monkeypatch.setattr(
         ExportService,
@@ -225,7 +231,6 @@ def test_export_project_database_prunes_correctly(tmp_path: Path) -> None:
         Path(result_path).unlink(missing_ok=True)
 
 
-
 def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> None:
     """用户聚合导出仅保留当前用户项目，并清空 user 表与 owner_id。"""
     src_path = str(tmp_path / "user_scope.db")
@@ -235,20 +240,20 @@ def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> 
     conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT, owner_id INTEGER REFERENCES user(id))")
     conn.executemany(
         "INSERT INTO user VALUES (?, ?)",
-        [(1, 'alice'), (2, 'bob')],
+        [(1, "alice"), (2, "bob")],
     )
     conn.executemany(
         "INSERT INTO project VALUES (?, ?, ?)",
         [
-            (1, 'Alice-A', 1),
-            (2, 'Alice-B', 1),
-            (3, 'Bob-A', 2),
+            (1, "Alice-A", 1),
+            (2, "Alice-B", 1),
+            (3, "Bob-A", 2),
         ],
     )
     conn.commit()
     conn.close()
 
-    result_path = export_user_projects_database(src_path, 1, 'alice')
+    result_path = export_user_projects_database(src_path, 1, "alice")
     try:
         result_conn = sqlite3.connect(result_path)
         projects = result_conn.execute("SELECT id, name, owner_id FROM project ORDER BY id").fetchall()
@@ -256,8 +261,8 @@ def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> 
         result_conn.close()
 
         assert projects == [
-            (1, 'Alice-A', None),
-            (2, 'Alice-B', None),
+            (1, "Alice-A", None),
+            (2, "Alice-B", None),
         ]
         assert users == []
     finally:

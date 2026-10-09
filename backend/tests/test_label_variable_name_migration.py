@@ -40,8 +40,7 @@ def _insert(
     field_type: str,
 ) -> None:
     conn.execute(
-        "INSERT INTO field_definition (id, project_id, variable_name, label, field_type) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO field_definition (id, project_id, variable_name, label, field_type) VALUES (?, ?, ?, ?, ?)",
         (row_id, project_id, variable_name, label, field_type),
     )
 
@@ -50,9 +49,7 @@ def _fetch_variable_names(engine) -> dict:
     with engine.connect() as db:
         return {
             row_id: variable_name
-            for row_id, variable_name in db.execute(
-                text("SELECT id, variable_name FROM field_definition ORDER BY id")
-            )
+            for row_id, variable_name in db.execute(text("SELECT id, variable_name FROM field_definition ORDER BY id"))
         }
 
 
@@ -87,9 +84,7 @@ def test_normalize_label_variable_names_remints_only_user_typed_label_oids(tmp_p
     assert names[9] == "FIELD_20260101120000_QQQQQQ"
 
 
-def test_normalize_label_variable_names_retries_when_code_collides(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_normalize_label_variable_names_retries_when_code_collides(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "label-oid-collision.db"
     _create_field_definition_table(db_path)
     conn = sqlite3.connect(str(db_path))
@@ -199,9 +194,7 @@ def test_released_oid_can_be_reused_in_same_project(tmp_path: Path) -> None:
     assert "SEX" in names.values()
 
 
-def test_normalize_label_variable_names_releases_oid_per_project(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_normalize_label_variable_names_releases_oid_per_project(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "label-oid-multi-project.db"
     _create_field_definition_table(db_path)
     conn = sqlite3.connect(str(db_path))
@@ -245,18 +238,13 @@ def test_normalize_label_variable_names_releases_oid_per_project(
         age_projects = [
             project_id
             for (project_id,) in db.execute(
-                text(
-                    "SELECT DISTINCT project_id FROM field_definition "
-                    "WHERE variable_name = 'AGE' ORDER BY project_id"
-                )
+                text("SELECT DISTINCT project_id FROM field_definition WHERE variable_name = 'AGE' ORDER BY project_id")
             )
         ]
     assert age_projects == [1, 2]
 
 
-def test_init_db_invokes_label_variable_name_normalization(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_init_db_invokes_label_variable_name_normalization(tmp_path: Path, monkeypatch) -> None:
     """init_db 启动必须接线 _normalize_label_variable_names，防止存量用户 OID 标签遗留。"""
     import src.database as database_module
 

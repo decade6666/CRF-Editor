@@ -37,8 +37,7 @@ SYN_FIELD_TYPE_SEQUENCE = (
 SYN_FIELD_TYPE_COUNTS = dict(Counter(SYN_FIELD_TYPE_SEQUENCE))
 # parse_full emits log rows as {"type": "log_row"}; every other row keeps field_type.
 SYN_PARSED_FIELD_TYPE_COUNTS = {
-    "log_row" if field_type == "日志行" else field_type: count
-    for field_type, count in SYN_FIELD_TYPE_COUNTS.items()
+    "log_row" if field_type == "日志行" else field_type: count for field_type, count in SYN_FIELD_TYPE_COUNTS.items()
 }
 CHOICE_FIELD_TYPES = ("单选", "多选", "单选（纵向）", "多选（纵向）")
 
@@ -126,9 +125,7 @@ def test_parse_full_reads_every_field_type_in_expected_proportions(tmp_path: Pat
     # Assert
     assert sum(SYN_PARSED_FIELD_TYPE_COUNTS.values()) == SYN_FIELDS_PER_FORM
     for form in parsed_forms:
-        counts = Counter(
-            field.get("field_type", field.get("type", "未知")) for field in form["fields"]
-        )
+        counts = Counter(field.get("field_type", field.get("type", "未知")) for field in form["fields"])
         assert counts == SYN_PARSED_FIELD_TYPE_COUNTS
 
 
@@ -143,9 +140,7 @@ def test_parse_full_parses_two_options_for_every_choice_field(tmp_path: Path) ->
     # Assert
     choice_fields_per_form = sum(SYN_FIELD_TYPE_COUNTS[choice] for choice in CHOICE_FIELD_TYPES)
     for form in parsed_forms:
-        choice_fields = [
-            field for field in form["fields"] if field.get("field_type") in CHOICE_FIELD_TYPES
-        ]
+        choice_fields = [field for field in form["fields"] if field.get("field_type") in CHOICE_FIELD_TYPES]
         assert len(choice_fields) == choice_fields_per_form
         for field in choice_fields:
             assert len(field["options"]) == 2
@@ -167,9 +162,7 @@ def test_parse_full_flags_log_rows_and_keeps_label_defaults_and_numeric_units(tm
         assert len(log_rows) == SYN_FIELD_TYPE_COUNTS["日志行"]
         label_fields = [field for field in fields if field.get("field_type") == "标签"]
         assert len(label_fields) == SYN_FIELD_TYPE_COUNTS["标签"]
-        assert all(
-            field["default_value"].startswith("SYN_合成标签正文_") for field in label_fields
-        )
+        assert all(field["default_value"].startswith("SYN_合成标签正文_") for field in label_fields)
         numeric_fields = [field for field in fields if field.get("field_type") == "数值"]
         assert len(numeric_fields) == SYN_FIELD_TYPE_COUNTS["数值"]
         assert all(field["unit_symbol"] == "SYN单位" for field in numeric_fields)

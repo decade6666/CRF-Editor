@@ -51,9 +51,7 @@ import src.config as _config_module
 # 2) CONFIG_FILE 指向会话临时根下不存在的文件：读取只得到默认值，未打补丁的写入也只落在临时根。
 # 注意：守卫 test_should_not_inherit_config_override_env 自持一份 _FORCED_CONFIG_ENV 副本作绊线
 # （见 .trellis/spec/backend/quality-guidelines.md「Test Session Isolation」）；在此新增强制键时须同步守卫副本。
-_FORCED_CONFIG_ENV = frozenset(
-    {"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"}
-)
+_FORCED_CONFIG_ENV = frozenset({"CRF_DATABASE_PATH", "CRF_STORAGE_UPLOAD_PATH", "CRF_AUTH_SECRET_KEY"})
 for _name in _config_module._ENV_OVERRIDE_MAP.keys() - _FORCED_CONFIG_ENV:
     os.environ.pop(_name, None)
 _config_module.CONFIG_FILE = TEST_ROOT / "config.yaml"
@@ -142,14 +140,16 @@ def client(engine):
     app.dependency_overrides[get_session] = _override
     app.dependency_overrides[get_plain_session] = _override_plain
 
-    with patch("main.get_config", return_value=_TEST_CONFIG), \
-         patch("src.database.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.project_size_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.recycle_bin_cleanup_service.get_config", return_value=_TEST_CONFIG), \
-         patch("main.init_db"):
+    with (
+        patch("main.get_config", return_value=_TEST_CONFIG),
+        patch("src.database.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.routers.admin.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.project_size_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.recycle_bin_cleanup_service.get_config", return_value=_TEST_CONFIG),
+        patch("main.init_db"),
+    ):
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
 

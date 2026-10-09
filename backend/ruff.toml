@@ -1,0 +1,7 @@
+# 仅用于 ruff format（代码格式化）；不启用任何 lint 规则。
+# 版本固定在 requirements-dev.txt；行宽与引号按 2026-10-09 实测选取，使格式化改动最小。
+target-version = "py310"
+line-length = 120
+
+[format]
+quote-style = "double"

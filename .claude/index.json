@@ -20,6 +20,11 @@
         "backend/src/rate_limit.py",
         "backend/src/utils.py"
       ],
+      "commands": [
+        "cd backend && python -m ruff format .",
+        "cd backend && python -m ruff format --check .",
+        "git config blame.ignoreRevsFile .git-blame-ignore-revs"
+      ],
       "api_routes": [
         "backend/src/routers/admin.py",
         "backend/src/routers/auth.py",

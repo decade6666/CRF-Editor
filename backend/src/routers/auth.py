@@ -1,4 +1,5 @@
 """认证路由：账号密码登录"""
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -69,18 +70,12 @@ async def login(request: Request, data: LoginRequest, session: Session = Depends
     limit_auth_login(request, data.username)
     user = session.scalar(select(User).where(User.username == data.username))
     if not user and is_reserved_admin_username(data.username):
-        user = session.scalar(
-            select(User)
-            .where(func.trim(User.username) == data.username)
-            .order_by(User.id)
-        )
+        user = session.scalar(select(User).where(func.trim(User.username) == data.username).order_by(User.id))
     if not user or not has_usable_password_hash(user.hashed_password):
         raise _build_login_error(user)
     if not verify_password(data.password, user.hashed_password):
         raise _build_login_error(None)
-    return TokenResponse(
-        access_token=create_access_token(user.id, user.username, user.auth_version)
-    )
+    return TokenResponse(access_token=create_access_token(user.id, user.username, user.auth_version))
 
 
 @router.put("/me/password", status_code=204)

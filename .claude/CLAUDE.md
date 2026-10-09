@@ -76,6 +76,8 @@ cd frontend && npm run lint
 cd frontend && npm run format
 cd backend && python -m pytest
 cd backend && python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered   # 覆盖率统计（不设门槛）
+cd backend && python -m ruff format .          # format all backend Python files (version in requirements-dev.txt, config in backend/ruff.toml)
+cd backend && python -m ruff format --check .  # check: exit 1 = reformat needed; other non-zero = runtime/config error
 cd frontend && npm test                    # node --test tests/*.test.js && vitest run
 cd frontend && npm run test:component      # 仅运行 vitest 组件挂载测试
 cd frontend && node --test tests/*.test.js
@@ -151,6 +153,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-09` (task `backend-format`): standardized backend Python formatting with `ruff format` only; pinned `ruff==0.16.10`, added format-only `backend/ruff.toml` (py310/120/double; no lint rules), reformatted 134 files (17 legacy CRCRLF files normalized to LF), normalized AST diff 0 and backend suite 1027 passed/4 xfailed matching baseline; registered `fb1ae18` in `.git-blame-ignore-revs` and updated pre-commit Gate 4 to use `ruff format --check --` with separate reformat/runtime-error handling.
 - `2026-10-09` (task `legacy-cleanup`): 删除已退役的性能基线管线（后端 `perf.py` / 中间件 / SQL 监听 / 9 文件埋点 / 2 脚本 / 7 perf 测试，前端 `usePerfBaseline.js` / 2 脚本 / 2 perf 测试）、根目录 `shrimp-rules.md` 与无引用死代码（`FieldRepository`、`FieldProfileResult`、main.css 4 组失效选择器、test_export_validation 零引用夹具）；5 个非 perf 设计器辅助数据回归测试迁入 `formDesignerAuxiliaryData.test.js`，被删 perf 测试中两处非 perf 覆盖移植为常规测试（合成 Word 导入解析 → `test_docx_import_synthetic_tables.py`、forms/reorder 端点 → phase0 契约测试）；后端套件 1042→1027 passed（−20 删除的 perf 用例 +5 移植用例），前端 node:test 824→818。
 - `2026-10-09` (task `frontend-mount-tests` 合入后复审跟进): 挂载测试 Vue 警告门禁（警告即失败，双通道收集 + 自测用例）与文档更正（flushPromises 假计时器可用、无 `@` 别名、被隐藏的插槽警告、7 处历史测试数字）；前端测试 74→76 文件。
 - `2026-10-09` (task `test-config-isolation`): 后端测试会话隔离配置来源：`CONFIG_FILE` 重定向到会话临时根（不存在的文件），`_ENV_OVERRIDE_MAP` 中除强制三项外的 `CRF_*` 变量一律清除，密钥改为每次会话无条件随机；新增两条守卫（路径 / 环境变量，失败只列名不显值），删除按名导入 `CONFIG_FILE` 的陷阱；生产代码零改动（后端 1040→1042）。

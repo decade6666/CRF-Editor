@@ -1,4 +1,5 @@
 """Visit 模型"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 class Visit(Base):
     """访视模型"""
+
     __tablename__ = "visit"
     __table_args__ = (
         UniqueConstraint("project_id", "sequence"),
@@ -25,10 +27,7 @@ class Visit(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("project.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -37,6 +36,5 @@ class Visit(Base):
 
     # 通过中间表访问表单（多对多关系）
     visit_forms: Mapped[List["VisitForm"]] = relationship(
-        cascade="all, delete-orphan",
-        foreign_keys="VisitForm.visit_id"
+        cascade="all, delete-orphan", foreign_keys="VisitForm.visit_id"
     )

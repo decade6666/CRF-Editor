@@ -1,4 +1,5 @@
 """FormField 模型 - 表单字段实例"""
+
 from typing import TYPE_CHECKING, Optional
 from datetime import datetime
 
@@ -15,21 +16,16 @@ if TYPE_CHECKING:
 
 class FormField(Base):
     """表单字段实例模型 - 表单与字段库的关联"""
+
     __tablename__ = "form_field"
     # 日志行的 field_definition_id 为 null，不参与唯一约束
-    __table_args__ = (
-        UniqueConstraint("form_id", "field_definition_id", name="uq_form_field"),
-    )
+    __table_args__ = (UniqueConstraint("form_id", "field_definition_id", name="uq_form_field"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    form_id: Mapped[int] = mapped_column(
-        ForeignKey("form.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    form_id: Mapped[int] = mapped_column(ForeignKey("form.id", ondelete="CASCADE"), nullable=False)
     # 日志行不关联字段定义，此字段可为 null
     field_definition_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("field_definition.id", ondelete="CASCADE"),
-        nullable=True
+        ForeignKey("field_definition.id", ondelete="CASCADE"), nullable=True
     )
 
     # 日志行标记：1 表示此行为日志行分隔符，不关联字段定义
@@ -37,7 +33,6 @@ class FormField(Base):
 
     # 表单内排序
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-
 
     # 表单级覆盖属性
     required: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -61,16 +56,9 @@ class FormField(Base):
     label_font_size: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
 
     # 时间戳
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now()
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
     # 关系

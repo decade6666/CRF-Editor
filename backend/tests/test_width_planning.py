@@ -6,6 +6,7 @@
 - P5. 排序稳定性不变式
 - P6. 幂等性不变式
 """
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -185,14 +186,14 @@ class TestPlanWidth:
         assert plan.column_count == 3
         # 每列应该接近 1/3
         for f in plan.normalized_fractions:
-            assert abs(f - 1/3) < 0.01
+            assert abs(f - 1 / 3) < 0.01
 
     def test_unequal_demands_produce_proportional_fractions(self):
         """不等权需求产生比例分配"""
         demands = [
             ColumnDemand("col_0", 20, 1),  # 50%
             ColumnDemand("col_1", 12, 1),  # 30%
-            ColumnDemand("col_2", 8, 1),   # 20%
+            ColumnDemand("col_2", 8, 1),  # 20%
         ]
         plan = plan_width(demands, 100)
         assert plan.column_count == 3
@@ -215,7 +216,7 @@ class TestPlanWidth:
         """回退后比例保持（P2 不变式）"""
         demands = [
             ColumnDemand("col_0", 100, 1),  # 大需求
-            ColumnDemand("col_1", 50, 1),   # 小需求
+            ColumnDemand("col_1", 50, 1),  # 小需求
         ]
         plan = plan_width(demands, 75)  # 总需求 150，预算 75
         # 回退后，列 0 仍然应该比列 1 宽
@@ -300,9 +301,7 @@ class TestPlanUnifiedTableWidth:
     def test_scale_to_fit_preserves_relative_order(self):
         """P4：超预算缩放后较高需求列仍不窄于较低需求列"""
         segments = [
-            ("inline_block",
-             ["短", "这是一个非常非常非常长的中文标签"],
-             [[None, None]]),
+            ("inline_block", ["短", "这是一个非常非常非常长的中文标签"], [[None, None]]),
         ]
         widths = plan_unified_table_width(segments, 5.0, column_count=2)
         assert len(widths) == 2
@@ -327,9 +326,7 @@ class TestPlanUnifiedTableWidth:
         block_demands = [
             [("短", 4.0), ("长语义需求", 20.0)],
         ]
-        widths = plan_unified_table_width(
-            segments, 23.36, column_count=2, block_demands=block_demands
-        )
+        widths = plan_unified_table_width(segments, 23.36, column_count=2, block_demands=block_demands)
         assert len(widths) == 2
         assert widths[1] > widths[0]
 
@@ -354,9 +351,7 @@ class TestPlanUnifiedTableWidth:
         widths_basic = plan_inline_table_width(headers, row_values, 20.0)
         # 带语义需求（第二列更重）
         semantic = [("短", 4.0), ("长选项需求", 20.0)]
-        widths_semantic = plan_inline_table_width(
-            headers, row_values, 20.0, semantic_demands=semantic
-        )
+        widths_semantic = plan_inline_table_width(headers, row_values, 20.0, semantic_demands=semantic)
         # 语义需求应使第二列更宽
         assert widths_semantic[1] > widths_semantic[0]
 
@@ -395,6 +390,7 @@ class TestIdempotence:
 # ---------------------------------------------------------------------------
 # Hypothesis 属性测试
 # ---------------------------------------------------------------------------
+
 
 @given(
     labels=st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=6),
@@ -483,9 +479,13 @@ class TestBuildNormalTableDemands:
 
     def test_returns_two_demands(self):
         """11.1 任意非空输入返回恰好 2 个 ColumnDemand。"""
-        fields = [_stub_from_dict({
-            "field_definition": {"field_type": "文本", "label": "姓名"},
-        })]
+        fields = [
+            _stub_from_dict(
+                {
+                    "field_definition": {"field_type": "文本", "label": "姓名"},
+                }
+            )
+        ]
         demands = build_normal_table_demands(fields)
         assert len(demands) == 2
         assert demands[0].column_key == "label"
@@ -496,10 +496,12 @@ class TestBuildNormalTableDemands:
         # 仅结构字段 → 退回最小保护
         only_structural = [
             _stub_from_dict({"field_definition": {"field_type": "标签", "label": "章节"}}),
-            _stub_from_dict({
-                "is_log_row": 1,
-                "field_definition": {"field_type": "文本", "label": "log"},
-            }),
+            _stub_from_dict(
+                {
+                    "is_log_row": 1,
+                    "field_definition": {"field_type": "文本", "label": "log"},
+                }
+            ),
             _stub_from_dict({"field_definition": {"field_type": "日志行", "label": "日志"}}),
         ]
         demands = build_normal_table_demands(only_structural)
@@ -508,17 +510,25 @@ class TestBuildNormalTableDemands:
         assert demands[1].intrinsic_weight == min_w
 
         # 混合：结构字段被剔除，只有非结构字段贡献权重
-        mixed = only_structural + [_stub_from_dict({
-            "field_definition": {"field_type": "文本", "label": "这是一个较长的中文标签"},
-        })]
+        mixed = only_structural + [
+            _stub_from_dict(
+                {
+                    "field_definition": {"field_type": "文本", "label": "这是一个较长的中文标签"},
+                }
+            )
+        ]
         demands_mixed = build_normal_table_demands(mixed)
         assert demands_mixed[0].intrinsic_weight > min_w
 
     def test_applies_min_protection(self):
         """11.3 空 label / 极短 label → 权重不低于 WEIGHT_ASCII * 4。"""
-        empty_fields = [_stub_from_dict({
-            "field_definition": {"field_type": "文本", "label": ""},
-        })]
+        empty_fields = [
+            _stub_from_dict(
+                {
+                    "field_definition": {"field_type": "文本", "label": ""},
+                }
+            )
+        ]
         demands = build_normal_table_demands(empty_fields)
         assert demands[0].intrinsic_weight >= WEIGHT_ASCII * 4
         assert demands[1].intrinsic_weight >= WEIGHT_ASCII * 4
@@ -546,10 +556,12 @@ class TestPlanUnifiedTableWidthFixtures:
                 elif segment["type"] == "regular_field" and fields:
                     field = fields[0]
                     label = field.label_override or field.field_definition.label or ""
-                    regular_field_demands.append({
-                        "label_weight": compute_text_weight(label),
-                        "control_weight": build_field_control_weight(field),
-                    })
+                    regular_field_demands.append(
+                        {
+                            "label_weight": compute_text_weight(label),
+                            "control_weight": build_field_control_weight(field),
+                        }
+                    )
 
             widths = plan_unified_table_width(
                 segments,
@@ -585,9 +597,7 @@ class TestPlanNormalTableWidth:
 
     def test_matches_frontend_fractions(self):
         """11.5 跨栈 fixture 验证：后端归一化结果与前端一致（≤ 1e-6）。"""
-        fixture_path = (
-            Path(__file__).parent / "fixtures" / "planner_cases.json"
-        )
+        fixture_path = Path(__file__).parent / "fixtures" / "planner_cases.json"
         data = json.loads(fixture_path.read_text(encoding="utf-8"))
         normal_cases = [c for c in data["cases"] if c["kind"] == "normal"]
         assert len(normal_cases) >= 2, "至少需要 2 个 normal fixture 用例"
@@ -600,9 +610,7 @@ class TestPlanNormalTableWidth:
             total = sum(widths) or 1.0
             actual = [w / total for w in widths]
             for i, (a, e) in enumerate(zip(actual, expected)):
-                assert abs(a - e) < 1e-6, (
-                    f"{case['name']} col{i}: backend={a} frontend={e}"
-                )
+                assert abs(a - e) < 1e-6, f"{case['name']} col{i}: backend={a} frontend={e}"
 
 
 class TestCjkExtensionRanges:
@@ -618,19 +626,32 @@ class TestCjkExtensionRanges:
     @pytest.mark.parametrize(
         "code_point",
         [
-            0x2A700, 0x2A800, 0x2A900, 0x2AA00, 0x2AB00,  # 扩展 C
-            0x2B740, 0x2B800,                              # 扩展 D
-            0x2B820, 0x2C000, 0x2C500, 0x2CEAF,            # 扩展 E
-            0x2CEB0, 0x2D000, 0x2E000, 0x2EBEF,            # 扩展 F
-            0x2EBF0, 0x2ED00, 0x2EE5F,                     # 扩展 I
-            0x30000, 0x31000, 0x3134F,                     # 扩展 G
+            0x2A700,
+            0x2A800,
+            0x2A900,
+            0x2AA00,
+            0x2AB00,  # 扩展 C
+            0x2B740,
+            0x2B800,  # 扩展 D
+            0x2B820,
+            0x2C000,
+            0x2C500,
+            0x2CEAF,  # 扩展 E
+            0x2CEB0,
+            0x2D000,
+            0x2E000,
+            0x2EBEF,  # 扩展 F
+            0x2EBF0,
+            0x2ED00,
+            0x2EE5F,  # 扩展 I
+            0x30000,
+            0x31000,
+            0x3134F,  # 扩展 G
         ],
     )
     def test_compute_char_weight_extensions_c_through_h(self, code_point):
         """11.7 扩展 C / D / E / F / G / I 区间抽样权重 = 2。"""
-        assert compute_char_weight(chr(code_point)) == WEIGHT_CHINESE, (
-            f"U+{code_point:05X} 应为 CJK 权重 2"
-        )
+        assert compute_char_weight(chr(code_point)) == WEIGHT_CHINESE, f"U+{code_point:05X} 应为 CJK 权重 2"
 
     @pytest.mark.parametrize(
         "code_point",
@@ -666,9 +687,11 @@ class TestInlineHeaderFloor:
         """
         from src.services.width_planning import FILL_LINE_WEIGHT
 
-        ff = _stub_from_dict({
-            "field_definition": {"field_type": "文本", "label": "未查"},
-        })
+        ff = _stub_from_dict(
+            {
+                "field_definition": {"field_type": "文本", "label": "未查"},
+            }
+        )
         demands = build_inline_column_demands([ff])
         assert len(demands) == 1
         label, weight = demands[0]
@@ -684,9 +707,11 @@ class TestInlineHeaderFloor:
 
         labels = ["项目", "单位", "未查", "结果"]
         for label in labels:
-            ff = _stub_from_dict({
-                "field_definition": {"field_type": "文本", "label": label},
-            })
+            ff = _stub_from_dict(
+                {
+                    "field_definition": {"field_type": "文本", "label": label},
+                }
+            )
             demands = build_inline_column_demands([ff])
             _, weight = demands[0]
             assert weight > FILL_LINE_WEIGHT, (
@@ -702,18 +727,19 @@ class TestInlineHeaderFloor:
         """
         fields = [
             _stub_from_dict({"field_definition": {"field_type": "文本", "label": "未查"}}),
-            _stub_from_dict({
-                "field_definition": {
-                    "field_type": "文本",
-                    "label": "异常有临床意义请详细说明本次检查的具体表现与判读依据",
-                },
-            }),
+            _stub_from_dict(
+                {
+                    "field_definition": {
+                        "field_type": "文本",
+                        "label": "异常有临床意义请详细说明本次检查的具体表现与判读依据",
+                    },
+                }
+            ),
         ]
         demands = build_inline_column_demands(fields)
         weights = [w for _, w in demands]
         total = sum(weights)
         short_fraction = weights[0] / total
         assert short_fraction >= 0.12, (
-            f"短表头 '未查' fraction={short_fraction:.4f} < 0.12 阈值，"
-            f"长邻居稀释导致换行（weights={weights}）"
+            f"短表头 '未查' fraction={short_fraction:.4f} < 0.12 阈值，长邻居稀释导致换行（weights={weights}）"
         )

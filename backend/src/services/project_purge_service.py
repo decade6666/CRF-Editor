@@ -3,6 +3,7 @@
 Logo 文件不在这里删：purge_project 只返回 Logo 相对文件名，调用方在数据库
 提交成功后经 logo_storage_service.delete_file(PROJECT_NAMESPACE, ...) 清理。
 """
+
 from __future__ import annotations
 
 from typing import Optional
