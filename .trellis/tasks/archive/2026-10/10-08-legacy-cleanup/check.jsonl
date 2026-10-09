@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "reviewer verifies zero-reference evidence for every deletion"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "reviewer verifies frontend tests still pass after perf file removal"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "reviewer checks commit hygiene and docs-sync expectations"}
