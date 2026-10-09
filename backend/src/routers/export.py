@@ -29,11 +29,12 @@ router = APIRouter(tags=["export"])
 
 
 def _remove_temp_file(path: str) -> None:
-    """删除导出临时文件，失败不影响响应。"""
+    """删除导出临时文件；失败仅记 warning，不抛给调用方。"""
     try:
         os.unlink(path)
-    except OSError:
-        pass
+    except OSError as exc:
+        # 静默吞错被明令禁止：残留临时文件必须留痕（见 coding-style 错误处理约定）
+        logger.warning("删除导出临时文件失败 %s: %s", path, exc)
 
 
 @router.post("/projects/{project_id}/export/word")

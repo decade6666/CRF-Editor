@@ -4,17 +4,23 @@ ExportError 必须原样透出：HTTP 400 + 具体 detail + code，
 而不是被吞成 500「导出失败，请稍后重试或联系管理员」；
 失败时路由创建的临时 .docx 必须删除。
 """
+import logging
 import os
 import tempfile
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from helpers import auth_headers, login_as
 from main import app
 from src.database import get_read_session
+from src.routers.export import _remove_temp_file
 from src.models.field_definition import FieldDefinition
 from src.models.form import Form
 from src.models.form_field import FormField
@@ -25,10 +31,10 @@ from src.models.visit_form import VisitForm
 
 
 @pytest.fixture(autouse=True)
-def _override_read_session(engine):
+def _override_read_session(engine: Engine) -> Iterator[None]:
     """导出路由依赖 get_read_session；共享 client 夹具未覆盖它，这里补上内存引擎。"""
 
-    def _override():
+    def _override() -> Iterator[Session]:
         with Session(engine) as session:
             yield session
 
@@ -62,7 +68,7 @@ def _seed_project_with_invalid_annotation_positions(session: Session, owner_id: 
 
 def test_export_word_returns_specific_error_and_removes_temp_file(
     client: TestClient,
-    engine,
+    engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = login_as(client, "alice")
@@ -74,7 +80,7 @@ def test_export_word_returns_specific_error_and_removes_temp_file(
     created: list[str] = []
     real_named_temporary_file = tempfile.NamedTemporaryFile
 
-    def _spy_named_temporary_file(*args, **kwargs):
+    def _spy_named_temporary_file(*args: Any, **kwargs: Any) -> Any:
         handle = real_named_temporary_file(*args, **kwargs)
         created.append(handle.name)
         return handle
@@ -97,3 +103,23 @@ def test_export_word_returns_specific_error_and_removes_temp_file(
     assert body["code"] == "EXPORT_DATA_INCOMPATIBLE"
     assert "annotation_positions" in body["detail"]
     assert body["detail"] != "导出失败，请稍后重试或联系管理员"
+
+
+def test_remove_temp_file_logs_warning_instead_of_swallowing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """临时文件删除失败必须留痕（项目规范禁止静默吞错），且不把异常抛给调用方。"""
+    target = tmp_path / "leftover.docx"
+    target.write_bytes(b"x")
+
+    def _raise_permission_error(path: str) -> None:
+        raise PermissionError("文件被占用")
+
+    monkeypatch.setattr(os, "unlink", _raise_permission_error)
+
+    with caplog.at_level(logging.WARNING, logger="src.routers.export"):
+        _remove_temp_file(str(target))  # 不应抛出
+
+    assert any("删除导出临时文件失败" in record.getMessage() for record in caplog.records)
