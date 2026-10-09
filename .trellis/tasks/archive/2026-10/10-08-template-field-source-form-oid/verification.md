@@ -237,9 +237,9 @@ login form; all app and template data belonged to the isolated temporary fixture
   `design.md:42` / `implement.md:57` — independently reproduced on baseline and left
   untouched per the user's only-this-task authorization.
 - Completed at this point: separate code/spec commits; main-in-task integration +
-  reverification; the post-integration browser spot check (below). PENDING (not claimed
-  complete): the actual local merge into `main`, task archive, journal, and own-task
-  worktree/branch cleanup.
+  reverification; the post-integration browser spot check (below). Pending at that
+  checkpoint (later progress is recorded in the Status summary): the actual local merge
+  into `main`, task archive, journal, and own-task worktree/branch cleanup.
 
 **Post-integration browser spot check (lead-executed, passed)**: the isolated port-8921 app
 served the actual production build (`/assets/index-bv4nI0Qf.js`, matching
@@ -269,7 +269,24 @@ browser validation and the final-build DM check passed. Lead cross-layer review,
 remaining defects. Implementation acceptance criteria AC1–AC7 are satisfied within the
 explicitly recorded verification scope. Separate code/Trellis commits and the main-in-task
 integration + reverification at HEAD `078aaa1` are complete (see Integration signoff).
-Still pending: the actual local merge into `main`, task archive, journal, and own-task
-worktree/branch cleanup (authorized, not yet performed). Remote push/deployment is not
-authorized or performed; the lead's post-integration browser spot check passed and is
-recorded in the Integration signoff section.
+The actual local merge into `main` completed via `git merge --ff-only
+worktree-template-field-source-form-oid`: main advanced from `4c420a3` to `1bef604`.
+The original checkout's four initial planning-stub files were inspected and preserved at
+`/tmp/tfs-git-close.dhXrZN5d/initial-task-stub` before the merge. Other pending tasks and
+`backend/backend.log` were left untouched. While the Bash safety classifier was
+rate-limited, other sessions merged the pre-commit gate and test-isolation tasks, advancing
+main to `6580fc9` (all four task commits included). On 2026-10-09 the task branch was
+fast-forwarded to `6580fc9` before archiving, so the archive commit runs the new
+`.githooks/pre-commit`. `git diff --stat 1bef604 6580fc9 -- frontend backend/src` is empty,
+so the frontend results above (74 / 790, lint, build) still apply unchanged. Because the
+merged tasks changed backend test infrastructure (`conftest.py` session isolation), the
+backend suites were rerun on `6580fc9` with the venv, proxies unset, and background jobs
+disabled: targeted `tests/test_template_field_index.py` 18 passed (1.41 s) and full suite
+1030 passed + 4 xfailed (58.42 s), both exit 0; logs in `/tmp/tfs-final-main-20261009/`.
+This record is committed together with the task archive move as a standalone Trellis
+commit; the follow-up main fast-forward, ignored local journal, and own-task
+worktree/branch cleanup happen after that commit and are reported in the final session
+summary rather than here. Remote push/deployment is not
+authorized or performed. Main-checkout `frontend/dist` was not rebuilt or synchronized;
+the passing build/browser evidence is from the isolated worktree. The post-integration
+browser spot check is recorded in the Integration signoff section.

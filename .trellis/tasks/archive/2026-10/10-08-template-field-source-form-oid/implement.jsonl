@@ -1,5 +1,5 @@
 {"file":".trellis/spec/backend/database-guidelines.md","reason":"Read-only template access, raw optional-column probes, no template migrations"}
-{"file":".trellis/tasks/10-08-template-field-source-form-oid/research/planning-evidence.md","reason":"Verified source/legacy facts and narrow component-contract pointers; avoids oversized spec injection"}
+{"file":".trellis/tasks/archive/2026-10/10-08-template-field-source-form-oid/research/planning-evidence.md","reason":"Verified source/legacy facts and narrow component-contract pointers; avoids oversized spec injection"}
 {"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Reuse shared ranking and useApi rather than duplicating matching or request logic"}
 {"file":".context/prefs/coding-style.md","reason":"Small scoped changes, immutable inputs, typed Python functions"}
 {"file":".context/prefs/workflow.md","reason":"RED/GREEN tests, documentation sync and decision logging"}
