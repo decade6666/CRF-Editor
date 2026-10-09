@@ -16,16 +16,16 @@
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (14)"];
-    B --> B2["src/services (26)"];
+    B --> B2["src/services (27)"];
     B --> B3["src/models (11)"];
     B --> B4["src/schemas (9)"];
     B --> B5["src/repositories (5)"];
-    B --> B6["tests (69)"];
+    B --> B6["tests (70)"];
     A --> C["frontend"];
     C --> C1["src/components (16)"];
-    C --> C2["src/composables (32)"];
+    C --> C2["src/composables (33)"];
     C --> C3["src/styles"];
-    C --> C4["tests (76)"];
+    C --> C4["tests (78)"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,14 +35,15 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (69 files, including 67 `test_*.py`) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (76 files: 69 node:test `.test.js` + `testProperty.js` + 6 vitest mount-test files under `tests/component/` — 4 `.spec.js` + `setup.js` + `vueWarnGate.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, reference-aware delete guards, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (71 files, including 69 `test_*.py`) |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, reference-aware delete gating, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (78 files: 71 node:test `.test.js` + `testProperty.js` + 6 vitest mount-test files under `tests/component/` — 4 `.spec.js` + `setup.js` + `vueWarnGate.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
 ## Core Capabilities
 - Management of projects, visits, forms, fields, units, and option dictionaries; the codelist-free single checkbox field (`复选`) has an optional field-definition `checkbox_label` and falls back to the default character `✔` when empty
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
+- Reference-aware deletion for 字典 / 单位 / 字段 / 表单: a single delete with any reference opens a 「无法删除」 alert listing the references (no confirm, no request) and a clear one gets a single confirm; batch deletes are partitioned in one grouped dialog that deletes only the unreferenced part (dictionary/unit checks include library-only unplaced fields via `?include_unplaced=true`; backend 409 guards stay as the concurrency net)
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Admin recycle bin with estimated-size display, configurable age/size auto-cleanup policy, preview-before-save dry-run, and an in-process background cleanup loop
 - Admin workspace with top-level 用户管理 / 机构管理 dual entries; org presets are maintained in-page (persistent list + right editor, stacked on narrow screens) with immediate Logo thumbnails and built-in click-to-zoom preview
@@ -116,6 +117,7 @@ sudo bash deploy/install-service.sh uninstall
 - Recycle-bin cleanup contract: backend `backend/src/config.py`, `backend/src/routers/admin.py`, `backend/src/services/project_size_service.py`, `backend/src/services/recycle_bin_cleanup_service.py`, `backend/src/background_jobs.py` and frontend `frontend/src/components/AdminView.vue`, `frontend/src/composables/byteSize.js` must evolve together. Shared canonical unit values are `day/month/year` and `MB/GB`; `month=30` days, `year=365` days. Response field `estimated_size_bytes` is an estimate, not the real SQLite-file delta, and the frontend must keep the estimate labeling/help text. See `.trellis/spec/guides/cross-stack-contracts.md` §11.
 - Date/time format options: `frontend/src/composables/dateFormatOptions.js` is the single option-list source for `FieldsTab.vue` / `FormDesignerTab.vue`; backend `database.py` `_DATE_FORMAT_CANONICALS` mirrors it (contract test parses the JS file), `field_rendering.py` `render_date_time_placeholder` and `useCRFRenderer.js` `renderCtrl` must produce identical placeholder text for every format (hour-only 日期时间 `yyyy-MM-dd HH` / 时间 `HH` / `hh AP` included), and `docx_import_service.py` `_detect_field_type` recognizes the exported hour-only placeholders strictly. 12-hour `  AP` is preview-only (accepted gap); see `.trellis/spec/guides/cross-stack-contracts.md` §13.
 - Template field search contract: backend `backend/src/routers/template_fields.py` + `backend/src/services/template_field_index_service.py` and frontend `frontend/src/composables/templateFieldSearch.js` + `frontend/src/components/TemplateFieldSearchDialog.vue` must evolve together (entry shape incl. `sources[].form_code: string | null` with read-only `form.code` probing, exclusion/merge rules, field/form-OID four-group search ranking, inline source display, click-to-copy semantics). See `.trellis/spec/guides/cross-stack-contracts.md` §12.
+- Reference-aware delete contract: backend `backend/src/services/field_definition_reference_service.py` + `backend/src/routers/codelists.py` / `units.py` (opt-in `include_unplaced` on the four codelist/unit reference endpoints; default responses stay placed-only for edit-impact prompts) and frontend `frontend/src/composables/referenceDeleteGuard.js` + the 8 delete handlers in `CodelistsTab.vue` / `UnitsTab.vue` / `FieldsTab.vue` / `FormDesignerTab.vue` must evolve together: reference-query scope == delete-guard scope for all four entities (dictionary/unit include library-only unplaced fields only under the flag), single delete blocks with a reference list on any reference, batch deletes partition blocked-notice vs deletable-confirm and post only approved ids (backend batch-delete stays all-or-nothing 409 as the race net); reference endpoints require project ownership before the resource query. See `.trellis/spec/guides/cross-stack-contracts.md` §14.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, and other cases.
@@ -151,6 +153,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-09` (task `reference-delete-guard`): Reference-aware delete gating for 字典/单位/字段/表单 — single delete blocked with a reference list on any reference (dictionary/unit checks include library-only unplaced fields via `include_unplaced=true`; codelist references endpoint now enforces project ownership first), batch deletes partitioned in one grouped dialog that deletes only the unreferenced part with a partial-success toast; new `backend/src/services/field_definition_reference_service.py` + `tests/test_reference_delete_contract.py`, new `frontend/src/composables/referenceDeleteGuard.js` + `referenceDeleteGuard.test.js` / `referenceDeleteWiring.test.js` (backend services 26→27 / tests 69→70; frontend composables 32→33 / node:test files 69→71). Cross-stack contract §14; details in `.context/history/archives/claudemd-changelog.md`.
 - `2026-10-09` (task `frontend-mount-tests` 合入后复审跟进): 挂载测试 Vue 警告门禁（警告即失败，双通道收集 + 自测用例）与文档更正（flushPromises 假计时器可用、无 `@` 别名、被隐藏的插槽警告、7 处历史测试数字）；前端测试 74→76 文件。
 - `2026-10-09` (task `test-config-isolation`): 后端测试会话隔离配置来源：`CONFIG_FILE` 重定向到会话临时根（不存在的文件），`_ENV_OVERRIDE_MAP` 中除强制三项外的 `CRF_*` 变量一律清除，密钥改为每次会话无条件随机；新增两条守卫（路径 / 环境变量，失败只列名不显值），删除按名导入 `CONFIG_FILE` 的陷阱；生产代码零改动（后端 1040→1042）。
 - `2026-10-09` (task `frontend-mount-tests`): 引入 vitest + @vue/test-utils + happy-dom 组件挂载测试（`tests/component/*.spec.js`，与 node --test 套件互不相交），npm `test` / `test:component` 脚本与三个种子 spec 文件（9 用例）。
