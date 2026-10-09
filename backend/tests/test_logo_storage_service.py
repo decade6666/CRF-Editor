@@ -1,4 +1,5 @@
 """共用 Logo 存储服务：位图矩阵、有界读取、路径防护、补偿式文件操作。"""
+
 import io
 
 import pytest
@@ -22,9 +23,7 @@ def upload_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _patch_config(upload_dir, monkeypatch):
-    monkeypatch.setattr(
-        svc, "get_config", lambda: SimpleNamespace(upload_path=str(upload_dir))
-    )
+    monkeypatch.setattr(svc, "get_config", lambda: SimpleNamespace(upload_path=str(upload_dir)))
 
 
 def _upload_file(content: bytes):
@@ -32,6 +31,7 @@ def _upload_file(content: bytes):
 
 
 # ---- validate_bitmap 位图矩阵 ----
+
 
 @pytest.mark.parametrize(
     "name,content,expected_ext",
@@ -71,6 +71,7 @@ def test_validate_bitmap_rejects_oversize():
 
 # ---- read_bounded_upload ----
 
+
 def test_read_bounded_upload_accepts_within_limit():
     content = svc.read_bounded_upload(_upload_file(PNG))
     assert content == PNG
@@ -83,6 +84,7 @@ def test_read_bounded_upload_rejects_over_limit():
 
 
 # ---- safe_resolve 路径防护 ----
+
 
 def test_safe_resolve_accepts_plain_relative_name():
     assert svc.safe_resolve("logos", "abc.png") == svc.namespace_dir("logos") / "abc.png"
@@ -98,6 +100,7 @@ def test_safe_resolve_rejects_unsafe_paths(bad):
 
 
 # ---- prepare_new_file / delete_file / read_safe ----
+
 
 def test_prepare_new_file_writes_unique_uuid_file(upload_dir):
     rel = svc.prepare_new_file("logos", PNG, "png")

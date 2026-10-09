@@ -1,4 +1,5 @@
 """机构预设路由：管理员 CRUD + 普通用户只读候选与 Logo。"""
+
 import json
 from typing import List, Optional
 

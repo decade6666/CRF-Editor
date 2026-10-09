@@ -42,9 +42,7 @@ def test_drop_codelist_option_trailing_underscore_from_legacy_table(tmp_path: Pa
     columns = {column["name"] for column in inspect(engine).get_columns("codelist_option")}
     assert "trailing_underscore" not in columns
     with engine.connect() as db:
-        row = db.execute(
-            text("SELECT code, decode, order_index FROM codelist_option WHERE id = 1")
-        ).one()
+        row = db.execute(text("SELECT code, decode, order_index FROM codelist_option WHERE id = 1")).one()
     assert row == ("C.1", "选项A", 1)
 
 
@@ -59,9 +57,7 @@ def test_drop_codelist_option_trailing_underscore_is_safe_for_current_schema(tmp
     assert "trailing_underscore" not in columns
 
 
-def _legacy_db_with_trailing_column(
-    tmp_path: Path, ddl: str
-) -> tuple[Path, str]:
+def _legacy_db_with_trailing_column(tmp_path: Path, ddl: str) -> tuple[Path, str]:
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute(ddl)
@@ -74,9 +70,7 @@ def _legacy_db_with_trailing_column(
     return db_path, f"sqlite+pysqlite:///{db_path.as_posix()}"
 
 
-def test_drop_falls_back_to_table_rebuild_when_drop_column_unsupported(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_drop_falls_back_to_table_rebuild_when_drop_column_unsupported(monkeypatch, tmp_path: Path) -> None:
     db_path, url = _legacy_db_with_trailing_column(
         tmp_path,
         """
@@ -106,13 +100,8 @@ def test_drop_falls_back_to_table_rebuild_when_drop_column_unsupported(
     columns = {column["name"] for column in inspect(engine).get_columns("codelist_option")}
     assert "trailing_underscore" not in columns
     with engine.connect() as db:
-        row = db.execute(
-            text("SELECT code, decode, order_index FROM codelist_option WHERE id = 1")
-        ).one()
-        indexes = {
-            index_row[1]
-            for index_row in db.execute(text("PRAGMA index_list('codelist_option')"))
-        }
+        row = db.execute(text("SELECT code, decode, order_index FROM codelist_option WHERE id = 1")).one()
+        indexes = {index_row[1] for index_row in db.execute(text("PRAGMA index_list('codelist_option')"))}
     assert row == ("C.1", "选项A", 1)
     assert "idx_codelist_option_order" in indexes
 

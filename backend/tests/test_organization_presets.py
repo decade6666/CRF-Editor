@@ -1,4 +1,5 @@
 """机构预设 API：管理员 CRUD、普通用户只读候选、权限、Logo、补偿事务。"""
+
 from types import SimpleNamespace
 
 import pytest
@@ -31,12 +32,11 @@ def _multipart(metadata: dict, logo_action="keep", file=None, preset_id=None):
 
 @pytest.fixture(autouse=True)
 def _patch_upload_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        storage, "get_config", lambda: SimpleNamespace(upload_path=str(tmp_path))
-    )
+    monkeypatch.setattr(storage, "get_config", lambda: SimpleNamespace(upload_path=str(tmp_path)))
 
 
 # ---- 管理员 CRUD ----
+
 
 def test_admin_creates_preset_with_unit(client):
     token = login_as(client, "admin")
@@ -61,7 +61,12 @@ def test_admin_creates_preset_trims_and_normalizes_blank_unit(client):
 def test_admin_create_duplicate_name_returns_409(client):
     token = login_as(client, "admin")
     payload, files = _multipart(_metadata("武汉知止", "单位A"))
-    assert client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)).status_code == 201
+    assert (
+        client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)
+        ).status_code
+        == 201
+    )
     payload, files = _multipart(_metadata("武汉知止", "单位B"))
     resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token))
     assert resp.status_code == 409, resp.text
@@ -71,7 +76,12 @@ def test_admin_create_duplicate_name_returns_409(client):
 def test_admin_create_duplicate_unit_returns_409_nocase(client):
     token = login_as(client, "admin")
     payload, files = _multipart(_metadata("机构一", "数据管理部"))
-    assert client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)).status_code == 201
+    assert (
+        client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)
+        ).status_code
+        == 201
+    )
     payload, files = _multipart(_metadata("机构二", "数据管理部"))
     resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token))
     assert resp.status_code == 409, resp.text
@@ -82,7 +92,12 @@ def test_admin_list_sorted_by_name_nocase(client):
     token = login_as(client, "admin")
     for name, unit in [("Beta", "B"), ("alpha", "A"), ("Gamma", "G")]:
         payload, files = _multipart(_metadata(name, unit))
-        assert client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)).status_code == 201
+        assert (
+            client.post(
+                "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)
+            ).status_code
+            == 201
+        )
     resp = client.get("/api/admin/organization-presets", headers=auth_headers(token))
     assert resp.status_code == 200
     assert [p["name"] for p in resp.json()] == ["alpha", "Beta", "Gamma"]
@@ -91,9 +106,13 @@ def test_admin_list_sorted_by_name_nocase(client):
 def test_admin_update_preset(client):
     token = login_as(client, "admin")
     payload, files = _multipart(_metadata("旧名", "旧单位"))
-    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)).json()["id"]
+    preset_id = client.post(
+        "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)
+    ).json()["id"]
     payload, files = _multipart(_metadata("新名", "新单位"))
-    resp = client.put(f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(token))
+    resp = client.put(
+        f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(token)
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["name"] == "新名"
     assert resp.json()["data_management_unit"] == "新单位"
@@ -102,13 +121,16 @@ def test_admin_update_preset(client):
 def test_admin_delete_preset_removes_row(client):
     token = login_as(client, "admin")
     payload, files = _multipart(_metadata("待删", "单位"))
-    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)).json()["id"]
+    preset_id = client.post(
+        "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(token)
+    ).json()["id"]
     resp = client.delete(f"/api/admin/organization-presets/{preset_id}", headers=auth_headers(token))
     assert resp.status_code == 204, resp.text
     assert client.get("/api/admin/organization-presets", headers=auth_headers(token)).json() == []
 
 
 # ---- 权限 ----
+
 
 def test_presets_require_login(client):
     resp = client.get("/api/organization-presets")
@@ -139,9 +161,19 @@ def test_regular_user_candidates_hide_org_name_and_path(client):
 def test_regular_user_candidates_exclude_empty_units(client):
     admin_token = login_as(client, "admin")
     payload, files = _multipart(_metadata("有单位", "展示单位"))
-    assert client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).status_code == 201
+    assert (
+        client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+        ).status_code
+        == 201
+    )
     payload, files = _multipart(_metadata("无单位", None))
-    assert client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).status_code == 201
+    assert (
+        client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+        ).status_code
+        == 201
+    )
     user_token = login_as(client, "alice")
     items = client.get("/api/organization-presets", headers=auth_headers(user_token)).json()
     assert len(items) == 1
@@ -177,13 +209,19 @@ def test_preset_logo_upload_and_get(client, tmp_path):
 def test_preset_logo_clear_on_update(client, tmp_path):
     admin_token = login_as(client, "admin")
     payload, files = _multipart(_metadata("清Logo机构", "单位Y"), logo_action="upload", file=PNG)
-    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).json()["id"]
+    preset_id = client.post(
+        "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+    ).json()["id"]
     payload, files = _multipart(_metadata("清Logo机构", "单位Y"), logo_action="clear")
-    resp = client.put(f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(admin_token))
+    resp = client.put(
+        f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(admin_token)
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["logo_path"] is None
     user_token = login_as(client, "alice")
-    assert client.get(f"/api/organization-presets/{preset_id}/logo", headers=auth_headers(user_token)).status_code == 404
+    assert (
+        client.get(f"/api/organization-presets/{preset_id}/logo", headers=auth_headers(user_token)).status_code == 404
+    )
     # 旧文件被清理
     assert not list((tmp_path / "organization-logos").glob("*.png"))
 
@@ -199,19 +237,27 @@ def test_preset_upload_rejects_svg(client):
 def test_delete_preset_removes_logo_file(client, tmp_path):
     admin_token = login_as(client, "admin")
     payload, files = _multipart(_metadata("删Logo", "单位D"), logo_action="upload", file=PNG)
-    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).json()["id"]
-    assert client.delete(f"/api/admin/organization-presets/{preset_id}", headers=auth_headers(admin_token)).status_code == 204
+    preset_id = client.post(
+        "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+    ).json()["id"]
+    assert (
+        client.delete(f"/api/admin/organization-presets/{preset_id}", headers=auth_headers(admin_token)).status_code
+        == 204
+    )
     assert not list((tmp_path / "organization-logos").glob("*"))
 
 
 # ---- 真实路由路径的提交失败补偿（get_session 已开事务，_tx 必须显式 commit）----
+
 
 def test_preset_update_commit_failure_keeps_old_file_and_cleans_new(client, tmp_path, monkeypatch):
     from sqlalchemy.orm import SessionTransaction
 
     admin_token = login_as(client, "admin")
     payload, files = _multipart(_metadata("带Logo机构", "单位U"), logo_action="upload", file=PNG)
-    preset_id = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)).json()["id"]
+    preset_id = client.post(
+        "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+    ).json()["id"]
     old_files = list((tmp_path / "organization-logos").glob("*.png"))
     assert len(old_files) == 1
 
@@ -227,7 +273,9 @@ def test_preset_update_commit_failure_keeps_old_file_and_cleans_new(client, tmp_
     monkeypatch.setattr(SessionTransaction, "commit", _boom_once)
     try:
         payload, files = _multipart(_metadata("带Logo机构", "单位V"), logo_action="upload", file=PNG)
-        resp = client.put(f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(admin_token))
+        resp = client.put(
+            f"/api/admin/organization-presets/{preset_id}", data=payload, files=files, headers=auth_headers(admin_token)
+        )
     finally:
         monkeypatch.setattr(SessionTransaction, "commit", real_commit)
     assert resp.status_code == 500, resp.text
@@ -253,7 +301,9 @@ def test_preset_create_commit_failure_cleans_new_file(client, tmp_path, monkeypa
     monkeypatch.setattr(SessionTransaction, "commit", _boom_once)
     try:
         payload, files = _multipart(_metadata("失败机构", "单位F"), logo_action="upload", file=PNG)
-        resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token))
+        resp = client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+        )
     finally:
         monkeypatch.setattr(SessionTransaction, "commit", real_commit)
     assert resp.status_code == 500, resp.text
@@ -280,7 +330,9 @@ def test_preset_create_commit_conflict_maps_to_409(client, tmp_path, monkeypatch
     monkeypatch.setattr(SessionTransaction, "commit", _conflict_once)
     try:
         payload, files = _multipart(_metadata("冲突机构", "单位C"), logo_action="upload", file=PNG)
-        resp = client.post("/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token))
+        resp = client.post(
+            "/api/admin/organization-presets", data=payload, files=files, headers=auth_headers(admin_token)
+        )
     finally:
         monkeypatch.setattr(SessionTransaction, "commit", real_commit)
     assert resp.status_code == 409, resp.text

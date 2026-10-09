@@ -9,7 +9,6 @@ from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import Session
 
 
-
 _FORM_FIELD_CANONICAL_COLUMNS = (
     ("id", None),
     ("form_id", None),
@@ -29,13 +28,14 @@ _FORM_FIELD_CANONICAL_COLUMNS = (
     ("updated_at", "CURRENT_TIMESTAMP"),
 )
 
-_FORM_FIELD_REQUIRED_SOURCE_COLUMNS = frozenset({
-    "id",
-    "form_id",
-    "field_definition_id",
-    "order_index",
-})
-
+_FORM_FIELD_REQUIRED_SOURCE_COLUMNS = frozenset(
+    {
+        "id",
+        "form_id",
+        "field_definition_id",
+        "order_index",
+    }
+)
 
 
 from src.config import get_config, is_production_env
@@ -48,7 +48,6 @@ from src.utils import generate_code
 logger = logging.getLogger("src.database")
 
 
-
 _engine = None
 
 
@@ -57,17 +56,13 @@ def get_engine():
     global _engine
 
     if _engine is None:
-
         config = get_config()
 
         _engine = create_engine(f"sqlite:///{config.db_path}", connect_args={"check_same_thread": False})
 
-
-
         # SQLite 默认不启用外键约束，必须每次连接时手动开启；同时启用 WAL 模式提升并发性能
 
         @event.listens_for(_engine, "connect")
-
         def _configure_sqlite(dbapi_conn, connection_record):
 
             dbapi_conn.execute("PRAGMA foreign_keys = ON")
@@ -78,15 +73,10 @@ def get_engine():
 
             dbapi_conn.execute("PRAGMA synchronous=NORMAL")
 
-
     return _engine
 
 
-
-
-
 def _migrate_add_code_columns(engine):
-
     """给已有表补上 code 列（SQLite 不支持 IF NOT EXISTS，用 inspect 判断）"""
 
     insp = inspect(engine)
@@ -94,53 +84,38 @@ def _migrate_add_code_columns(engine):
     tables = ["codelist", "unit", "form", "visit"]
 
     with engine.begin() as conn:
-
         for table in tables:
-
             if not insp.has_table(table):
-
                 continue
 
             cols = [c["name"] for c in insp.get_columns(table)]
 
             if "code" not in cols:
-
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN code VARCHAR(100)'))
 
 
-
-
-
 def _migrate_drop_codelist_option_trailing_underscore(engine):
-
     """删除 codelist_option.trailing_underscore 列。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("codelist_option"):
-
         return
 
     cols = {c["name"] for c in insp.get_columns("codelist_option")}
 
     if "trailing_underscore" not in cols:
-
         return
 
     try:
-
         with engine.begin() as conn:
-
             conn.execute(text('ALTER TABLE "codelist_option" DROP COLUMN trailing_underscore'))
 
     except Exception:
-
         try:
-
             _rebuild_codelist_option_without_trailing_underscore(engine)
 
         except Exception:
-
             raise RuntimeError(
                 "无法删除 codelist_option.trailing_underscore 列：DROP COLUMN 与重建表兜底均失败。"
                 "该列若为无 server default 的 NOT NULL，后续新增选项会直接报错，请升级 SQLite（>=3.35）"
@@ -159,20 +134,19 @@ def _rebuild_codelist_option_without_trailing_underscore(engine) -> None:
     conn = engine.raw_connection()
 
     try:
-
         conn.execute("PRAGMA foreign_keys = OFF")
 
         conn.execute("BEGIN")
 
         conn.execute(
             'CREATE TABLE "codelist_option_new" ('
-            'id INTEGER NOT NULL, '
-            'codelist_id INTEGER NOT NULL, '
-            'code VARCHAR(100), '
-            'decode VARCHAR(255) NOT NULL, '
-            'order_index INTEGER, '
-            'PRIMARY KEY (id), '
-            'UNIQUE (codelist_id, code, decode), '
+            "id INTEGER NOT NULL, "
+            "codelist_id INTEGER NOT NULL, "
+            "code VARCHAR(100), "
+            "decode VARCHAR(255) NOT NULL, "
+            "order_index INTEGER, "
+            "PRIMARY KEY (id), "
+            "UNIQUE (codelist_id, code, decode), "
             'CONSTRAINT "fk_codelist_option_codelist" FOREIGN KEY(codelist_id) REFERENCES codelist (id) ON DELETE CASCADE)'
         )
 
@@ -193,15 +167,12 @@ def _rebuild_codelist_option_without_trailing_underscore(engine) -> None:
         conn.commit()
 
     except Exception:
-
         conn.rollback()
 
         raise
 
     finally:
-
         conn.close()
-
 
 
 def _migrate_add_field_definition_checkbox_label(engine):
@@ -213,363 +184,277 @@ def _migrate_add_field_definition_checkbox_label(engine):
     with engine.begin() as conn:
         columns = {column["name"] for column in insp.get_columns("field_definition")}
         if "checkbox_label" not in columns:
-            conn.execute(text(
-                'ALTER TABLE "field_definition" ADD COLUMN checkbox_label VARCHAR(255)'
-            ))
-
-
+            conn.execute(text('ALTER TABLE "field_definition" ADD COLUMN checkbox_label VARCHAR(255)'))
 
 
 def _migrate_add_order_index(engine):
-
     """给相关表补上 order_index 列并回填数据"""
 
     insp = inspect(engine)
 
     tables = ["unit", "field_definition", "form", "codelist", "codelist_option"]
 
-
-
     with engine.begin() as conn:
-
         # 1. 添加 order_index 列
 
         for table in tables:
-
             if not insp.has_table(table):
-
                 continue
 
             cols = [c["name"] for c in insp.get_columns(table)]
 
             if "order_index" not in cols:
-
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN order_index INTEGER'))
-
-
 
         # 2. 回填数据（仅回填 NULL 值，避免重置用户排序）
 
         # Unit: 按 project_id 分组
 
         if insp.has_table("unit"):
-
-            result = conn.execute(text("SELECT DISTINCT project_id FROM unit WHERE project_id IS NOT NULL AND order_index IS NULL"))
+            result = conn.execute(
+                text("SELECT DISTINCT project_id FROM unit WHERE project_id IS NOT NULL AND order_index IS NULL")
+            )
 
             for (project_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM unit WHERE project_id = :pid AND order_index IS NULL ORDER BY id"
-
-                ), {"pid": project_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM unit WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
+                    {"pid": project_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_order = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(order_index), 0) FROM unit WHERE project_id = :pid"
-
-                ), {"pid": project_id}).scalar()
+                max_order = conn.execute(
+                    text("SELECT COALESCE(MAX(order_index), 0) FROM unit WHERE project_id = :pid"), {"pid": project_id}
+                ).scalar()
 
                 for idx, (unit_id,) in enumerate(rows, start=max_order + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE unit SET order_index = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": unit_id})
-
-
+                    conn.execute(text("UPDATE unit SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": unit_id})
 
         # FieldDefinition: 按 project_id 分组
 
         if insp.has_table("field_definition"):
-
-            result = conn.execute(text("SELECT DISTINCT project_id FROM field_definition WHERE project_id IS NOT NULL AND order_index IS NULL"))
+            result = conn.execute(
+                text(
+                    "SELECT DISTINCT project_id FROM field_definition WHERE project_id IS NOT NULL AND order_index IS NULL"
+                )
+            )
 
             for (project_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM field_definition WHERE project_id = :pid AND order_index IS NULL ORDER BY id"
-
-                ), {"pid": project_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM field_definition WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
+                    {"pid": project_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_order = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(order_index), 0) FROM field_definition WHERE project_id = :pid"
-
-                ), {"pid": project_id}).scalar()
+                max_order = conn.execute(
+                    text("SELECT COALESCE(MAX(order_index), 0) FROM field_definition WHERE project_id = :pid"),
+                    {"pid": project_id},
+                ).scalar()
 
                 for idx, (fd_id,) in enumerate(rows, start=max_order + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE field_definition SET order_index = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": fd_id})
-
-
+                    conn.execute(
+                        text("UPDATE field_definition SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": fd_id}
+                    )
 
         # Form: 按 project_id 分组
 
         if insp.has_table("form"):
-
-            result = conn.execute(text("SELECT DISTINCT project_id FROM form WHERE project_id IS NOT NULL AND order_index IS NULL"))
+            result = conn.execute(
+                text("SELECT DISTINCT project_id FROM form WHERE project_id IS NOT NULL AND order_index IS NULL")
+            )
 
             for (project_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM form WHERE project_id = :pid AND order_index IS NULL ORDER BY id"
-
-                ), {"pid": project_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM form WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
+                    {"pid": project_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_order = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(order_index), 0) FROM form WHERE project_id = :pid"
-
-                ), {"pid": project_id}).scalar()
+                max_order = conn.execute(
+                    text("SELECT COALESCE(MAX(order_index), 0) FROM form WHERE project_id = :pid"), {"pid": project_id}
+                ).scalar()
 
                 for idx, (form_id,) in enumerate(rows, start=max_order + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE form SET order_index = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": form_id})
-
-
+                    conn.execute(text("UPDATE form SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": form_id})
 
         # CodeList: 按 project_id 分组
 
         if insp.has_table("codelist"):
-
-            result = conn.execute(text("SELECT DISTINCT project_id FROM codelist WHERE project_id IS NOT NULL AND order_index IS NULL"))
+            result = conn.execute(
+                text("SELECT DISTINCT project_id FROM codelist WHERE project_id IS NOT NULL AND order_index IS NULL")
+            )
 
             for (project_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM codelist WHERE project_id = :pid AND order_index IS NULL ORDER BY id"
-
-                ), {"pid": project_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM codelist WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
+                    {"pid": project_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_order = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(order_index), 0) FROM codelist WHERE project_id = :pid"
-
-                ), {"pid": project_id}).scalar()
+                max_order = conn.execute(
+                    text("SELECT COALESCE(MAX(order_index), 0) FROM codelist WHERE project_id = :pid"),
+                    {"pid": project_id},
+                ).scalar()
 
                 for idx, (cl_id,) in enumerate(rows, start=max_order + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE codelist SET order_index = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": cl_id})
-
-
+                    conn.execute(
+                        text("UPDATE codelist SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": cl_id}
+                    )
 
         # CodeListOption: 按 codelist_id 分组
 
         if insp.has_table("codelist_option"):
-
-            result = conn.execute(text("SELECT DISTINCT codelist_id FROM codelist_option WHERE codelist_id IS NOT NULL AND order_index IS NULL"))
+            result = conn.execute(
+                text(
+                    "SELECT DISTINCT codelist_id FROM codelist_option WHERE codelist_id IS NOT NULL AND order_index IS NULL"
+                )
+            )
 
             for (codelist_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM codelist_option WHERE codelist_id = :cid AND order_index IS NULL ORDER BY id"
-
-                ), {"cid": codelist_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM codelist_option WHERE codelist_id = :cid AND order_index IS NULL ORDER BY id"),
+                    {"cid": codelist_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_order = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(order_index), 0) FROM codelist_option WHERE codelist_id = :cid"
-
-                ), {"cid": codelist_id}).scalar()
+                max_order = conn.execute(
+                    text("SELECT COALESCE(MAX(order_index), 0) FROM codelist_option WHERE codelist_id = :cid"),
+                    {"cid": codelist_id},
+                ).scalar()
 
                 for idx, (opt_id,) in enumerate(rows, start=max_order + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE codelist_option SET order_index = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": opt_id})
-
-
+                    conn.execute(
+                        text("UPDATE codelist_option SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": opt_id}
+                    )
 
         # Visit: 仅回填 sequence IS NULL 的记录
 
         if insp.has_table("visit"):
-
-            result = conn.execute(text("SELECT DISTINCT project_id FROM visit WHERE project_id IS NOT NULL AND sequence IS NULL"))
+            result = conn.execute(
+                text("SELECT DISTINCT project_id FROM visit WHERE project_id IS NOT NULL AND sequence IS NULL")
+            )
 
             for (project_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM visit WHERE project_id = :pid AND sequence IS NULL ORDER BY id"
-
-                ), {"pid": project_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM visit WHERE project_id = :pid AND sequence IS NULL ORDER BY id"),
+                    {"pid": project_id},
+                ).fetchall()
 
                 if not rows:
-
                     continue
 
-                max_seq = conn.execute(text(
-
-                    "SELECT COALESCE(MAX(sequence), 0) FROM visit WHERE project_id = :pid"
-
-                ), {"pid": project_id}).scalar()
+                max_seq = conn.execute(
+                    text("SELECT COALESCE(MAX(sequence), 0) FROM visit WHERE project_id = :pid"), {"pid": project_id}
+                ).scalar()
 
                 for idx, (visit_id,) in enumerate(rows, start=max_seq + 1):
-
-                    conn.execute(text(
-
-                        "UPDATE visit SET sequence = :idx WHERE id = :id"
-
-                    ), {"idx": idx, "id": visit_id})
-
-
+                    conn.execute(text("UPDATE visit SET sequence = :idx WHERE id = :id"), {"idx": idx, "id": visit_id})
 
         # 3. 创建唯一索引（IF NOT EXISTS 已处理重复创建）
 
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_unit_project_order ON unit(project_id, order_index)"))
 
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_field_def_project_order ON field_definition(project_id, order_index)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_field_def_project_order ON field_definition(project_id, order_index)"
+            )
+        )
 
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_form_project_order ON form(project_id, order_index)"))
 
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_codelist_project_order ON codelist(project_id, order_index)"))
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS idx_codelist_project_order ON codelist(project_id, order_index)")
+        )
 
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_codelist_option_order ON codelist_option(codelist_id, order_index)"))
-
-
-
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_codelist_option_order ON codelist_option(codelist_id, order_index)"
+            )
+        )
 
 
 def _migrate_add_design_notes(engine):
-
     """给 form 表补上 design_notes 列"""
 
     insp = inspect(engine)
 
     if not insp.has_table("form"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("form")]
 
         if "design_notes" not in cols:
-
             conn.execute(text('ALTER TABLE "form" ADD COLUMN design_notes TEXT'))
 
 
-
-
 def _migrate_add_form_annotation_positions(engine):
-
     """给 form 表补上 annotation_positions 列。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("form"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("form")]
 
         if "annotation_positions" not in cols:
-
             conn.execute(text('ALTER TABLE "form" ADD COLUMN annotation_positions TEXT'))
 
 
 def _migrate_add_form_paper_orientation(engine):
-
     """给 form 表补上 paper_orientation 列，默认 'auto'。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("form"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("form")]
 
         if "paper_orientation" not in cols:
-
-            conn.execute(text(
-                'ALTER TABLE "form" ADD COLUMN paper_orientation VARCHAR(16) '
-                "NOT NULL DEFAULT 'auto'"
-            ))
-
-
-
+            conn.execute(text("ALTER TABLE \"form\" ADD COLUMN paper_orientation VARCHAR(16) NOT NULL DEFAULT 'auto'"))
 
 
 def _migrate_add_color_mark(engine):
-
     """给 form_field 表补上 bg_color 和 text_color 列"""
 
     insp = inspect(engine)
 
     if not insp.has_table("form_field"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("form_field")]
 
         # 旧的 color_mark 列（如果存在）迁移到 bg_color
 
         if "color_mark" in cols and "bg_color" not in cols:
+            conn.execute(text("ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL"))
 
-            conn.execute(text('ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL'))
-
-            conn.execute(text('UPDATE form_field SET bg_color = color_mark WHERE color_mark IS NOT NULL'))
+            conn.execute(text("UPDATE form_field SET bg_color = color_mark WHERE color_mark IS NOT NULL"))
 
         elif "bg_color" not in cols:
-
-            conn.execute(text('ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL'))
+            conn.execute(text("ALTER TABLE form_field ADD COLUMN bg_color VARCHAR(10) DEFAULT NULL"))
 
         if "text_color" not in cols:
-
-            conn.execute(text('ALTER TABLE form_field ADD COLUMN text_color VARCHAR(10) DEFAULT NULL'))
+            conn.execute(text("ALTER TABLE form_field ADD COLUMN text_color VARCHAR(10) DEFAULT NULL"))
 
         # 清理旧列
 
         if "color_mark" in cols:
-
-            conn.execute(text('ALTER TABLE form_field DROP COLUMN color_mark'))
+            conn.execute(text("ALTER TABLE form_field DROP COLUMN color_mark"))
 
 
 def _migrate_add_label_style(engine):
@@ -580,167 +465,130 @@ def _migrate_add_label_style(engine):
     with engine.begin() as conn:
         cols = [c["name"] for c in insp.get_columns("form_field")]
         if "label_bold" not in cols:
-            conn.execute(text(
-                'ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1'
-            ))
+            conn.execute(text("ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1"))
         if "label_font_size" not in cols:
-            conn.execute(text(
-                'ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL'
-            ))
+            conn.execute(text("ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL"))
 
 
 def _migrate_add_project_owner_id(engine):
-
     """给 project 表添加 owner_id 列（若不存在）"""
 
     insp = inspect(engine)
 
     if not insp.has_table("project"):
-
         return
 
     cols = [c["name"] for c in insp.get_columns("project")]
 
     if "owner_id" not in cols:
-
         with engine.begin() as conn:
-
             conn.execute(text('ALTER TABLE project ADD COLUMN owner_id INTEGER REFERENCES "user"(id)'))
 
 
-
 def _migrate_add_project_screening_number_format(engine):
-
     """给 project 表补上 screening_number_format 列。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("project"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("project")]
 
         if "screening_number_format" not in cols:
-
-            conn.execute(text('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)'))
-
-
+            conn.execute(text("ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)"))
 
 
 def _migrate_add_project_db_type(engine):
-
     """给 project 表补上 db_type 列，默认「其他」。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("project"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("project")]
 
         if "db_type" not in cols:
-
-            conn.execute(text(
-
-                "ALTER TABLE project ADD COLUMN db_type VARCHAR(20) "
-
-                "NOT NULL DEFAULT '其他'"
-
-            ))
-
-
-
+            conn.execute(text("ALTER TABLE project ADD COLUMN db_type VARCHAR(20) NOT NULL DEFAULT '其他'"))
 
 
 def _migrate_add_user_is_admin(engine):
-
     """给 user 表补上 is_admin 列。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("user"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("user")]
 
         if "is_admin" not in cols:
-
             conn.execute(text('ALTER TABLE "user" ADD COLUMN is_admin INTEGER DEFAULT 0 NOT NULL'))
 
 
-
-
 def _migrate_user_hashed_password_nullable(engine):
-
     """将 user.hashed_password 列改为 nullable。SQLite 不支持 ALTER COLUMN，需重建表。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("user"):
-
         return
-
-
 
     cols = {c["name"]: c for c in insp.get_columns("user")}
 
     hashed_pw_col = cols.get("hashed_password")
 
     if hashed_pw_col and hashed_pw_col.get("nullable", False):
-
         logger.debug("user.hashed_password 已是 nullable，跳过迁移")
 
         return
-
-
 
     logger.info("迁移 user.hashed_password 为 nullable...")
 
     has_is_admin = "is_admin" in cols
 
     with engine.begin() as conn:
-
         has_auth_version = "auth_version" in cols
 
-        conn.execute(text(
-            'CREATE TABLE "user_new" ('
-            'id INTEGER PRIMARY KEY, '
-            'username VARCHAR(100) NOT NULL, '
-            'hashed_password VARCHAR(255), '
-            'is_admin INTEGER DEFAULT 0 NOT NULL, '
-            'auth_version INTEGER DEFAULT 0 NOT NULL, '
-            'created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
-        ))
+        conn.execute(
+            text(
+                'CREATE TABLE "user_new" ('
+                "id INTEGER PRIMARY KEY, "
+                "username VARCHAR(100) NOT NULL, "
+                "hashed_password VARCHAR(255), "
+                "is_admin INTEGER DEFAULT 0 NOT NULL, "
+                "auth_version INTEGER DEFAULT 0 NOT NULL, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+            )
+        )
 
         if has_is_admin and has_auth_version:
-
-            conn.execute(text(
-                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
-                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), COALESCE(auth_version, 0), created_at FROM "user"'
-            ))
+            conn.execute(
+                text(
+                    'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                    'SELECT id, username, hashed_password, COALESCE(is_admin, 0), COALESCE(auth_version, 0), created_at FROM "user"'
+                )
+            )
 
         elif has_is_admin:
-
-            conn.execute(text(
-                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
-                'SELECT id, username, hashed_password, COALESCE(is_admin, 0), 0, created_at FROM "user"'
-            ))
+            conn.execute(
+                text(
+                    'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                    'SELECT id, username, hashed_password, COALESCE(is_admin, 0), 0, created_at FROM "user"'
+                )
+            )
 
         else:
-
-            conn.execute(text(
-                'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
-                'SELECT id, username, hashed_password, 0, 0, created_at FROM "user"'
-            ))
+            conn.execute(
+                text(
+                    'INSERT INTO "user_new" (id, username, hashed_password, is_admin, auth_version, created_at) '
+                    'SELECT id, username, hashed_password, 0, 0, created_at FROM "user"'
+                )
+            )
 
         conn.execute(text('DROP TABLE "user"'))
 
@@ -751,64 +599,50 @@ def _migrate_user_hashed_password_nullable(engine):
     logger.info("user.hashed_password 迁移完成")
 
 
-
-
 def _migrate_add_user_auth_version(engine):
-
     """给 user 表补上 auth_version 列。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("user"):
-
         return
 
     with engine.begin() as conn:
-
         cols = [c["name"] for c in insp.get_columns("user")]
 
         if "auth_version" not in cols:
-
             conn.execute(text('ALTER TABLE "user" ADD COLUMN auth_version INTEGER DEFAULT 0 NOT NULL'))
 
 
 def _heal_reserved_admin_account(engine):
-
     """同步保留管理员账号语义，并在 production 中确保始终存在可用管理员。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("user"):
-
         return
 
     config = get_config()
     admin_username = config.admin.username.strip()
 
     if not admin_username:
-
         return
 
     bootstrap_password = config.admin.bootstrap_password.strip()
 
     with engine.begin() as conn:
-
         conn.execute(
-            text(
-                'UPDATE "user" '
-                'SET is_admin = 1 '
-                'WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) != 1'
-            ),
+            text('UPDATE "user" SET is_admin = 1 WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) != 1'),
             {"username": admin_username},
         )
 
         reserved_admin = conn.execute(
             text(
-                'SELECT id, username, hashed_password, COALESCE(auth_version, 0) '
+                "SELECT id, username, hashed_password, COALESCE(auth_version, 0) "
                 'FROM "user" '
-                'WHERE TRIM(username) = :username '
-                'ORDER BY id '
-                'LIMIT 1'
+                "WHERE TRIM(username) = :username "
+                "ORDER BY id "
+                "LIMIT 1"
             ),
             {"username": admin_username},
         ).fetchone()
@@ -821,7 +655,7 @@ def _heal_reserved_admin_account(engine):
             conn.execute(
                 text(
                     'INSERT INTO "user" (username, hashed_password, is_admin, auth_version) '
-                    'VALUES (:username, :hashed_password, 1, 1)'
+                    "VALUES (:username, :hashed_password, 1, 1)"
                 ),
                 {
                     "username": admin_username,
@@ -832,12 +666,7 @@ def _heal_reserved_admin_account(engine):
 
         user_id, current_username, hashed_password, auth_version = reserved_admin
         exact_reserved_admin_id = conn.execute(
-            text(
-                'SELECT id FROM "user" '
-                'WHERE username = :username '
-                'ORDER BY id '
-                'LIMIT 1'
-            ),
+            text('SELECT id FROM "user" WHERE username = :username ORDER BY id LIMIT 1'),
             {"username": admin_username},
         ).scalar()
 
@@ -851,7 +680,7 @@ def _heal_reserved_admin_account(engine):
             updates["auth_version"] = int(auth_version) + 1
 
         if updates:
-            assignments = ", ".join(f'{key} = :{key}' for key in updates)
+            assignments = ", ".join(f"{key} = :{key}" for key in updates)
             conn.execute(
                 text(f'UPDATE "user" SET {assignments}, is_admin = 1 WHERE id = :id'),
                 {**updates, "id": user_id},
@@ -861,9 +690,9 @@ def _heal_reserved_admin_account(engine):
             usable_reserved_admin = conn.execute(
                 text(
                     'SELECT hashed_password FROM "user" '
-                    'WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) = 1 '
-                    'ORDER BY id '
-                    'LIMIT 1'
+                    "WHERE TRIM(username) = :username AND COALESCE(is_admin, 0) = 1 "
+                    "ORDER BY id "
+                    "LIMIT 1"
                 ),
                 {"username": admin_username},
             ).scalar()
@@ -871,47 +700,35 @@ def _heal_reserved_admin_account(engine):
                 raise RuntimeError("production 环境未找到可用的保留管理员账号")
 
 
-
 def _move_orphan_projects_to_recycle_bin(engine) -> None:
-
     """将孤立项目（owner_id 为 NULL）自动移入回收站。"""
 
     import logging
     from datetime import datetime
-
-
 
     logger = logging.getLogger("src.database")
 
     insp = inspect(engine)
 
     if not insp.has_table("project"):
-
         return
 
-
-
     with engine.begin() as conn:
-
         result = conn.execute(
             text("UPDATE project SET deleted_at = :now WHERE owner_id IS NULL AND deleted_at IS NULL"),
             {"now": datetime.now()},
         )
 
         if result.rowcount > 0:
-
             logger.info("已将 %d 个孤立项目移入回收站", result.rowcount)
 
 
-
 def _normalize_log_row_presentation(engine) -> None:
-
     """将历史 log 行的展示属性统一重置为默认值。"""
 
     insp = inspect(engine)
 
     if not insp.has_table("form_field"):
-
         return
 
     cols = {c["name"] for c in insp.get_columns("form_field")}
@@ -926,11 +743,9 @@ def _normalize_log_row_presentation(engine) -> None:
     }
 
     if not required.issubset(cols):
-
         return
 
     with engine.begin() as conn:
-
         result = conn.execute(
             text(
                 """
@@ -953,7 +768,6 @@ def _normalize_log_row_presentation(engine) -> None:
         )
 
         if result.rowcount > 0:
-
             logger.info("已重置 %d 条 log 行为默认展示属性", result.rowcount)
 
 
@@ -982,10 +796,7 @@ def _normalize_label_variable_names(engine) -> None:
 
     with engine.begin() as conn:
         rows = conn.execute(
-            text(
-                "SELECT id, project_id, variable_name FROM field_definition "
-                "WHERE field_type = '标签'"
-            )
+            text("SELECT id, project_id, variable_name FROM field_definition WHERE field_type = '标签'")
         ).all()
         targets = [
             (row_id, project_id)
@@ -1000,10 +811,7 @@ def _normalize_label_variable_names(engine) -> None:
             used_by_project[project_id] = {
                 name
                 for (name,) in conn.execute(
-                    text(
-                        "SELECT variable_name FROM field_definition "
-                        "WHERE project_id = :pid"
-                    ),
+                    text("SELECT variable_name FROM field_definition WHERE project_id = :pid"),
                     {"pid": project_id},
                 )
                 if name is not None
@@ -1024,7 +832,6 @@ def _normalize_label_variable_names(engine) -> None:
             logger.info("已为 %d 条标签字段定义重新生成系统 OID", count)
 
 
-
 def _is_form_field_rowid_pk_compatible(engine) -> bool:
     """检查 form_field.id 是否仍是 SQLite 可自动生成的 rowid 主键语义。
 
@@ -1041,9 +848,9 @@ def _is_form_field_rowid_pk_compatible(engine) -> bool:
         return True
 
     with engine.connect() as conn:
-        create_sql = conn.execute(text(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='form_field'"
-        )).scalar()
+        create_sql = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='form_field'")
+        ).scalar()
 
     if not create_sql:
         return False
@@ -1056,7 +863,7 @@ def _is_form_field_rowid_pk_compatible(engine) -> bool:
     # 检查内联主键：id INTEGER PRIMARY KEY（非 DESC）
     # SQLite rowid alias 要求声明类型精确为 "INTEGER"，不能是 INT/BIGINT 等
     inline_pk = re.search(
-        r'\bID\s+INTEGER\s+(?:NOT\s+NULL\s+)?PRIMARY\s+KEY\b(?!\s+DESC)',
+        r"\bID\s+INTEGER\s+(?:NOT\s+NULL\s+)?PRIMARY\s+KEY\b(?!\s+DESC)",
         normalized,
     )
     if inline_pk:
@@ -1064,27 +871,28 @@ def _is_form_field_rowid_pk_compatible(engine) -> bool:
 
     # 检查表级主键：PRIMARY KEY (id)（非 DESC）
     table_pk = re.search(
-        r'PRIMARY\s+KEY\s*\(\s*ID\s*\)',
+        r"PRIMARY\s+KEY\s*\(\s*ID\s*\)",
         normalized,
     )
     if table_pk:
         # 表级 PRIMARY KEY(id) 也要求 id 列声明类型精确为 INTEGER
-        id_col_match = re.search(r'\bID\s+(INTEGER)\b', normalized)
+        id_col_match = re.search(r"\bID\s+(INTEGER)\b", normalized)
         if id_col_match:
             return True
 
     return False
 
 
-
 def _rebuild_form_field_table(conn, *, log_message: str) -> None:
     """按规范 DDL 重建 form_field 表，保留现有数据与约束。"""
     import logging
+
     logger = logging.getLogger("src.database")
 
     logger.info(log_message)
 
-    conn.execute(text("""
+    conn.execute(
+        text("""
         CREATE TABLE form_field_new (
             id INTEGER PRIMARY KEY,
             form_id INTEGER NOT NULL REFERENCES form(id) ON DELETE CASCADE,
@@ -1103,18 +911,15 @@ def _rebuild_form_field_table(conn, *, log_message: str) -> None:
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
-    """))
+    """)
+    )
 
     insert_columns = []
     select_columns = []
-    existing_columns = {
-        row[1] for row in conn.execute(text("PRAGMA table_info(form_field)")).fetchall()
-    }
+    existing_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(form_field)")).fetchall()}
     missing_required_columns = sorted(_FORM_FIELD_REQUIRED_SOURCE_COLUMNS - existing_columns)
     if missing_required_columns:
-        raise RuntimeError(
-            "form_field 表缺少重建所需列: " + ", ".join(missing_required_columns)
-        )
+        raise RuntimeError("form_field 表缺少重建所需列: " + ", ".join(missing_required_columns))
 
     for column_name, default_expr in _FORM_FIELD_CANONICAL_COLUMNS:
         insert_columns.append(column_name)
@@ -1123,20 +928,18 @@ def _rebuild_form_field_table(conn, *, log_message: str) -> None:
         else:
             select_columns.append(default_expr)
 
-    conn.execute(text(
-        f"INSERT INTO form_field_new ({', '.join(insert_columns)}) "
-        f"SELECT {', '.join(select_columns)} FROM form_field"
-    ))
+    conn.execute(
+        text(
+            f"INSERT INTO form_field_new ({', '.join(insert_columns)}) "
+            f"SELECT {', '.join(select_columns)} FROM form_field"
+        )
+    )
 
     conn.execute(text("DROP TABLE form_field"))
     conn.execute(text("ALTER TABLE form_field_new RENAME TO form_field"))
-    conn.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_form_field "
-        "ON form_field(form_id, field_definition_id)"
-    ))
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_form_field ON form_field(form_id, field_definition_id)"))
 
     logger.info("form_field 表重建完成，约束已保留")
-
 
 
 def _rebuild_form_field_without_sort_order(conn, insp):
@@ -1150,42 +953,37 @@ def _rebuild_form_field_without_sort_order(conn, insp):
 
 
 def _migrate_project_soft_delete_and_ordering(engine):
-
     """给 project 表添加 order_index 和 deleted_at 列，并给 form_field 添加 order_index 列（迁移 sort_order）"""
 
     insp = inspect(engine)
 
     with engine.begin() as conn:
-
         # 1. Project 迁移
 
         project_order_index_added = False
         if insp.has_table("project"):
-
             cols = [c["name"] for c in insp.get_columns("project")]
 
             if "order_index" not in cols:
-
-                conn.execute(text('ALTER TABLE project ADD COLUMN order_index INTEGER DEFAULT 1 NOT NULL'))
+                conn.execute(text("ALTER TABLE project ADD COLUMN order_index INTEGER DEFAULT 1 NOT NULL"))
                 project_order_index_added = True
 
             if "deleted_at" not in cols:
-
-                conn.execute(text('ALTER TABLE project ADD COLUMN deleted_at DATETIME'))
-
-
+                conn.execute(text("ALTER TABLE project ADD COLUMN deleted_at DATETIME"))
 
         # 2. FormField 迁移 (sort_order -> order_index)
         if insp.has_table("form_field"):
             cols = [c["name"] for c in insp.get_columns("form_field")]
             if "order_index" not in cols:
-                conn.execute(text('ALTER TABLE form_field ADD COLUMN order_index INTEGER DEFAULT 1 NOT NULL'))
+                conn.execute(text("ALTER TABLE form_field ADD COLUMN order_index INTEGER DEFAULT 1 NOT NULL"))
                 # 用 legacy sort_order 回填（若存在）
                 if "sort_order" in cols:
-                    conn.execute(text(
-                        'UPDATE form_field SET order_index = sort_order '
-                        'WHERE sort_order IS NOT NULL AND sort_order > 0'
-                    ))
+                    conn.execute(
+                        text(
+                            "UPDATE form_field SET order_index = sort_order "
+                            "WHERE sort_order IS NOT NULL AND sort_order > 0"
+                        )
+                    )
             # 移除 legacy sort_order 的 NOT NULL 约束（通过重建表）
             if "sort_order" in cols:
                 _rebuild_form_field_without_sort_order(conn, insp)
@@ -1193,23 +991,17 @@ def _migrate_project_soft_delete_and_ordering(engine):
         # 3. Project order_index 数据回填（仅首次添加列时执行）
 
         if project_order_index_added and insp.has_table("project"):
-
             result = conn.execute(text("SELECT DISTINCT owner_id FROM project WHERE owner_id IS NOT NULL"))
 
             for (owner_id,) in result:
-
-                rows = conn.execute(text(
-
-                    "SELECT id FROM project WHERE owner_id = :oid ORDER BY id"
-
-                ), {"oid": owner_id}).fetchall()
+                rows = conn.execute(
+                    text("SELECT id FROM project WHERE owner_id = :oid ORDER BY id"), {"oid": owner_id}
+                ).fetchall()
 
                 for idx, (pid,) in enumerate(rows, start=1):
-
-                    conn.execute(text("UPDATE project SET order_index = :idx WHERE id = :pid"), {"idx": idx, "pid": pid})
-
-
-
+                    conn.execute(
+                        text("UPDATE project SET order_index = :idx WHERE id = :pid"), {"idx": idx, "pid": pid}
+                    )
 
 
 def _ensure_form_field_rowid_compatibility(engine):
@@ -1234,9 +1026,13 @@ def _migrate_add_performance_fk_indexes(engine):
     纯性能结构，不改变任何查询结果或排序；幂等（IF NOT EXISTS）。
     """
     with engine.begin() as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_codelist_id ON field_definition(codelist_id)"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_field_definition_codelist_id ON field_definition(codelist_id)")
+        )
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_definition_unit_id ON field_definition(unit_id)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_form_field_field_definition_id ON form_field(field_definition_id)")
+        )
 
 
 # 与前端 dateFormatOptions.js 的 DATE_FORMAT_OPTIONS 逐项对齐（小写键 → 规范写法）。
@@ -1349,23 +1145,15 @@ def init_db():
     _migrate_normalize_date_formats(engine)
 
 
-
-
-
 def get_session():
-
     """写操作 Session：开启事务，确保原子性（POST/PUT/DELETE 使用）"""
 
     with Session(get_engine()) as session:
-
         with session.begin():
-
             yield session
 
 
-
 def get_plain_session():
-
     """裸 Session：不预开事务，供组合写服务使用。
 
     机构预设 / 项目 profile 服务在函数内显式 commit，以便提交失败时补偿文件；
@@ -1374,17 +1162,11 @@ def get_plain_session():
     """
 
     with Session(get_engine()) as session:
-
         yield session
 
 
-
-
-
 def get_read_session():
-
     """只读 Session：不开启事务，减少长时间只读操作（如导出）对写操作的阻塞"""
 
     with Session(get_engine()) as session:
-
         yield session

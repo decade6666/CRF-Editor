@@ -125,4 +125,3 @@ class FieldProfileResponse(BaseModel):
     cleanup: Optional[dict] = None
 
     model_config = {"from_attributes": True}
-

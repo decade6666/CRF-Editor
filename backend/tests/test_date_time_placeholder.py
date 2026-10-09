@@ -74,8 +74,7 @@ def test_render_date_time_placeholder_new_and_existing_formats():
     assert render_date_time_placeholder("日期时间", "yyyy-MM-dd HH") == f"{date_only}  |__|__|时"
     assert render_date_time_placeholder("日期时间", "yyyy-MM-dd HH:mm") == f"{date_only}  |__|__|时|__|__|分"
     assert (
-        render_date_time_placeholder("日期时间", "yyyy-MM-dd HH:mm:ss")
-        == f"{date_only}  |__|__|时|__|__|分|__|__|秒"
+        render_date_time_placeholder("日期时间", "yyyy-MM-dd HH:mm:ss") == f"{date_only}  |__|__|时|__|__|分|__|__|秒"
     )
     assert render_date_time_placeholder("时间", "HH") == "|__|__|时"
     assert render_date_time_placeholder("时间", "hh AP") == "|__|__|时"

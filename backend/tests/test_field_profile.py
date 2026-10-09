@@ -68,7 +68,10 @@ def field_context(client: TestClient, engine):
         session.add(form)
         session.flush()
         fd = FieldDefinition(
-            project_id=project.id, variable_name="BASE_DEF", label="基础字段", field_type="文本",
+            project_id=project.id,
+            variable_name="BASE_DEF",
+            label="基础字段",
+            field_type="文本",
             order_index=1,
         )
         session.add(fd)
@@ -219,7 +222,9 @@ def test_create_profile_normalizes_default_value_for_choice_type(field_context, 
         {
             "definition_operation": {
                 "operation": "create_or_restore",
-                "create_or_restore": {"definition": _new_definition_payload(variable_name="DATE_DEF", field_type="日期")},
+                "create_or_restore": {
+                    "definition": _new_definition_payload(variable_name="DATE_DEF", field_type="日期")
+                },
             },
             "binding": {"mode": "operation_result"},
             "instance": {"mode": "upsert", "upsert": {"default_value": "2026-01-01"}},
@@ -358,7 +363,9 @@ def test_binding_profile_fork_creates_definition_and_rebinds(field_context, clie
         {
             "definition_operation": {
                 "operation": "create_or_restore",
-                "create_or_restore": {"definition": _new_definition_payload(variable_name="FORK_DEF", label="分叉字段")},
+                "create_or_restore": {
+                    "definition": _new_definition_payload(variable_name="FORK_DEF", label="分叉字段")
+                },
             },
             "binding": {"mode": "operation_result"},
             "instance": {"mode": "upsert", "upsert": {"default_value": "C"}},
@@ -387,7 +394,9 @@ def test_binding_profile_fork_retains_original_when_referenced_elsewhere(field_c
         other_form = Form(project_id=field_context["project_id"], name="表单B", code="F_B", order_index=2)
         session.add(other_form)
         session.flush()
-        session.add(FormField(form_id=other_form.id, field_definition_id=field_context["field_definition_id"], order_index=1))
+        session.add(
+            FormField(form_id=other_form.id, field_definition_id=field_context["field_definition_id"], order_index=1)
+        )
         session.commit()
         other_form_id = other_form.id
 
@@ -549,8 +558,11 @@ def test_binding_profile_rebind_existing_definition(field_context, client, engin
 
     with Session(engine) as session:
         other_fd = FieldDefinition(
-            project_id=field_context["project_id"], variable_name="OTHER_DEF", label="另一个字段",
-            field_type="数值", order_index=2,
+            project_id=field_context["project_id"],
+            variable_name="OTHER_DEF",
+            label="另一个字段",
+            field_type="数值",
+            order_index=2,
         )
         session.add(other_fd)
         session.commit()
@@ -577,8 +589,11 @@ def test_binding_profile_rebind_conflicts_when_target_already_in_form(field_cont
 
     with Session(engine) as session:
         other_fd = FieldDefinition(
-            project_id=field_context["project_id"], variable_name="OTHER_DEF2", label="另一个字段2",
-            field_type="文本", order_index=2,
+            project_id=field_context["project_id"],
+            variable_name="OTHER_DEF2",
+            label="另一个字段2",
+            field_type="文本",
+            order_index=2,
         )
         session.add(other_fd)
         session.flush()
@@ -610,8 +625,11 @@ def test_binding_profile_rebind_rejects_cross_project_definition(field_context, 
         session.add(other_project)
         session.flush()
         foreign_fd = FieldDefinition(
-            project_id=other_project.id, variable_name="FOREIGN_DEF", label="跨项目字段",
-            field_type="文本", order_index=1,
+            project_id=other_project.id,
+            variable_name="FOREIGN_DEF",
+            label="跨项目字段",
+            field_type="文本",
+            order_index=1,
         )
         session.add(foreign_fd)
         session.commit()
@@ -680,9 +698,7 @@ def test_binding_profile_rolls_back_fork_on_instance_failure(field_context, clie
     assert resp.status_code == 422, resp.text
 
     with Session(engine) as session:
-        result = session.scalar(
-            select(FieldDefinition).where(FieldDefinition.variable_name == "ROLLBACK_FORK")
-        )
+        result = session.scalar(select(FieldDefinition).where(FieldDefinition.variable_name == "ROLLBACK_FORK"))
         assert result is None
         instance = session.get(FormField, ff["id"])
         assert instance.field_definition_id == field_context["field_definition_id"]

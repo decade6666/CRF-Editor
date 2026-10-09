@@ -1,4 +1,5 @@
 """项目克隆服务 — 深拷贝项目及全部子资源"""
+
 from __future__ import annotations
 
 import logging
@@ -53,25 +54,17 @@ class ProjectGraphLoader:
             raise ValueError(f"项目不存在: {project_id}")
 
         units = list(
-            session.scalars(
-                select(Unit)
-                .where(Unit.project_id == project_id)
-                .order_by(Unit.order_index, Unit.id)
-            ).all()
+            session.scalars(select(Unit).where(Unit.project_id == project_id).order_by(Unit.order_index, Unit.id)).all()
         )
 
         codelists = list(
             session.scalars(
-                select(CodeList)
-                .where(CodeList.project_id == project_id)
-                .order_by(CodeList.order_index, CodeList.id)
+                select(CodeList).where(CodeList.project_id == project_id).order_by(CodeList.order_index, CodeList.id)
             ).all()
         )
 
         codelist_ids = [codelist.id for codelist in codelists]
-        options_map: Dict[int, List[CodeListOption]] = {
-            codelist_id: [] for codelist_id in codelist_ids
-        }
+        options_map: Dict[int, List[CodeListOption]] = {codelist_id: [] for codelist_id in codelist_ids}
         if codelist_ids:
             options = session.scalars(
                 select(CodeListOption)
@@ -90,17 +83,11 @@ class ProjectGraphLoader:
         )
 
         forms = list(
-            session.scalars(
-                select(Form)
-                .where(Form.project_id == project_id)
-                .order_by(Form.order_index, Form.id)
-            ).all()
+            session.scalars(select(Form).where(Form.project_id == project_id).order_by(Form.order_index, Form.id)).all()
         )
 
         form_ids = [form.id for form in forms]
-        form_fields_map: Dict[int, List[FormField]] = {
-            form_id: [] for form_id in form_ids
-        }
+        form_fields_map: Dict[int, List[FormField]] = {form_id: [] for form_id in form_ids}
         if form_ids:
             form_fields = session.scalars(
                 select(FormField)
@@ -112,20 +99,22 @@ class ProjectGraphLoader:
 
         visits = list(
             session.scalars(
-                select(Visit)
-                .where(Visit.project_id == project_id)
-                .order_by(Visit.sequence, Visit.id)
+                select(Visit).where(Visit.project_id == project_id).order_by(Visit.sequence, Visit.id)
             ).all()
         )
 
         visit_ids = [visit.id for visit in visits]
-        visit_forms = list(
-            session.scalars(
-                select(VisitForm)
-                .where(VisitForm.visit_id.in_(visit_ids))
-                .order_by(VisitForm.visit_id, VisitForm.sequence, VisitForm.id)
-            ).all()
-        ) if visit_ids else []
+        visit_forms = (
+            list(
+                session.scalars(
+                    select(VisitForm)
+                    .where(VisitForm.visit_id.in_(visit_ids))
+                    .order_by(VisitForm.visit_id, VisitForm.sequence, VisitForm.id)
+                ).all()
+            )
+            if visit_ids
+            else []
+        )
 
         return ProjectGraph(
             project=project,
@@ -148,11 +137,7 @@ class ProjectCloneService:
     @staticmethod
     def _resolve_copy_name(base_name: str, session: Session, owner_id: int) -> str:
         """生成副本名称：「原名 (副本)」→「原名 (副本2)」→ …"""
-        existing_names = set(
-            session.scalars(
-                select(Project.name).where(Project.owner_id == owner_id)
-            ).all()
-        )
+        existing_names = set(session.scalars(select(Project.name).where(Project.owner_id == owner_id)).all())
         candidate = f"{base_name} (副本)"
         if candidate not in existing_names:
             return candidate
@@ -245,12 +230,14 @@ class ProjectCloneService:
             id_map["codelist"][codelist.id] = new_codelist.id
 
             for opt_idx, option in enumerate(graph.options_map.get(codelist.id, []), start=1):
-                session.add(CodeListOption(
-                    codelist_id=new_codelist.id,
-                    code=option.code,
-                    decode=option.decode,
-                    order_index=opt_idx,
-                ))
+                session.add(
+                    CodeListOption(
+                        codelist_id=new_codelist.id,
+                        code=option.code,
+                        decode=option.decode,
+                        order_index=opt_idx,
+                    )
+                )
 
         session.flush()
 
@@ -266,17 +253,10 @@ class ProjectCloneService:
                 date_format=field_definition.date_format,
                 codelist_id=(
                     id_map["codelist"].get(field_definition.codelist_id)
-                    if (
-                        field_definition.field_type != "复选"
-                        and field_definition.codelist_id
-                    )
+                    if (field_definition.field_type != "复选" and field_definition.codelist_id)
                     else None
                 ),
-                unit_id=(
-                    id_map["unit"].get(field_definition.unit_id)
-                    if field_definition.unit_id
-                    else None
-                ),
+                unit_id=(id_map["unit"].get(field_definition.unit_id) if field_definition.unit_id else None),
                 is_multi_record=field_definition.is_multi_record,
                 table_type=field_definition.table_type,
                 order_index=fd_idx,
@@ -287,13 +267,9 @@ class ProjectCloneService:
 
         for form_idx, form in enumerate(graph.forms, start=1):
             try:
-                annotation_positions = preserve_annotation_positions_storage(
-                    form.annotation_positions
-                )
+                annotation_positions = preserve_annotation_positions_storage(form.annotation_positions)
             except ValueError as exc:
-                raise ValueError(
-                    f"表单 {form.name} 的 annotation_positions 非法: {exc}"
-                ) from exc
+                raise ValueError(f"表单 {form.name} 的 annotation_positions 非法: {exc}") from exc
 
             new_form = Form(
                 project_id=new_project.id,
@@ -310,16 +286,18 @@ class ProjectCloneService:
             id_map["form"][form.id] = new_form.id
 
             for ff_idx, form_field in enumerate(graph.form_fields_map.get(form.id, []), start=1):
-                session.add(copy_form_field(
-                    form_field,
-                    form_id=new_form.id,
-                    field_definition_id=(
-                        id_map["field_definition"].get(form_field.field_definition_id)
-                        if form_field.field_definition_id
-                        else None
-                    ),
-                    order_index=ff_idx,
-                ))
+                session.add(
+                    copy_form_field(
+                        form_field,
+                        form_id=new_form.id,
+                        field_definition_id=(
+                            id_map["field_definition"].get(form_field.field_definition_id)
+                            if form_field.field_definition_id
+                            else None
+                        ),
+                        order_index=ff_idx,
+                    )
+                )
 
         session.flush()
 
@@ -339,11 +317,13 @@ class ProjectCloneService:
             new_form_id = id_map["form"].get(visit_form.form_id)
             if new_visit_id is None or new_form_id is None:
                 continue
-            session.add(VisitForm(
-                visit_id=new_visit_id,
-                form_id=new_form_id,
-                sequence=visit_form.sequence,
-            ))
+            session.add(
+                VisitForm(
+                    visit_id=new_visit_id,
+                    form_id=new_form_id,
+                    sequence=visit_form.sequence,
+                )
+            )
 
         session.flush()
 

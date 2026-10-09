@@ -1,4 +1,5 @@
 """Import Template Router - 模板导入预览与执行"""
+
 import logging
 from typing import List, Optional
 
@@ -75,6 +76,7 @@ class TemplateFieldOptionPreview(BaseModel):
 
 class TemplateFieldDefinitionPreview(BaseModel):
     """字段定义预览 - 嵌套在 TemplateFieldPreview 中"""
+
     id: int
     project_id: int
     variable_name: str
@@ -124,7 +126,9 @@ class TemplateFormFieldsResponse(BaseModel):
     "/projects/{project_id}/import-template",
     response_model=ImportPreviewResponse,
 )
-def preview_import(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def preview_import(
+    project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
     """预览模板库：返回项目列表及其表单"""
     verify_project_owner(project_id, current_user, session)
     cfg = get_config()
@@ -171,9 +175,7 @@ def preview_form_fields(
         if "模板库不兼容" in msg:
             return _compatibility_error(msg)
         raise HTTPException(400, msg)
-    return TemplateFormFieldsResponse(
-        form_id=form_id, fields=fields, paper_orientation=paper_orientation
-    )
+    return TemplateFormFieldsResponse(form_id=form_id, fields=fields, paper_orientation=paper_orientation)
 
 
 @router.post(

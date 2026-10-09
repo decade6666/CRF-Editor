@@ -1,4 +1,5 @@
 """Template Fields Router - 模板库字段查询（只读，供 label↔OID 检索）"""
+
 import logging
 from typing import List, Optional
 
@@ -29,13 +30,13 @@ class TemplateFieldOption(BaseModel):
 class TemplateFieldSource(BaseModel):
     project_name: str
     project_version: Optional[str] = None
-    form_name: Optional[str] = None      # None = 定义仅存在于项目字段库
-    form_code: Optional[str] = None      # 表单 OID（form.code）；历史库缺列或空白时为 None
+    form_name: Optional[str] = None  # None = 定义仅存在于项目字段库
+    form_code: Optional[str] = None  # 表单 OID（form.code）；历史库缺列或空白时为 None
     display_label: Optional[str] = None  # 表单级 label_override，与定义 label 不同时返回
 
 
 class TemplateFieldEntry(BaseModel):
-    key: str                             # "<first_project_id>:<first_definition_id>"
+    key: str  # "<first_project_id>:<first_definition_id>"
     variable_name: str
     label: str
     field_type: str
@@ -46,7 +47,7 @@ class TemplateFieldEntry(BaseModel):
     codelist_name: Optional[str] = None
     options: List[TemplateFieldOption] = []
     unit_symbol: Optional[str] = None
-    label_aliases: List[str] = []        # 去重后的 display_label，按首次出现顺序
+    label_aliases: List[str] = []  # 去重后的 display_label，按首次出现顺序
     sources: List[TemplateFieldSource]
 
 

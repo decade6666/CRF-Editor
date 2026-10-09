@@ -3,6 +3,7 @@
 验证 SQLite WAL 模式下两个线程并发写入不产生 SQLITE_BUSY 异常，
 且写入的数据相互独立、均持久化成功。
 """
+
 from __future__ import annotations
 
 import threading
@@ -55,10 +56,7 @@ def test_concurrent_writes_no_busy_error(wal_engine):
             with lock:
                 errors.append(str(exc))
 
-    threads = [
-        threading.Thread(target=create_project, args=(f"并发项目{i}",))
-        for i in range(2)
-    ]
+    threads = [threading.Thread(target=create_project, args=(f"并发项目{i}",)) for i in range(2)]
     for t in threads:
         t.start()
     for t in threads:

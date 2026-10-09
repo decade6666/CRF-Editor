@@ -63,10 +63,7 @@ def parse_annotation_positions(value: Any) -> AnnotationPositions | None:
     if not isinstance(value, dict):
         raise ValueError("annotation_positions 必须是对象")
 
-    return {
-        _validate_annotation_key(key): _validate_annotation_position(item)
-        for key, item in value.items()
-    }
+    return {_validate_annotation_key(key): _validate_annotation_position(item) for key, item in value.items()}
 
 
 def serialize_annotation_positions(value: Any) -> str | None:

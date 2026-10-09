@@ -5,6 +5,7 @@
 准备新文件（事务外）→ 事务内复核/写 DB → commit 失败删新文件；成功再删旧文件。
 测试可注入内存 Session 以覆盖真实引擎。
 """
+
 import logging
 from contextlib import contextmanager
 from typing import Iterator, Optional
@@ -52,9 +53,7 @@ def _conflict_message(session: Session, upsert: OrganizationPresetUpsert, exclud
     if session.scalar(stmt):
         return "机构名称已存在"
     if upsert.data_management_unit is not None:
-        stmt = select(OrganizationPreset).where(
-            OrganizationPreset.data_management_unit == upsert.data_management_unit
-        )
+        stmt = select(OrganizationPreset).where(OrganizationPreset.data_management_unit == upsert.data_management_unit)
         if exclude_id is not None:
             stmt = stmt.where(OrganizationPreset.id != exclude_id)
         if session.scalar(stmt):
@@ -176,11 +175,7 @@ def delete_preset(preset_id: int, session: Optional[Session] = None) -> None:
 
 
 def list_presets(session: Session) -> list[OrganizationPreset]:
-    return list(
-        session.scalars(
-            select(OrganizationPreset).order_by(OrganizationPreset.name.collate("NOCASE"))
-        )
-    )
+    return list(session.scalars(select(OrganizationPreset).order_by(OrganizationPreset.name.collate("NOCASE"))))
 
 
 def list_candidates(session: Session) -> list[OrganizationPreset]:

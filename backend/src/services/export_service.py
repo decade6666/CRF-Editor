@@ -1,4 +1,5 @@
 """导出服务"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +22,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import html
 
 from src.schemas.form import normalize_annotation_key, parse_annotation_positions
-
 
 
 logger = logging.getLogger(__name__)
@@ -59,9 +59,7 @@ def _validate_form_field_schema(db_path: str) -> None:
     conn = sqlite3.connect(db_path)
     try:
         # 检查 form_field 表是否存在
-        cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='form_field'"
-        )
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='form_field'")
         if not cursor.fetchone():
             # 表不存在，无需验证（可能是空项目）
             return
@@ -100,7 +98,6 @@ def _validate_form_field_schema(db_path: str) -> None:
         conn.close()
 
 
-
 from docx import Document
 
 from docx.shared import Pt, RGBColor, Inches, Cm
@@ -125,7 +122,6 @@ from docx.enum.style import WD_STYLE_TYPE
 from sqlalchemy.orm import Session
 
 
-
 from src.models import Project
 
 from src.repositories.project_repository import ProjectRepository
@@ -147,17 +143,11 @@ from src.services.field_rendering import (
 )
 
 from src.services.width_planning import (
-
     compute_text_weight,
-
     plan_inline_table_width,
-
     plan_unified_table_width,
-
     plan_normal_table_width,
-
     compute_fill_line_char_count,
-
 )
 
 
@@ -189,12 +179,8 @@ def resolve_label_bold(form_field) -> bool:
 
 
 @dataclass(frozen=True)
-
 class LayoutDecision:
-
     """表单布局决策（内部数据结构，不持久化）。"""
-
-
 
     mode: str  # "legacy" | "mixed_landscape" | "unified_landscape"
 
@@ -206,33 +192,20 @@ class LayoutDecision:
 
     force_landscape: bool = False  # paper_orientation='landscape' 强制覆写：legacy 模式下切横向
 
-    force_portrait: bool = False   # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
-
-
-
+    force_portrait: bool = False  # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
 
 
 @dataclass(frozen=True)
-
 class Segment:
-
     """统一横向布局的字段片段（内部数据结构，不持久化）。"""
-
-
 
     type: str  # "regular_field" | "full_row" | "inline_block"
 
     fields: list
 
 
-
-
-
 class ExportService:
-
     """导出服务类"""
-
-
 
     # 字体常量
 
@@ -251,8 +224,6 @@ class ExportService:
     # `.choice-group--vertical .choice-atom + .choice-atom { margin-top }` 同值，
     # 保证 Word 预览与导出文档的纵向选项间距一致。
     VERTICAL_OPTION_GAP_PT = 3
-
-
 
     def __init__(self, session: Session):
 
@@ -273,17 +244,12 @@ class ExportService:
         self._column_width_overrides: Dict[Any, Any] = {}
         self._current_annotation_offsets: Dict[str, int] = {}
 
-
-
     def _apply_exact_line_spacing(self, paragraph: Any) -> None:
-
         """将单元格段落行距固定到 Word 网格单行高度。"""
 
         paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
 
         paragraph.paragraph_format.line_spacing = Pt(self.SINGLE_LINE_HEIGHT_PT)
-
-
 
     def _disable_snap_to_grid(self, paragraph: Any) -> None:
         """关闭该段落的行网格吸附（snapToGrid=0）。
@@ -305,14 +271,23 @@ class ExportService:
             # 无论段落是否已有 spacing/ind/jc 等都能得到合法 XML。
             pPr.insert_element_before(
                 snap,
-                "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents",
-                "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment",
-                "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle",
-                "w:rPr", "w:sectPr", "w:pPrChange",
+                "w:spacing",
+                "w:ind",
+                "w:contextualSpacing",
+                "w:mirrorIndents",
+                "w:suppressOverlap",
+                "w:jc",
+                "w:textDirection",
+                "w:textAlignment",
+                "w:textboxTightWrap",
+                "w:outlineLvl",
+                "w:divId",
+                "w:cnfStyle",
+                "w:rPr",
+                "w:sectPr",
+                "w:pPrChange",
             )
         snap.set(qn("w:val"), "0")
-
-
 
     def _enable_update_fields_on_open(self, doc: Document) -> None:
         """启用 Word 打开文档时更新域，用于刷新预渲染目录的 PAGEREF 页码。
@@ -327,8 +302,7 @@ class ExportService:
         if update_fields is None:
             update_fields = OxmlElement("w:updateFields")
             anchor = None
-            for tag in ("w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr",
-                        "w:compat", "w:rsids", "w:mathPr"):
+            for tag in ("w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr", "w:compat", "w:rsids", "w:mathPr"):
                 anchor = settings.find(qn(tag))
                 if anchor is not None:
                     break
@@ -338,8 +312,6 @@ class ExportService:
                 settings.append(update_fields)
         update_fields.set(qn("w:val"), "true")
 
-
-
     def _apply_cell_paragraph_metrics(
         self,
         paragraph: Any,
@@ -347,20 +319,15 @@ class ExportService:
         space_before: bool = True,
         space_after: bool = True,
     ) -> None:
-
         """应用单行 1cm 所需的单元格段落间距与固定行距。"""
 
         if space_before:
-
             paragraph.paragraph_format.space_before = Pt(self.CELL_VPAD_PT)
 
         if space_after:
-
             paragraph.paragraph_format.space_after = Pt(self.CELL_VPAD_PT)
 
         self._apply_exact_line_spacing(paragraph)
-
-
 
     def export_project_to_word(
         self,
@@ -370,7 +337,6 @@ class ExportService:
         bake_toc_page_numbers: bool = False,
         annotated: bool = False,
     ) -> bool:
-
         """导出项目到 Word 文档
 
         Args:
@@ -385,7 +351,6 @@ class ExportService:
         """
 
         try:
-
             # 重置目录收集状态，避免实例复用时跨导出累积
 
             self._toc_entries = []
@@ -402,9 +367,7 @@ class ExportService:
             project = self.project_repo.get_with_full_tree(project_id)
 
             if not project:
-
                 return False
-
 
             # 存储列宽覆盖供后续使用
             self._column_width_overrides = column_width_overrides or {}
@@ -417,8 +380,6 @@ class ExportService:
             self._apply_document_style(doc)
 
             self._enable_update_fields_on_open(doc)
-
-
 
             # 设置页面边距和页眉页脚距离
 
@@ -436,47 +397,36 @@ class ExportService:
 
             section.footer_distance = Cm(1.3)
 
-
-
             # 设置纸张大小为A4
 
             section.page_width = Cm(21)
 
             section.page_height = Cm(29.7)
 
-
-
             # 设置文档网格（每行37字符，每页44行）
 
             sectPr = section._sectPr
 
-            docGrid = sectPr.find(qn('w:docGrid'))
+            docGrid = sectPr.find(qn("w:docGrid"))
 
             if docGrid is None:
-
-                docGrid = OxmlElement('w:docGrid')
+                docGrid = OxmlElement("w:docGrid")
 
                 sectPr.append(docGrid)
 
-            docGrid.set(qn('w:type'), 'lines')  # 只指定行网格
+            docGrid.set(qn("w:type"), "lines")  # 只指定行网格
 
-            docGrid.set(qn('w:linePitch'), '312')  # 15.6磅 = 312 twips (1磅=20 twips)
+            docGrid.set(qn("w:linePitch"), "312")  # 15.6磅 = 312 twips (1磅=20 twips)
 
-            docGrid.set(qn('w:charSpace'), '220')  # 11磅 = 220 twips
-
-
+            docGrid.set(qn("w:charSpace"), "220")  # 11磅 = 220 twips
 
             # 1. 添加封面页
 
             self._add_cover_page(doc, project)
 
-
-
             # 2. 设置页眉页脚
 
             self._setup_header_footer(doc, project)
-
-
 
             # 3. 添加目录（占位）
 
@@ -484,15 +434,11 @@ class ExportService:
 
             self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
-
-
             # 4. 添加访视流程图
 
             self._add_visit_flow_diagram(doc, project)
 
             self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-
 
             # 5. 添加表单内容
 
@@ -501,8 +447,6 @@ class ExportService:
             # 6. 写入 TOC 预渲染条目（依赖 _add_toc_heading 收集结果）
 
             self._populate_toc(doc)
-
-
 
             # 保存文档
 
@@ -515,62 +459,47 @@ class ExportService:
 
             return True
 
-
-
         except ExportError:
-
             # 具体导出错误（detail + code）交给上层原样返回，不吞成通用失败
 
             raise
 
         except Exception:
-
             logger.exception("导出失败 project_id=%s", project_id)
 
             return False
 
-
-
     @staticmethod
-
     def _validate_output(output_path: str) -> tuple[bool, str]:
-
         """验证导出文件是否为有效且结构完整的 docx。"""
 
         try:
-
             if os.path.getsize(output_path) <= 0:
-
                 return False, "导出文件为 0 字节"
 
         except OSError as exc:
-
             return False, f"无法读取导出文件大小: {exc}"
 
-
-
         try:
-
             doc = Document(output_path)
 
         except Exception as exc:
-
             return False, f"导出文件不是有效的 docx: {exc}"
 
-
-
         if len(doc.tables) < 3:
-
             return False, "导出文档結構不完整：至少需要封面表、訪視圖表和至少一個表單內容表格"
-
-
 
         return True, ""
 
-
-
-    def _add_cover_para(self, doc: Document, text: str, size: Optional[float] = None, *, bold: bool = True, line_spacing: Optional[float] = None):
-
+    def _add_cover_para(
+        self,
+        doc: Document,
+        text: str,
+        size: Optional[float] = None,
+        *,
+        bold: bool = True,
+        line_spacing: Optional[float] = None,
+    ):
         """封面专用段落：居中，指定字号（None 表示继承样式）。返回段落对象供调用方设置额外格式。"""
 
         para = doc.add_paragraph()
@@ -582,15 +511,11 @@ class ExportService:
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         if line_spacing is not None:
-
             para.paragraph_format.line_spacing = line_spacing
 
         return para
 
-
-
     def _add_cover_page(self, doc: Document, project: Project):
-
         """添加封面页。"""
 
         trial_name = project.trial_name or "[请设置试验名称]"
@@ -598,20 +523,14 @@ class ExportService:
         ver = project.crf_version or "[版本号]"
 
         date_str = (
-
             project.crf_version_date.strftime("%Y-%m-%d")
-
             if project.crf_version_date and hasattr(project.crf_version_date, "strftime")
-
             else "[日期]"
-
         )
 
         sponsor = (project.sponsor or "").strip()
 
         dmu = (project.data_management_unit or "").strip()
-
-
 
         self._add_cover_para(doc, trial_name, 18)
 
@@ -625,8 +544,6 @@ class ExportService:
 
         self._add_cover_para(doc, "", 15, bold=False, line_spacing=1.5)
 
-
-
         table = doc.add_table(rows=3, cols=2)
 
         table.autofit = False
@@ -637,36 +554,28 @@ class ExportService:
 
         tbl_pr = table._tbl.tblPr
 
-        tbl_w = tbl_pr.find(qn('w:tblW'))
+        tbl_w = tbl_pr.find(qn("w:tblW"))
 
         if tbl_w is None:
-
-            tbl_w = OxmlElement('w:tblW')
+            tbl_w = OxmlElement("w:tblW")
 
             tbl_pr.append(tbl_w)
 
-        tbl_w.set(qn('w:w'), '3855')   # 3.2cm + 3.6cm ≈ 3855 DXA
+        tbl_w.set(qn("w:w"), "3855")  # 3.2cm + 3.6cm ≈ 3855 DXA
 
-        tbl_w.set(qn('w:type'), 'dxa')
+        tbl_w.set(qn("w:type"), "dxa")
 
         table.columns[0].width = Cm(3.2)
 
         table.columns[1].width = Cm(3.6)
 
         cover_rows = [
-
             ("方案编号", project.protocol_number or ""),
-
             ("中心编号", "|__|__|"),
-
             ("筛选号", normalize_screening_number_format(project.screening_number_format) or "S|__|__||__|__|__|"),
-
         ]
 
-
-
         for row_idx, (label, value) in enumerate(cover_rows):
-
             row = table.rows[row_idx]
 
             self._apply_exact_row_height(row)
@@ -688,23 +597,18 @@ class ExportService:
             self._set_run_font(right_run, size=Pt(10), bold=True)
 
             for cell in (left_cell, right_cell):
-
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
                 self._remove_cell_borders(cell)
 
                 for cp in cell.paragraphs:
-
                     self._apply_cell_paragraph_metrics(cp)
-
-
 
         self._add_cover_para(doc, "", 15, bold=False, line_spacing=1.5)
 
         self._add_cover_para(doc, "", 15, bold=False, line_spacing=1.5)
 
         if sponsor:
-
             p = self._add_cover_para(doc, f"申办方：{sponsor}", 15, bold=True)
 
             p.paragraph_format.space_before = Pt(7.8)
@@ -712,7 +616,6 @@ class ExportService:
             p.paragraph_format.space_after = Pt(7.8)
 
         if dmu:
-
             p = self._add_cover_para(doc, f"数据管理单位：{dmu}", 15, bold=True)
 
             p.paragraph_format.space_before = Pt(7.8)
@@ -721,22 +624,15 @@ class ExportService:
 
         doc.add_page_break()
 
-
-
     def _setup_header_footer(self, doc: Document, project: Project):
-
         """设置页眉页脚。"""
 
         for section in doc.sections:
-
             self._apply_header_to_section(section, project)
 
             self._apply_footer_to_section(section)
 
-
-
     def _apply_header_to_section(self, section, project: Project):
-
         """为指定 section 设置页眉。"""
 
         header = section.header
@@ -755,18 +651,13 @@ class ExportService:
 
         p.paragraph_format.line_spacing = 1.0
 
-
-
         if project.company_logo_path:
-
             from src.config import get_config
 
             logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
 
             if logo_path.exists():
-
                 try:
-
                     run_img = p.add_run()
 
                     picture = run_img.add_picture(str(logo_path), height=Inches(0.4))
@@ -774,41 +665,28 @@ class ExportService:
                     self._make_picture_float(picture)
 
                 except Exception:
-
                     pass
-
-
 
         version_parts = []
 
         if project.crf_version:
-
             version_parts.append(project.crf_version)
 
         if project.crf_version_date:
-
             date_str = (
-
                 project.crf_version_date.strftime("%Y%m%d")
-
                 if hasattr(project.crf_version_date, "strftime")
-
                 else str(project.crf_version_date)
-
             )
 
             version_parts.append(date_str)
 
         if version_parts:
-
             run = p.add_run(f"版本号/日期：{'/'.join(version_parts)}")
 
             self._set_run_font(run, size=Pt(9))
 
-
-
     def _apply_footer_to_section(self, section):
-
         """为指定 section 设置页脚。"""
 
         footer = section.footer
@@ -821,80 +699,67 @@ class ExportService:
 
         p_footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-
-
         prefix = p_footer.add_run("第 ")
 
         self._set_run_font(prefix, size=Pt(9))
 
-
-
         run_page = p_footer.add_run()
 
-        fld_char_begin = OxmlElement('w:fldChar')
+        fld_char_begin = OxmlElement("w:fldChar")
 
-        fld_char_begin.set(qn('w:fldCharType'), 'begin')
+        fld_char_begin.set(qn("w:fldCharType"), "begin")
 
         run_page._r.append(fld_char_begin)
 
-        instr_text = OxmlElement('w:instrText')
+        instr_text = OxmlElement("w:instrText")
 
-        instr_text.set(qn('xml:space'), 'preserve')
+        instr_text.set(qn("xml:space"), "preserve")
 
         instr_text.text = "PAGE"
 
         run_page._r.append(instr_text)
 
-        fld_char_end = OxmlElement('w:fldChar')
+        fld_char_end = OxmlElement("w:fldChar")
 
-        fld_char_end.set(qn('w:fldCharType'), 'end')
+        fld_char_end.set(qn("w:fldCharType"), "end")
 
         run_page._r.append(fld_char_end)
 
         self._set_run_font(run_page, size=Pt(9))
 
-
-
         middle = p_footer.add_run(" 页 / 共 ")
 
         self._set_run_font(middle, size=Pt(9))
 
-
-
         run_total = p_footer.add_run()
 
-        fld_char_begin_total = OxmlElement('w:fldChar')
+        fld_char_begin_total = OxmlElement("w:fldChar")
 
-        fld_char_begin_total.set(qn('w:fldCharType'), 'begin')
+        fld_char_begin_total.set(qn("w:fldCharType"), "begin")
 
         run_total._r.append(fld_char_begin_total)
 
-        instr_text_total = OxmlElement('w:instrText')
+        instr_text_total = OxmlElement("w:instrText")
 
-        instr_text_total.set(qn('xml:space'), 'preserve')
+        instr_text_total.set(qn("xml:space"), "preserve")
 
         instr_text_total.text = "NUMPAGES"
 
         run_total._r.append(instr_text_total)
 
-        fld_char_end_total = OxmlElement('w:fldChar')
+        fld_char_end_total = OxmlElement("w:fldChar")
 
-        fld_char_end_total.set(qn('w:fldCharType'), 'end')
+        fld_char_end_total.set(qn("w:fldCharType"), "end")
 
         run_total._r.append(fld_char_end_total)
 
         self._set_run_font(run_total, size=Pt(9))
 
-
-
         suffix = p_footer.add_run(" 页")
 
         self._set_run_font(suffix, size=Pt(9))
 
-
-
     def _add_toc_placeholder(self, doc: Document):
-
         """添加"目录"标题段并记录锚点。
 
         TOC 域指令（begin/instrText/separate）与预渲染条目由 ``_populate_toc``
@@ -916,8 +781,6 @@ class ExportService:
 
         self._toc_field_paragraph = p_title
 
-
-
     def _add_toc_heading(
         self,
         doc: Document,
@@ -928,7 +791,6 @@ class ExportService:
         annotated: bool = False,
         annotation_delta_y_01cm: int = 0,
     ):
-
         """添加标题段落并注册 TOC 条目。
 
         为标题插入唯一名 ``_Toc%08d`` 书签，并记录标题文本、层级与书签名
@@ -968,25 +830,19 @@ class ExportService:
         last_content = None
 
         for child in p_element:
-
             if child.tag not in (qn("w:bookmarkStart"), qn("w:pPr")):
-
                 last_content = child
 
         if last_content is not None:
-
             last_content.addnext(bm_end)
 
         else:
-
             p_element.append(bm_end)
 
         for run in heading_para.runs:
-
             self._set_run_font(run)
 
         if annotated and form_domain:
-
             self._add_oid_annotation_box(
                 heading_para,
                 form_domain,
@@ -1017,7 +873,6 @@ class ExportService:
     def _clamp_annotation_delta_y(self, value: Any) -> int:
 
         if isinstance(value, bool) or not isinstance(value, int):
-
             return 0
 
         return max(ANNOTATION_POSITION_MIN_Y, min(ANNOTATION_POSITION_MAX_Y, value))
@@ -1029,24 +884,18 @@ class ExportService:
     def _load_annotation_offsets(self, raw_value: Any) -> Dict[str, int]:
 
         try:
-
             positions = parse_annotation_positions(raw_value)
 
         except ValueError as exc:
-
             raise ExportError(
                 f"表单 annotation_positions 数据非法: {exc}",
                 _EXPORT_ERROR_CODES["DATA_INCOMPATIBLE"],
             ) from exc
 
         if positions is None:
-
             return {}
 
-        return {
-            key: self._clamp_annotation_delta_y(position.y)
-            for key, position in positions.items()
-        }
+        return {key: self._clamp_annotation_delta_y(position.y) for key, position in positions.items()}
 
     @staticmethod
     def _annotation_text_key(value: Any) -> str:
@@ -1063,7 +912,6 @@ class ExportService:
 
         normalized_key = self._annotation_text_key(key)
         if not normalized_key:
-
             return 0
 
         return self._current_annotation_offsets.get(normalized_key, 0)
@@ -1078,23 +926,15 @@ class ExportService:
 
         from docx.oxml import parse_xml
 
-
-
         display_text = self._normalize_annotation_text(text)
 
         if not display_text:
-
             return
-
-
 
         box_width_emu = int(Cm(self._estimate_annotation_width_cm(display_text)))
 
         box_height_emu = int(Cm(ACRF_ANNOTATION_HEIGHT_CM))
-        pos_offset_emu = (
-            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
-            + self._annotation_delta_y_to_emu(delta_y_01cm)
-        )
+        pos_offset_emu = ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU + self._annotation_delta_y_to_emu(delta_y_01cm)
 
         docpr_id = self._next_annotation_docpr_id()
 
@@ -1173,10 +1013,7 @@ class ExportService:
 
         anchor_run._r.append(parse_xml(anchor_xml))
 
-
-
     def _apply_raw_run_font(self, rpr, size_half_pt: int = 21) -> None:
-
         """为裸 ``w:r`` 的 ``rPr`` 写入中英文字体与字号（单位：半点，21=10.5pt）。
 
         预渲染目录条目用裸 OxmlElement 构建，无法复用 ``_set_run_font``；显式写入
@@ -1205,10 +1042,7 @@ class ExportService:
 
         rpr.append(szCs)
 
-
-
     def _ensure_toc_styles(self, doc: Document) -> None:
-
         """确保 styles.xml 定义 TOC1/TOC2/TOC3 段落样式（幂等）。
 
         预渲染条目引用这些样式；缺失时 Word 回退默认字体，使目录与正文宋体
@@ -1217,20 +1051,12 @@ class ExportService:
 
         styles_el = doc.styles.element
 
-        existing = {
-
-            s.get(qn("w:styleId"))
-
-            for s in styles_el.findall(qn("w:style"))
-
-        }
+        existing = {s.get(qn("w:styleId")) for s in styles_el.findall(qn("w:style"))}
 
         for level in (1, 2, 3):
-
             style_id = f"TOC{level}"
 
             if style_id in existing:
-
                 continue
 
             style = OxmlElement("w:style")
@@ -1272,7 +1098,6 @@ class ExportService:
             pPr.append(spacing)
 
             if level > 1:
-
                 ind = OxmlElement("w:ind")
 
                 ind.set(qn("w:left"), str((level - 1) * 420))
@@ -1303,10 +1128,7 @@ class ExportService:
 
             styles_el.append(style)
 
-
-
     def _build_toc_entry(self, heading_text: str, level: int, bookmark_name: str, with_field_start: bool):
-
         """构建一条预渲染目录条目段落（``w:p``）。
 
         ``with_field_start=True`` 时在条目最前合入外层 TOC 域起始
@@ -1349,7 +1171,6 @@ class ExportService:
         # 外层 TOC 域起始合入首条条目：begin(dirty) → instrText → separate
 
         if with_field_start:
-
             toc_begin = OxmlElement("w:r")
 
             toc_begin_fc = OxmlElement("w:fldChar")
@@ -1490,10 +1311,7 @@ class ExportService:
 
         return entry
 
-
-
     def _populate_toc(self, doc: Document):
-
         """在"目录"标题之后写入预渲染目录条目，并以外层 TOC 域收尾。
 
         需在所有 ``_add_toc_heading`` 调用完成后执行（即 ``_add_forms_content``
@@ -1505,7 +1323,6 @@ class ExportService:
         anchor = self._toc_field_paragraph
 
         if anchor is None or not self._toc_entries:
-
             return
 
         # 确保 TOC1/2/3 样式存在，使预渲染条目与重生成目录字体一致（宋体）
@@ -1519,12 +1336,7 @@ class ExportService:
         last_entry_el = None
 
         for index, (heading_text, level, bookmark_name) in enumerate(self._toc_entries):
-
-            entry_el = self._build_toc_entry(
-
-                heading_text, level, bookmark_name, with_field_start=(index == 0)
-
-            )
+            entry_el = self._build_toc_entry(heading_text, level, bookmark_name, with_field_start=(index == 0))
 
             anchor_el.addnext(entry_el)
 
@@ -1544,10 +1356,7 @@ class ExportService:
 
         last_entry_el.append(toc_end_run)
 
-
-
     def _bake_toc_page_numbers(self, doc: Document, output_path: str) -> None:
-
         """服务器侧用 LibreOffice 渲染算出真实页码并写回目录 PAGEREF 占位。
 
         LibreOffice 可用且渲染成功时写入真实页码；否则保留非空回退页码。
@@ -1556,16 +1365,13 @@ class ExportService:
         """
 
         if not self._toc_pageref_values:
-
             return
 
         from src.services import toc_pagination
 
-
         pages = toc_pagination.compute_heading_pages(output_path)
 
         if not pages:
-
             logger.warning(
                 "未取得真实目录页码，保留非空回退页码 output_path=%s",
                 output_path,
@@ -1576,22 +1382,18 @@ class ExportService:
         missing_headings: list[str] = []
 
         for heading_text, value_elements in self._toc_pageref_values.items():
-
             page = pages.get(heading_text)
 
             if page is None:
-
                 missing_headings.append(heading_text)
                 continue
 
             for val_t in value_elements:
-
                 val_t.text = str(page)
 
                 updated = True
 
         if missing_headings:
-
             logger.warning(
                 "部分目录页码未取得，保留非空回退页码 missing_count=%s total=%s",
                 len(missing_headings),
@@ -1599,48 +1401,31 @@ class ExportService:
             )
 
         if updated:
-
             doc.save(output_path)
 
-
-
     def _add_visit_flow_diagram(self, doc: Document, project: Project):
-
         """添加访视流程图"""
 
         self._add_toc_heading(doc, "表单访视分布图", level=1)
-
-
 
         all_forms = {}
 
         visit_form_map = {}
 
         for visit in project.visits:
-
             for visit_form in visit.visit_forms:
-
                 if visit_form.form:
-
                     if visit_form.form.id not in all_forms:
-
                         all_forms[visit_form.form.id] = visit_form.form
 
                     visit_form_map[(visit.id, visit_form.form.id)] = True
 
-
-
         sorted_forms = sorted(
-
             all_forms.values(),
-
             key=lambda f: (f.order_index if f.order_index is not None else 999999, f.id),
-
         )
 
         visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
-
-
 
         row_count = len(sorted_forms) + 1 if sorted_forms else 1
 
@@ -1655,15 +1440,13 @@ class ExportService:
         header_tr = table.rows[0]._tr
         tr_pr = header_tr.trPr
         if tr_pr is None:
-            tr_pr = OxmlElement('w:trPr')
+            tr_pr = OxmlElement("w:trPr")
             header_tr.insert(0, tr_pr)
-        tbl_header = tr_pr.find(qn('w:tblHeader'))
+        tbl_header = tr_pr.find(qn("w:tblHeader"))
         if tbl_header is None:
-            tbl_header = OxmlElement('w:tblHeader')
+            tbl_header = OxmlElement("w:tblHeader")
             tr_pr.append(tbl_header)
-        tbl_header.set(qn('w:val'), 'true')
-
-
+        tbl_header.set(qn("w:val"), "true")
 
         header_cell_00 = table.rows[0].cells[0]
 
@@ -1677,12 +1460,9 @@ class ExportService:
 
         header_cell_00.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-        self._apply_cell_shading(header_cell_00, 'A5C9EB')
-
-
+        self._apply_cell_shading(header_cell_00, "A5C9EB")
 
         for col_idx, visit in enumerate(visits, start=1):
-
             header_cell = table.rows[0].cells[col_idx]
 
             header_para = header_cell.paragraphs[0]
@@ -1695,12 +1475,9 @@ class ExportService:
 
             header_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            self._apply_cell_shading(header_cell, 'A5C9EB')
-
-
+            self._apply_cell_shading(header_cell, "A5C9EB")
 
         for row_idx, form in enumerate(sorted_forms, start=1):
-
             name_cell = table.rows[row_idx].cells[0]
 
             name_para = name_cell.paragraphs[0]
@@ -1713,16 +1490,12 @@ class ExportService:
 
             name_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
             for col_idx, visit in enumerate(visits, start=1):
-
                 cross_cell = table.rows[row_idx].cells[col_idx]
 
                 cross_para = cross_cell.paragraphs[0]
 
                 if (visit.id, form.id) in visit_form_map:
-
                     cross_run = cross_para.add_run("×")
 
                     self._set_run_font(cross_run, size=Pt(10.5), bold=True)
@@ -1731,36 +1504,22 @@ class ExportService:
 
                     cross_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
         for row in table.rows:
-
             for cell in row.cells:
-
                 for paragraph in cell.paragraphs:
-
-                    paragraph.style = 'VisitFlow'
-
-
+                    paragraph.style = "VisitFlow"
 
     def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False):
-
         """添加表单内容（支持横向表格渲染与统一横向布局）。"""
 
         if not project.forms:
-
             self._build_form_table(doc, [], form_id=None, annotated=annotated)
 
             return
 
-
-
         sorted_forms = sorted(
-
             project.forms,
-
             key=lambda f: (f.order_index if f.order_index is not None else 999999, f.id),
-
         )
 
         total_forms = len(sorted_forms)
@@ -1770,8 +1529,6 @@ class ExportService:
         for visit in sorted_visits:
             for visit_form in visit.visit_forms:
                 form_to_visits.setdefault(visit_form.form_id, []).append(visit)
-
-
 
         for idx, form in enumerate(sorted_forms, start=1):
             if annotated:
@@ -1789,10 +1546,7 @@ class ExportService:
 
             is_last_form = idx == total_forms
 
-
-
             if layout.mode == "mixed_landscape":
-
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
                 self._add_toc_heading(
@@ -1807,19 +1561,15 @@ class ExportService:
                 groups = self._group_form_fields(form_fields)
 
                 if groups == [[]]:
-
                     groups = []
 
                 for group in groups:
-
                     if not group:
-
                         continue
 
                     first_field = group[0]
 
                     if first_field.inline_mark == 1:
-
                         self._add_inline_table(
                             doc,
                             group,
@@ -1830,7 +1580,6 @@ class ExportService:
                         )
 
                     else:
-
                         self._build_form_table(
                             doc,
                             group,
@@ -1840,7 +1589,6 @@ class ExportService:
                         )
 
                 if not groups:
-
                     self._build_form_table(
                         doc,
                         [],
@@ -1852,11 +1600,9 @@ class ExportService:
                 self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
 
                 if not is_last_form:
-
                     self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
             elif layout.mode == "unified_landscape":
-
                 # 统一横向布局路径
 
                 self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
@@ -1886,15 +1632,12 @@ class ExportService:
                 # 仅当后续还有表单时才切回 portrait，避免末尾空白页
 
                 if not is_last_form:
-
                     self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
             else:
-
                 # legacy 路径（保持现有行为）
 
                 if layout.force_landscape:
-
                     self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
 
                 self._add_toc_heading(
@@ -1906,35 +1649,22 @@ class ExportService:
                     annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
                 )
 
-
-
                 groups = self._group_form_fields(form_fields)
 
                 if groups == [[]]:
-
                     groups = []
 
-
-
                 for group in groups:
-
                     if not group:
-
                         continue
-
-
 
                     first_field = group[0]
 
                     if first_field.inline_mark == 1:
-
                         needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
 
                         if needs_temporary_landscape and not layout.force_landscape:
-
                             self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-
 
                         inline_available_cm = (
                             self.LANDSCAPE_CONTENT_WIDTH_CM
@@ -1950,15 +1680,10 @@ class ExportService:
                             annotated=annotated,
                         )
 
-
-
                         if needs_temporary_landscape and not layout.force_landscape:
-
                             self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
                         continue
-
-
 
                     self._build_form_table(
                         doc,
@@ -1971,8 +1696,6 @@ class ExportService:
                         ),
                         annotated=annotated,
                     )
-
-
 
                 if not groups:
                     self._build_form_table(
@@ -1992,27 +1715,22 @@ class ExportService:
                 # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
 
                 if not is_last_form:
-
                     if layout.force_landscape:
-
                         self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
                     else:
-
                         self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
             self._current_annotation_offsets = {}
-
-
 
     def _add_applicable_visits_paragraph(self, doc: Document, visits):
         """在表单末尾追加"适用访视：<name>、..."段落。"""
         if not visits:
             return
-        para = doc.add_paragraph(style='ApplicableVisits')
-        prefix_run = para.add_run('适用访视：')
+        para = doc.add_paragraph(style="ApplicableVisits")
+        prefix_run = para.add_run("适用访视：")
         self._set_run_font(prefix_run, size=Pt(10.5), bold=True)
-        names_run = para.add_run('、'.join(visit.name for visit in visits))
+        names_run = para.add_run("、".join(visit.name for visit in visits))
         self._set_run_font(names_run, size=Pt(10.5))
 
     def _get_column_width_override(self, form_id, table_kind: str, col_count: int):
@@ -2082,7 +1800,7 @@ class ExportService:
         Returns:
             table_instance_id: 格式 "kind:fieldIds=<ordered-field-ids>"
         """
-        field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, 'id') and f.id is not None]
+        field_ids = [str(f.id) for f in (fields or []) if f and hasattr(f, "id") and f.id is not None]
         return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
     def _classify_form_layout(self, form_fields, paper_orientation: str = "auto") -> LayoutDecision:
@@ -2099,16 +1817,12 @@ class ExportService:
         """
 
         if not form_fields:
-
             decision = LayoutDecision("legacy", 0, 0, 0)
 
         else:
-
             sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
 
             has_regular = any(f.inline_mark == 0 for f in sorted_fields)
-
-
 
             # 计算连续 inline block 的最大宽度
 
@@ -2117,51 +1831,36 @@ class ExportService:
             current_block_width = 0
 
             for f in sorted_fields:
-
                 if f.inline_mark == 1:
-
                     current_block_width += 1
 
                 else:
-
                     max_block_width = max(max_block_width, current_block_width)
 
                     current_block_width = 0
 
             max_block_width = max(max_block_width, current_block_width)
 
-
-
             has_inline = max_block_width > 0
 
             if has_regular and has_inline and max_block_width > 4:
-
                 N = max_block_width
 
                 decision = LayoutDecision("mixed_landscape", N, 0, 0)
 
             else:
-
                 decision = LayoutDecision("legacy", 0, 0, 0)
 
-
-
         if paper_orientation == "portrait":
-
             return LayoutDecision("legacy", 0, 0, 0, force_portrait=True)
 
         if paper_orientation == "landscape" and decision.mode == "legacy":
-
             return LayoutDecision("legacy", 0, 0, 0, force_landscape=True)
 
         return decision
 
-
-
     @staticmethod
-
     def _compute_merge_spans(N: int, M: int) -> List[int]:
-
         """将 N 列均分为 M 个 span，前面的 span 优先分配余数列。
 
 
@@ -2171,7 +1870,6 @@ class ExportService:
         """
 
         if M <= 0 or M > N:
-
             return [1] * N
 
         base = N // M
@@ -2181,22 +1879,15 @@ class ExportService:
         spans = []
 
         for i in range(M):
-
             spans.append(base + (1 if i < extra else 0))
 
         return spans
 
-
-
     def _build_unified_segments(self, form_fields) -> List[Segment]:
-
         """按字段顺序构建 unified landscape 所需的渲染片段。"""
 
         if not form_fields:
-
             return []
-
-
 
         sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
 
@@ -2204,79 +1895,52 @@ class ExportService:
 
         inline_buffer = []
 
-
-
         for form_field in sorted_fields:
-
             if form_field.inline_mark == 1:
-
                 inline_buffer.append(form_field)
 
                 continue
 
-
-
             if inline_buffer:
-
                 segments.append(Segment("inline_block", list(inline_buffer)))
 
                 inline_buffer = []
 
-
-
             field_def = form_field.field_definition
 
             if form_field.is_log_row or (field_def and field_def.field_type in ("日志行", "标签")):
-
                 segments.append(Segment("full_row", [form_field]))
 
             else:
-
                 segments.append(Segment("regular_field", [form_field]))
 
-
-
         if inline_buffer:
-
             segments.append(Segment("inline_block", list(inline_buffer)))
-
-
 
         return segments
 
-
-
     def _switch_section(self, doc: Document, orientation, project: Project):
-
         """新建分节并切换页面方向，同时重设页眉页脚。"""
 
         new_section = doc.add_section(WD_SECTION.NEW_PAGE)
 
         new_section.orientation = orientation
 
-
-
         if orientation == WD_ORIENT.LANDSCAPE:
-
             new_section.page_width = Cm(29.7)
 
             new_section.page_height = Cm(21)
 
         else:
-
             new_section.page_width = Cm(21)
 
             new_section.page_height = Cm(29.7)
-
-
 
         self._apply_header_to_section(new_section, project)
 
         self._apply_footer_to_section(new_section)
 
         return new_section
-
-
 
     def _build_unified_table(
         self,
@@ -2314,13 +1978,17 @@ class ExportService:
             elif segment.type == "regular_field" and segment.fields:
                 form_field = segment.fields[0]
                 field_def = getattr(form_field, "field_definition", None)
-                label = getattr(form_field, "label_override", None) or (
-                    getattr(field_def, "label", None) if field_def else None
-                ) or ""
-                regular_field_demands.append({
-                    "label_weight": compute_text_weight(label),
-                    "control_weight": build_field_control_weight(form_field),
-                })
+                label = (
+                    getattr(form_field, "label_override", None)
+                    or (getattr(field_def, "label", None) if field_def else None)
+                    or ""
+                )
+                regular_field_demands.append(
+                    {
+                        "label_weight": compute_text_weight(label),
+                        "control_weight": build_field_control_weight(form_field),
+                    }
+                )
                 all_fields.extend(segment.fields)
 
         # 检查是否有列宽覆盖配置 - 使用 table_instance_id
@@ -2333,13 +2001,17 @@ class ExportService:
             col_widths = [overrides[i] * available_cm for i in range(N)]
         else:
             # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
-            col_widths = plan_unified_table_width(
-                segment_data,
-                available_cm,
-                column_count=N,
-                block_demands=all_block_demands,
-                regular_field_demands=regular_field_demands,
-            ) if segment_data or regular_field_demands else None
+            col_widths = (
+                plan_unified_table_width(
+                    segment_data,
+                    available_cm,
+                    column_count=N,
+                    block_demands=all_block_demands,
+                    regular_field_demands=regular_field_demands,
+                )
+                if segment_data or regular_field_demands
+                else None
+            )
 
         if col_widths and len(col_widths) == N:
             # 应用规划的列宽
@@ -2355,23 +2027,15 @@ class ExportService:
 
         table._tbl.remove(table.rows[0]._tr)
 
-
-
         for segment in segments:
-
             if segment.type == "regular_field" and segment.fields:
-
                 self._add_unified_regular_row(table, segment.fields[0], layout, annotated=annotated)
 
             elif segment.type == "full_row" and segment.fields:
-
                 self._add_unified_full_row(table, segment.fields[0], N, annotated=annotated)
 
             elif segment.type == "inline_block" and segment.fields:
-
                 self._add_unified_inline_band(table, segment.fields, N, annotated=annotated)
-
-
 
         # 行添加完成后，同步 cell 的 tcW，避免 python-docx 默认 1234 twips 覆盖 gridCol
         # 让 Word 渲染时 col 与 cell 宽度对齐（与 _add_inline_table 同等契约）。
@@ -2385,8 +2049,6 @@ class ExportService:
 
         return table
 
-
-
     def _add_unified_regular_row(
         self,
         table,
@@ -2395,16 +2057,12 @@ class ExportService:
         *,
         annotated: bool = False,
     ):
-
         """在 unified table 中添加普通字段行。"""
 
         field_def = form_field.field_definition
 
         if not field_def:
-
             return
-
-
 
         N = layout.column_count
 
@@ -2414,20 +2072,14 @@ class ExportService:
         left_cell = row.cells[0]
 
         if layout.label_span > 1:
-
             left_cell = left_cell.merge(row.cells[layout.label_span - 1])
-
-
 
         right_start = layout.label_span
 
         right_cell = row.cells[right_start]
 
         if layout.value_span > 1:
-
             right_cell = right_cell.merge(row.cells[N - 1])
-
-
 
         label = form_field.label_override or field_def.label or ""
 
@@ -2447,26 +2099,15 @@ class ExportService:
 
         left_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
         right_para = right_cell.paragraphs[0]
 
         default_lines = extract_default_lines(form_field)
 
-        is_vertical_choice = (
-
-            not default_lines
-
-            and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
-        )
+        is_vertical_choice = not default_lines and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
 
         if default_lines:
-
             for line_idx, line in enumerate(default_lines):
-
                 if line_idx > 0:
-
                     right_para.add_run().add_break()
 
                 right_run = right_para.add_run(line)
@@ -2474,26 +2115,18 @@ class ExportService:
                 self._set_run_font(right_run, size=Pt(10.5))
 
         else:
-
             if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-
                 self._render_vertical_choices(right_cell, field_def)
 
             elif field_def.field_type in ["单选", "多选"]:
-
                 self._render_choice_field(right_para, field_def)
 
             else:
-
                 right_run = right_para.add_run(self._render_field_control(field_def))
 
                 self._set_run_font(right_run, size=Pt(10.5))
 
-
-
-        self._apply_cell_paragraph_metrics(
-            right_para, space_before=not is_vertical_choice, space_after=False
-        )
+        self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -2505,37 +2138,27 @@ class ExportService:
 
         annotation_text = self._field_annotation_text(field_def)
         if annotated and annotation_text:
-
             self._add_oid_annotation_box(
                 right_cell.paragraphs[-1],
                 annotation_text,
                 delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
             )
 
-
-
         if form_field.bg_color:
-
             self._apply_cell_shading(left_cell, form_field.bg_color)
 
             self._apply_cell_shading(right_cell, form_field.bg_color)
 
         if form_field.text_color:
-
             text_color = RGBColor.from_string(form_field.text_color)
 
             self._set_run_font(left_run, color=text_color)
 
             for paragraph in right_cell.paragraphs:
-
                 for run in paragraph.runs:
-
                     self._set_run_font(run, color=text_color)
 
-
-
     def _add_unified_full_row(self, table, form_field, N: int, *, annotated: bool = False):
-
         """在 unified table 中添加全宽行。"""
 
         row = table.add_row()
@@ -2544,10 +2167,7 @@ class ExportService:
         merged_cell = row.cells[0]
 
         if N > 1:
-
             merged_cell = merged_cell.merge(row.cells[N - 1])
-
-
 
         para = merged_cell.paragraphs[0]
 
@@ -2555,10 +2175,7 @@ class ExportService:
 
         is_log_row = form_field.is_log_row or (field_def and field_def.field_type == "日志行")
 
-
-
         if is_log_row:
-
             label = form_field.label_override or "以下为log行"
 
             run = para.add_run(label)
@@ -2575,15 +2192,13 @@ class ExportService:
 
             merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            self._apply_cell_shading(merged_cell, form_field.bg_color or 'D9D9D9')
+            self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
 
             if form_field.text_color:
-
                 self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
             annotation_text = self._field_annotation_text(field_def) if field_def else ""
             if annotated and annotation_text:
-
                 self._add_oid_annotation_box(
                     para,
                     annotation_text,
@@ -2592,9 +2207,7 @@ class ExportService:
 
             return
 
-
-
-        para.style = 'FormLabel'
+        para.style = "FormLabel"
 
         label = form_field.label_override or (field_def.label if field_def else "")
 
@@ -2613,33 +2226,24 @@ class ExportService:
         merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
         if form_field.bg_color:
-
             self._apply_cell_shading(merged_cell, form_field.bg_color)
 
         if form_field.text_color:
-
             self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
         if annotated and annotation_text:
-
             self._add_oid_annotation_box(
                 para,
                 annotation_text,
                 delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
             )
 
-
-
     def _add_unified_inline_band(self, table, block_fields, N: int, *, annotated: bool = False):
-
         """在 unified table 中添加 inline block 的表头和数据行。"""
 
         if not block_fields:
-
             return
-
-
 
         headers, row_values, field_defs = build_inline_table_model(block_fields)
 
@@ -2647,25 +2251,19 @@ class ExportService:
 
         spans = self._compute_merge_spans(N, M) if M < N else [1] * M
 
-
-
         header_row = table.add_row()
         self._apply_exact_row_height(header_row)
 
         start_col = 0
 
         for col_idx, label in enumerate(headers):
-
             span = spans[col_idx]
             field_def = field_defs[col_idx]
 
             cell = header_row.cells[start_col]
 
             if span > 1:
-
                 cell = cell.merge(header_row.cells[start_col + span - 1])
-
-
 
             para = cell.paragraphs[0]
 
@@ -2683,11 +2281,10 @@ class ExportService:
 
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-            self._apply_cell_shading(cell, 'D9D9D9')
+            self._apply_cell_shading(cell, "D9D9D9")
 
             annotation_text = self._field_annotation_text(field_def) if field_def else ""
             if annotated and annotation_text:
-
                 self._add_oid_annotation_box(
                     para,
                     annotation_text,
@@ -2696,66 +2293,44 @@ class ExportService:
 
             start_col += span
 
-
-
         for row_values_item in row_values:
-
             data_row = table.add_row()
             self._apply_exact_row_height(data_row)
 
             start_col = 0
 
             for col_idx, cell_value in enumerate(row_values_item):
-
                 span = spans[col_idx]
 
                 cell = data_row.cells[start_col]
 
                 if span > 1:
-
                     cell = cell.merge(data_row.cells[start_col + span - 1])
-
-
 
                 para = cell.paragraphs[0]
 
                 field_def = field_defs[col_idx]
 
-
-
                 is_vertical_choice = (
-
-                    cell_value is None
-
-                    and field_def
-
-                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
+                    cell_value is None and field_def and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
                 )
 
                 if cell_value is not None:
-
                     run = para.add_run(cell_value)
 
                     self._set_run_font(run, size=Pt(10.5))
 
                 elif field_def:
-
                     if is_vertical_choice:
-
                         self._render_vertical_choices(cell, field_def)
 
                     elif field_def.field_type in ["单选", "多选"]:
-
                         self._render_choice_field(para, field_def)
 
                     else:
-
                         run = para.add_run(self._render_field_control(field_def))
 
                         self._set_run_font(run, size=Pt(10.5))
-
-
 
                 self._apply_cell_paragraph_metrics(
                     para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
@@ -2765,39 +2340,25 @@ class ExportService:
 
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
                 marked_field = block_fields[col_idx]
 
                 if marked_field.bg_color:
-
                     self._apply_cell_shading(cell, marked_field.bg_color)
 
                 if marked_field.text_color:
-
                     text_color = RGBColor.from_string(marked_field.text_color)
 
                     for paragraph in cell.paragraphs:
-
                         for run in paragraph.runs:
-
                             self._set_run_font(run, color=text_color)
-
-
 
                 start_col += span
 
-
-
     def _group_form_fields(self, form_fields):
-
         """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""
 
         if not form_fields:
-
             return [[]]
-
-
 
         groups = []
 
@@ -2805,38 +2366,25 @@ class ExportService:
 
         current_inline = None
 
-
-
         for form_field in form_fields:
-
             is_inline = form_field.inline_mark == 1
 
             if current_inline is None or is_inline == current_inline:
-
                 current_group.append(form_field)
 
             else:
-
                 groups.append(current_group)
 
                 current_group = [form_field]
 
             current_inline = is_inline
 
-
-
         if current_group:
-
             groups.append(current_group)
-
-
 
         return groups or [[]]
 
-
-
     def _apply_exact_row_height(self, row, height_cm: Optional[float] = None):
-
         """为导出表格行设置 1cm 最小行高，多行内容可自然增高。"""
 
         row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
@@ -2876,38 +2424,24 @@ class ExportService:
         table.columns[1].width = Cm(normal_widths[1])
         self._apply_grid_table_style(table)
 
-
-
         if not fields:
-
             return table
 
-
-
         for row_idx, form_field in enumerate(fields):
-
             field_def = form_field.field_definition
 
             if form_field.is_log_row or (field_def and field_def.field_type == "日志行"):
-
                 self._add_log_row(table, row_idx, form_field, annotated=annotated)
 
             elif field_def and field_def.field_type == "标签":
-
                 self._add_label_row(table, row_idx, form_field, annotated=annotated)
 
             else:
-
                 self._add_field_row(table, row_idx, form_field, normal_widths, annotated=annotated)
-
-
 
         return table
 
-
-
     def _add_log_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
-
         """添加日志行。"""
 
         row = table.rows[row_idx]
@@ -2933,27 +2467,22 @@ class ExportService:
 
         merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-        self._apply_cell_shading(merged_cell, form_field.bg_color or 'D9D9D9')
+        self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
 
         if form_field.text_color:
-
             self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
 
         field_def = form_field.field_definition
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
         if annotated and annotation_text:
-
             self._add_oid_annotation_box(
                 para,
                 annotation_text,
                 delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
             )
 
-
-
     def _add_label_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
-
         """添加标签字段行。"""
 
         row = table.rows[row_idx]
@@ -2963,7 +2492,7 @@ class ExportService:
 
         para = merged_cell.paragraphs[0]
 
-        para.style = 'FormLabel'
+        para.style = "FormLabel"
 
         field_def = form_field.field_definition
 
@@ -2985,17 +2514,13 @@ class ExportService:
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
         if annotated and annotation_text:
-
             self._add_oid_annotation_box(
                 para,
                 annotation_text,
                 delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
             )
 
-
-
     def _add_field_row(self, table, row_idx: int, form_field, widths, *, annotated: bool = False):
-
         """添加普通字段行。"""
 
         row = table.rows[row_idx]
@@ -3004,10 +2529,7 @@ class ExportService:
         field_def = form_field.field_definition
 
         if not field_def:
-
             return
-
-
 
         left_cell = row.cells[0]
 
@@ -3016,8 +2538,6 @@ class ExportService:
         left_cell.width = Cm(widths[0])
 
         right_cell.width = Cm(widths[1])
-
-
 
         label = form_field.label_override or field_def.label or ""
 
@@ -3037,26 +2557,15 @@ class ExportService:
 
         left_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
         right_para = right_cell.paragraphs[0]
 
         default_lines = extract_default_lines(form_field)
 
-        is_vertical_choice = (
-
-            not default_lines
-
-            and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
-        )
+        is_vertical_choice = not default_lines and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
 
         if default_lines:
-
             for line_idx, line in enumerate(default_lines):
-
                 if line_idx > 0:
-
                     right_para.add_run().add_break()
 
                 right_run = right_para.add_run(line)
@@ -3064,31 +2573,21 @@ class ExportService:
                 self._set_run_font(right_run, size=Pt(10.5))
 
         else:
-
             if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-
                 self._render_vertical_choices(right_cell, field_def)
 
             elif field_def.field_type in ["单选", "多选"]:
-
                 self._render_choice_field(right_para, field_def)
 
             else:
-
                 # 填写线下划线根数按 control 列实际宽度自适应（不换行），
                 # 与前端预览共享同一估算公式以保证逐字一致。
                 fill_chars = compute_fill_line_char_count(widths[1])
-                right_run = right_para.add_run(
-                    self._render_field_control(field_def, fill_line_chars=fill_chars)
-                )
+                right_run = right_para.add_run(self._render_field_control(field_def, fill_line_chars=fill_chars))
 
                 self._set_run_font(right_run, size=Pt(10.5))
 
-
-
-        self._apply_cell_paragraph_metrics(
-            right_para, space_before=not is_vertical_choice, space_after=False
-        )
+        self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
 
         right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -3099,40 +2598,29 @@ class ExportService:
         # 文本/标签填写线贴单元格底部，使下划线呈“下划线”而非垂直居中时看起来像横线；
         # 方框占位（日期/数值等）与选项保持垂直居中。
         is_plain_fill_line = not default_lines and field_def.field_type in ("文本", "标签")
-        right_cell.vertical_alignment = (
-            WD_ALIGN_VERTICAL.BOTTOM if is_plain_fill_line else WD_ALIGN_VERTICAL.CENTER
-        )
+        right_cell.vertical_alignment = WD_ALIGN_VERTICAL.BOTTOM if is_plain_fill_line else WD_ALIGN_VERTICAL.CENTER
 
         annotation_text = self._field_annotation_text(field_def)
         if annotated and annotation_text:
-
             self._add_oid_annotation_box(
                 right_cell.paragraphs[-1],
                 annotation_text,
                 delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
             )
 
-
-
         if form_field.bg_color:
-
             self._apply_cell_shading(left_cell, form_field.bg_color)
 
             self._apply_cell_shading(right_cell, form_field.bg_color)
 
         if form_field.text_color:
-
             text_color = RGBColor.from_string(form_field.text_color)
 
             self._set_run_font(left_run, color=text_color)
 
             for paragraph in right_cell.paragraphs:
-
                 for run in paragraph.runs:
-
                     self._set_run_font(run, color=text_color)
-
-
 
     def _add_inline_table(
         self,
@@ -3192,21 +2680,15 @@ class ExportService:
             for cell in col.cells:
                 cell.width = width
 
-
-
         # 第一行：表头（字段名称）
 
         self._apply_exact_row_height(table.rows[0])
 
         for col_idx, label in enumerate(headers):
-
             field_def = field_defs[col_idx]
 
             if not field_def:
-
                 continue
-
-
 
             cell = table.rows[0].cells[col_idx]
 
@@ -3220,8 +2702,6 @@ class ExportService:
                 bold=resolve_label_bold(marked_fields[col_idx]),
             )
 
-
-
             # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
             self._apply_cell_paragraph_metrics(para)
@@ -3230,94 +2710,66 @@ class ExportService:
 
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
             # 表头底纹：#D9D9D9
 
-            shading_elm = OxmlElement('w:shd')
+            shading_elm = OxmlElement("w:shd")
 
-            shading_elm.set(qn('w:fill'), 'D9D9D9')
+            shading_elm.set(qn("w:fill"), "D9D9D9")
 
             cell._tc.get_or_add_tcPr().append(shading_elm)
 
             annotation_text = self._field_annotation_text(field_def)
             if annotated and annotation_text:
-
                 self._add_oid_annotation_box(
                     para,
                     annotation_text,
                     delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
                 )
 
-
-
         # 内容行：根据row_values生成
 
         for row_idx, row in enumerate(row_values):
-
             self._apply_exact_row_height(table.rows[row_idx + 1])
 
             for col_idx, cell_value in enumerate(row):
-
                 field_def = field_defs[col_idx]
 
                 if not field_def:
-
                     continue
-
-
 
                 cell = table.rows[row_idx + 1].cells[col_idx]
 
                 para = cell.paragraphs[0]
 
-
-
                 # 有默认值则显示默认值，否则显示控件占位符
 
                 is_vertical_choice = (
-
-                    cell_value is None
-
-                    and field_def
-
-                    and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
+                    cell_value is None and field_def and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
                 )
 
                 if cell_value is not None:
-
                     run = para.add_run(cell_value)
 
                     self._set_run_font(run, size=Pt(10.5))
 
                 else:
-
                     # 无默认值，显示控件占位符
 
                     if is_vertical_choice:
-
                         self._render_vertical_choices(cell, field_def)
 
                     elif field_def.field_type in ["单选", "多选"]:
-
                         self._render_choice_field(para, field_def)
 
                     else:
-
                         # inline 整格文本填写线：按该列实际宽度自适应（不换行），
                         # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
                         inline_fill_chars = (
-                            compute_fill_line_char_count(col_widths[col_idx])
-                            if col_idx < len(col_widths) else None
+                            compute_fill_line_char_count(col_widths[col_idx]) if col_idx < len(col_widths) else None
                         )
-                        run = para.add_run(
-                            self._render_field_control(field_def, fill_line_chars=inline_fill_chars)
-                        )
+                        run = para.add_run(self._render_field_control(field_def, fill_line_chars=inline_fill_chars))
 
                         self._set_run_font(run, size=Pt(10.5))
-
-
 
                 # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
@@ -3329,32 +2781,22 @@ class ExportService:
 
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-
-
                 # 应用底纹颜色和文字颜色
 
                 marked_field = marked_fields[col_idx]
 
                 if marked_field:
-
                     if marked_field.bg_color:
-
                         self._apply_cell_shading(cell, marked_field.bg_color)
 
                     if marked_field.text_color:
-
                         text_color = RGBColor.from_string(marked_field.text_color)
 
                         for para in cell.paragraphs:
-
                             for run in para.runs:
-
                                 self._set_run_font(run, color=text_color)
 
-
-
     def _render_field_control(self, field_def, fill_line_chars: int | None = None) -> str:
-
         """渲染字段控件文本。
 
         Args:
@@ -3368,40 +2810,29 @@ class ExportService:
 
         fill_line = "_" * fill_line_chars if fill_line_chars else "________________"
 
-
-
         # 获取单位符号
 
         unit_text = ""
 
         if hasattr(field_def, "unit") and field_def.unit:
-
             unit_text = f" {field_def.unit.symbol}"
 
-
-
         if field_type == "单选":
-
             return self._render_single_choice(field_def)
 
         elif field_type == "多选":
-
             return self._render_multi_choice(field_def)
 
         elif field_type in ["单选（纵向）", "下拉框"]:
-
             return self._render_single_choice_vertical(field_def)
 
         elif field_type == "多选（纵向）":
-
             return self._render_multi_choice_vertical(field_def)
 
         elif field_type in ("日期", "日期时间", "时间"):
-
             return render_date_time_placeholder(field_type, getattr(field_def, "date_format", None))
 
         elif field_type == "数值":
-
             integers = field_def.integer_digits or 10
 
             decimals = field_def.decimal_digits if field_def.decimal_digits is not None else 2
@@ -3411,93 +2842,69 @@ class ExportService:
             parts = []
 
             for _ in range(integers):
-
                 parts.append("|__|")
 
             line = "".join(parts)
 
             if decimals > 0:
-
                 line += "."
 
                 for _ in range(decimals):
-
                     line += "|__|"
 
             return line + unit_text
 
         elif field_type in ["文本", "标签"]:
-
             return fill_line + unit_text
 
         else:
-
             return fill_line
 
-
-
     def _render_single_choice(self, field_def) -> str:
-
         """渲染单选控件"""
 
         options = self._get_option_labels(field_def)
 
         if not options:
-
             return "________________"
 
         return "  ".join([f"○{opt}" for opt in options])
 
-
-
     def _render_single_choice_vertical(self, field_def) -> str:
-
         """渲染纵向单选控件"""
 
         options = self._get_option_labels(field_def)
 
         if not options:
-
             return "________________"
 
         return "\n".join([f"○{opt}" for opt in options])
 
-
-
     def _render_multi_choice(self, field_def) -> str:
-
         """渲染多选控件"""
 
         options = self._get_option_labels(field_def)
 
         if not options:
-
             return "________________"
 
         return "  ".join([f"□{opt}" for opt in options])
 
-
-
     def _render_multi_choice_vertical(self, field_def) -> str:
-
         """渲染纵向多选控件"""
 
         options = self._get_option_labels(field_def)
 
         if not options:
-
             return "________________"
 
         return "\n".join([f"□{opt}" for opt in options])
-
-
 
     def _render_vertical_choices(
         self,
         cell,
         field_def,
     ):
-
         """纵向排列选项：每个选项独占单元格内一个独立段落。
 
 
@@ -3511,14 +2918,11 @@ class ExportService:
         option_data = self._get_option_data(field_def)
 
         if not option_data:
-
             run = cell.paragraphs[0].add_run("________________")
 
             self._set_run_font(run, size=Pt(10.5))
 
             return
-
-
 
         # 单元格上下加内边距，避免纵向选项紧贴上/下框线（与段落间距正交，行仍随内容自然增高）
         tcPr = cell._tc.get_or_add_tcPr()
@@ -3533,9 +2937,7 @@ class ExportService:
         symbol = "○" if "单选" in field_type else "□"
 
         for idx, label in enumerate(option_data):
-
             if idx == 0:
-
                 para = cell.paragraphs[0]
 
                 para.paragraph_format.space_before = Pt(0)
@@ -3547,7 +2949,6 @@ class ExportService:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
             else:
-
                 para = cell.add_paragraph()
 
                 # 非首项加段前间距，使纵向选项之间留出与预览一致的间隔
@@ -3558,8 +2959,6 @@ class ExportService:
                 self._apply_exact_line_spacing(para)
 
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-
 
             # 关闭网格吸附，使各纵向选项之间的间距在 Word 中均匀呈现
             self._disable_snap_to_grid(para)
@@ -3580,22 +2979,17 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-
-
             # 普通选项文本
 
             opt_run = para.add_run(label)
 
             self._set_run_font(opt_run, size=Pt(10.5))
 
-
-
     def _render_choice_field(
         self,
         paragraph,
         field_def,
     ):
-
         """渲染单选或多选字段，确保○□符号使用宋体
 
 
@@ -3611,28 +3005,21 @@ class ExportService:
         # 没有选项时显示下划线占位符
 
         if not option_data:
-
             run = paragraph.add_run("________________")
 
             self._set_run_font(run, size=Pt(10.5))
 
             return
 
-
-
         symbol = "○" if "单选" in field_type else "□"
 
         for idx, label in enumerate(option_data):
-
             if idx > 0:
-
                 # 横向排列，添加空格分隔
 
                 space_run = paragraph.add_run("  ")
 
                 self._set_run_font(space_run, size=Pt(10.5))
-
-
 
             # 添加符号run，使用宋体
 
@@ -3654,29 +3041,21 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-
-
             # 普通选项文本
 
             opt_run = paragraph.add_run(label)
 
             self._set_run_font(opt_run, size=Pt(10.5))
 
-
-
     def _get_option_labels(
         self,
         field_def,
     ) -> list:
-
         """获取选项标签列表。"""
 
         return list(self._get_option_data(field_def))
 
-
-
     def _get_option_data(self, field_def) -> List[str]:
-
         """获取选项标签列表。
 
 
@@ -3686,39 +3065,29 @@ class ExportService:
         """
 
         if not hasattr(field_def, "codelist") or not field_def.codelist:
-
             return []
 
         if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
-
             return []
 
         # 按 order_index 排序，缺失时回退到 id
 
         options = sorted(
-
             field_def.codelist.options,
-
-            key=lambda o: (o.order_index if o.order_index is not None else float('inf'), o.id or 0)
-
+            key=lambda o: (o.order_index if o.order_index is not None else float("inf"), o.id or 0),
         )
 
         result: List[str] = []
 
         for opt in options:
-
             if not opt.decode:
-
                 continue
 
             result.append(opt.decode)
 
         return result
 
-
-
     def _add_fill_line_run(self, paragraph, length: int = 6):
-
         """添加填写线 run（纯下划线字符，与文本字段填写线风格一致）"""
 
         fill_text = "_" * length
@@ -3729,18 +3098,13 @@ class ExportService:
 
         return run
 
-
-
     def _apply_document_style(self, doc: Document):
-
         """统一文档字体：中文宋体，英文Times New Roman，并设置标题样式"""
 
         # 更新基础样式
 
         for style_name in ["Normal", "Heading 1", "Heading 2", "Heading 3"]:
-
             if style_name not in doc.styles:
-
                 continue
 
             style = doc.styles[style_name]
@@ -3757,12 +3121,9 @@ class ExportService:
 
             rFonts.set(qn("w:eastAsia"), self.FONT_EAST_ASIA)
 
-
-
         # 设置 Heading 1 为 14pt 粗体
 
         if "Heading 1" in doc.styles:
-
             h1_style = doc.styles["Heading 1"]
 
             h1_style.font.size = Pt(14)
@@ -3773,12 +3134,9 @@ class ExportService:
 
             h1_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-
-
         # 新增自定义样式：封面信息表格
 
         if "CoverInfo" not in doc.styles:
-
             cover_style = doc.styles.add_style("CoverInfo", WD_STYLE_TYPE.PARAGRAPH)
 
             cover_style.font.size = Pt(10)
@@ -3799,12 +3157,9 @@ class ExportService:
 
             self._apply_cell_paragraph_metrics(cover_style)
 
-
-
         # 新增自定义样式：访视分布图表格
 
         if "VisitFlow" not in doc.styles:
-
             visit_style = doc.styles.add_style("VisitFlow", WD_STYLE_TYPE.PARAGRAPH)
 
             visit_style.font.size = Pt(10.5)
@@ -3823,12 +3178,9 @@ class ExportService:
 
             self._apply_cell_paragraph_metrics(visit_style)
 
-
-
         # 新增自定义样式：表单标签字段
 
         if "FormLabel" not in doc.styles:
-
             label_style = doc.styles.add_style("FormLabel", WD_STYLE_TYPE.PARAGRAPH)
 
             label_style.font.size = Pt(10.5)
@@ -3847,12 +3199,9 @@ class ExportService:
 
             self._apply_cell_paragraph_metrics(label_style)
 
-
-
         # 新增自定义样式：适用访视 footer
 
         if "ApplicableVisits" not in doc.styles:
-
             applicable_style = doc.styles.add_style("ApplicableVisits", WD_STYLE_TYPE.PARAGRAPH)
 
             applicable_style.font.size = Pt(10.5)
@@ -3873,10 +3222,7 @@ class ExportService:
 
             applicable_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-
-
     def _apply_grid_table_style(self, table):
-
         """为表格应用网格边框样式。
 
 
@@ -3889,233 +3235,168 @@ class ExportService:
 
         table.style = None
 
-
-
         # 添加表级边框（关键：insideH/insideV 确保内部网格线可见）
 
         tblPr = table._tbl.tblPr
 
         if tblPr is None:
-
-            tblPr = OxmlElement('w:tblPr')
+            tblPr = OxmlElement("w:tblPr")
 
             table._tbl.insert(0, tblPr)
 
-
-
-        tblBorders = tblPr.find(qn('w:tblBorders'))
+        tblBorders = tblPr.find(qn("w:tblBorders"))
 
         if tblBorders is None:
-
-            tblBorders = OxmlElement('w:tblBorders')
+            tblBorders = OxmlElement("w:tblBorders")
 
             tblPr.append(tblBorders)
 
-
-
         for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-
-            existing = tblBorders.find(qn(f'w:{border_name}'))
+            existing = tblBorders.find(qn(f"w:{border_name}"))
 
             if existing is not None:
-
                 tblBorders.remove(existing)
 
-            border_elm = OxmlElement(f'w:{border_name}')
+            border_elm = OxmlElement(f"w:{border_name}")
 
-            border_elm.set(qn('w:val'), 'single')
+            border_elm.set(qn("w:val"), "single")
 
-            border_elm.set(qn('w:sz'), '4')
+            border_elm.set(qn("w:sz"), "4")
 
-            border_elm.set(qn('w:space'), '0')
+            border_elm.set(qn("w:space"), "0")
 
-            border_elm.set(qn('w:color'), 'auto')
+            border_elm.set(qn("w:color"), "auto")
 
             tblBorders.append(border_elm)
-
-
 
         # 单元格级边框作为冗余保障
 
         for row in table.rows:
-
             for cell in row.cells:
-
                 self._apply_cell_borders(cell)
 
-
-
     def _apply_cell_borders(self, cell):
-
         """为单元格应用边框"""
 
         tcPr = cell._tc.get_or_add_tcPr()
 
-        tcBorders = tcPr.find(qn('w:tcBorders'))
+        tcBorders = tcPr.find(qn("w:tcBorders"))
 
         if tcBorders is None:
-
-            tcBorders = OxmlElement('w:tcBorders')
+            tcBorders = OxmlElement("w:tcBorders")
 
             tcPr.append(tcBorders)
 
-
-
         for border_name in ["top", "left", "bottom", "right"]:
+            border_elm = OxmlElement(f"w:{border_name}")
 
-            border_elm = OxmlElement(f'w:{border_name}')
+            border_elm.set(qn("w:val"), "single")
 
-            border_elm.set(qn('w:val'), 'single')
+            border_elm.set(qn("w:sz"), "4")
 
-            border_elm.set(qn('w:sz'), '4')
+            border_elm.set(qn("w:space"), "0")
 
-            border_elm.set(qn('w:space'), '0')
+            border_elm.set(qn("w:color"), "auto")
 
-            border_elm.set(qn('w:color'), 'auto')
-
-
-
-            existing_border = tcBorders.find(qn(f'w:{border_name}'))
+            existing_border = tcBorders.find(qn(f"w:{border_name}"))
 
             if existing_border is not None:
-
                 tcBorders.remove(existing_border)
 
             tcBorders.append(border_elm)
 
-
-
     def _apply_cell_shading(self, cell, color_hex: str):
-
         """为单元格应用颜色底纹"""
 
-        shading_elm = OxmlElement('w:shd')
+        shading_elm = OxmlElement("w:shd")
 
-        shading_elm.set(qn('w:fill'), color_hex)
+        shading_elm.set(qn("w:fill"), color_hex)
 
         cell._tc.get_or_add_tcPr().append(shading_elm)
 
-
-
     def _apply_cover_page_table_style(self, table):
-
         """封面信息表格专用样式。"""
 
         table.style = None
 
         table.autofit = False
 
-
-
         tblPr = table._tbl.tblPr
 
         if tblPr is None:
-
-            tblPr = OxmlElement('w:tblPr')
+            tblPr = OxmlElement("w:tblPr")
 
             table._tbl.insert(0, tblPr)
 
-
-
-        tblBorders = tblPr.find(qn('w:tblBorders'))
+        tblBorders = tblPr.find(qn("w:tblBorders"))
 
         if tblBorders is None:
-
-            tblBorders = OxmlElement('w:tblBorders')
+            tblBorders = OxmlElement("w:tblBorders")
 
             tblPr.append(tblBorders)
 
-
-
         for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+            border_elm = OxmlElement(f"w:{border_name}")
 
-            border_elm = OxmlElement(f'w:{border_name}')
+            border_elm.set(qn("w:val"), "nil")
 
-            border_elm.set(qn('w:val'), 'nil')
-
-            border_elm.set(qn('w:sz'), '0')
+            border_elm.set(qn("w:sz"), "0")
 
             tblBorders.append(border_elm)
 
-
-
         if table.columns:
-
             for col in table.columns:
-
                 col.width = Cm(5)
 
-
-
         for row in table.rows:
-
             for cell in row.cells:
-
                 for para in cell.paragraphs:
-
                     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
                 self._remove_cell_borders(cell)
 
-
-
     def _remove_cell_borders(self, cell):
-
         """移除单元格边框"""
 
         tcPr = cell._tc.get_or_add_tcPr()
 
-        tcBorders = tcPr.find(qn('w:tcBorders'))
+        tcBorders = tcPr.find(qn("w:tcBorders"))
 
         if tcBorders is None:
-
-            tcBorders = OxmlElement('w:tcBorders')
+            tcBorders = OxmlElement("w:tcBorders")
 
             tcPr.append(tcBorders)
 
-
-
         for border_name in ["top", "left", "bottom", "right"]:
+            border_elm = OxmlElement(f"w:{border_name}")
 
-            border_elm = OxmlElement(f'w:{border_name}')
+            border_elm.set(qn("w:val"), "nil")
 
-            border_elm.set(qn('w:val'), 'nil')
+            border_elm.set(qn("w:sz"), "0")
 
-            border_elm.set(qn('w:sz'), '0')
+            border_elm.set(qn("w:space"), "0")
 
-            border_elm.set(qn('w:space'), '0')
+            border_elm.set(qn("w:color"), "auto")
 
-            border_elm.set(qn('w:color'), 'auto')
-
-
-
-            existing_border = tcBorders.find(qn(f'w:{border_name}'))
+            existing_border = tcBorders.find(qn(f"w:{border_name}"))
 
             if existing_border is not None:
-
                 tcBorders.remove(existing_border)
 
             tcBorders.append(border_elm)
 
-
-
     def _make_picture_float(self, picture):
-
         """设置图片浮于文字上方"""
 
         from docx.oxml import parse_xml
-
-
 
         # 获取inline元素
 
         inline = picture._inline
 
-
-
         # 创建完整的anchor XML结构
 
-        anchor_xml = '''
+        anchor_xml = """
 
         <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 
@@ -4153,43 +3434,32 @@ class ExportService:
 
         </wp:anchor>
 
-        '''
-
-
+        """
 
         # 获取extent和graphic元素
 
-        extent = inline.find(qn('wp:extent'))
+        extent = inline.find(qn("wp:extent"))
 
-        graphic = inline.find(qn('a:graphic'))
+        graphic = inline.find(qn("a:graphic"))
 
-        docPr = inline.find(qn('wp:docPr'))
-
-
+        docPr = inline.find(qn("wp:docPr"))
 
         if extent is not None and graphic is not None:
+            cx = extent.get("cx")
 
-            cx = extent.get('cx')
-
-            cy = extent.get('cy')
+            cy = extent.get("cy")
 
             pic_id = str(self._next_annotation_docpr_id())
-
-
 
             # 构建完整的anchor XML
 
             from xml.etree.ElementTree import tostring
 
-            graphic_str = tostring(graphic, encoding='unicode')
-
-
+            graphic_str = tostring(graphic, encoding="unicode")
 
             anchor_xml = anchor_xml.format(cx=cx, cy=cy, id=pic_id, graphic=graphic_str)
 
             anchor = parse_xml(anchor_xml)
-
-
 
             # 替换inline为anchor
 
@@ -4197,25 +3467,19 @@ class ExportService:
 
             parent.replace(inline, anchor)
 
-
-
-    def _set_run_font(self, run, size: Optional[Pt] = None, bold: Optional[bool] = None, color: Optional[RGBColor] = None):
-
+    def _set_run_font(
+        self, run, size: Optional[Pt] = None, bold: Optional[bool] = None, color: Optional[RGBColor] = None
+    ):
         """設置Run的中英文字體與字號"""
 
         if size is not None:
-
             run.font.size = size
 
         if bold is not None:
-
             run.font.bold = bold
 
         if color is not None:
-
             run.font.color.rgb = color
-
-
 
         # 仅重新着色（未指定 size/bold）时直接返回，不重置字体，
         # 避免覆盖 _render_choice_field/_render_vertical_choices 已强制为宋体的 ○/□ 标记字体。
@@ -4240,11 +3504,7 @@ class ExportService:
             rFonts.set(qn("w:hAnsi"), self.FONT_EAST_ASIA)
 
 
-
-
-
 def export_full_database(db_path: str) -> str:
-
     """使用 sqlite3.backup() 安全复制运行中数据库到临时文件，返回临时文件路径。"""
 
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -4253,28 +3513,19 @@ def export_full_database(db_path: str) -> str:
 
     tmp.close()
 
-
-
     src_conn = sqlite3.connect(db_path)
 
     dst_conn = sqlite3.connect(tmp_path)
 
     try:
-
         src_conn.backup(dst_conn)
 
     finally:
-
         dst_conn.close()
 
         src_conn.close()
 
-
-
     return tmp_path
-
-
-
 
 
 def _vacuum_sqlite_file(db_path: str) -> None:

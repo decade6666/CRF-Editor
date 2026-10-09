@@ -526,9 +526,7 @@ def test_acrf_export_applies_annotation_delta_y_offsets(tmp_path: Path) -> None:
                 order_index=1,
                 domain="DM",
             )
-            form.annotation_positions = (
-                '{"_form":{"y":25},"OFFSET_VAR":{"y":-40},"CLAMP_VAR":{"y":999}}'
-            )
+            form.annotation_positions = '{"_form":{"y":25},"OFFSET_VAR":{"y":-40},"CLAMP_VAR":{"y":999}}'
             offset_field = _create_field_definition(
                 session,
                 project.id,
@@ -557,17 +555,12 @@ def test_acrf_export_applies_annotation_delta_y_offsets(tmp_path: Path) -> None:
             ecrf_path, acrf_path = _export_project_pair(session, project.id, tmp_path)
 
         offsets = _annotation_offsets_by_text(acrf_path)
-        assert offsets["DM"] == (
-            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
-            + 25 * ACRF_ANNOTATION_EMU_PER_01CM
-        )
+        assert offsets["DM"] == (ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU + 25 * ACRF_ANNOTATION_EMU_PER_01CM)
         assert offsets["OFFSET_VAR"] == (
-            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
-            - 40 * ACRF_ANNOTATION_EMU_PER_01CM
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU - 40 * ACRF_ANNOTATION_EMU_PER_01CM
         )
         assert offsets["CLAMP_VAR"] == (
-            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
-            + 200 * ACRF_ANNOTATION_EMU_PER_01CM
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU + 200 * ACRF_ANNOTATION_EMU_PER_01CM
         )
         assert extract_docx_form_table_fields(acrf_path) == extract_docx_form_table_fields(ecrf_path)
     finally:
@@ -615,8 +608,7 @@ def test_acrf_export_trims_variable_name_for_annotation_lookup(tmp_path: Path) -
 
         offsets = _annotation_offsets_by_text(output_path)
         assert offsets["OFFSET_VAR"] == (
-            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU
-            + 30 * ACRF_ANNOTATION_EMU_PER_01CM
+            ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU + 30 * ACRF_ANNOTATION_EMU_PER_01CM
         )
         assert "  OFFSET_VAR  " not in offsets
     finally:

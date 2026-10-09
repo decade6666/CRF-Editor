@@ -1,4 +1,5 @@
 """项目 profile 原子端点：metadata + logo_action 四态、快照复制、失败补偿。"""
+
 import json
 from types import SimpleNamespace
 
@@ -34,9 +35,7 @@ def _put_profile(client, token, project_id, metadata, logo_action="keep", file=N
 
 @pytest.fixture(autouse=True)
 def _patch_upload_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        storage, "get_config", lambda: SimpleNamespace(upload_path=str(tmp_path))
-    )
+    monkeypatch.setattr(storage, "get_config", lambda: SimpleNamespace(upload_path=str(tmp_path)))
 
 
 def _create_preset_with_logo(client, token, tmp_path, name="预设机构", unit="展示单位"):
@@ -96,13 +95,19 @@ def test_profile_preset_copies_logo_snapshot(client, engine, tmp_path):
     logo_path = resp.json()["company_logo_path"]
     assert logo_path and (tmp_path / "logos" / logo_path).read_bytes() == PNG
     # 不保存 preset_id 语义：删除预设后项目 Logo 仍可读
-    assert client.delete(f"/api/admin/organization-presets/{preset['id']}", headers=auth_headers(admin_token)).status_code == 204
+    assert (
+        client.delete(f"/api/admin/organization-presets/{preset['id']}", headers=auth_headers(admin_token)).status_code
+        == 204
+    )
     assert client.get(f"/api/projects/{project_id}/logo", headers=auth_headers(token)).status_code == 200
 
 
 def test_profile_preset_without_logo_clears_project_logo(client, engine, tmp_path):
     admin_token = login_as(client, "admin")
-    payload = {"metadata": json.dumps({"name": "无Logo预设", "data_management_unit": "无Logo单位"}), "logo_action": "keep"}
+    payload = {
+        "metadata": json.dumps({"name": "无Logo预设", "data_management_unit": "无Logo单位"}),
+        "logo_action": "keep",
+    }
     preset = client.post("/api/admin/organization-presets", data=payload, headers=auth_headers(admin_token)).json()
     token = login_as(client, "alice")
     project_id = client.post("/api/projects", json=_metadata(), headers=auth_headers(token)).json()["id"]
@@ -262,7 +267,9 @@ def test_profile_commit_failure_keeps_old_logo_and_cleans_new_file(client, engin
 
     monkeypatch.setattr(Session, "commit", _boom_once)
     try:
-        resp = _put_profile(client, token, project_id, _metadata(trial_name="提交失败注入"), logo_action="upload", file=PNG)
+        resp = _put_profile(
+            client, token, project_id, _metadata(trial_name="提交失败注入"), logo_action="upload", file=PNG
+        )
     finally:
         monkeypatch.setattr(Session, "commit", real_commit)
     assert resp.status_code == 500, resp.text

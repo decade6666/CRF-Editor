@@ -32,7 +32,9 @@ def _create_codelist(client: TestClient, project_id: int, auth_token: str) -> in
     return resp.json()["id"]
 
 
-def _add_option(client: TestClient, project_id: int, codelist_id: int, auth_token: str, code: str, decode: str, order_index: int):
+def _add_option(
+    client: TestClient, project_id: int, codelist_id: int, auth_token: str, code: str, decode: str, order_index: int
+):
     resp = client.post(
         f"/api/projects/{project_id}/codelists/{codelist_id}/options",
         json={"code": code, "decode": decode, "order_index": order_index},
@@ -90,7 +92,12 @@ def test_replace_codelist_snapshot_preserves_description_and_replaces_options(
         codelist = session.get(CodeList, codelist_id)
         assert codelist is not None
         assert codelist.description == "保留说明"
-        options = session.query(CodeListOption).filter(CodeListOption.codelist_id == codelist_id).order_by(CodeListOption.order_index, CodeListOption.id).all()
+        options = (
+            session.query(CodeListOption)
+            .filter(CodeListOption.codelist_id == codelist_id)
+            .order_by(CodeListOption.order_index, CodeListOption.id)
+            .all()
+        )
         assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
             ("1", "男性", 1),
             ("3", "未知", 2),
@@ -141,7 +148,12 @@ def test_replace_codelist_snapshot_is_atomic_when_new_option_conflicts(
         assert codelist is not None
         assert codelist.name == "性别"
         assert codelist.description == "保留说明"
-        options = session.query(CodeListOption).filter(CodeListOption.codelist_id == codelist_id).order_by(CodeListOption.order_index, CodeListOption.id).all()
+        options = (
+            session.query(CodeListOption)
+            .filter(CodeListOption.codelist_id == codelist_id)
+            .order_by(CodeListOption.order_index, CodeListOption.id)
+            .all()
+        )
         assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
             ("1", "男", 1),
             ("2", "女", 2),
@@ -183,7 +195,12 @@ def test_copy_codelist_duplicates_metadata_options_and_generates_unique_name(
     ]
 
     with Session(engine) as session:
-        options = session.query(CodeListOption).filter(CodeListOption.codelist_id == first_copy["id"]).order_by(CodeListOption.order_index, CodeListOption.id).all()
+        options = (
+            session.query(CodeListOption)
+            .filter(CodeListOption.codelist_id == first_copy["id"])
+            .order_by(CodeListOption.order_index, CodeListOption.id)
+            .all()
+        )
         assert [(opt.code, opt.decode, opt.order_index) for opt in options] == [
             ("1", "男", 1),
             ("2", "女", 2),

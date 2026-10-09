@@ -1,4 +1,5 @@
 """机构预设 schema"""
+
 from datetime import datetime
 from typing import Optional
 

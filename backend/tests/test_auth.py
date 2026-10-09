@@ -1,4 +1,5 @@
 """认证接口集成测试。"""
+
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -83,15 +84,11 @@ def test_login_hides_migration_hint_for_legacy_user_in_production(client: TestCl
     assert response.json()["detail"] == "用户名或密码错误"
 
 
-def test_login_returns_migration_hint_for_damaged_hash_in_development(
-    client: TestClient, engine
-):
+def test_login_returns_migration_hint_for_damaged_hash_in_development(client: TestClient, engine):
     seed_user(client, "damaged_user", password="good-pass-123")
     with Session(engine) as session:
         with session.begin():
-            user = session.scalar(
-                select(User).where(User.username == "damaged_user")
-            )
+            user = session.scalar(select(User).where(User.username == "damaged_user"))
             user.hashed_password = "$pbkdf2-sha256$bad"
 
     response = client.post(
@@ -185,9 +182,7 @@ def test_refreshed_token_is_freshly_issued(client: TestClient):
     )
     original_expires_at = datetime.fromtimestamp(original_payload["exp"], timezone.utc)
     refresh_now = (
-        original_expires_at
-        - timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)
-        + timedelta(seconds=5)
+        original_expires_at - timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes) + timedelta(seconds=5)
     )
 
     class FrozenDateTime(datetime):
@@ -207,12 +202,8 @@ def test_refreshed_token_is_freshly_issued(client: TestClient):
         _TEST_CONFIG.auth.secret_key,
         algorithms=[_TEST_CONFIG.auth.algorithm],
     )
-    expected_min = int(
-        (refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()
-    ) - 1
-    expected_max = int(
-        (refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()
-    ) + 1
+    expected_min = int((refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()) - 1
+    expected_max = int((refresh_now + timedelta(minutes=_TEST_CONFIG.auth.access_token_expire_minutes)).timestamp()) + 1
 
     assert refreshed_payload["exp"] > original_payload["exp"]
     assert expected_min <= refreshed_payload["exp"] <= expected_max
@@ -232,9 +223,7 @@ def test_invalid_token_returns_401_without_refresh_header(client: TestClient):
     assert "x-refreshed-token" not in response.headers
 
 
-def test_self_password_change_success_updates_password_and_auth_version(
-    client: TestClient, engine
-):
+def test_self_password_change_success_updates_password_and_auth_version(client: TestClient, engine):
     token = login_as(client, "alice", password="alice-pass-123")
     _, before_version = _user_credentials(engine, "alice")
 
@@ -298,9 +287,7 @@ def test_self_password_change_updates_login_password(client: TestClient):
     assert "access_token" in new_login.json()
 
 
-def test_self_password_change_wrong_current_password_keeps_database_unchanged(
-    client: TestClient, engine
-):
+def test_self_password_change_wrong_current_password_keeps_database_unchanged(client: TestClient, engine):
     token = login_as(client, "alice", password="alice-pass-123")
     before_hash, before_version = _user_credentials(engine, "alice")
 
@@ -320,9 +307,7 @@ def test_self_password_change_wrong_current_password_keeps_database_unchanged(
     assert still_valid.status_code == 200, still_valid.text
 
 
-def test_self_password_change_policy_violation_keeps_database_unchanged(
-    client: TestClient, engine
-):
+def test_self_password_change_policy_violation_keeps_database_unchanged(client: TestClient, engine):
     token = login_as(client, "alice", password="alice-pass-123")
     before_hash, before_version = _user_credentials(engine, "alice")
 
@@ -389,9 +374,7 @@ def test_self_password_change_rejects_extra_fields(client: TestClient):
     assert response.status_code == 422
 
 
-def test_self_password_change_reuses_login_throttle_in_production(
-    client: TestClient, monkeypatch
-):
+def test_self_password_change_reuses_login_throttle_in_production(client: TestClient, monkeypatch):
     monkeypatch.delenv("CRF_ENV", raising=False)
     token = login_as(client, "alice", password="alice-pass-123")
     limiter.reset()

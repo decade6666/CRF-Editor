@@ -1,4 +1,5 @@
 """用户管理服务（管理员专用）"""
+
 from dataclasses import dataclass
 from typing import List
 
@@ -101,9 +102,7 @@ class UserAdminService:
             return user
         if is_reserved_admin_username(new_username):
             raise ValueError("用户名不能设置为保留管理员账号")
-        conflict = session.scalar(
-            select(User).where(User.username == new_username)
-        )
+        conflict = session.scalar(select(User).where(User.username == new_username))
         if conflict:
             raise ValueError("用户名已存在")
         user.username = new_username
@@ -129,11 +128,12 @@ class UserAdminService:
             raise ValueError("用户不存在")
         if is_reserved_admin_username(user.username):
             raise ValueError("保留管理员账号不允许删除")
-        project_count = session.scalar(
-            select(func.count(Project.id))
-            .where(Project.owner_id == user_id)
-            .where(Project.deleted_at.is_(None))
-        ) or 0
+        project_count = (
+            session.scalar(
+                select(func.count(Project.id)).where(Project.owner_id == user_id).where(Project.deleted_at.is_(None))
+            )
+            or 0
+        )
         if project_count > 0:
             raise ValueError(f"该用户仍拥有 {project_count} 个项目，无法删除")
         session.delete(user)

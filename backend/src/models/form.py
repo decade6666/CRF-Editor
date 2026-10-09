@@ -1,4 +1,5 @@
 """Form 模型"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 class Form(Base):
     """表单模型（独立于访视）"""
+
     __tablename__ = "form"
     __table_args__ = (
         UniqueConstraint("project_id", "name"),
@@ -23,26 +25,15 @@ class Form(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("project.id", ondelete="CASCADE"),
-        nullable=False
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     design_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     annotation_positions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    paper_orientation: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="auto", default="auto"
-    )
+    paper_orientation: Mapped[str] = mapped_column(String(16), nullable=False, server_default="auto", default="auto")
 
     project: Mapped["Project"] = relationship(back_populates="forms")
-    fields: Mapped[List["Field"]] = relationship(
-        back_populates="form",
-        cascade="all, delete-orphan"
-    )
-    form_fields: Mapped[List["FormField"]] = relationship(
-        back_populates="form",
-        cascade="all, delete-orphan"
-    )
+    fields: Mapped[List["Field"]] = relationship(back_populates="form", cascade="all, delete-orphan")
+    form_fields: Mapped[List["FormField"]] = relationship(back_populates="form", cascade="all, delete-orphan")

@@ -236,9 +236,9 @@ def _compare_row_cells(
         if preview_cell == export_cell and preview_cell is not None:
             exact_cells += 1
         elif len(mismatches) < max_mismatches:
-            mismatches.append(_cell_mismatch(
-                form_index, form_name, table_index, row_index, cell_index, preview_cell, export_cell
-            ))
+            mismatches.append(
+                _cell_mismatch(form_index, form_name, table_index, row_index, cell_index, preview_cell, export_cell)
+            )
     return exact_cells
 
 

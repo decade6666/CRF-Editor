@@ -3,6 +3,7 @@
 覆盖：三条复制路径共用 FormField 复制函数后，字段实例的全部展示属性
 （底纹 / 文字色 / 加粗 / 字号）随复制保留，且复制清单由模型列推导。
 """
+
 from datetime import datetime
 from typing import Any
 
@@ -62,9 +63,7 @@ def styled_form_id(auth_client: TestClient) -> int:
     return form_id
 
 
-def test_should_keep_field_styles_when_copying_form(
-    auth_client: TestClient, styled_form_id: int
-) -> None:
+def test_should_keep_field_styles_when_copying_form(auth_client: TestClient, styled_form_id: int) -> None:
     """复制表单后，字段实例的四个展示属性与原字段一致。"""
     src = auth_client.get(f"/api/forms/{styled_form_id}/fields").json()[0]
     # 先确认种子已落库，避免源与副本同为空值时假通过

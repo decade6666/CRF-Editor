@@ -1,4 +1,5 @@
 """模板字段查询（GET /api/template-fields）服务与路由测试。"""
+
 from __future__ import annotations
 
 import re
@@ -76,61 +77,101 @@ def _build_search_template(tmp_path: Path) -> Path:
         session.flush()
 
         num_a = FieldDefinition(
-            project_id=project_a.id, variable_name="NUMBER_A", label="身高",
-            field_type="数值", integer_digits=3, decimal_digits=1,
-            unit_id=unit_a.id, order_index=10,
+            project_id=project_a.id,
+            variable_name="NUMBER_A",
+            label="身高",
+            field_type="数值",
+            integer_digits=3,
+            decimal_digits=1,
+            unit_id=unit_a.id,
+            order_index=10,
         )
         date_a = FieldDefinition(
-            project_id=project_a.id, variable_name="DATE_A", label="访视日期",
-            field_type="日期", order_index=20,
+            project_id=project_a.id,
+            variable_name="DATE_A",
+            label="访视日期",
+            field_type="日期",
+            order_index=20,
         )
         choice_a = FieldDefinition(
-            project_id=project_a.id, variable_name="CHOICE_A", label="性别",
-            field_type="单选", codelist_id=codelist.id, order_index=30,
+            project_id=project_a.id,
+            variable_name="CHOICE_A",
+            label="性别",
+            field_type="单选",
+            codelist_id=codelist.id,
+            order_index=30,
         )
         check_a = FieldDefinition(
-            project_id=project_a.id, variable_name="CHECK_A", label="知情同意",
-            field_type="复选", checkbox_label="", order_index=40,
+            project_id=project_a.id,
+            variable_name="CHECK_A",
+            label="知情同意",
+            field_type="复选",
+            checkbox_label="",
+            order_index=40,
         )
         label_a = FieldDefinition(
-            project_id=project_a.id, variable_name="FIELD_20260930120000_ABCDEF",
-            label="标签字段", field_type="标签", order_index=50,
+            project_id=project_a.id,
+            variable_name="FIELD_20260930120000_ABCDEF",
+            label="标签字段",
+            field_type="标签",
+            order_index=50,
         )
         dup_a = FieldDefinition(
-            project_id=project_a.id, variable_name="DUP_FIELD", label="共享字段",
-            field_type="文本", order_index=60,
+            project_id=project_a.id,
+            variable_name="DUP_FIELD",
+            label="共享字段",
+            field_type="文本",
+            order_index=60,
         )
         same_a = FieldDefinition(
-            project_id=project_a.id, variable_name="SAME_1", label="同名字段",
-            field_type="数值", integer_digits=2, decimal_digits=0, order_index=70,
+            project_id=project_a.id,
+            variable_name="SAME_1",
+            label="同名字段",
+            field_type="数值",
+            integer_digits=2,
+            decimal_digits=0,
+            order_index=70,
         )
         lib_only = FieldDefinition(
-            project_id=project_a.id, variable_name="LIB_ONLY", label="库内字段",
-            field_type="文本", order_index=80,
+            project_id=project_a.id,
+            variable_name="LIB_ONLY",
+            label="库内字段",
+            field_type="文本",
+            order_index=80,
         )
         del_c = FieldDefinition(
-            project_id=project_c.id, variable_name="DEL_FIELD", label="已删字段",
-            field_type="文本", order_index=10,
+            project_id=project_c.id,
+            variable_name="DEL_FIELD",
+            label="已删字段",
+            field_type="文本",
+            order_index=10,
         )
         dup_b = FieldDefinition(
-            project_id=project_b.id, variable_name="DUP_FIELD", label="共享字段",
-            field_type="文本", order_index=10,
+            project_id=project_b.id,
+            variable_name="DUP_FIELD",
+            label="共享字段",
+            field_type="文本",
+            order_index=10,
         )
         same_b = FieldDefinition(
-            project_id=project_b.id, variable_name="SAME_2", label="同名字段",
-            field_type="数值", integer_digits=3, decimal_digits=1, order_index=20,
+            project_id=project_b.id,
+            variable_name="SAME_2",
+            label="同名字段",
+            field_type="数值",
+            integer_digits=3,
+            decimal_digits=1,
+            order_index=20,
         )
-        session.add_all(
-            [num_a, date_a, choice_a, check_a, label_a, dup_a, same_a, lib_only,
-             del_c, dup_b, same_b]
-        )
+        session.add_all([num_a, date_a, choice_a, check_a, label_a, dup_a, same_a, lib_only, del_c, dup_b, same_b])
         session.flush()
 
         session.add_all(
             [
                 FormField(form_id=form_a1.id, field_definition_id=num_a.id, order_index=10, label_override="身高"),
                 FormField(form_id=form_a1.id, field_definition_id=date_a.id, order_index=20),
-                FormField(form_id=form_a1.id, field_definition_id=choice_a.id, order_index=30, label_override="受试者性别"),
+                FormField(
+                    form_id=form_a1.id, field_definition_id=choice_a.id, order_index=30, label_override="受试者性别"
+                ),
                 FormField(form_id=form_a1.id, field_definition_id=check_a.id, order_index=40, label_override="   "),
                 FormField(form_id=form_a2.id, field_definition_id=None, is_log_row=1, order_index=10),
                 FormField(form_id=form_a2.id, field_definition_id=label_a.id, order_index=20),
@@ -166,16 +207,25 @@ def _build_form_code_template(tmp_path: Path) -> Path:
         session.flush()
 
         multi = FieldDefinition(
-            project_id=project.id, variable_name="MULTI_SRC", label="多来源字段",
-            field_type="文本", order_index=10,
+            project_id=project.id,
+            variable_name="MULTI_SRC",
+            label="多来源字段",
+            field_type="文本",
+            order_index=10,
         )
         lib_only = FieldDefinition(
-            project_id=project.id, variable_name="OID_LIB_ONLY", label="库内字段",
-            field_type="文本", order_index=20,
+            project_id=project.id,
+            variable_name="OID_LIB_ONLY",
+            label="库内字段",
+            field_type="文本",
+            order_index=20,
         )
         aliased = FieldDefinition(
-            project_id=project.id, variable_name="ALIASED", label="别名",
-            field_type="文本", order_index=30,
+            project_id=project.id,
+            variable_name="ALIASED",
+            label="别名",
+            field_type="文本",
+            order_index=30,
         )
         session.add_all([multi, lib_only, aliased])
         session.flush()
@@ -186,7 +236,9 @@ def _build_form_code_template(tmp_path: Path) -> Path:
                 FormField(form_id=form_null.id, field_definition_id=multi.id, order_index=10),
                 FormField(form_id=form_blank.id, field_definition_id=multi.id, order_index=10),
                 FormField(
-                    form_id=form_main.id, field_definition_id=aliased.id, order_index=20,
+                    form_id=form_main.id,
+                    field_definition_id=aliased.id,
+                    order_index=20,
                     label_override="显示别名",
                 ),
             ]
@@ -349,9 +401,7 @@ def test_service_sources_carry_form_codes_and_blank_becomes_null(tmp_path: Path)
     entries = build_template_field_index(str(db_path))
 
     multi = _find_entry(entries, "MULTI_SRC")
-    assert [
-        (source["form_code"], source["form_name"]) for source in multi["sources"]
-    ] == [
+    assert [(source["form_code"], source["form_name"]) for source in multi["sources"]] == [
         ("FCODE_MAIN", "主表单"),
         (None, "无OID表单"),
         (None, "空白OID表单"),
@@ -385,14 +435,18 @@ def test_service_legacy_template_without_form_code_column(tmp_path: Path) -> Non
 
     # 缺少 code 列时来源照常返回，form_code 一律为 None，且不回写源库。
     assert [entry["variable_name"] for entry in entries] == [
-        "MULTI_SRC", "ALIASED", "OID_LIB_ONLY",
+        "MULTI_SRC",
+        "ALIASED",
+        "OID_LIB_ONLY",
     ]
     for entry in entries:
         for source in entry["sources"]:
             assert source["form_code"] is None
     multi = _find_entry(entries, "MULTI_SRC")
     assert [source["form_name"] for source in multi["sources"]] == [
-        "主表单", "无OID表单", "空白OID表单",
+        "主表单",
+        "无OID表单",
+        "空白OID表单",
     ]
     assert db_path.read_bytes() == before
 
@@ -502,14 +556,28 @@ def test_router_returns_200_for_regular_user_without_project(
     payload = resp.json()
     assert set(payload.keys()) == {"entries"}
     entry_keys = {
-        "key", "variable_name", "label", "field_type", "integer_digits",
-        "decimal_digits", "date_format", "checkbox_label", "codelist_name",
-        "options", "unit_symbol", "label_aliases", "sources",
+        "key",
+        "variable_name",
+        "label",
+        "field_type",
+        "integer_digits",
+        "decimal_digits",
+        "date_format",
+        "checkbox_label",
+        "codelist_name",
+        "options",
+        "unit_symbol",
+        "label_aliases",
+        "sources",
     }
     first = payload["entries"][0]
     assert set(first.keys()) == entry_keys
     assert set(first["sources"][0].keys()) == {
-        "project_name", "project_version", "form_name", "form_code", "display_label",
+        "project_name",
+        "project_version",
+        "form_name",
+        "form_code",
+        "display_label",
     }
     assert [entry["variable_name"] for entry in payload["entries"]][0] == "NUMBER_A"
     # form_code 序列化为 string | null（含仅字段库来源的 null）。
