@@ -280,14 +280,14 @@ def add_option(project_id: int, cl_id: int, data: CodeListOptionCreate, session:
 
 @router.put("/projects/{project_id}/codelists/{cl_id}/options/{opt_id}", response_model=CodeListOptionResponse)
 def update_option(project_id: int, cl_id: int, opt_id: int, data: CodeListOptionUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
+    _get_codelist_with_project_check(session, cl_id, project_id)
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
         raise HTTPException(404, "选项不存在")
     if opt.codelist_id != cl_id:
         raise HTTPException(404, "选项不属于该字典")
-
-    _get_codelist_with_project_check(session, cl_id, project_id)
 
     old_order = opt.order_index
 
@@ -303,6 +303,8 @@ def update_option(project_id: int, cl_id: int, opt_id: int, data: CodeListOption
 
 @router.delete("/projects/{project_id}/codelists/{cl_id}/options/{opt_id}", status_code=204)
 def delete_option(project_id: int, cl_id: int, opt_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
+    _get_codelist_with_project_check(session, cl_id, project_id)
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
@@ -310,12 +312,12 @@ def delete_option(project_id: int, cl_id: int, opt_id: int, session: Session = D
     if opt.codelist_id != cl_id:
         raise HTTPException(404, "选项不属于该字典")
 
-    _get_codelist_with_project_check(session, cl_id, project_id)
     OrderService.delete_and_compact(session, CodeListOption, CodeListOption.codelist_id == opt.codelist_id, opt)
 
 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options/batch-delete")
 def batch_delete_options(project_id: int, cl_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
 
     opts_to_delete = session.scalars(
@@ -335,6 +337,7 @@ def batch_delete_options(project_id: int, cl_id: int, data: BatchDeleteRequest, 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options/reorder")
 def reorder_options(project_id: int, cl_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
     OrderService.reorder_batch(session, CodeListOption, CodeListOption.codelist_id == cl_id, id_list)
     return {"message": "Reordered"}
