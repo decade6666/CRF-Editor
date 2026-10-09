@@ -105,3 +105,37 @@ def test_security_headers_are_added_to_success_error_and_static_responses(tmp_pa
     assert static_resp.status_code == 200
     assert static_resp.text == "console.log('ok')"
     assert static_resp.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_unhandled_exception_is_logged_with_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.delenv("CRF_ENV", raising=False)
+    monkeypatch.setattr(main_module, "get_config", lambda: _make_config(tmp_path))
+    monkeypatch.setattr(main_module, "init_db", lambda: None)
+
+    with caplog.at_level(logging.ERROR, logger="src.main"):
+        with TestClient(main_module.app, raise_server_exceptions=False) as client:
+
+            @main_module.app.get("/__test-500-log")
+            def _raise_runtime_error() -> None:
+                raise RuntimeError("boom-log")
+
+            error_resp = client.get("/__test-500-log")
+            main_module.app.router.routes.pop()
+
+    # 返回给前端的内容不变
+    assert error_resp.status_code == 500
+    assert error_resp.json()["detail"] == "内部服务器错误"
+
+    # 服务端留下带完整堆栈的 ERROR 日志，含请求方法与路径
+    matching = [r for r in caplog.records
+                if r.name == "src.main" and r.levelno == logging.ERROR
+                and "GET" in r.getMessage() and "/__test-500-log" in r.getMessage()]
+    assert matching, "未处理异常必须留下含请求方法与路径的 ERROR 日志"
+    record = matching[-1]
+    assert record.exc_info is not None, "ERROR 日志必须带完整堆栈"
+    assert isinstance(record.exc_info[1], RuntimeError)
+    assert str(record.exc_info[1]) == "boom-log"

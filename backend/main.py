@@ -337,6 +337,10 @@ async def security_headers_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception:
+        # 只记方法与路径，不记请求体 / 请求头（见 logging-guidelines）
+        logging.getLogger("src.main").exception(
+            "未处理异常 %s %s", request.method, request.url.path
+        )
         response = JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
     return _apply_security_headers(response)
 

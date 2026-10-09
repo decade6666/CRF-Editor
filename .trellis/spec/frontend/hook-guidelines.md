@@ -356,38 +356,98 @@ async function loadData() {
 }
 ```
 
-### 401 Handling (Global)
+### Scenario: Session-Scoped Token Handling in `useApi.js`
+
+#### 1. Scope / Trigger
+
+- Trigger: touching `useApi.js` request paths, `_handle401` / `_storeRefreshedToken`, or the `crf:auth-expired` contract; also any new authenticated request path.
+- Why: a successful protected response may carry a replacement `X-Refreshed-Token`, and any response can arrive after the session changed (logout, another user, another tab). A late response must not resurrect or clear a newer session.
+- Cross-stack contract: `.trellis/spec/guides/cross-stack-contracts.md` §3 rules 4–5.
+
+#### 2. Signatures
 
 ```javascript
-// In useApi.js - dispatch event on 401 and keep the thrown status
-if (response.status === 401) {
-  localStorage.removeItem('crf_token')
-  window.dispatchEvent(new CustomEvent('crf:auth-expired'))
-  throw _createHttpError('登录已过期，请重新登录', response.status)
-}
+// frontend/src/composables/useApi.js
+function _buildRequestAuth(extraHeaders = {})   // → { sentToken, headers }
+function _isCurrentSession(sentToken)           // → boolean
+async function _checkStatus(r, sentToken)       // 401 / 429 / !ok / refreshed-token handling
+function _handle401()                           // remove token + dispatch crf:auth-expired
+function _storeRefreshedToken(r)                // write back x-refreshed-token when present
 
-// In App.vue - listen for auth expiration and clear shell state
-window.addEventListener('crf:auth-expired', () => {
-  rememberUsername()
-  resetSessionState()
-})
+// every request path: api.get / api.cachedGet / api.post / api.put / api.patch / api.del
+async get(url) {
+  const { sentToken, headers } = _buildRequestAuth();
+  const r = await fetch(apiUrl(url), { headers });
+  await _checkStatus(r, sentToken);
+  return _safeJsonParse(r);
+}
 ```
 
-### Sliding Token Refresh (Protected Responses)
+`_buildRequestAuth` reads the token in the same step that builds the `Authorization` header, so `sentToken` is exactly what the request was sent with; a token-less request captures `null`, compared as an ordinary value.
+
+#### 3. Contracts
+
+| Rule | Why |
+|---|---|
+| 401 stays the single global auth-expiry signal, but `_handle401()` runs only when `_isCurrentSession(sentToken)` | `App.vue` listens for `crf:auth-expired` and clears shell state; a superseded 401 must not log the new session out |
+| `X-Refreshed-Token` is written back only under the same guard | Successful responses may replace the token; a late response must not resurrect or replace a newer one |
+| A late response still parses or throws exactly as before — only the session side effects are skipped | Callers keep seeing the real payload / error; the guard is not an error swallow |
+| Every request path (`get` / `cachedGet` / `post` / `put` / `patch` / `del`) builds headers via `_buildRequestAuth()` and passes `sentToken` to `_checkStatus()` | A path that reads the token separately desynchronizes the guard |
+| The `cachedGet` cache write stays guarded by `_cacheGeneration` only, **not** by the token guard | Successful responses may replace the token, and the first concurrent response to arrive can make the tokens captured by still-in-flight same-session requests unequal — a token guard would skip caching for most concurrent requests. Same-tab session changes already bump the generation via `clearAllCache()`; a dedup hit is governed by the in-flight request's captured token |
+| Components keep using `getAuthHeaders()` instead of caching token values locally | `getAuthHeaders()` is built from the same `_buildRequestAuth()` read, so there is one source for the request token |
+| Bypass sites — e.g. Word export download, project Logo, screenshot pages, `el-upload` actions — do **not** dispatch the global `crf:auth-expired` event and do **not** process `X-Refreshed-Token` | Accepted gap (list is not exhaustive). Login is deliberately different: `LoginView.vue` handles a failed login itself and stores `access_token` on success |
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| Success, `sentToken` still current | `X-Refreshed-Token` (if present) written back; payload returned |
+| 401, `sentToken` still current | Token removed + `crf:auth-expired` dispatched; the request rejects with the 401 error |
+| Success, token replaced meanwhile (logout / another user / another tab) | No write-back; the request still resolves with its payload |
+| 401, token replaced meanwhile | No token removal, no event; the request still rejects |
+| Token-less request (`sentToken === null`), a session appeared later | Untouched — `null` does not equal the newer token |
+| Token-less request, no session appeared | The 401 still clears (no-op) and dispatches `crf:auth-expired` |
+| `cachedGet` cache write / dedup hit | Cache write keyed by `_cacheGeneration` only; a dedup hit is governed by the in-flight request's captured token |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: user A logs out while a slow request is in flight; the late 401 neither clears user B's fresh token nor forces a second logout, and the late success does not resurrect A's session.
+- **Base**: same-session success still extends the session; a same-session 401 still logs out exactly once.
+- **Bad**: unconditional `localStorage.removeItem('crf_token')` / `window.dispatchEvent` on any 401, or an unguarded `_storeRefreshedToken(r)` — a superseded response then overwrites or clears the current session.
+
+#### 6. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/useApiSessionRace.test.js` | Late 401 from a superseded session keeps the newer token and dispatches nothing; late success does not store its refreshed token; late success after logout never resurrects the session; same-session success still stores; same-session 401 still clears + dispatches; a token-less request never touches a session that appeared later; a token-less 401 with no session still dispatches |
+| `frontend/tests/appSettingsShell.test.js` | Pins the `_isCurrentSession` / `_checkStatus(r, sentToken)` source shape and both guarded call sites |
+| `.trellis/spec/guides/cross-stack-contracts.md` §3 rules 4–5 | Updated in the same change |
+
+#### 7. Wrong vs Correct
+
+**Wrong**
 
 ```javascript
-// In useApi.js - all successful protected responses may carry a renewed token
-const refreshedToken = response.headers.get('x-refreshed-token')
-if (refreshedToken) {
-  localStorage.setItem('crf_token', refreshedToken)
+// Unconditional: a late response overwrites or clears the newer session
+async function _checkStatus(r) {
+  if (r.status === 401) { _handle401(); throw _createHttpError('登录已过期，请重新登录', r.status); }
+  // ...
+  _storeRefreshedToken(r);
 }
 ```
 
-**Contract**:
-- Token storage key is `localStorage['crf_token']`
-- 401 is still the single global auth-expiry signal
-- Successful protected responses may extend the session via `X-Refreshed-Token`
-- Components should keep using `getAuthHeaders()` instead of caching token values locally
+**Correct**
+
+```javascript
+async function _checkStatus(r, sentToken) {
+  if (r.status === 401) {
+    if (_isCurrentSession(sentToken)) _handle401();
+    throw _createHttpError('登录已过期，请重新登录', r.status);
+  }
+  // ...
+  if (_isCurrentSession(sentToken)) _storeRefreshedToken(r);
+}
+```
 
 ---
 

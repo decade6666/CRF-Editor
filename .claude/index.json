@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-09-30T00:00:00-07:00",
-  "version": "1.4.1",
+  "timestamp": "2026-10-08T00:00:00-07:00",
+  "version": "1.4.2",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
     {
@@ -44,6 +44,7 @@
         "backend/src/services/export_service.py",
         "backend/src/services/field_cleanup_service.py",
         "backend/src/services/field_rendering.py",
+        "backend/src/services/form_field_copy.py",
         "backend/src/services/import_service.py",
         "backend/src/services/order_service.py",
         "backend/src/services/project_clone_service.py",
@@ -113,9 +114,11 @@
         "backend/tests/test_export_service.py",
         "backend/tests/test_export_unified.py",
         "backend/tests/test_export_validation.py",
+        "backend/tests/test_export_word_errors.py",
         "backend/tests/test_fields_router.py",
         "backend/tests/test_fill_line_width.py",
         "backend/tests/test_form_annotation_positions.py",
+        "backend/tests/test_form_copy.py",
         "backend/tests/test_form_design_notes.py",
         "backend/tests/test_form_paper_orientation.py",
         "backend/tests/test_import_service.py",
@@ -150,8 +153,8 @@
         "backend/tests/test_word_table_parity.py"
       ],
       "coverage": {
-        "estimated_files": 110,
-        "scanned_files": 110,
+        "estimated_files": 113,
+        "scanned_files": 113,
         "percent": 100
       },
       "gaps": [
@@ -296,14 +299,15 @@
         "frontend/tests/testProperty.js",
         "frontend/tests/themePalette.test.js",
         "frontend/tests/toolbarPaneAlignment.test.js",
+        "frontend/tests/useApiSessionRace.test.js",
         "frontend/tests/useOrdinalQuickEdit.test.js",
         "frontend/tests/visitFlowWorkspace.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 95,
-        "scanned_files": 95,
+        "estimated_files": 96,
+        "scanned_files": 96,
         "percent": 100
       },
       "gaps": [
@@ -344,8 +348,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 210,
-    "scanned_files": 210,
+    "estimated_total_files": 214,
+    "scanned_files": 214,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

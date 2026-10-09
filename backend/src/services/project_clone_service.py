@@ -22,6 +22,7 @@ from src.models.project import Project
 from src.models.unit import Unit
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
+from src.services.form_field_copy import copy_form_field
 
 logger = logging.getLogger(__name__)
 
@@ -312,24 +313,15 @@ class ProjectCloneService:
                 id_map["form"][form.id] = new_form.id
 
                 for ff_idx, form_field in enumerate(graph.form_fields_map.get(form.id, []), start=1):
-                    session.add(FormField(
+                    session.add(copy_form_field(
+                        form_field,
                         form_id=new_form.id,
                         field_definition_id=(
                             id_map["field_definition"].get(form_field.field_definition_id)
                             if form_field.field_definition_id
                             else None
                         ),
-                        is_log_row=form_field.is_log_row,
                         order_index=ff_idx,
-                        required=form_field.required,
-                        label_override=form_field.label_override,
-                        help_text=form_field.help_text,
-                        default_value=form_field.default_value,
-                        inline_mark=form_field.inline_mark,
-                        bg_color=form_field.bg_color,
-                        text_color=form_field.text_color,
-                        label_bold=form_field.label_bold,
-                        label_font_size=form_field.label_font_size,
                     ))
 
             session.flush()

@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.config import get_config, update_config
-from src.database import get_session
+from src.database import get_plain_session, get_session
 from src.dependencies import get_current_user, require_admin
 from src.models.project import Project
 from src.models.user import User
@@ -173,10 +173,11 @@ def restore_project(
 @router.delete("/admin/projects/{project_id}/hard-delete", status_code=204)
 def hard_delete_project(
     project_id: int,
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_plain_session),
     _: User = Depends(require_admin),
 ):
     """彻底删除项目。"""
+    from src.services.logo_storage_service import PROJECT_NAMESPACE, delete_file
     from src.services.project_purge_service import purge_project
 
     project = session.get(Project, project_id)
@@ -185,7 +186,11 @@ def hard_delete_project(
     if project.deleted_at is None:
         raise HTTPException(400, "仅可彻底删除回收站中的项目")
 
-    purge_project(session, project)
+    # 裸 Session：先提交数据库删除，成功后才删 Logo 文件（统一走 logo 存储策略）
+    logo_rel = purge_project(session, project)
+    session.commit()
+    if logo_rel:
+        delete_file(PROJECT_NAMESPACE, logo_rel)
 
 
 class BatchCopyRequest(BaseModel):

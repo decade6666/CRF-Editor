@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from helpers import auth_headers, login_as, seed_user
+from helpers import auth_headers, commit_probe, login_as, seed_user
 from src.config import (
     DAYS_PER_MONTH,
     DAYS_PER_YEAR,
@@ -320,6 +322,51 @@ def test_size_rule_excludes_age_selected_projects(engine):
         assert old.id not in plan.size_ids  # 不重复计入
 
 
+def test_plan_total_bytes_after_deducts_each_selected_project_once(engine: Engine) -> None:
+    """计划剩余总量 = 清理前总量 − 年龄规则命中量 − 容量规则命中量，命中项目只扣一次。"""
+    now = datetime(2026, 1, 10, 0, 0, 0)
+    with Session(engine) as session:
+        admin = User(username="u1", hashed_password="x", is_admin=False, auth_version=0)
+        session.add(admin)
+        session.flush()
+        # old 由年龄规则命中；其余三个删除时间较新，由容量规则按删除时间最早优先命中
+        old = _create_owned_project(session, admin.id, "old", order_index=1,
+                                    deleted_at=now - timedelta(days=100))
+        fo = Form(project_id=old.id, name="fo", code="FO", order_index=1)
+        fo.design_notes = "x" * 200_000
+        session.add(fo)
+        recent = []
+        for i in range(3):
+            p = _create_owned_project(session, admin.id, f"p{i}", order_index=i + 2,
+                                      deleted_at=now - timedelta(days=10 - i))
+            f = Form(project_id=p.id, name=f"f{i}", code=f"F{i}", order_index=1)
+            f.design_notes = "y" * (3_000_000 + i * 100_000)
+            session.add(f)
+            recent.append(p)
+        session.commit()
+
+        projects = [old, *recent]
+        sizes = estimate_project_sizes(session, [p.id for p in projects])
+        total_before = sum(sizes.values())
+        # 阈值取「剩余总量减去最早可清项目后向上取整到 MB」，使容量规则只命中 recent[0]
+        survivor_target = sum(sizes[p.id] for p in recent) - sizes[recent[0].id]
+        mb_value = max(1, (survivor_target + 1024 ** 2 - 1) // (1024 ** 2))
+
+        plan = build_cleanup_plan(
+            session,
+            _make_policy(age_enabled=True, age_value=30, age_unit="day",
+                         size_enabled=True, size_value=mb_value, size_unit="MB",
+                         min_retain_hours=0),
+            now=now,
+        )
+
+        assert plan.age_ids == [old.id]
+        assert plan.size_ids == [recent[0].id]
+        selected = set(plan.all_target_ids)
+        assert plan.total_bytes_before == total_before
+        assert plan.total_bytes_after == total_before - sum(sizes[pid] for pid in selected)
+
+
 def test_min_retain_hours_protects_recent_projects(engine):
     now = datetime(2026, 1, 10, 0, 0, 0)
     with Session(engine) as session:
@@ -365,18 +412,26 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
 
         logos_dir = tmp_path / "logos"
         logos_dir.mkdir(parents=True)
-        (logos_dir / "logo_run.png").write_bytes(b"png" * 30)
+        logo_path = logos_dir / "logo_run.png"
+        logo_path.write_bytes(b"png" * 30)
 
-        with patch("src.services.project_purge_service.get_config") as m, \
-             patch("src.services.project_size_service.get_config") as m2:
-            m.return_value.upload_path = str(tmp_path)
-            m2.return_value.upload_path = str(tmp_path)
-            report = run_recycle_bin_cleanup(
-                session,
-                _make_policy(age_enabled=True, age_value=1, age_unit="day"),
-                now=now,
-            )
+        # 记录每次提交时项目行是否已消失、Logo 文件是否仍在（锁定先提交后删文件）
+        with commit_probe(engine, project_ids[0], logo_path) as observations:
+            with patch("src.services.logo_storage_service.get_config") as m, \
+                 patch("src.services.project_size_service.get_config") as m2:
+                m.return_value.upload_path = str(tmp_path)
+                m2.return_value.upload_path = str(tmp_path)
+                report = run_recycle_bin_cleanup(
+                    session,
+                    _make_policy(age_enabled=True, age_value=1, age_unit="day"),
+                    now=now,
+                )
         assert report["purged_count"] == 1
+
+        # 删除项目的那次提交时，Logo 文件必须仍然存在（先提交数据库、后删文件）
+        purge_observations = [exists for gone, exists in observations if gone]
+        assert purge_observations, "未观察到删除项目的提交"
+        assert purge_observations[0] is True, "数据库提交时 Logo 文件已被提前删除"
 
         # 数据图已清
         assert session.get(Project, project_ids[0]) is None
@@ -407,3 +462,47 @@ def test_run_cleanup_skips_project_restored_between_plan_and_purge(engine):
 
         assert report["purged_count"] == 0
         assert session.get(Project, pid) is not None
+
+
+def test_run_cleanup_keeps_logo_when_commit_fails(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """提交失败时项目回到回收站，Logo 文件必须保留（不能先删文件后提交）。"""
+    now = datetime(2026, 1, 10, 0, 0, 0)
+    with Session(engine) as session:
+        admin = User(username="u1", hashed_password="x", is_admin=False, auth_version=0)
+        session.add(admin)
+        session.flush()
+        p = _create_project_graph(session, admin.id, "p", order_index=1, deleted_at=now - timedelta(days=100))
+        p.company_logo_path = "logo_keep.png"
+        session.commit()
+        pid = p.id
+
+        logos_dir = tmp_path / "logos"
+        logos_dir.mkdir(parents=True)
+        logo_path = logos_dir / "logo_keep.png"
+        logo_path.write_bytes(b"png" * 30)
+
+        real_commit = Session.commit
+
+        def _fail_commit(self: Session) -> None:
+            if self is session:
+                raise RuntimeError("commit failed")
+            return real_commit(self)
+
+        monkeypatch.setattr(Session, "commit", _fail_commit)
+
+        with patch("src.services.logo_storage_service.get_config") as m, \
+             patch("src.services.project_size_service.get_config") as m2:
+            m.return_value.upload_path = str(tmp_path)
+            m2.return_value.upload_path = str(tmp_path)
+            report = run_recycle_bin_cleanup(
+                session,
+                _make_policy(age_enabled=True, age_value=1, age_unit="day"),
+                now=now,
+            )
+
+    assert report["purged_count"] == 0
+    assert logo_path.exists(), "提交失败时 Logo 文件必须保留"
+    with Session(engine) as check:
+        assert check.get(Project, pid) is not None

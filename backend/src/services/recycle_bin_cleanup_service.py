@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from src.config import DAYS_PER_MONTH, DAYS_PER_YEAR, RecycleBinConfig, get_config
 from src.models.project import Project
+from src.services.logo_storage_service import PROJECT_NAMESPACE, delete_file
 from src.services.project_purge_service import purge_project
 from src.services.project_size_service import estimate_project_sizes, format_bytes
 
@@ -148,7 +149,7 @@ def build_cleanup_plan(
                 continue
             size_ids.append(r.id)
             total -= sizes.get(r.id, 0)
-        # total 为剔除年龄命中后的剩余总量
+        # total 已扣除年龄命中与容量命中，即计划执行后的剩余总量（每条只扣一次）
         total_after = total
     else:
         total_after = total
@@ -166,7 +167,7 @@ def build_cleanup_plan(
         age_ids=age_ids,
         size_ids=size_ids,
         total_bytes_before=total_before,
-        total_bytes_after=total_after - sum(sizes.get(pid, 0) for pid in size_ids) if limit is not None else total_after,
+        total_bytes_after=total_after,
         would_converge=not blocked_by_retain if limit is not None else True,
     )
 
@@ -197,8 +198,11 @@ def run_recycle_bin_cleanup(
             continue
         size = sizes.get(pid, 0)
         try:
-            purge_project(session, project)
+            logo_rel = purge_project(session, project)
             session.commit()
+            # 提交成功后才删文件：提交失败会走 except 回滚，文件仍留在原地
+            if logo_rel:
+                delete_file(PROJECT_NAMESPACE, logo_rel)
             purged += 1
             freed += size
             if pid in plan.age_ids:

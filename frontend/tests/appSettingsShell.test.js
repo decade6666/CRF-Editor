@@ -138,9 +138,15 @@ test('useApi stores refreshed token from response headers', () => {
     apiSource,
     /function _storeRefreshedToken\(r\) \{[\s\S]*r\.headers\.get\(_REFRESHED_TOKEN_HEADER\)[\s\S]*localStorage\.setItem\('crf_token', refreshedToken\)/,
   );
+  // 会话令牌守卫（跨栈契约 §3 第 4、5 条）：只有请求携带的令牌仍是当前令牌，
+  // 才写回刷新令牌 / 处理 401，迟到的响应不得影响新会话
   assert.match(
     apiSource,
-    /async function _checkStatus\(r\) \{[\s\S]*if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)[\s\S]*_storeRefreshedToken\(r\)/,
+    /function _isCurrentSession\(sentToken\) \{[\s\S]*localStorage\.getItem\('crf_token'\) === sentToken/,
+  );
+  assert.match(
+    apiSource,
+    /async function _checkStatus\(r, sentToken\) \{[\s\S]*if \(_isCurrentSession\(sentToken\)\) _handle401\(\);[\s\S]*if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)[\s\S]*if \(_isCurrentSession\(sentToken\)\) _storeRefreshedToken\(r\)/,
   );
 });
 
