@@ -47,12 +47,17 @@ frontend/
 │   │   └── ...
 │   ├── assets/             # Static assets (images, styles)
 │   └── test/               # Test utilities (if any)
-├── tests/                  # node:test files (17 files)
+├── tests/                  # node:test files (flat; runner: node --test tests/*.test.js)
 │   ├── App.test.js
 │   ├── AdminView.test.js
 │   ├── FormDesignerTab.test.js
 │   ├── columnWidthPlanning.test.js
-│   └── ...
+│   ├── ...
+│   └── component/          # vitest + @vue/test-utils mount tests (runner: npm run test:component)
+│       ├── setup.js            # shared global Element Plus registration, ElMessage spies, auto-unmount
+│       ├── DesignNotesDialog.spec.js
+│       ├── SessionTimer.spec.js
+│       └── elementPlusEnvironment.spec.js
 └── dist/                   # Build output (served by backend in production)
 ```
 
@@ -99,6 +104,7 @@ frontend/
 | Dialogs | `*Dialog.vue` | `ImportProjectDialog.vue` |
 | Tabs | `*Tab.vue` | `PreviewTab.vue`, `SettingsTab.vue` |
 | Test files | `*.test.js` | `App.test.js` |
+| Component mount tests | `*.spec.js` under `tests/component/` | `tests/component/SessionTimer.spec.js` |
 
 ---
 

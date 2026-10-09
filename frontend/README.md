@@ -22,7 +22,9 @@ npm run dev
 npm run build
 npm run lint
 npm run format
-node --test tests/*.test.js
+npm test                    # node --test tests/*.test.js && vitest run（任一失败即失败）
+npm run test:component      # 仅运行 vitest 组件挂载测试
+node --test tests/*.test.js # 仅运行 node:test 源码级回归测试
 ```
 
 ## 开发模式
@@ -51,13 +53,15 @@ python main.py
 前端构建后由后端托管静态资源，浏览器访问 `http://localhost:8888`。
 
 ## 测试说明
-- `tests/` 使用 `node:test` 做源码级回归校验
+- `tests/*.test.js` 使用 `node:test` 做源码级回归校验
+- `tests/component/**/*.spec.js` 使用 vitest + @vue/test-utils + happy-dom 做组件挂载测试（真实渲染组件并断言交互；全局注册与 mock 约定收敛在 `tests/component/setup.js`）
 - 现有测试主要覆盖：
   - 应用壳层与设置弹窗结构
   - 端口与代理约定
   - 设计器预览与字段属性行为
   - 导入导出反馈与排序逻辑
   - 管理员视图结构
+  - 组件挂载与交互（如设计备注弹窗、会话倒计时、Element Plus 环境冒烟）
 
 ## 相关文档
 - 模块 AI 上下文：`./.claude/CLAUDE.md`

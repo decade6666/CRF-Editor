@@ -43,7 +43,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Framework**: Vue 3 + Vite
 - **Component Library**: Element Plus
 - **Drag Ordering**: vuedraggable + sortablejs
-- **Testing Framework**: node:test + a lightweight property-test helper (testProperty.js)
+- **Testing Framework**: node:test + a lightweight property-test helper (testProperty.js); vitest + @vue/test-utils + happy-dom component mount tests (`tests/component/`)
 - **Optional Runtime**: LibreOffice — required by the Word-import original-document screenshot panel on Linux/macOS, and also used for server-side Word table-of-contents page-number precomputation; missing LibreOffice keeps the screenshot panel unavailable and non-empty fallback page numbers with Word field correction
 
 ### Project Structure
@@ -71,7 +71,7 @@ CRF-Editor/
 │   │   ├── composables/     # Vue composables
 │   │   ├── styles/          # Global styles
 │   │   └── App.vue          # Root component
-│   ├── tests/               # node:test regression checks
+│   ├── tests/               # node:test regression checks + tests/component/ vitest mount tests
 │   ├── package.json         # Frontend dependencies and scripts
 │   ├── vite.config.js       # Vite configuration
 │   └── README.md            # Frontend module guide
@@ -449,12 +449,18 @@ python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
 ### Frontend
 ```bash
 cd frontend
-node --test tests/*.test.js
+npm test                    # node --test tests/*.test.js && vitest run (either failure fails the script)
+npm run test:component      # run only the vitest component mount tests
+node --test tests/*.test.js # run only the node:test source-level suite
 ```
+
+The two suites are disjoint and can run independently:
+- `tests/*.test.js`: `node --test` source-level regression checks (flat in the `tests/` root)
+- `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions)
 
 In the current repository:
 - `backend/tests/` currently contains 69 Python test files (67 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 70 frontend test files (69 `.test.js` files plus `testProperty.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, and the admin org dialog editing
+- `frontend/tests/` currently contains 74 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 4 vitest component-mount test files under `tests/component/` — 3 `.spec.js` files and a shared `setup.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ### Pre-commit Gate

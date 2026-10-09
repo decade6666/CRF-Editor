@@ -214,12 +214,37 @@ describe('Column planning contract', () => {
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run both suites (node:test first, then vitest; either failure fails the script)
+cd frontend && npm test
+
+# Run only the vitest component mount tests
+cd frontend && npm run test:component
+
+# Run only the node:test source-level suite
 cd frontend && node --test tests/*.test.js
 
-# Run specific test
+# Run a specific node:test file
 node --test tests/columnWidthPlanning.test.js
+
+# Run vitest in watch mode
+cd frontend && npx vitest
 ```
+
+### Component Mount Tests
+
+Real DOM component tests run on vitest + @vue/test-utils + happy-dom. They are the tool of record for refactoring giant components (form designer / visits preview / App + Word import splits): source-text tests cannot prove behavior survives a split.
+
+| Aspect | Convention |
+|---|---|
+| Runner / config | Standalone `frontend/vitest.config.js` (`defineConfig` from `vitest/config`). A standalone vitest config does NOT inherit `vite.config.js`, so compile-time plugins must be mirrored there — currently `@vitejs/plugin-vue` only. If `vite.config.js` ever gains a plugin that components need at compile time, add it to `vitest.config.js` too. `vite build` / `vite` never read `vitest.config.js`. |
+| Location / naming | `tests/component/**/*.spec.js`. The config's explicit `include` is what keeps vitest from collecting the 69 `tests/*.test.js` files (its default include would). Never name a mount test `*.test.js`, and never put node:test files under `tests/component/`. |
+| Global setup | `tests/component/setup.js`: registers `[[ElementPlus, { locale: zhCn }]]` via `config.global.plugins` (same specifiers as `src/main.js`; no Element Plus CSS — vitest turns CSS into empty modules and the DOM environment does no layout), `enableAutoUnmount(afterEach)`, an `afterEach` restoring timers/mocks/localStorage registered BEFORE `enableAutoUnmount` (vitest after-hooks run in reverse registration order, so wrappers unmount before restoration), and a `beforeEach` that spies `ElMessage.success/error/warning/info` to no-ops. Tests assert directly on `ElMessage.success` etc. |
+| API boundary | Spy on the real exported `api` object (`import { api } from '@/composables/useApi'`): `vi.spyOn(api, 'put')`. Do not use `vi.mock` module factories for it (`vi.spyOn` on an ESM namespace export fails; spying on a property of the exported object is fine). |
+| MessageBox | Not stubbed globally. Tests that need it call `vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')` themselves. |
+| Teleported dialogs | Do NOT stub teleport (`stubs: { teleport: true }` renders an empty `<teleport-stub>` in @vue/test-utils 2.5). Let the real teleport run and query through `new DOMWrapper(document.body)`; assert emits on the mount wrapper. |
+| Timers | `vi.useFakeTimers()` + `vi.setSystemTime(...)` per test (setup's `afterEach` restores real timers). `flushPromises` schedules its flush via `setImmediate` (fallback `setTimeout` only where `setImmediate` is missing), and vitest 5's default `toFake` fakes both (it fakes every timer except `nextTick` / `queueMicrotask`), so `flushPromises` stalls under fake timers until they are advanced — prefer real timers for tests that await it, or narrow `toFake` to leave `setImmediate` real and drive time with `vi.advanceTimersByTime`. |
+| DOM polyfills | Add none by default. Only when a spec proves an API is missing (e.g. a component touching canvas or layout) add the minimal stub in `setup.js` with a comment naming the component and API. happy-dom 20 natively covers matchMedia / IntersectionObserver / scrollTo / no-op ResizeObserver — el-table / el-select / el-tooltip mount without polyfills (see `elementPlusEnvironment.spec.js`). |
+| Versions | Test toolchain deps are exact-pinned in `package.json` (`vitest@5.0.3`, `@vue/test-utils@2.5.1`, `happy-dom@20.14.5`). Upgrades are a deliberate, separately approved change. |
 
 ---
 
@@ -227,7 +252,7 @@ node --test tests/columnWidthPlanning.test.js
 
 ### Before Submitting
 
-- [ ] All tests pass (`node --test tests/`)
+- [ ] All tests pass (`npm test` — node:test + vitest mount tests)
 - [ ] No lint errors (`npm run lint`)
 - [ ] Code formatted (`npm run format`)
 - [ ] No console.log in changed files
