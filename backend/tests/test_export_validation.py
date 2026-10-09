@@ -5,7 +5,7 @@ from docx import Document
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from src.models import Base
@@ -18,21 +18,6 @@ from src.services.export_service import (
     export_project_database,
     export_user_projects_database,
 )
-from tests.helpers import auth_headers, login_as
-
-
-@pytest.fixture
-def session() -> Session:
-    engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-
-    with session_factory() as db_session:
-        yield db_session
-
-    engine.dispose()
-
-
 @pytest.fixture
 def engine():
     _engine = create_engine(
@@ -48,13 +33,6 @@ def engine():
     Base.metadata.create_all(_engine)
     yield _engine
     _engine.dispose()
-
-
-def create_project(session: Session, name: str = "项目") -> Project:
-    project = Project(name=name, version="v1.0")
-    session.add(project)
-    session.flush()
-    return project
 
 
 # ── 验证相关 ──
