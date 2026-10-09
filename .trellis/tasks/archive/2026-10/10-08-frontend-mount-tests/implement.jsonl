@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Vue 3 script-setup and Element Plus conventions the mount setup must follow"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "existing test stack description that must be extended, not replaced"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "where the component test directory and setup module live"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "test utility conventions to keep consistent with existing helpers"}

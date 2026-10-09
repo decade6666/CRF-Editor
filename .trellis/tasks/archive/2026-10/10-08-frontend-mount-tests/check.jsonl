@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "reviewer verifies both runners stay isolated and green"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "reviewer checks mount setup matches component conventions"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "reviewer checks pinned-dependency and docs-sync expectations"}
