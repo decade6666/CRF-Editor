@@ -8,7 +8,7 @@
 
 - **Testing**: pytest with 80%+ coverage requirement
 - **Linting**: ruff for fast linting
-- **Formatting**: black for code formatting
+- **Formatting**: `ruff format` (format-only config in `backend/ruff.toml`; version pinned in `backend/requirements-dev.txt`; no lint rules enabled by this config)
 - **Type Checking**: mypy or pyright for static analysis
 - **Code Review**: Required for all changes
 
@@ -401,7 +401,7 @@ def test_unified_landscape_column_alignment():
 
 - [ ] All tests pass (`pytest`)
 - [ ] No type errors (`mypy src/`)
-- [ ] Code formatted (`black .`)
+- [ ] Code formatted (`ruff format .`)
 - [ ] No lint errors (`ruff check .`)
 - [ ] New code has tests
 - [ ] Breaking changes documented
