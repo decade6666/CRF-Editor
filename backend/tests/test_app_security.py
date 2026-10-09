@@ -120,7 +120,7 @@ def test_unhandled_exception_is_logged_with_traceback(
         with TestClient(main_module.app, raise_server_exceptions=False) as client:
 
             @main_module.app.get("/__test-500-log")
-            def _raise_runtime_error():
+            def _raise_runtime_error() -> None:
                 raise RuntimeError("boom-log")
 
             error_resp = client.get("/__test-500-log")
