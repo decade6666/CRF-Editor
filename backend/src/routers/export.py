@@ -76,13 +76,13 @@ def export_word(
                 annotated=annotated,
             )
         if not ok:
-            os.unlink(tmp_path)
+            _remove_temp_file(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
 
         with perf_span("output_validate"):
             valid, reason = ExportService._validate_output(tmp_path)
         if not valid:
-            os.unlink(tmp_path)
+            _remove_temp_file(tmp_path)
             raise HTTPException(500, f"导出失败: {reason}")
         record_counter("output_size_bytes", os.path.getsize(tmp_path))
     except HTTPException:

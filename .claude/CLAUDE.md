@@ -149,6 +149,7 @@ sudo bash deploy/install-service.sh uninstall
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
 
+- `2026-10-09` (task `small-defects` 二次复审): 导出失败两分支（生成失败 / 产出校验失败）的裸 `os.unlink` 统一改为 `_remove_temp_file`，临时文件删除撞上 OSError 不再把具体原因吞成通用 500；补 2 条 RED→GREEN 回归测试（后端 1038→1040，export 路由 72%→80%）。
 - `2026-10-08` (task `small-defects`): 六个已核实小缺陷修复（每条一提交）：表单复制不再丢失字段样式（项目复制 / 模板导入 / 表单复制三条路径共用按 `FormField` 模型列推导的 `form_field_copy.copy_form_field`）、Word 导出 `ExportError` 原样返回 400 `{detail, code}` 并清理临时文件、迟到响应不再覆盖或清除新会话令牌（`useApi.js` 会话令牌守卫，契约 §3 第 4、5 条）、彻底删除项目先提交数据库再删 Logo 文件、未处理异常 500 记录完整堆栈、回收站清理计划剩余容量只扣一次。
 - `2026-10-08` (task `test-isolation`): 后端测试会话隔离真实资源（数据库 / 上传 / 截图 / Word 导入临时路径重定向到会话临时根目录，全新 worktree 零配置直跑），引入 pytest-cov 覆盖率统计（基线 84%）。
 - `2026-10-08` (task `pre-commit-gate`): 本机 pre-commit 钩子（gitleaks 暂存区扫描 + 空白/语法/条件格式自检），补上 CI 删除后缺失的提交前检查。
