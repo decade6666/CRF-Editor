@@ -49,17 +49,85 @@ Rules:
 
 Do **not** compare `deleted_at` to `datetime.now(timezone.utc)` or any aware datetime; SQLite `DateTime` storage in this project discards tzinfo, and mixing aware/naive values will shift the effective cutoff by the local UTC offset.
 
-### One Project Per Transaction for Hard Delete Cleanup
+### Scenario: Hard Delete Ordering — Commit Before Unlinking the Logo
 
-The recycle-bin hard-delete cleanup loop must commit one recycled project at a time:
+#### 1. Scope / Trigger
 
-- build the candidate list first
-- before deleting each project, re-check that `deleted_at IS NOT NULL` (the project may have been restored after planning)
-- purge the project graph + logo file
-- `commit()`
-- on per-project failure, `rollback()` and continue with the next candidate
+- Trigger: any code path that permanently deletes a recycled project — the recycle-bin cleanup loop (`recycle_bin_cleanup_service.run_recycle_bin_cleanup`, one recycled project per transaction) and the admin route `routers/admin.py::hard_delete_project`.
+- Why ordered: the DB row is the source of truth. Unlinking the Logo file before the commit can return the project to the recycle bin pointing at a file that no longer exists.
 
-This keeps WAL write-lock windows short and guarantees the process cannot leave a half-deleted project graph if the app crashes mid-loop.
+#### 2. Signatures
+
+```python
+# backend/src/services/project_purge_service.py
+def purge_project(session: Session, project: Project) -> Optional[str]: ...
+#   delete + flush only; touches no files; returns the Logo relative file name (None when unset)
+
+# backend/src/services/logo_storage_service.py  (the single Logo file policy, shared with org presets)
+def delete_file(namespace: str, rel_name: str) -> bool: ...
+#   safe_resolve (rejects absolute / traversal / nested / backslash names) + unlink;
+#   missing or unresolvable name → False; any failure → logger.warning; never raises
+
+# backend/src/database.py
+def get_session():        # 预开事务；请求内 commit 后继续用会抛 InvalidRequestError
+def get_plain_session():  # 裸 Session，供需要显式提交的服务使用
+```
+
+#### 3. Contracts
+
+- Per-project order is fixed: re-check `deleted_at IS NOT NULL` → `logo_rel = purge_project(session, project)` → `session.commit()` → `if logo_rel: delete_file(PROJECT_NAMESPACE, logo_rel)`.
+- `purge_project()` must not unlink: it returns the relative name so the caller can compensate after the commit. File removal goes through `logo_storage_service.delete_file` — the one Logo deletion policy shared with `project_profile_service` / `organization_preset_service` (path validation, `PROJECT_NAMESPACE`, warning-only failures). Do not introduce a second bespoke Logo-unlink helper.
+- Failure scope: a failed DB delete / `commit()` rolls back — the project stays in the recycle bin and the Logo file is still in place, because it is deleted strictly after the commit. An error after a successful commit cannot roll that commit back; the worst residual state there is an orphan file, which is acceptable.
+- `routers/admin.py::hard_delete_project` depends on `get_plain_session`, not `get_session`, because it must commit explicitly before unlinking (the same shape as the other composite-write services). A `get_session` request opens an outer `session.begin()`, and calling `commit()` inside it makes any later session use raise `InvalidRequestError` (see the `get_plain_session` docstring in `database.py`). The 404 (project missing) / 400 (not in the recycle bin) guards run before any write.
+- The loop keeps one project per transaction, which bounds WAL write-lock windows and prevents a half-deleted graph if the process dies mid-loop.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| DB delete / `commit()` fails | `rollback()`; the project stays in the recycle bin and the Logo file is untouched |
+| Logo file missing, or its stored name is malformed (e.g. NUL) / unsafe (traversal) | Commit stands, request/loop succeeds; `delete_file` skips or warns and never raises (a NUL name is treated as "file missing" — `Path.exists()` swallows the `ValueError`) |
+| `company_logo_path` is NULL | `purge_project` returns `None`; no deletion call |
+| Project restored between plan and purge | Loop re-checks `deleted_at`, skips it; nothing deleted, nothing unlinked |
+| Admin route on a missing / non-recycled project | 404 / 400 before any write |
+| Success | Project graph gone, Logo file gone, `purged_count` incremented |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: the cleanup purges a recycled project, commits, then deletes its Logo via `delete_file`; an `after_commit` probe observes the file still present at the delete commit and gone afterwards.
+- **Base**: a project without a Logo (`company_logo_path` NULL) purges with `None` flowing through — no `delete_file` call.
+- **Bad**: unlinking before `session.commit()`; a failed commit then loses the Logo of a project that is still in the recycle bin.
+
+#### 6. Tests Required
+
+- `backend/tests/test_recycle_bin_cleanup.py::test_run_cleanup_purges_graph_and_logo` — the shared `helpers.commit_probe` records `logo_path.exists()` per commit; the first commit that observes the project row gone must still see the file, and it must be absent afterwards.
+- `backend/tests/test_recycle_bin_cleanup.py::test_run_cleanup_keeps_logo_when_commit_fails` — monkeypatched failing `commit()`; `purged_count == 0` and the Logo survives.
+- `backend/tests/test_recycle_bin_cleanup.py::test_run_cleanup_skips_project_restored_between_plan_and_purge` — the `deleted_at` re-check.
+- `backend/tests/test_admin_project_ops.py::test_hard_delete_removes_project_logo_file` — the same probe on the admin route. Assert on the first commit that observes the project row gone: the auth dependency's own `get_session` commits at request teardown, after the unlink.
+- `backend/tests/test_admin_project_ops.py::test_hard_delete_tolerates_malformed_logo_path` — a tampered NUL `company_logo_path` deletes cleanly (204, row gone); the unresolvable name is treated as a missing file, never a request failure.
+- `backend/tests/test_admin_project_ops.py::test_hard_delete_only_accepts_recycled_projects_and_physically_removes_that_graph` — guards + graph deletion.
+
+#### 7. Wrong vs Correct
+
+**Wrong**
+
+```python
+# Delete the file before the commit: a failed commit returns the project to the
+# recycle bin with its Logo already gone — and a bespoke unlink bypasses the
+# shared safe_resolve / warning policy
+path = Path(get_config().upload_path) / "logos" / project.company_logo_path
+path.unlink(missing_ok=True)
+session.commit()
+```
+
+**Correct**
+
+```python
+logo_rel = purge_project(session, project)    # delete + flush, returns the rel name
+session.commit()                              # DB row is now the source of truth
+if logo_rel:
+    delete_file(PROJECT_NAMESPACE, logo_rel)  # commit-success compensation
+```
 
 ### Write Operations (with transaction)
 
@@ -301,11 +369,22 @@ _resolve_import_code(existing_codes: set[str], source_code: Optional[str], prefi
 #### 1. Scope / Trigger
 
 - Trigger: adding, renaming, deleting, or changing the default/enum semantics of any persisted `form_field` column.
-- This requires code-spec depth because `form_field` is not updated in one place: the table can be rebuilt from canonical DDL, external project DBs are schema-validated before import, and both project copy and form copy rebuild `FormField(...)` rows manually.
+- This requires code-spec depth because `form_field` is not updated in one place: the table can be rebuilt from canonical DDL, external project DBs are schema-validated before import, and three copy paths (project clone, template import, same-project form copy) share one helper.
+- Historical cause: `bg_color` / `text_color` / `label_bold` / `label_font_size` were once copied by hand at each site, and `forms.py::copy_form` silently dropped all four. Copy paths now go through `form_field_copy.copy_form_field()`; only create-from-payload paths (`routers/fields.py`, `docx_import_service.py`, `field_profile_service.py`) still construct `FormField(...)` directly.
 
 #### 2. Signatures
 
 ```python
+# backend/src/services/form_field_copy.py  (single copy contract)
+CALLER_SUPPLIED_ATTRS = frozenset({"form_id", "field_definition_id", "order_index"})
+NEVER_COPIED_ATTRS = frozenset({"id", "created_at", "updated_at"})
+COPIED_ATTRS: tuple[str, ...]   # every other FormField column, derived from __table__.columns
+
+def copy_form_field(
+    src: FormField, *, form_id: int,
+    field_definition_id: Optional[int], order_index: int,
+) -> FormField: ...   # unsaved; all COPIED_ATTRS values taken from src
+
 # backend/src/database.py
 _FORM_FIELD_CANONICAL_COLUMNS = (
     ("id", None),
@@ -316,24 +395,22 @@ _FORM_FIELD_CANONICAL_COLUMNS = (
 def _rebuild_form_field_table(conn, *, log_message: str) -> None: ...
 def _ensure_form_field_rowid_compatibility(engine) -> None: ...
 
-# backend/src/services/project_import_service.py
+# backend/src/services/project_import_service.py  (project .db import)
 _REQUIRED_COLUMNS["form_field"] = frozenset({...})
 def _patch_legacy_project_schema(file_path: str) -> None: ...
 
-# backend/src/services/project_clone_service.py
-session.add(FormField(...))
-
-# backend/src/routers/forms.py
-@router.post("/forms/{form_id}/copy")
-def copy_form(...): ...
+# backend/src/services/import_service.py  (template library; no ALTER TABLE on the source)
+_TEMPLATE_REQUIRED_COLUMNS["form_field"] = [
+    "order_index", "is_log_row", "inline_mark", "label_bold", "label_font_size",
+]
 ```
 
 #### 3. Contracts
 
 - **Canonical rebuild contract**: every persisted `form_field` column must exist in both `_FORM_FIELD_CANONICAL_COLUMNS` and the `CREATE TABLE form_field_new` DDL inside `_rebuild_form_field_table()`. If old rows may not have the value, provide an explicit default expression or fail loudly.
 - **Import contract**: `_REQUIRED_COLUMNS["form_field"]` is the accepted external schema for project DB import. If older `.db` files should remain importable, `_patch_legacy_project_schema()` must patch the temporary copy before `_validate_schema()` / ORM loading touches the table.
-- **Project clone contract**: `ProjectCloneService.clone_from_graph()` manually reconstructs `FormField(...)`. A new column is **not** carried automatically by SQLAlchemy — copy it explicitly or intentionally default it.
-- **Form copy contract**: `backend/src/routers/forms.py::copy_form()` also rebuilds `FormField(...)` manually. Same-project duplication must be reviewed whenever a new `form_field` attribute is added.
+- **Template validator contract**: `ImportService._TEMPLATE_REQUIRED_COLUMNS["form_field"]` (current value: `order_index`, `is_log_row`, `inline_mark`, `label_bold`, `label_font_size`) is the column set every importable template must carry; `_check_template_compatibility` rejects a template missing one of them. Removing a name from that list is **not** compatibility support: the read path still selects `FormField` as a whole ORM row, so every model column is emitted and a legacy template missing an optional column fails with `OperationalError` before any in-memory fallback can run. Supporting an optional legacy column requires, on that read path, all three: a `PRAGMA table_info` probe (`_has_template_*`), a projection that avoids the full-row ORM SELECT (see `get_template_form_paper_orientation`, which reads only `paper_orientation` via `text()` for exactly this reason), and an in-memory default (`paper_orientation="auto"`, `SimpleNamespace.checkbox_label=None`). The external template is never `ALTER`ed, and `form_field_copy.copy_form_field` does not replace these boundary adaptations — it only copies what the loaded source row has.
+- **Copy contract (shared)**: project clone (`ProjectCloneService.clone_from_graph`, also used by project `.db` import), template import (`ImportService`), and same-project form copy (`routers/forms.py::copy_form`) all call `copy_form_field()` and only decide `form_id`, the remapped `field_definition_id`, and ordering. A new column is copied **by default**; excluding it means adding its name to `NEVER_COPIED_ATTRS` or `CALLER_SUPPLIED_ATTRS` with a comment saying why, plus updating `backend/tests/test_form_copy.py`, which pins both sets.
 - **Host legacy contract**: startup repair paths such as `_rebuild_form_field_table()` and `_ensure_form_field_rowid_compatibility()` must preserve the new column, its constraints, and its data.
 
 #### 4. Validation & Error Matrix
@@ -343,21 +420,22 @@ def copy_form(...): ...
 | New column missing from `_FORM_FIELD_CANONICAL_COLUMNS` or `form_field_new` DDL | Rebuild / startup heal is incomplete; the new value can be dropped or the rebuild can fail. Treat as a release blocker. |
 | New column missing from `_REQUIRED_COLUMNS["form_field"]` | Import validation no longer reflects the real contract; compatibility becomes implicit instead of explicit. Update the validator together with the schema change. |
 | Legacy `.db` files should still import, but `_patch_legacy_project_schema()` is not updated | Import fails on old files with `form_field 缺少列 ...` or equivalent schema incompatibility. |
-| `ProjectCloneService.clone_from_graph()` not updated | Project copy and project-db import lose the value on cloned `FormField` rows. |
-| `forms.py::copy_form()` not updated | `/api/forms/{form_id}/copy` resets or drops the value during same-project duplication. |
+| New column wrongly excluded via `NEVER_COPIED_ATTRS` / `CALLER_SUPPLIED_ATTRS` (or the helper misses it) | Every copy path silently drops it; `test_form_copy.py` fails on its set-equality assertion. |
+| A new hand-written `FormField(...)` copy site bypasses `copy_form_field` | That path keeps a private attribute list and will drift again; grep construction sites when adding a copy path. |
 | New column is non-nullable but no default/backfill exists | Existing DBs, rebuilds, or imports fail once legacy rows are touched. |
 
 #### 5. Good / Base / Bad Cases
 
-- **Good**: add the column to canonical rebuild DDL, import validator, legacy patch/default path, project clone, and form copy in one change; then assert it survives create → copy → export/import → startup rebuild.
-- **Base**: if the field is intentionally defaulted on legacy inputs, document the exact default (`NULL`, `0`, `'auto'`, etc.) and add a regression test proving the defaulted value after import/rebuild.
-- **Bad**: update only the ORM model / API schema and assume the value will flow automatically. `form_field` currently has multiple hand-written pass-through sites, so partial updates silently lose data.
+- **Good**: add the column to canonical rebuild DDL, both import validators, and the legacy patch/default path in one change; the three copy paths pick it up automatically via `copy_form_field`. Assert it survives create → form copy → project copy → project `.db` import → startup rebuild.
+- **Base**: if the field is intentionally excluded from copies or defaulted on legacy inputs, document the exact default (`NULL`, `0`, `'auto'`, etc.) and add a regression test proving the value after import/rebuild.
+- **Bad**: construct `FormField(...)` by hand in a copy path, or add a column to one of the two exclusion sets without a comment and a test. Both re-create the original drift bug.
 
 #### 6. Tests Required
 
-- **Migration / rebuild**: extend the `form_field` rebuild coverage in `backend/tests/test_project_import.py` so the new column survives `_rebuild_form_field_table()` with the expected PK/FK/NOT NULL/default semantics.
-- **Form copy**: add or extend `/api/forms/{form_id}/copy` coverage so the copied form preserves the new `form_field` value.
+- **Copy list**: `backend/tests/test_form_copy.py::test_should_copy_every_payload_column_of_form_field` asserts `COPIED_ATTRS == all model columns − CALLER_SUPPLIED_ATTRS − NEVER_COPIED_ATTRS`, pins both exclusion sets, and round-trips a type-derived sample value through every copied column.
+- **Form copy**: `backend/tests/test_form_copy.py::test_should_keep_field_styles_when_copying_form` — `POST /api/forms/{form_id}/copy` keeps `bg_color` / `text_color` / `label_bold` / `label_font_size`.
 - **Project copy**: extend `backend/tests/test_project_copy.py::test_copy_project_clones_full_graph` to assert cloned `FormField` rows preserve the new value.
+- **Migration / rebuild**: extend the `form_field` rebuild coverage in `backend/tests/test_project_import.py` so the new column survives `_rebuild_form_field_table()` with the expected PK/FK/NOT NULL/default semantics.
 - **Project DB import / merge**: add or extend `backend/tests/test_project_import.py` to cover both current-schema round-trip import and the intended legacy behavior (patched default vs fail-closed rejection).
 - **API round-trip**: if the field is user-writable or user-visible, extend `backend/tests/test_fields_router.py` so create / patch / put / list all expose the same value.
 
@@ -376,21 +454,34 @@ def copy_form(...): ...
 class FormField(Base):
     annotation_offset_x = mapped_column(Integer, default=0)
 
-# Missing: canonical rebuild, import validator, legacy patch, project copy, form copy
+# Missing: canonical rebuild, import validators, legacy patch
+
+# Wrong - a fourth copy site with its own hand-maintained attribute list
+session.add(FormField(
+    form_id=new_form.id,
+    field_definition_id=ff.field_definition_id,
+    order_index=idx,
+    is_log_row=ff.is_log_row,
+    required=ff.required,
+    # ... every display attribute repeated, and eventually forgotten
+))
 ```
 
 **Correct**
 
 ```python
-# Search all manual pass-through sites first
-rg -n "_FORM_FIELD_CANONICAL_COLUMNS|form_field_new|_REQUIRED_COLUMNS|_patch_legacy_project_schema|FormField\(|copy_form" backend/
+# Search all pass-through sites first
+rg -n "_FORM_FIELD_CANONICAL_COLUMNS|_REQUIRED_COLUMNS|_TEMPLATE_REQUIRED_COLUMNS|_patch_legacy_project_schema|FormField\(" backend/
 
 # Then update the schema change as one unit:
 # 1. canonical rebuild DDL/defaults
-# 2. import validator + legacy patch/default path
-# 3. project clone FormField(...) mapping
-# 4. form copy FormField(...) mapping
-# 5. regression tests for rebuild/copy/import
+# 2. import validators + legacy patch/default path
+# 3. confirm copy_form_field carries the column by default (no per-path edit needed)
+# 4. regression tests for rebuild / form copy / project copy / import
+
+session.add(copy_form_field(
+    ff, form_id=new_form.id, field_definition_id=remapped_id, order_index=idx,
+))
 ```
 
 ---

@@ -202,6 +202,110 @@ def get_project(project: Project = Depends(verify_project_owner)):
 
 ---
 
+## Scenario: Coded Domain Errors Must Reach the Client (Word export `ExportError`)
+
+### 1. Scope / Trigger
+
+- Trigger: a service raises a domain exception that carries a stable error code, and the route + app-level handler must return it to the client unchanged.
+- Reference implementation: `ExportError` in `backend/src/services/export_service.py`, raised for incompatible export data (`EXPORT_DATA_INCOMPATIBLE`, e.g. invalid aCRF `annotation_positions`) and incompatible schema (`EXPORT_SCHEMA_INCOMPATIBLE`); handled by `export_error_handler` in `backend/main.py`.
+- Historically these errors were swallowed twice (service catch-all → `return False`, then a route catch-all → generic 500), so the app-level handler was unreachable and the frontend only ever saw 「导出失败」.
+
+### 2. Signatures
+
+```python
+# backend/src/services/export_service.py
+class ExportError(Exception):
+    def __init__(self, message: str, code: str, status_code: int = 400):
+        self.message = message   # user-facing Chinese detail
+        self.code = code         # stable machine code, e.g. EXPORT_DATA_INCOMPATIBLE
+        self.status_code = status_code
+
+_EXPORT_ERROR_CODES = {
+    "SCHEMA_INCOMPATIBLE": "EXPORT_SCHEMA_INCOMPATIBLE",
+    "DATA_INCOMPATIBLE": "EXPORT_DATA_INCOMPATIBLE",
+}
+
+# backend/main.py — app-level handler
+@app.exception_handler(ExportError)
+async def export_error_handler(request: Request, exc: ExportError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message, "code": exc.code},
+    )
+
+# backend/src/routers/export.py
+def _remove_temp_file(path: str) -> None: ...   # best-effort unlink: logs a warning on failure, never raises
+```
+
+### 3. Contracts
+
+- `ExportService.export_project_to_word` must keep `except ExportError: raise` **immediately before** its catch-all (`except Exception: logger.exception(...); return False`). Without it the coded error becomes `False` and the route degrades it to a generic 500.
+- The route cleans up and re-raises: `except ExportError as exc: logger.warning("导出Word文档失败：%s", exc.message); _remove_temp_file(tmp_path); raise`.
+- `except HTTPException: raise` stays first — project/permission errors keep their own status codes.
+- Response shape is `{"detail": <具体原因>, "code": <稳定错误码>}` with `exc.status_code` (400 for data incompatibility), the same shape as `ProjectImportError`. The frontend shows `err.detail` (`App.vue` exportWord: `'导出失败: ' + (err.detail || '未知错误')`). A new failure kind adds an `_EXPORT_ERROR_CODES` entry, not a new route branch.
+- Every failure path removes the temp `.docx`: `if not ok` (unlink → 500 「导出失败，请检查项目数据是否完整」), output validation failure (unlink → 500 「导出失败: <reason>」), `ExportError` (`_remove_temp_file` → re-raise), unknown exception (`_remove_temp_file` → 500 「导出失败，请稍后重试或联系管理员」). Success returns a `FileResponse` whose `BackgroundTask(os.unlink, tmp_path)` removes it after streaming.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| Service raises `ExportError` (e.g. invalid `annotation_positions`) | 400, body `{"detail": "<具体原因>", "code": "EXPORT_DATA_INCOMPATIBLE"}`, temp file removed |
+| Other failures still return `False` from the service | 500 「导出失败，请检查项目数据是否完整」, temp file removed |
+| Output validation fails | 500 「导出失败: <reason>」, temp file removed |
+| Route raises `HTTPException` (401/404/…) | Passed through unchanged |
+| Any other exception | 500 「导出失败，请稍后重试或联系管理员」, stack logged once by the route, temp file removed |
+| Successful export | `FileResponse`; temp file removed by the response `BackgroundTask` |
+
+### 5. Good / Base / Bad Cases
+
+- **Good**: an aCRF export over corrupt `annotation_positions` returns 400 with `EXPORT_DATA_INCOMPATIBLE` and the specific reason; the frontend surfaces it instead of a generic failure.
+- **Base**: an unexpected rendering error still returns the generic 500 and is logged with a full traceback.
+- **Bad**: a service catch-all turning coded errors into `False`, or a route catch-all re-mapping them to a generic message. The test that asserted `ok is False` was locking in that bug; it was rewritten to expect the exception.
+
+### 6. Tests Required
+
+- `backend/tests/test_export_acrf.py::test_acrf_export_rejects_invalid_annotation_positions` — `pytest.raises(ExportError)` and `exc.code == "EXPORT_DATA_INCOMPATIBLE"`.
+- `backend/tests/test_export_word_errors.py::test_export_word_returns_specific_error_and_removes_temp_file` — HTTP 400, body carries the specific `detail` + `code`, and the temp `.docx` created by the route is deleted (spy on `NamedTemporaryFile`).
+
+**Assertion points**: the error code matches the raised kind; `detail` is the specific reason, not the generic message; no temp `.docx` survives any failure path.
+
+### 7. Wrong vs Correct
+
+**Wrong**
+
+```python
+# Service: the catch-all swallows the coded error into a bool
+try:
+    ...
+    return True
+except Exception:
+    logger.exception("导出失败 project_id=%s", project_id)
+    return False
+
+# Route: the catch-all degrades it to a generic 500
+except Exception:
+    raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
+```
+
+**Correct**
+
+```python
+# Service: let the coded error through before the catch-all
+except ExportError:
+    raise
+except Exception:
+    logger.exception("导出失败 project_id=%s", project_id)
+    return False
+
+# Route: clean up the temp file, then re-raise; main.py formats {detail, code}
+except ExportError as exc:
+    logger.warning("导出Word文档失败：%s", exc.message)
+    _remove_temp_file(tmp_path)
+    raise
+```
+
+---
+
 ## Common Mistakes
 
 ### 1. Exposing Internal Errors
@@ -234,6 +338,8 @@ user = session.get(User, user_id)
 if not user:
     raise HTTPException(status_code=404, detail="用户不存在")
 ```
+
+A coded domain error is the same failure with a name: catching it into `False` or a generic message is silent failure too — see "Scenario: Coded Domain Errors Must Reach the Client" above.
 
 ### 3. Inconsistent Error Messages
 

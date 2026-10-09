@@ -156,6 +156,31 @@ logger.info(f"User details: {user.email}, {user.phone}")  # Avoid if possible
 
 ---
 
+## Unhandled Exceptions Are Logged Once, Centrally
+
+`security_headers_middleware` in `backend/main.py` is the single place that turns an unhandled exception into a 500 response. It must leave exactly one ERROR record with the full traceback:
+
+```python
+# backend/main.py — security_headers_middleware
+try:
+    response = await call_next(request)
+except Exception:
+    # 只记方法与路径，不记请求体 / 请求头
+    logging.getLogger("src.main").exception(
+        "未处理异常 %s %s", request.method, request.url.path
+    )
+    response = JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
+return _apply_security_headers(response)
+```
+
+- **Logged**: logger name `src.main` (a child of the `src` app logger configured by `_setup_app_logging`), the request method + path, and the `exc_info` traceback. `logger.exception` is required — `logger.error` would drop the stack.
+- **Never added to this record**: request bodies, headers, or query strings. Only the method + path and the exception go in; the exception text itself is not guaranteed to be free of user input, so treat it as diagnostic data and never append more request content to it. This middleware runs for every route, including login and password change.
+- **Do not double-log**: a route or service should either handle an error (logging it with its own context) or let it propagate to this single central record. Logging at one layer and re-logging at another produces duplicate tracebacks for one failure.
+- The response stays `{"detail": "内部服务器错误"}` — unchanged user-facing behavior; the log is the diagnostic surface, not the response body.
+- Test pattern: `backend/tests/test_app_security.py::test_unhandled_exception_is_logged_with_traceback` mounts a temporary route that raises, asserts the response is still the generic 500, and uses `caplog.at_level(logging.ERROR, logger="src.main")` to require a record whose message contains the method + path and whose `exc_info` carries the original exception.
+
+---
+
 ## Common Patterns
 
 ### Request Context
