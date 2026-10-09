@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 
-
 from src.database import get_session
 
 from src.dependencies import get_current_user, verify_project_owner, verify_project_unit_owner
@@ -31,16 +30,13 @@ from src.services.field_definition_reference_service import collect_field_defini
 from src.services.order_service import OrderService
 
 
-
 router = APIRouter(tags=["units"])
 
 
-
-
-
 @router.get("/projects/{project_id}/units", response_model=List[UnitResponse])
-
-def list_units(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def list_units(
+    project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
 
     verify_project_owner(project_id, current_user, session)
 
@@ -49,91 +45,75 @@ def list_units(project_id: int, session: Session = Depends(get_session), current
     return list(session.scalars(stmt).all())
 
 
-
-
-
 @router.post("/projects/{project_id}/units", response_model=UnitResponse, status_code=201)
-
-def create_unit(project_id: int, data: UnitCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def create_unit(
+    project_id: int,
+    data: UnitCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     verify_project_owner(project_id, current_user, session)
 
     from src.utils import generate_code
 
-    dump = data.model_dump(exclude={'order_index'})
+    dump = data.model_dump(exclude={"order_index"})
 
     if not dump.get("code"):
-
         dump["code"] = generate_code("UNIT")
-
-
 
     unit = Unit(project_id=project_id, **dump)
 
-
-
     if data.order_index is None:
-
         unit.order_index = OrderService.get_next_order(session, Unit, Unit.project_id == project_id)
 
         session.add(unit)
 
     else:
-
         OrderService.insert_at(session, Unit, Unit.project_id == project_id, unit, data.order_index)
-
-
 
     session.flush()
 
     return unit
 
 
-
-
-
 @router.put("/units/{unit_id}", response_model=UnitResponse)
-
-def update_unit(unit_id: int, data: UnitUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def update_unit(
+    unit_id: int,
+    data: UnitUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     repo = BaseRepository(session, Unit)
 
     unit = repo.get_by_id(unit_id)
 
     if not unit:
-
         raise HTTPException(404, "单位不存在")
 
     verify_project_owner(unit.project_id, current_user, session)
 
     old_order = unit.order_index
 
-
-
-    for k, v in data.model_dump(exclude={'order_index'}, exclude_unset=True).items():
-
+    for k, v in data.model_dump(exclude={"order_index"}, exclude_unset=True).items():
         setattr(unit, k, v)
 
-
-
     if data.order_index is not None and data.order_index != old_order:
-
         OrderService.move_to(session, Unit, Unit.project_id == unit.project_id, unit, data.order_index)
-
-
 
     session.flush()
 
     return unit
 
 
-
-
-
 @router.get("/units/{unit_id}/references")
-
-def get_unit_references(unit_id: int, include_unplaced: bool = False, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def get_unit_references(
+    unit_id: int,
+    include_unplaced: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """查询单位被哪些表单的哪些字段引用；include_unplaced 时未放入表单的字段库字段也计入"""
     unit = session.get(Unit, unit_id)
     if not unit:
@@ -145,11 +125,7 @@ def get_unit_references(unit_id: int, include_unplaced: bool = False, session: S
     ).get(unit_id, [])
 
 
-
-
-
 @router.delete("/units/{unit_id}", status_code=204)
-
 def delete_unit(unit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
 
     repo = BaseRepository(session, Unit)
@@ -157,7 +133,6 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session), current_u
     unit = repo.get_by_id(unit_id)
 
     if not unit:
-
         raise HTTPException(404, "单位不存在")
 
     verify_project_owner(unit.project_id, current_user, session)
@@ -169,18 +144,18 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session), current_u
     ref_count = session.scalar(select(FieldDefinition.id).where(FieldDefinition.unit_id == unit_id).limit(1))
 
     if ref_count is not None:
-
         raise HTTPException(409, "该单位被字段引用，无法删除")
 
     OrderService.delete_and_compact(session, Unit, Unit.project_id == unit.project_id, unit)
 
 
-
-
-
 @router.post("/projects/{project_id}/units/batch-delete")
-
-def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def batch_delete_units(
+    project_id: int,
+    data: BatchDeleteRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     verify_project_owner(project_id, current_user, session)
 
@@ -189,7 +164,6 @@ def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Sessi
     ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(data.ids))).all())
 
     if ref_ids:
-
         raise HTTPException(409, "部分单位被字段引用，无法删除")
 
     count = BaseRepository(session, Unit).batch_delete(data.ids, project_id=project_id)
@@ -199,33 +173,34 @@ def batch_delete_units(project_id: int, data: BatchDeleteRequest, session: Sessi
     return {"deleted": count}
 
 
-
-
-
 @router.post("/projects/{project_id}/units/batch-references")
-
-def batch_unit_references(project_id: int, data: BatchDeleteRequest, include_unplaced: bool = False, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def batch_unit_references(
+    project_id: int,
+    data: BatchDeleteRequest,
+    include_unplaced: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """批量查询单位引用；include_unplaced 时未放入表单的字段库字段也计入"""
 
     verify_project_owner(project_id, current_user, session)
 
-    valid_unit_ids = set(session.scalars(
-        select(Unit.id).where(Unit.project_id == project_id, Unit.id.in_(data.ids))
-    ).all())
+    valid_unit_ids = set(
+        session.scalars(select(Unit.id).where(Unit.project_id == project_id, Unit.id.in_(data.ids))).all()
+    )
 
     return collect_field_definition_references(
         session, FieldDefinition.unit_id, valid_unit_ids, include_unplaced=include_unplaced
     )
 
 
-
-
-
 @router.post("/projects/{project_id}/units/reorder")
-
-def reorder_units(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def reorder_units(
+    project_id: int,
+    id_list: List[int],
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """批量重排序号（拖拽场景）"""
 
     verify_project_owner(project_id, current_user, session)
@@ -233,6 +208,3 @@ def reorder_units(project_id: int, id_list: List[int], session: Session = Depend
     OrderService.reorder_batch(session, Unit, Unit.project_id == project_id, id_list)
 
     return {"message": "Reordered"}
-
-
-
