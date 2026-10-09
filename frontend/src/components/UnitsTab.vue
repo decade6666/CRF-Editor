@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
+import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, formatFieldReference, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
@@ -109,10 +110,10 @@ async function saveUnit() {
 
 async function del(u) {
   try {
-    const refs = await api.get(`/api/units/${u.id}/references`)
+    const refs = await api.get(`/api/units/${u.id}/references?include_unplaced=true`)
     if (refs.length) {
-      const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
-      return ElMessageBox.alert(`该单位被以下字段引用，需先删除相关字段：\n${msg}`, '无法删除', { type: 'warning' })
+      const msg = truncRefs(refs.map(formatFieldReference))
+      return await showReferenceBlockedAlert(ElMessageBox, `该单位被以下字段引用，需先解除相关字段的引用：\n${msg}`)
     }
     await ElMessageBox.confirm(`确认删除单位 "${u.symbol}"？`, '删除确认', { type: 'warning' })
     await api.del(`/api/units/${u.id}`)
@@ -133,18 +134,22 @@ async function batchDelUnits() {
   try {
     const ids = selUnits.value.map(r => r.id)
     if (!ids.length) return ElMessage.warning('请先选择要删除的单位')
-    const refsMap = await api.post(`/api/projects/${props.projectId}/units/batch-references`, { ids })
-    const allRefs = []
-    for (const u of selUnits.value) {
-      const refs = refsMap[u.id] || []
-      if (refs.length) allRefs.push(`【${u.symbol}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`), 3, '、'))
-    }
-    if (allRefs.length) return ElMessageBox.alert(`以下单位被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
-    await ElMessageBox.confirm(`确认删除选中的 ${ids.length} 个单位？`, '批量删除', { type: 'warning' })
-    await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids })
-    if (ids.includes(selectedUnitId.value)) clearUnitSelection()
+    const items = [...selUnits.value]
+    const refsMap = await api.post(`/api/projects/${props.projectId}/units/batch-references?include_unplaced=true`, { ids })
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '单位',
+      nameOf: (u) => u.symbol,
+      describeRefs: (refs) => truncRefs(refs.map(formatFieldReference), 3, '、'),
+    })
+    if (!toDelete.length) return
+    const deleteIds = toDelete.map((x) => x.id)
+    await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids: deleteIds })
+    if (deleteIds.includes(selectedUnitId.value)) clearUnitSelection()
     selUnits.value = []
     await reloadUnits()
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('单位', toDelete.length, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

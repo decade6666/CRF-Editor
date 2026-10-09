@@ -9,6 +9,7 @@ import { rankFuzzyMatches } from '../composables/searchRanking'
 import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { confirmDelete } from '../composables/projectDeleteConfirmation'
+import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
 import { OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
@@ -129,12 +130,11 @@ async function save() {
 async function del(f) {
   try {
     const refs = await api.get(`/api/field-definitions/${f.id}/references`)
-    if (countDistinctForms(refs) > 1) {
-      const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' })
-      await ElMessageBox.confirm(`删除字段 "${f.label}" 将同时删除以下表单中的该字段：\n${msg}\n确认删除？`, '确认', { type: 'warning' })
-    } else {
-      await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
+    if (refs.length) {
+      const msg = formatFieldImpactMessage(refs, { max: 5, sep: '\n' })
+      return await showReferenceBlockedAlert(ElMessageBox, `该字段被以下表单引用，需先从相关表单中移除该字段：\n${msg}`)
     }
+    await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
     await api.del(`/api/field-definitions/${f.id}`)
     if (selectedFieldId.value === f.id) clearSelection()
     reloadFields()
@@ -146,18 +146,22 @@ async function batchDelFields() {
   try {
     const ids = selFields.value.map(f => f.id)
     if (!ids.length) return ElMessage.warning('请先选择要删除的字段')
+    const items = [...selFields.value]
     const refsMap = await api.post(`/api/projects/${props.projectId}/field-definitions/batch-references`, { ids })
-    const allRefs = []
-    for (const f of selFields.value) {
-      const refs = refsMap[f.id] || []
-      if (countDistinctForms(refs) > 1) allRefs.push(`【${f.label}】：` + formatFieldImpactMessage(refs, { max: 3, sep: '、' }))
-    }
-    const msg = allRefs.length
-      ? `以下字段将同时从相关表单中删除：\n${allRefs.join('\n')}\n确认删除？`
-      : `确认删除选中的 ${selFields.value.length} 个字段？`
-    await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' })
-    await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids })
-    selFields.value = []; clearSelection(); reloadFields()
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '字段',
+      nameOf: (f) => f.label,
+      describeRefs: (refs) => formatFieldImpactMessage(refs, { max: 3, sep: '、' }),
+    })
+    if (!toDelete.length) return
+    const deleteIds = toDelete.map((x) => x.id)
+    await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids: deleteIds })
+    selFields.value = []
+    if (deleteIds.includes(selectedFieldId.value)) clearSelection()
+    reloadFields()
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字段', toDelete.length, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

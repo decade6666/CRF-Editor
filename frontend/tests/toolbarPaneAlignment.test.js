@@ -93,7 +93,8 @@ test('UnitsTab card editor replaces add/edit dialogs without conflating row and 
   assert.match(saveBody, /await api\.put\(`\/api\/units\/\$\{unitId\}`,\s*\{\s*symbol: unitEditProp\.symbol,\s*code: unitEditProp\.code,?\s*\}\)/)
   assert.doesNotMatch(selectBody, /selUnits/)
   assert.match(unitsSource, /if \(selectedUnitId\.value === u\.id\) clearUnitSelection\(\)/)
-  assert.match(unitsSource, /if \(ids\.includes\(selectedUnitId\.value\)\) clearUnitSelection\(\)/)
+  // 批量删除按引用分组后：只有被真正删除的 id 才清空属性卡选择（部分删除时保留幸存单位的选择）
+  assert.match(unitsSource, /if \(deleteIds\.includes\(selectedUnitId\.value\)\) clearUnitSelection\(\)/)
 })
 
 test('VisitsTab list workspace keeps the root gap-free while its nested panes align the table and card', () => {

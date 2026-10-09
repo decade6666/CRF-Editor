@@ -28,6 +28,11 @@ import {
 } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
+import {
+  buildPartialDeleteMessage,
+  confirmReferenceAwareBatchDelete,
+  showReferenceBlockedAlert,
+} from '../composables/referenceDeleteGuard';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
 import { isValidOptionalOid, isValidRequiredOid, OID_ERROR } from '../composables/oidValidation';
@@ -471,14 +476,11 @@ async function delForm(f) {
       const msg = truncRefs(
         refs.map((r) => r.visit_name),
         5,
-        '、',
+        '\n',
       );
-      await ElMessageBox.confirm(`删除表单 "${f.name}" 将同时从以下访视中移除：\n${msg}\n确认删除？`, '确认', {
-        type: 'warning',
-      });
-    } else {
-      await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' });
+      return await showReferenceBlockedAlert(ElMessageBox, `该表单被以下访视引用，需先从相关访视中移除该表单：\n${msg}`);
     }
+    await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' });
     await api.del(`/api/forms/${f.id}`);
     if (selectedForm.value?.id === f.id) {
       invalidateFormSelectionSession();
@@ -495,30 +497,28 @@ const selForms = ref([]);
 async function batchDelForms() {
   try {
     const ids = selForms.value.map((f) => f.id);
+    const items = [...selForms.value];
     const refsMap = await api.post(`/api/projects/${props.projectId}/forms/batch-references`, { ids });
-    const allRefs = [];
-    for (const f of selForms.value) {
-      const refs = refsMap[f.id] || [];
-      if (refs.length)
-        allRefs.push(
-          `【${f.name}】：` +
-            truncRefs(
-              refs.map((r) => r.visit_name),
-              3,
-              '、',
-            ),
-        );
-    }
-    const msg = allRefs.length
-      ? `以下表单将同时从相关访视中移除：\n${allRefs.join('\n')}\n确认删除？`
-      : `确认删除选中的 ${selForms.value.length} 个表单？`;
-    await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' });
-    await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids });
-    invalidateFormSelectionSession();
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '表单',
+      nameOf: (f) => f.name,
+      describeRefs: (refs) => truncRefs(refs.map((r) => r.visit_name), 3, '、'),
+    });
+    if (!toDelete.length) return;
+    const deleteIds = toDelete.map((x) => x.id);
+    await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids: deleteIds });
     selForms.value = [];
-    selectedForm.value = null;
-    formFields.value = [];
+    if (deleteIds.includes(selectedForm.value?.id)) {
+      invalidateFormSelectionSession();
+      selectedForm.value = null;
+      formFields.value = [];
+    }
     reloadForms();
+    if (toDelete.length < items.length) {
+      ElMessage.success(buildPartialDeleteMessage('表单', toDelete.length, items.length - toDelete.length));
+    }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
   }
