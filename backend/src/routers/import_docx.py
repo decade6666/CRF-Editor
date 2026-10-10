@@ -1,11 +1,13 @@
 """Import Docx Router - Word文档导入预览与执行"""
 
 import logging
+import pathlib
 
 from typing import Annotated, Any, Dict, List, Optional
 
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from fastapi.responses import FileResponse
 
@@ -24,6 +26,8 @@ from src.models.project import Project
 from src.models.user import User
 
 from src.services.docx_import_service import TEMP_ID_PATTERN, DocxImportService
+
+from src.services.upload_streaming import stream_upload_to_file
 
 from src.services.field_type_policy import (
     MULTISELECT_REJECT_MSG,
@@ -277,11 +281,20 @@ async def preview_docx_import(
         raise HTTPException(400, "请上传 .docx 格式的Word文件")
 
     try:
-        content = await file.read()
-
-        temp_id, file_path = DocxImportService.save_temp_file(
-            content, file.filename, user_id=current_user.id, project_id=project_id
+        # 流式分块落盘：边读边限长（超限立即拒绝并清理半成品），不整读进内存。
+        # 归属名与 .db 侧同源（build_owned_filename）， TEMP_DIR 读类属性
+        # （调用时取值，测试重定向才生效）。
+        temp_id, name = DocxImportService.build_owned_filename(
+            file.filename, user_id=current_user.id, project_id=project_id
         )
+        dest = pathlib.Path(DocxImportService.TEMP_DIR) / name
+        await stream_upload_to_file(
+            file,
+            dest,
+            max_bytes=DocxImportService.MAX_FILE_SIZE,
+            over_limit_message=f"文件大小超过限制（最大 {DocxImportService.MAX_FILE_SIZE // 1024 // 1024}MB）",
+        )
+        file_path = str(dest)
 
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -291,42 +304,53 @@ async def preview_docx_import(
 
         raise HTTPException(500, "文件保存失败")
 
+    # 保存成功后的整体处理体兜底（复审 #7 取消窗口）：parse_full / screenshot-start
+    # 移入线程池后，CancelledError 不走 except Exception → discard_upload，已落盘
+    # DOCX 会变成 24h 孤儿。任何失败（含取消）先丢弃本次上传再原样上抛；内层
+    # 400 映射保持原样（重复 discard 幂等无害）；成功路径不触发，文件留给后续
+    # execute / 截图使用。
     try:
-        allow_multi = allows_multiselect(getattr(project, "db_type", None))
-        full_forms = DocxImportService.parse_full(file_path, allow_multiselect=allow_multi)
+        try:
+            allow_multi = allows_multiselect(getattr(project, "db_type", None))
+            full_forms = await run_in_threadpool(DocxImportService.parse_full, file_path, allow_multiselect=allow_multi)
 
-    except Exception:
+        except Exception:
+            DocxImportService.discard_upload(temp_id)
+
+            logger.exception("Word文档解析失败")
+
+            raise HTTPException(400, "Word文档解析失败，请检查文件格式是否正确")
+
+        if not full_forms:
+            DocxImportService.discard_upload(temp_id)
+
+            raise HTTPException(400, "未在文档中识别到任何表单")
+
+        preview_forms = _build_preview_forms(full_forms)
+        filtered_forms_data = _build_filtered_forms_data(full_forms)
+        ai_task_id = None
+        try:
+            ai_task = await start_ai_review(temp_id, full_forms, allow_multiselect=allow_multi)
+            ai_task_id = temp_id if ai_task else None
+        except Exception:
+            logger.warning("AI复核后台任务启动失败 temp_id=%s", temp_id, exc_info=True)
+
+        # 启动截图任务（异步，不阻塞响应）
+
+        await run_in_threadpool(
+            DocxScreenshotService.start, temp_id=temp_id, docx_path=file_path, forms_data=filtered_forms_data
+        )
+
+        response = DocxPreviewResponse(
+            forms=preview_forms,
+            temp_id=temp_id,
+            ai_error=None,
+            ai_task_id=ai_task_id,
+        )
+        return response
+    except BaseException:
         DocxImportService.discard_upload(temp_id)
-
-        logger.exception("Word文档解析失败")
-
-        raise HTTPException(400, "Word文档解析失败，请检查文件格式是否正确")
-
-    if not full_forms:
-        DocxImportService.discard_upload(temp_id)
-
-        raise HTTPException(400, "未在文档中识别到任何表单")
-
-    preview_forms = _build_preview_forms(full_forms)
-    filtered_forms_data = _build_filtered_forms_data(full_forms)
-    ai_task_id = None
-    try:
-        ai_task = await start_ai_review(temp_id, full_forms, allow_multiselect=allow_multi)
-        ai_task_id = temp_id if ai_task else None
-    except Exception:
-        logger.warning("AI复核后台任务启动失败 temp_id=%s", temp_id, exc_info=True)
-
-    # 启动截图任务（异步，不阻塞响应）
-
-    DocxScreenshotService.start(temp_id=temp_id, docx_path=file_path, forms_data=filtered_forms_data)
-
-    response = DocxPreviewResponse(
-        forms=preview_forms,
-        temp_id=temp_id,
-        ai_error=None,
-        ai_task_id=ai_task_id,
-    )
-    return response
+        raise
 
 
 @router.get(
@@ -493,7 +517,9 @@ async def start_docx_screenshot(
         if form_names:
             try:
                 allow_multi = allows_multiselect(getattr(project, "db_type", None))
-                full_forms = DocxImportService.parse_full(file_path, allow_multiselect=allow_multi)
+                full_forms = await run_in_threadpool(
+                    DocxImportService.parse_full, file_path, allow_multiselect=allow_multi
+                )
 
                 forms_data = []
 
@@ -510,7 +536,7 @@ async def start_docx_screenshot(
 
                 forms_data = [{"name": name, "fields": []} for name in form_names]
 
-    task = DocxScreenshotService.start(temp_id, file_path, forms_data)
+    task = await run_in_threadpool(DocxScreenshotService.start, temp_id, file_path, forms_data)
 
     return ScreenshotStartResponse(status=task.status)
 
@@ -617,7 +643,7 @@ async def cleanup_screenshots(days: int = 7, current_user: User = Depends(requir
     """
 
     cleaned_ai_tasks = cleanup_old_ai_tasks()
-    result = DocxScreenshotService.cleanup_old_caches(days)
+    result = await run_in_threadpool(DocxScreenshotService.cleanup_old_caches, days)
     if cleaned_ai_tasks:
         logger.info("手动清理时额外移除 AI 复核任务 count=%d", cleaned_ai_tasks)
 

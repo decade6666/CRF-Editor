@@ -38,6 +38,7 @@ import {
 } from './composables/docxAiSuggestionOverrides';
 import { getDownloadFilename } from './composables/exportDownloadState';
 import { createLazyTabState } from './composables/useLazyTabs';
+import { collectColumnWidthOverrides } from './composables/useColumnResize';
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
@@ -286,48 +287,7 @@ async function copyProject(p) {
 
 const exportWordLoading = ref(false);
 
-/**
- * 收集项目中所有表单的列宽覆盖配置。
- * 遍历 localStorage 中的 crf:designer:col-widths:* 键，提取 table_instance_id 及其列宽配置。
- * @param {Array} forms - 表单列表，每个表单需要有 id 属性
- * @returns {Object} 列宽覆盖配置，格式：{ "table_instance_id": [...], ... }
- *   table_instance_id 格式：kind:fieldIds=<ordered-field-ids> 或 legacy: groupIndex-kind-colCount
- */
-function collectColumnWidthOverrides(forms) {
-  const overrides = {};
-  if (!forms || !forms.length) return overrides;
-
-  const formIds = new Set(forms.map((f) => f.id).filter((id) => id != null));
-
-  // 遍历 localStorage 中所有相关键
-  const keyPrefix = 'crf:designer:col-widths:';
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith(keyPrefix)) continue;
-
-    // 解析键格式：crf:designer:col-widths:<form_id>:<table_instance_id>
-    const parts = key.slice(keyPrefix.length).split(':');
-    if (parts.length < 2) continue;
-
-    const formId = parseInt(parts[0], 10);
-    if (!formIds.has(formId)) continue;
-
-    const tableInstanceId = parts.slice(1).join(':');
-
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length > 0 && arr.every((r) => Number.isFinite(r) && r >= 0 && r <= 1)) {
-        overrides[tableInstanceId] = arr;
-      }
-    } catch {
-      // 忽略解析错误
-    }
-  }
-
-  return overrides;
-}
+// collectColumnWidthOverrides 已集中到 useColumnResize.js（R4），App 仅保留导出时的调用。
 
 async function exportWord(annotated = false) {
   if (!selectedProject.value || exportWordLoading.value) return;

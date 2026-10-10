@@ -143,12 +143,16 @@ import {
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
-  toHtml,
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
-import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
+import { resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape'
+import {
+  computeMergeSpans,
+  computeLabelValueSpans,
+  createPreviewCellRenderers,
+} from '../composables/previewCellRender'
 import { api } from '../composables/useApi'
 
 const props = defineProps({
@@ -177,6 +181,27 @@ const filteredFields = computed(() =>
 // Task 3.3: 使用 FormDesignerTab 渲染分组逻辑
 const previewRenderGroups = computed(() => buildFormDesignerRenderGroups(filteredFields.value))
 
+// 共享预览渲染函数（previewCellRender.js）：cell / inline 默认值谓词按本组件历史行为
+// 逐字注入（硬编码 inlineMark false / true + 扁平类型回退），保持模板导入预览输出等价。
+const { renderCellHtml, getInlineRows, getInlineColumnCms, getInlineFillChars } = createPreviewCellRenderers({
+  toRendererField: (ff) => ff,
+  getCellValue: (ff) => {
+    const defaultValue = ff.default_value
+    return defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)
+      ? normalizeDefaultValue(defaultValue, false)
+      : ''
+  },
+  getInlineValue: (ff) => {
+    const defaultValue = ff.default_value
+    return defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)
+      ? defaultValue
+      : ''
+  },
+  renderFallback: renderCtrlHtml,
+  resolveHostGroups: () => previewRenderGroups.value,
+  getPaperOrientation: () => paperOrientation.value,
+})
+
 // 预览视图模型：把模板内按单元格反复调用的纯函数提前算好（segments / inlineRows /
 // mergeSpans / labelValueSpans），消除 inline 表 colspan 的 O(M²) 重建；输出逐元素等价。
 const previewModelHelpers = {
@@ -198,54 +223,6 @@ const previewLandscapeMode = computed(() => {
   if (paperOrientation.value === 'portrait') return false
   return previewNeedsLandscape.value
 })
-
-// Task 3.3: 辅助函数 - 计算 colspan
-function computeMergeSpans(N, M) {
-  if (M <= 0 || M > N) return Array(N).fill(1)
-  const base = Math.floor(N / M), extra = N % M
-  return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0))
-}
-
-function computeLabelValueSpans(N) {
-  const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)))
-  return { labelSpan, valueSpan: N - labelSpan }
-}
-
-// Task 3.3: 内联块多行渲染
-function getInlineRows(fields, fillCharsByCol = null) {
-  const cols = fields.map((ff, i) => {
-    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
-    const defaultValue = ff.default_value
-    if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type || ff.field_type, true)) {
-      const lines = normalizeDefaultValue(defaultValue).split('\n')
-      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
-      return {
-        lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
-        repeat: false,
-        fallback: renderCtrlHtml(ff, fillChars),
-      }
-    }
-    const ctrl = renderCtrlHtml(ff, fillChars)
-    return { lines: [ctrl], repeat: true, fallback: ctrl }
-  })
-  const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
-  return Array.from({ length: maxRows }, (_, i) => cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback)))
-}
-
-// inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
-function getInlineColumnCms(fields) {
-  const fractions = planInlineColumnFractions(fields)
-  const availableCm = resolveInlineTableAvailableCm(
-    previewRenderGroups.value,
-    { type: 'inline', fields },
-    paperOrientation.value,
-  )
-  return fractions.map(f => f * availableCm)
-}
-
-function getInlineFillChars(fields) {
-  return getInlineColumnCms(fields).map(columnCm => computeFillLineCharCount(columnCm))
-}
 
 // 计算预览表格的列宽比例：优先设计器保存值，否则回退内容驱动 planner 结果
 function getColumnFractions(g, groupIndex) {
@@ -286,16 +263,6 @@ function getColumnFractions(g, groupIndex) {
   return plannerFractions.length === colCount
     ? plannerFractions
     : Array.from({ length: colCount }, () => 1 / colCount)
-}
-
-// Task 3.3: 单元格渲染
-function renderCellHtml(ff, fillLineChars = null) {
-  if (!ff.field_definition) return '<span class="fill-line"></span>'
-  const defaultValue = ff.default_value
-  if (defaultValue && isDefaultValueSupported(ff.field_definition?.field_type, false)) {
-    return toHtml(normalizeDefaultValue(defaultValue, false))
-  }
-  return renderCtrlHtml(ff, fillLineChars)
 }
 
 // normal 表 control 列宽（cm）：使用模板表单真实纸张方向（form-fields 接口返回

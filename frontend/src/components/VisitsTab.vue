@@ -36,16 +36,20 @@ import {
   getUnifiedInlineDataRowKey,
 } from '../composables/useRowResize'
 import {
-  isDefaultValueSupported,
-  normalizeDefaultValue,
   planInlineColumnFractions,
   planNormalColumnFractions,
   planUnifiedColumnFractions,
-  renderCtrlHtml,
   renderCtrlTextHtml,
   computeFillLineCharCount,
 } from '../composables/useCRFRenderer'
-import { shouldUseLandscapePreview, resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape'
+import { shouldUseLandscapePreview, resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape'
+import { readColumnWidthRatios } from '../composables/useColumnResize'
+import {
+  computeMergeSpans,
+  computeLabelValueSpans,
+  getScopedDefaultValue,
+  createPreviewCellRenderers,
+} from '../composables/previewCellRender'
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel'
 
 // workspace：'list'（访视页默认）| 'flow'（访视流程标签页）；由 App.vue 顶级标签指定，实例内不切换
@@ -415,90 +419,29 @@ function escapePreviewText(text) {
     .replace(/\n/g, '<br>')
 }
 
-function getScopedDefaultValue(ff, singleLine = false) {
-  const fieldType = ff?.field_definition?.field_type
-  const inlineMark = Boolean(ff?.inline_mark)
-  if (!fieldType || !ff?.default_value) return ''
-  if (!isDefaultValueSupported(fieldType, inlineMark)) return ''
-  return normalizeDefaultValue(ff.default_value, singleLine)
-}
+// 共享预览渲染函数（previewCellRender.js）：cell / inline 默认值策略经适配器注入。
+// cell 策略由历史实现的 singleLine=true 改为 false（R2 修复：普通表单元格多行默认值
+// 经 toHtml 渲染全部行，与设计器 / 模板预览 / Word 导出一致），
+// 由 tests/previewCellRender.test.js 的黄金参考矩阵与 R2 锁锁定。
+const { renderCellHtml, getInlineRows, getInlineColumnCms, getInlineFillChars } = createPreviewCellRenderers({
+  toRendererField: (ff) => toRendererField(ff.field_definition),
+  getCellValue: (ff) => getScopedDefaultValue(ff, false),
+  getInlineValue: (ff) => getScopedDefaultValue(ff),
+  renderFallback: renderCtrlTextHtml,
+  resolveHostGroups: () => previewRenderGroups.value,
+  getPaperOrientation: () => formPreviewPaperOrientation.value,
+})
 
-// 复用 useCRFRenderer 的安全渲染逻辑，避免 VisitsTab 再实现一套 HTML 拼接
-function renderCellHtml(ff, fillLineChars = null) {
-  if (!ff.field_definition) return '<span class="fill-line"></span>'
-  const fd = ff.field_definition
-  const field = toRendererField(fd)
-  const defaultValue = getScopedDefaultValue(ff, true)
-  if (defaultValue) {
-    return escapePreviewText(defaultValue)
-  }
-  return renderCtrlHtml(field, fillLineChars)
-}
-
-function getInlineRows(fields, fillCharsByCol = null) {
-  const cols = fields.map((ff, i) => {
-    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null
-    const defaultValue = getScopedDefaultValue(ff)
-    if (defaultValue) {
-      const lines = normalizeDefaultValue(defaultValue).split('\n')
-      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
-      return {
-        lines: lines.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
-        repeat: false,
-        fallback: renderCtrlTextHtml(toRendererField(ff.field_definition), fillChars),
-      }
-    }
-    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom）；
-    // 非选项类等价于 renderCtrlTextHtml（自动生成填写线带视觉宽度上限）。与 TemplatePreviewDialog 保持一致。
-    const ctrl = renderCtrlHtml(toRendererField(ff.field_definition), fillChars)
-    return { lines: [ctrl], repeat: true, fallback: ctrl }
-  })
-  const maxRows = Math.max(1, ...cols.filter(c => !c.repeat).map(c => c.lines.length))
-  return Array.from({ length: maxRows }, (_, i) =>
-    cols.map(col => col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))
-  )
-}
-
-// inline 整格文本填写线：每列按规划宽度自适应根数，与后端 _add_inline_table 共享公式。
-function getInlineColumnCms(fields) {
-  const fractions = planInlineColumnFractions(fields)
-  const availableCm = resolveInlineTableAvailableCm(
-    previewRenderGroups.value,
-    { type: 'inline', fields },
-    formPreviewPaperOrientation.value,
-  )
-  return fractions.map(f => f * availableCm)
-}
-
-function getInlineFillChars(fields) {
-  return getInlineColumnCms(fields).map(columnCm => computeFillLineCharCount(columnCm))
-}
-
-function readPersistedColRatios(kind, fields) {
-  const formId = formPreviewFormId.value
-  if (!formId || !fields.length) return null
-  const fieldIds = fields.map(f => f.id).filter(id => id != null).join(',')
-  if (!fieldIds) return null
-  const key = `crf:designer:col-widths:${formId}:${kind}:fieldIds=${fieldIds}`
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return null
-    if (!parsed.every(r => Number.isFinite(r) && r > 0 && r < 1)) return null
-    const sum = parsed.reduce((a, b) => a + b, 0)
-    if (Math.abs(sum - 1) > 0.02) return null
-    return parsed
-  } catch {
-    return null
-  }
-}
+// 列宽持久化读取已集中到 useColumnResize.js（R4）：统一模块门（和容差 1e-3、
+// 边界 [0.02,0.98]、长度校验）——与设计器读取端完全一致；历史宽松容差数组不再被
+// 访视预览应用，回退到规划器默认（键不删除、不规范化）。
+// 长度校验按历史形状保留在调用方（与模块内校验互为冗余）。
 
 // inline 表：优先读设计器持久化的列宽；缺失则用 planInlineColumnFractions 出与导出一致的内容驱动默认；
 // planner 异常时回退到等宽。返回值始终是一个长度等于 fields.length 的数组，模板可以直接迭代。
 function resolveInlineColRatios(fields) {
   if (!fields || !fields.length) return []
-  const persisted = readPersistedColRatios('inline', fields)
+  const persisted = readColumnWidthRatios(formPreviewFormId.value, buildTableInstanceId('inline', fields), fields.length)
   if (persisted && persisted.length === fields.length) return persisted
   const planned = planInlineColumnFractions(fields)
   if (planned.length === fields.length) return planned
@@ -508,7 +451,7 @@ function resolveInlineColRatios(fields) {
 // normal 表：固定两列（label / control），同样优先持久化、缺失走 planNormalColumnFractions、兜底 50/50。
 function resolveNormalColRatios(fields) {
   if (!fields || !fields.length) return [0.5, 0.5]
-  const persisted = readPersistedColRatios('normal', fields)
+  const persisted = readColumnWidthRatios(formPreviewFormId.value, buildTableInstanceId('normal', fields), 2)
   if (persisted && persisted.length === 2) return persisted
   const planned = planNormalColumnFractions(fields)
   if (planned.length === 2) return planned
@@ -641,22 +584,10 @@ async function flushAnnotationPositionSave(options = {}) {
   return annotationDrag.flushPending(options)
 }
 
-function computeMergeSpans(N, M) {
-  if (M <= 0 || M > N) return Array(N).fill(1)
-  const base = Math.floor(N / M)
-  const extra = N % M
-  return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0))
-}
-
-function computeLabelValueSpans(N) {
-  const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)))
-  return { labelSpan, valueSpan: N - labelSpan }
-}
-
 function getPreviewColumnFractions(group) {
   if (group.type === 'unified') {
     const colCount = group.colCount
-    const shared = readPersistedColRatios('unified', group.fields)
+    const shared = readColumnWidthRatios(formPreviewFormId.value, buildTableInstanceId('unified', group.fields), colCount)
     if (shared && shared.length === colCount) return shared
     const plannerFractions = planUnifiedColumnFractions(group.segments, colCount)
     return plannerFractions.length === colCount

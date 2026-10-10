@@ -33,7 +33,9 @@ test('FieldsTab imports shared OID helpers and guards field save', () => {
 
 test('FieldsTab no longer charset-guards inline codelist option codes', () => {
   assert.doesNotMatch(fieldsSource, /isValidOptionalOid/)
-  assert.match(fieldsSource, /function quickAddOptRow\(\) \{[\s\S]*?ElMessage\.warning\(['"]请输入标签['"]\)/)
+  // 选项行「请输入标签」守卫随快捷字典弹窗迁入 CodelistQuickEditDialog（R3）
+  const quickEditDialogSource = readFileSync(resolve(root, 'src/components/CodelistQuickEditDialog.vue'), 'utf8')
+  assert.match(quickEditDialogSource, /function addOptRow\(\) \{[\s\S]*?ElMessage\.warning\(['"]请输入标签['"]\)/)
 })
 
 test('CodelistsTab imports shared OID helpers and guards codelist saves', () => {

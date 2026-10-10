@@ -327,11 +327,14 @@ test('FormDesignerTab guards OID charset on form/field submit paths (option code
   assert.match(saveProp, /!isValidRequiredOid\(snapshot\.variable_name\)/)
   assert.match(saveProp, /ElMessage\.warning\(OID_ERROR\)/)
 
-  const quickAdd = functionBody('quickAddCodelist')
-  assert.doesNotMatch(quickAdd, /isValidOptionalOid\(opt\.code\)/)
-
-  const quickSave = functionBody('quickSaveCodelist')
-  assert.doesNotMatch(quickSave, /isValidOptionalOid\(opt\.code\)/)
+  // 选项 code 自由文本（无 OID 校验）已随快捷字典弹窗迁入 CodelistQuickEditDialog（R3）；
+  // 行为断言见 tests/component/CodelistQuickEditDialog.spec.js（自由编码用例），
+  // 此处保留轻量守卫：共享弹窗不引入任何 OID 校验器。
+  const quickEditDialogSource = readFileSync(
+    path.resolve(currentDir, '../src/components/CodelistQuickEditDialog.vue'),
+    'utf8',
+  )
+  assert.doesNotMatch(quickEditDialogSource, /isValidOptionalOid|isValidRequiredOid/)
 })
 
 test('log row property panel renders readonly hint and skips the fixed action bar', () => {

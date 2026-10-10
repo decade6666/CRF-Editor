@@ -117,10 +117,7 @@ def _create_owned_project(engine) -> int:
         (
             "import-docx/preview",
             lambda monkeypatch: (
-                monkeypatch.setattr(
-                    "src.routers.import_docx.DocxImportService.save_temp_file",
-                    lambda content, filename, **_kw: ("temp-1", Path("/tmp/fake.docx")),
-                ),
+                monkeypatch.setattr("src.routers.import_docx.stream_upload_to_file", _fake_stream_upload),
                 monkeypatch.setattr(
                     "src.routers.import_docx.DocxImportService.parse_full",
                     lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
@@ -201,6 +198,10 @@ def test_docx_import_rate_limits_return_429_in_production(
     assert blocked.status_code == 429, blocked.text
     assert blocked.json()["detail"] == "操作过于频繁，请稍后重试"
     assert int(blocked.headers["retry-after"]) >= 1
+
+
+async def _fake_stream_upload(_reader, _dest, **_kwargs):
+    return 0
 
 
 async def _fake_start_ai_review(_temp_id, _forms, **_kwargs):

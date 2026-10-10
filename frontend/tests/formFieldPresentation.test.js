@@ -16,6 +16,8 @@ import {
   isFormFieldLabelBold,
   getFormFieldLabelFontSizeStyle,
 } from '../src/composables/formFieldPresentation.js';
+import { renderCtrlHtml, renderCtrlTextHtml } from '../src/composables/useCRFRenderer.js';
+import { createPreviewCellRenderers } from '../src/composables/previewCellRender.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const useCRFRendererSource = readFileSync(path.resolve(currentDir, '../src/composables/useCRFRenderer.js'), 'utf8');
@@ -344,17 +346,46 @@ test('choice marker stays on first line and labels never overflow the cell borde
   )
   // 选项尾部填写线已随「后加下划线」属性移除，choice-atom 内不再渲染 .fill-line
   assert.doesNotMatch(mainCssSource, /\.word-page \.choice-atom \.fill-line/);
-  // 回归②：横向分隔符为可断空格（非 &nbsp;），配合 choice-group 的 word-spacing 留白
-  assert.match(useCRFRendererSource, /const separator = vertical \? '' : ' '/);
-  assert.doesNotMatch(useCRFRendererSource, /const separator = vertical \? '<br>' : '&nbsp;&nbsp;'/);
-  assert.match(mainCssSource, /\.word-page \.choice-group \{[^}]*word-spacing: 0\.5em;[^}]*\}/s);
+  // 回归②：横向分隔符须保留 Word 的两个可断 ASCII 空格；pre-wrap 防止浏览器折叠第二格，
+  // 同时不额外叠加 word-spacing。
+  const choiceHtml = renderCtrlHtml({
+    field_type: '单选',
+    options: [{ decode: '男' }, { decode: '女' }],
+  });
+  assert.match(choiceHtml, /<\/span>  <span class="choice-atom">/);
+  assert.doesNotMatch(choiceHtml, /<\/span> <span class="choice-atom">/);
+  assert.match(useCRFRendererSource, /const separator = vertical \? '' : '  '/);
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-group \{[^}]*white-space: pre-wrap;[^}]*word-spacing: normal;[^}]*\}/s,
+  );
+  const inlineChoiceHtml = renderCtrlTextHtml({
+    field_type: '单选',
+    options: [{ decode: '男' }, { decode: '女' }],
+  });
+  assert.equal(inlineChoiceHtml, '<span class="choice-text">○男  ○女</span>');
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-text \{[^}]*white-space: pre-wrap;[^}]*word-spacing: normal;[^}]*\}/s,
+  );
 });
 
 test('vertical choice options render as spaced block atoms mirroring Word paragraph gap', () => {
   // 纵向：分组带 choice-group--vertical 修饰类，每个选项块级独占一行
   assert.match(useCRFRendererSource, /vertical \? 'choice-group choice-group--vertical' : 'choice-group'/);
+  assert.equal(
+    renderCtrlTextHtml({
+      field_type: '单选（纵向）',
+      options: [{ decode: '男' }, { decode: '女' }],
+    }),
+    '○男<br>○女',
+  );
   // 块级布局：纵向组 display:block，choice-atom 改为块级 flex
   assert.match(mainCssSource, /\.word-page \.choice-group--vertical \{[^}]*display: block;[^}]*\}/s);
+  assert.match(
+    mainCssSource,
+    /\.word-page \.choice-group--vertical \{[^}]*white-space: normal;[^}]*\}/s,
+  );
   assert.match(mainCssSource, /\.word-page \.choice-group--vertical \.choice-atom \{[^}]*display: flex;[^}]*\}/s);
   // 选项之间用 margin-top: 3pt 留白，与 Word 导出 VERTICAL_OPTION_GAP_PT=3 同值
   assert.match(
@@ -451,7 +482,23 @@ test('template preview page uses designer A4 geometry for wide inline groups', (
 });
 
 test('template preview keeps multiline inline default values as multiple rows', () => {
-  assert.match(templatePreviewSource, /normalizeDefaultValue\(defaultValue\)\.split\('\\n'\)/);
+  // TP 内联渲染迁入 previewCellRender.js（shared-rule-convergence R1）：源码断言改为行为断言
+  // （TP 绑定的 getInlineRows 对多行默认值返回多行、不得截断）；完整的 cell/inline 谓词
+  // 黄金等价矩阵见 tests/previewCellRender.test.js。
+  assert.match(templatePreviewSource, /createPreviewCellRenderers\(/);
+  const { getInlineRows } = createPreviewCellRenderers({
+    toRendererField: (ff) => ff,
+    getCellValue: () => '',
+    getInlineValue: (ff) => ff.default_value || '',
+    renderFallback: renderCtrlHtml,
+    resolveHostGroups: () => [],
+    getPaperOrientation: () => 'auto',
+  });
+  const rows = getInlineRows(
+    [{ field_definition: { field_type: '文本', label: 'X' }, default_value: '第一行\n第二行' }],
+    null,
+  );
+  assert.deepEqual(rows, [['第一行'], ['第二行']]);
   assert.doesNotMatch(templatePreviewSource, /normalizeDefaultValue\(defaultValue, true\)\.split\('\\n'\)/);
 });
 
@@ -537,6 +584,24 @@ test('form designer surfaces header notes summary and paper orientation controls
 });
 
 test('template preview escapes default values before sending them to v-html', () => {
-  assert.match(templatePreviewSource, /toHtml/);
-  assert.match(templatePreviewSource, /return toHtml\(normalizeDefaultValue\(defaultValue, false\)\)/);
+  // TP 单元格渲染迁入 previewCellRender.js（shared-rule-convergence R1）：默认值经共享
+  // renderCellHtml 的 toHtml 分支（转义 + \n→<br> + 填写线）后才进入 v-html，行为断言直接
+  // 验证 HTML 特殊字符不落地；接线守卫确认 TP 仍经由共享模块渲染单元格。
+  assert.match(templatePreviewSource, /createPreviewCellRenderers\(/);
+  const { renderCellHtml } = createPreviewCellRenderers({
+    toRendererField: (ff) => ff,
+    getCellValue: (ff) => ff.default_value || '',
+    getInlineValue: () => '',
+    renderFallback: renderCtrlHtml,
+    resolveHostGroups: () => [],
+    getPaperOrientation: () => 'auto',
+  });
+  const html = renderCellHtml(
+    { field_definition: { field_type: '文本', label: 'X' }, default_value: '<b>粗体</b> & "引号"' },
+    null,
+  );
+  assert.ok(!html.includes('<b>粗体'));
+  assert.ok(html.includes('&lt;b&gt;粗体&lt;/b&gt;'));
+  assert.ok(html.includes(' &amp; '));
+  assert.ok(html.includes('&quot;引号'));
 });

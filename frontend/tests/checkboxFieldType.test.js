@@ -13,6 +13,7 @@ import {
   renderCtrl,
   renderCtrlHtml,
 } from '../src/composables/useCRFRenderer.js'
+import { createPreviewCellRenderers } from '../src/composables/previewCellRender.js'
 import { syncFieldTypeSpecificProps } from '../src/composables/formDesignerPropertyEditor.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
@@ -119,7 +120,27 @@ test('all preview paths retain renderer data required for checkbox text', () => 
     /function toRendererField\(fd\) \{[\s\S]*?label: fd\.label,[\s\S]*?checkbox_label: fd\.checkbox_label/,
   )
   assert.match(simulatedCrfFormSource, /return renderCtrlHtml\(field, fillLineChars\)/)
-  assert.match(templatePreviewSource, /return renderCtrlHtml\(ff, fillLineChars\)/)
+  // 模板预览单元格渲染迁入 previewCellRender.js（shared-rule-convergence R1）：
+  // 原源码断言（return renderCtrlHtml(ff, fillLineChars)）改为行为断言 —— TP 绑定
+  // （恒等适配器）把完整行转发给渲染器，复选文本必须原样出现在预览输出中；
+  // 接线守卫确认 TP 的 inline 回退仍直连共享渲染器。
+  assert.match(templatePreviewSource, /renderFallback: renderCtrlHtml,/)
+  const { renderCellHtml } = createPreviewCellRenderers({
+    toRendererField: (ff) => ff,
+    getCellValue: () => '',
+    getInlineValue: () => '',
+    renderFallback: renderCtrlHtml,
+    resolveHostGroups: () => [],
+    getPaperOrientation: () => 'auto',
+  })
+  const checkboxRow = {
+    field_definition: { field_type: '复选', label: '确认', checkbox_label: '已确认' },
+    field_type: '复选',
+    checkbox_label: '已确认',
+    default_value: null,
+  }
+  assert.ok(renderCellHtml(checkboxRow, 12).includes('□已确认'))
+  assert.equal(renderCellHtml(checkboxRow, 12), renderCtrlHtml(checkboxRow, 12))
 })
 
 test('planner fixture generator defines a checkbox case', () => {

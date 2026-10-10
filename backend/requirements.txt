@@ -1,10 +1,13 @@
 # CRF Metadata Management System Dependencies
 # Use ~= for compatible version constraints (allows patch upgrades, blocks minor/major breaking changes)
-# Run pip-compile to generate requirements.lock for precise version pinning before deployment
+# Regenerate requirements.lock with: uv pip compile requirements.txt -o requirements.lock --python <venv python>
+# (pip-tools 7.3.0 is currently broken with pip 26: PackageFinder.allow_all_prereleases AttributeError)
 
 # Web Framework
 fastapi~=0.110.0
 uvicorn[standard]~=0.27.0
+# await_drain.py 直接依赖（经 starlette 传递引入）；取消排水语义在 4.15.1 验证
+anyio~=4.4
 
 # Database
 SQLAlchemy~=2.0.0

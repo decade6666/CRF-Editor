@@ -5,6 +5,7 @@ from typing import List, Optional
 
 logger = logging.getLogger("src.projects")
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -17,6 +18,9 @@ from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
+from src.services.await_drain import await_with_drain
+from src.services.docx_import_service import DocxImportService
+from src.services.upload_streaming import stream_upload_to_file
 from src.services.project_clone_service import ProjectCloneService
 
 from src.services.project_import_service import (
@@ -28,6 +32,8 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
+# SQLite 魔数 15 字节（规范头 16 字节含结尾 NUL；原 content[:16].startswith 从未要求 NUL，保持兼容）。
+_MAGIC = b"SQLite format 3"
 _PROFILE_LOGO_ACTIONS = {"keep", "preset", "upload", "clear"}
 
 
@@ -74,27 +80,29 @@ _IMPORT_ERROR_CODES = {
 }
 
 
-def _save_bytes_to_temp(filename: str, content: bytes) -> Path:
-    """将上传内容保存到临时文件，返回路径。调用方负责删除。"""
-    import os
-    import tempfile
+async def _save_upload_to_temp_db(file: UploadFile, user_id: int) -> Path:
+    """把 .db 上传流式限长直写归属临时目录，返回路径。调用方负责删除。
 
-    if not content[:16].startswith(b"SQLite format 3"):
-        raise HTTPException(400, "文件不是有效的 SQLite 数据库")
-    if len(content) > _MAX_IMPORT_SIZE:
-        raise HTTPException(
-            400,
-            f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
-        )
-    suffix = Path(filename or "upload.db").suffix or ".db"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    落盘名经 build_owned_db_filename 铸造：不含用户可控成分，固定 p0 哨兵 +
+    upload 词干 + 强制 .db 后缀（过期清扫的后缀过滤可覆盖）。
+    上传期拒绝（魔数不符 / 超限）在此转换为 400 HTTPException——该 catch 位于
+    各导入端点的导入 try 之外，导入错误映射（ValueError → ImportError）不会
+    看到上传拒绝。
+    """
+    _, name = DocxImportService.build_owned_db_filename(user_id=user_id)
+    dest = Path(DocxImportService.TEMP_DIR) / name
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(content)
-    except Exception:
-        os.unlink(tmp_path)
-        raise
-    return Path(tmp_path)
+        await stream_upload_to_file(
+            file,
+            dest,
+            max_bytes=_MAX_IMPORT_SIZE,
+            over_limit_message=f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
+            magic_prefix=_MAGIC,
+            magic_message="文件不是有效的 SQLite 数据库",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return dest
 
 
 @router.post("/import/project-db")
@@ -108,10 +116,13 @@ async def import_project_db(
     """导入单项目 .db 文件。"""
     import sqlite3
 
-    file_bytes = await file.read()
-    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
+    dest = await _save_upload_to_temp_db(file, current_user.id)
     try:
-        result = ProjectDbImportService.import_single_project(str(tmp_path), current_user.id, session)
+        # D4：同步重活移入线程池；会话承载调用额外经 await_with_drain —— 取消需等
+        # worker 完成，避免 get_session 的事务收尾与仍在运行的线程并发操作同一 Session。
+        result = await await_with_drain(
+            run_in_threadpool(ProjectDbImportService.import_single_project, str(dest), current_user.id, session)
+        )
         return {"project_id": result.project_id, "project_name": result.project_name}
     except ValueError as e:
         raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
@@ -120,7 +131,7 @@ async def import_project_db(
     except Exception as e:
         raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
-        tmp_path.unlink(missing_ok=True)
+        dest.unlink(missing_ok=True)
 
 
 @router.post("/import/database-merge")
@@ -134,10 +145,11 @@ async def import_database_merge(
     limit_import_action(request, current_user.id, "database-merge-import")
     import sqlite3
 
-    file_bytes = await file.read()
-    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
+    dest = await _save_upload_to_temp_db(file, current_user.id)
     try:
-        report = DatabaseMergeService.merge(str(tmp_path), current_user.id, session)
+        report = await await_with_drain(
+            run_in_threadpool(DatabaseMergeService.merge, str(dest), current_user.id, session)
+        )
         return {
             "imported": [{"id": r.project_id, "name": r.project_name} for r in report.imported],
             "renamed": report.renamed,
@@ -149,7 +161,7 @@ async def import_database_merge(
     except Exception as e:
         raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
-        tmp_path.unlink(missing_ok=True)
+        dest.unlink(missing_ok=True)
 
 
 @router.post("/import/auto")
@@ -163,10 +175,11 @@ async def import_auto(
     limit_import_action(request, current_user.id, "auto-import")
     import sqlite3
 
-    file_bytes = await file.read()
-    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
+    dest = await _save_upload_to_temp_db(file, current_user.id)
     try:
-        report = DatabaseMergeService.merge(str(tmp_path), current_user.id, session)
+        report = await await_with_drain(
+            run_in_threadpool(DatabaseMergeService.merge, str(dest), current_user.id, session)
+        )
         imported = [{"id": r.project_id, "name": r.project_name} for r in report.imported]
         return {
             "imported": imported,
@@ -180,7 +193,7 @@ async def import_auto(
     except Exception as e:
         raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
-        tmp_path.unlink(missing_ok=True)
+        dest.unlink(missing_ok=True)
 
 
 @router.get("", response_model=List[ProjectResponse])

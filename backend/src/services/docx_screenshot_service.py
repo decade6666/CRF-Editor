@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.config import DocxScreenshotBackend, get_config
+from src.services import temp_paths
 from src.services.toc_pagination import find_libreoffice
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,9 @@ def _no_backend_message(is_windows: bool) -> str:
 class DocxScreenshotService:
     """Word 文档截图服务"""
 
-    # 使用绝对路径，避免工作目录不同导致文件找不到
-    BASE_DIR = str(Path(__file__).resolve().parent.parent.parent / "uploads" / "docx_temp")
+    # 与 DocxImportService.TEMP_DIR 同源（temp_paths 单一常量）：
+    # 绝对路径，避免工作目录不同导致文件找不到
+    BASE_DIR = temp_paths.DOCX_TEMP_DIR
 
     # ── 任务管理 ──
 

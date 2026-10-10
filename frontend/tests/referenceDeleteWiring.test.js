@@ -17,6 +17,7 @@ const codelistsSource = readFileSync(path.resolve(currentDir, '../src/components
 const unitsSource = readFileSync(path.resolve(currentDir, '../src/components/UnitsTab.vue'), 'utf8')
 const fieldsSource = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8')
 const designerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
+const codelistDialogSource = readFileSync(path.resolve(currentDir, '../src/components/CodelistQuickEditDialog.vue'), 'utf8')
 const mainCss = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8')
 
 function getFunctionBody(source, functionName) {
@@ -322,7 +323,8 @@ test('edit-impact reference calls keep the default response shape', () => {
     ['CodelistsTab.updateCl', getFunctionBody(codelistsSource, 'updateCl')],
     ['CodelistsTab.updateOpt', getFunctionBody(codelistsSource, 'updateOpt')],
     ['UnitsTab.saveUnit', getFunctionBody(unitsSource, 'saveUnit')],
-    ['FieldsTab.quickSaveCodelist', getFunctionBody(fieldsSource, 'quickSaveCodelist')],
+    // 字段库快捷编辑的引用查询已随实现迁入共享弹窗（shared-rule-convergence R3）
+    ['CodelistQuickEditDialog.confirmSave', getFunctionBody(codelistDialogSource, 'confirmSave')],
   ]) {
     assert.match(body, /\/references/, `${name} should query references for the impact reminder`)
     assert.doesNotMatch(body, /include_unplaced/, `${name} must keep the default reference response for edit impact`)
