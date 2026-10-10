@@ -47,23 +47,28 @@ function buildHandler(fnSource, functionName, sandbox) {
   return factory(...keys.map((key) => sandbox[key]))
 }
 
-function createSingleDeleteSandbox({ alertImpl }) {
-  const state = { errorToasts: [], delCalls: 0, confirmCalls: 0 }
+function createSingleDeleteSandbox({ alertImpl, refs, confirmImpl } = {}) {
+  const state = { errorToasts: [], delCalls: 0, delUrls: [], confirmCalls: 0, alertCalls: 0 }
   const sandbox = {
     api: {
-      get: async () => [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT' }],
-      del: async () => {
+      get: async () =>
+        refs === undefined ? [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT' }] : refs,
+      del: async (url) => {
         state.delCalls += 1
+        state.delUrls.push(url)
       },
       post: async () => {
         throw new Error('batch API should not be called from single delete')
       },
     },
     ElMessageBox: {
-      alert: () => alertImpl(),
+      alert: () => {
+        state.alertCalls += 1
+        return alertImpl()
+      },
       confirm: () => {
         state.confirmCalls += 1
-        return Promise.resolve('confirm')
+        return confirmImpl ? confirmImpl() : Promise.resolve('confirm')
       },
     },
     ElMessage: {
@@ -94,32 +99,54 @@ function createSingleDeleteSandbox({ alertImpl }) {
   return { sandbox, state }
 }
 
-function createBatchDeleteSandbox({ selectionName, items, deletedCount }) {
+function createBatchDeleteSandbox({
+  selectionName,
+  items,
+  deletedCount = 0,
+  blockedIds = [items[0].id],
+  selectedId = 2,
+  confirmImpl,
+  batchDeleteError,
+} = {}) {
   const selection = { value: items }
-  const selected = { value: { id: 2 } }
-  const selectedUnitId = { value: 2 }
-  const selectedFieldId = { value: 2 }
-  const selectedForm = { value: { id: 2 } }
+  const selected = { value: { id: selectedId } }
+  const selectedUnitId = { value: selectedId }
+  const selectedFieldId = { value: selectedId }
+  const selectedForm = { value: { id: selectedId } }
   const formFields = { value: [{ id: 21 }] }
-  const state = { postCalls: [], successToasts: [], errorToasts: [], confirmCalls: 0, clearCalls: 0, invalidations: 0 }
-  const refsMap = {
-    [items[0].id]: [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT', visit_name: '访视一' }],
+  const state = {
+    postCalls: [],
+    successToasts: [],
+    errorToasts: [],
+    confirmCalls: 0,
+    alertCalls: 0,
+    clearCalls: 0,
+    invalidations: 0,
+  }
+  const refsMap = {}
+  for (const id of blockedIds) {
+    refsMap[id] = [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT', visit_name: '访视一' }]
   }
   const sandbox = {
     api: {
       post: async (url, body) => {
         state.postCalls.push({ url, body })
         if (url.includes('/batch-references')) return refsMap
-        if (url.includes('/batch-delete')) return { deleted: deletedCount }
+        if (url.includes('/batch-delete')) {
+          if (batchDeleteError) throw batchDeleteError
+          return { deleted: deletedCount }
+        }
         throw new Error(`unexpected POST ${url}`)
       },
     },
     ElMessageBox: {
       confirm: async () => {
         state.confirmCalls += 1
-        return 'confirm'
+        return confirmImpl ? confirmImpl() : 'confirm'
       },
-      alert: async () => {},
+      alert: async () => {
+        state.alertCalls += 1
+      },
     },
     ElMessage: {
       success: (message) => state.successToasts.push(message),
@@ -158,10 +185,10 @@ function createBatchDeleteSandbox({ selectionName, items, deletedCount }) {
 }
 
 const singleDeleteCases = [
-  ['CodelistsTab', codelistsSource, 'delCl', { id: 11, name: '字典A' }],
-  ['UnitsTab', unitsSource, 'del', { id: 12, symbol: 'kg' }],
-  ['FieldsTab', fieldsSource, 'del', { id: 13, label: '体重' }],
-  ['FormDesignerTab', designerSource, 'delForm', { id: 14, name: '筛选表' }],
+  ['CodelistsTab', codelistsSource, 'delCl', { id: 11, name: '字典A' }, '/api/projects/1/codelists/11'],
+  ['UnitsTab', unitsSource, 'del', { id: 12, symbol: 'kg' }, '/api/units/12'],
+  ['FieldsTab', fieldsSource, 'del', { id: 13, label: '体重' }, '/api/field-definitions/13'],
+  ['FormDesignerTab', designerSource, 'delForm', { id: 14, name: '筛选表' }, '/api/forms/14'],
 ]
 
 const batchDeleteItems = [
@@ -291,9 +318,15 @@ test('batch deletes clear the current selection only when it was actually delete
 })
 
 test('edit-impact reference calls keep the default response shape', () => {
-  assert.doesNotMatch(getFunctionBody(codelistsSource, 'updateCl'), /include_unplaced/)
-  assert.doesNotMatch(getFunctionBody(codelistsSource, 'updateOpt'), /include_unplaced/)
-  assert.doesNotMatch(getFunctionBody(unitsSource, 'saveUnit'), /include_unplaced/)
+  for (const [name, body] of [
+    ['CodelistsTab.updateCl', getFunctionBody(codelistsSource, 'updateCl')],
+    ['CodelistsTab.updateOpt', getFunctionBody(codelistsSource, 'updateOpt')],
+    ['UnitsTab.saveUnit', getFunctionBody(unitsSource, 'saveUnit')],
+    ['FieldsTab.quickSaveCodelist', getFunctionBody(fieldsSource, 'quickSaveCodelist')],
+  ]) {
+    assert.match(body, /\/references/, `${name} should query references for the impact reminder`)
+    assert.doesNotMatch(body, /include_unplaced/, `${name} must keep the default reference response for edit impact`)
+  }
 })
 
 test('main.css carries the reference-delete-box dialog styles', () => {
@@ -367,6 +400,143 @@ for (const [name, source, handlerName, selectionName, noun] of batchDeleteCases)
       assert.deepEqual(formFields.value, [])
       assert.equal(state.invalidations, 1)
     }
+    assert.deepEqual(state.errorToasts, [])
+  })
+
+  test(`${name}.${handlerName} only alerts once and never deletes when every selected item is referenced`, async () => {
+    const { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields } =
+      createBatchDeleteSandbox({ selectionName, items: batchDeleteItems, blockedIds: [1, 2, 3] })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.equal(state.alertCalls, 1)
+    assert.equal(state.confirmCalls, 0)
+    assert.equal(state.postCalls.length, 1)
+    assert.match(state.postCalls[0].url, /batch-references/)
+    assert.deepEqual(state.successToasts, [])
+    assert.deepEqual(state.errorToasts, [])
+    assert.equal(selection.value, batchDeleteItems)
+    assert.equal(selected.value.id, 2)
+    assert.equal(selectedUnitId.value, 2)
+    assert.equal(selectedFieldId.value, 2)
+    assert.equal(selectedForm.value.id, 2)
+    assert.deepEqual(formFields.value, [{ id: 21 }])
+    assert.equal(state.clearCalls, 0)
+    assert.equal(state.invalidations, 0)
+  })
+
+  test(`${name}.${handlerName} reports the backend error and keeps selections when the batch-delete request fails`, async () => {
+    const failure = new Error(`部分${noun}已被引用，无法删除`)
+    const { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields } =
+      createBatchDeleteSandbox({ selectionName, items: batchDeleteItems, deletedCount: 0, batchDeleteError: failure })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.deepEqual(state.errorToasts, [failure.message])
+    assert.deepEqual(state.successToasts, [])
+    assert.deepEqual(state.postCalls.map(({ body }) => body.ids), [[1, 2, 3], [2, 3]])
+    assert.equal(state.postCalls[1].url.includes('/batch-delete'), true)
+    assert.equal(selection.value, batchDeleteItems)
+    assert.equal(selected.value.id, 2)
+    assert.equal(selectedUnitId.value, 2)
+    assert.equal(selectedFieldId.value, 2)
+    assert.equal(selectedForm.value.id, 2)
+    assert.deepEqual(formFields.value, [{ id: 21 }])
+    assert.equal(state.clearCalls, 0)
+    assert.equal(state.invalidations, 0)
+  })
+
+  test(`${name}.${handlerName} deletes nothing and stays silent when the mixed confirm is cancelled`, async () => {
+    const { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields } =
+      createBatchDeleteSandbox({
+        selectionName,
+        items: batchDeleteItems,
+        confirmImpl: () => Promise.reject('cancel'),
+      })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.equal(state.confirmCalls, 1)
+    assert.equal(state.alertCalls, 0)
+    assert.equal(state.postCalls.length, 1)
+    assert.match(state.postCalls[0].url, /batch-references/)
+    assert.deepEqual(state.successToasts, [])
+    assert.deepEqual(state.errorToasts, [])
+    assert.equal(selection.value, batchDeleteItems)
+    assert.equal(selected.value.id, 2)
+    assert.equal(selectedUnitId.value, 2)
+    assert.equal(selectedFieldId.value, 2)
+    assert.equal(selectedForm.value.id, 2)
+    assert.deepEqual(formFields.value, [{ id: 21 }])
+    assert.equal(state.clearCalls, 0)
+    assert.equal(state.invalidations, 0)
+  })
+
+  test(`${name}.${handlerName} keeps a blocked current selection after a partial delete`, async () => {
+    const { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields } =
+      createBatchDeleteSandbox({ selectionName, items: batchDeleteItems, deletedCount: 2, selectedId: 1 })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.deepEqual(state.postCalls.map(({ body }) => body.ids), [[1, 2, 3], [2, 3]])
+    assert.deepEqual(state.successToasts, [buildPartialDeleteMessage(noun, 2, 1)])
+    assert.deepEqual(selection.value, [])
+    assert.equal(selected.value.id, 1)
+    assert.equal(selectedUnitId.value, 1)
+    assert.equal(selectedFieldId.value, 1)
+    assert.equal(selectedForm.value.id, 1)
+    assert.deepEqual(formFields.value, [{ id: 21 }])
+    assert.equal(state.clearCalls, 0)
+    assert.equal(state.invalidations, 0)
+  })
+
+  test(`${name}.${handlerName} shows no partial toast when nothing is blocked`, async () => {
+    const { sandbox, state, selection } = createBatchDeleteSandbox({
+      selectionName,
+      items: batchDeleteItems,
+      deletedCount: 3,
+      blockedIds: [],
+    })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.equal(state.confirmCalls, 1)
+    assert.deepEqual(state.postCalls.map(({ body }) => body.ids), [[1, 2, 3], [1, 2, 3]])
+    assert.deepEqual(state.successToasts, [])
+    assert.deepEqual(state.errorToasts, [])
+    assert.deepEqual(selection.value, [])
+  })
+}
+
+for (const [name, source, handlerName, item, expectedDelUrl] of singleDeleteCases) {
+  test(`${name}.${handlerName} confirms once and deletes an unreferenced item at the correct URL`, async () => {
+    const { sandbox, state } = createSingleDeleteSandbox({
+      alertImpl: () => Promise.reject(new Error('alert should not fire for an unreferenced item')),
+      refs: [],
+    })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+    await assert.doesNotReject(handler(item))
+    assert.equal(state.alertCalls, 0)
+    assert.equal(state.confirmCalls, 1)
+    assert.deepEqual(state.delUrls, [expectedDelUrl])
+    assert.deepEqual(state.errorToasts, [])
+  })
+
+  test(`${name}.${handlerName} deletes nothing and shows no error toast when the delete confirm is cancelled`, async () => {
+    const { sandbox, state } = createSingleDeleteSandbox({
+      alertImpl: () => Promise.reject(new Error('alert should not fire for an unreferenced item')),
+      refs: [],
+      confirmImpl: () => Promise.reject('cancel'),
+    })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+    await assert.doesNotReject(handler(item))
+    assert.equal(state.confirmCalls, 1)
+    assert.equal(state.delCalls, 0)
     assert.deepEqual(state.errorToasts, [])
   })
 }

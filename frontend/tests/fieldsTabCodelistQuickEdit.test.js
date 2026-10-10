@@ -31,7 +31,8 @@ test('quick add codelist posts to the create endpoint and selects the new codeli
 
 test('quick edit codelist warns on references then saves via snapshot endpoint', () => {
   assert.match(source, /async function quickSaveCodelist\(\)/)
-  assert.match(source, /\/codelists\/\$\{quickEditCodelistId\.value\}\/references/)
+  // 反引号锚定：引用查询必须保持默认响应（不带 include_unplaced），否则影响提醒口径会扩大
+  assert.match(source, /\/codelists\/\$\{quickEditCodelistId\.value\}\/references`/)
   assert.match(source, /修改将影响以下字段/)
   assert.match(source, /api\.put\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/snapshot`/)
 })
