@@ -2042,19 +2042,10 @@ class ExportService:
                 self._set_run_font(right_run, size=Pt(10.5))
 
         else:
-            if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-                self._render_vertical_choices(right_cell, field_def)
-
-            elif field_def.field_type in ["单选", "多选"]:
-                self._render_choice_field(right_para, field_def)
-
-            else:
-                # 填写线下划线根数按 control 列实际宽度自适应（不换行），
-                # 与前端预览共享同一估算公式以保证逐字一致。
-                fill_chars = compute_fill_line_char_count(widths[1])
-                right_run = right_para.add_run(self._render_field_control(field_def, fill_line_chars=fill_chars))
-
-                self._set_run_font(right_run, size=Pt(10.5))
+            # 填写线下划线根数按 control 列实际宽度自适应（不换行），
+            # 与前端预览共享同一估算公式以保证逐字一致。
+            fill_chars = compute_fill_line_char_count(widths[1])
+            self._render_control_into_cell(right_cell, right_para, field_def, fill_chars)
 
         self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
 
@@ -2224,21 +2215,12 @@ class ExportService:
                 else:
                     # 无默认值，显示控件占位符
 
-                    if is_vertical_choice:
-                        self._render_vertical_choices(cell, field_def)
-
-                    elif field_def.field_type in ["单选", "多选"]:
-                        self._render_choice_field(para, field_def)
-
-                    else:
-                        # inline 整格文本填写线：按该列实际宽度自适应（不换行），
-                        # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
-                        inline_fill_chars = (
-                            compute_fill_line_char_count(col_widths[col_idx]) if col_idx < len(col_widths) else None
-                        )
-                        run = para.add_run(self._render_field_control(field_def, fill_line_chars=inline_fill_chars))
-
-                        self._set_run_font(run, size=Pt(10.5))
+                    # inline 整格文本填写线：按该列实际宽度自适应（不换行），
+                    # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
+                    inline_fill_chars = (
+                        compute_fill_line_char_count(col_widths[col_idx]) if col_idx < len(col_widths) else None
+                    )
+                    self._render_control_into_cell(cell, para, field_def, inline_fill_chars)
 
                 # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
@@ -2264,6 +2246,23 @@ class ExportService:
                         for para in cell.paragraphs:
                             for run in para.runs:
                                 self._set_run_font(run, color=text_color)
+
+    def _render_control_into_cell(self, cell, para, field_def, fill_line_chars: int | None) -> None:
+        """无值 / 无默认值时的控件分派梯子（普通表与内联表两条路径共用）。
+
+        调用方保留各自的默认值渲染、fill_line_chars 取值、垂直对齐与段落间距策略。
+        """
+
+        if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+            self._render_vertical_choices(cell, field_def)
+
+        elif field_def.field_type in ["单选", "多选"]:
+            self._render_choice_field(para, field_def)
+
+        else:
+            run = para.add_run(self._render_field_control(field_def, fill_line_chars=fill_line_chars))
+
+            self._set_run_font(run, size=Pt(10.5))
 
     def _render_field_control(self, field_def, fill_line_chars: int | None = None) -> str:
         """渲染字段控件文本。
