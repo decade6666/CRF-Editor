@@ -51,7 +51,7 @@ Baseline for this step: branch HEAD `c36718d` (lead-committed Step 6; final chec
 | Test terminology grep | Remaining `unified` hits are the retained test/file names, fixture identifiers, and output names; no stale whole-form renderer descriptions remain. |
 | Scope | Spec edits confined to `.trellis/spec/backend/quality-guidelines.md` and `.trellis/spec/guides/cross-stack-contracts.md`; production-source changes are limited to layout documentation and type annotations; test changes update descriptions/local table names and add a shading assertion. All existing test names remain unchanged. No README or frontend changes. |
 
-Nothing staged or committed. Step 7 documentation and description corrections are complete; awaiting the lead's final review, main-branch synchronization, and commit flow.
+Nothing staged or committed at that point; Step 7 documentation and description corrections were subsequently committed (`09c784c`), followed by the spec correction (`76d8b54`) and the test/annotation commit (`d0aa4ae`). See the Post-merge verification section at the top for the full completion record, including the post-merge reviewer-follow-up commits `3ca5771` (stale `unified` comments in `test_export_service.py` / `test_export_column_width_override.py`) and `aeb5047` (narrowed cross-stack no-width fallback wording).
 
 ---
 
