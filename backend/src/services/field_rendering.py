@@ -171,7 +171,7 @@ def build_field_control_weight(form_field) -> float:
         )
 
     if field_type in ["单选", "多选", "单选（纵向）", "多选（纵向）"]:
-        option_labels = _get_option_labels_for_width(field_def)
+        option_labels = get_option_labels(field_def)
         if not option_labels:
             return FILL_LINE_WEIGHT
         return max(
@@ -222,8 +222,8 @@ def build_inline_column_demands(
     return demands
 
 
-def _get_option_labels_for_width(field_def) -> List[str]:
-    """获取选项标签列表用于宽度计算（按 order_index 排序）。"""
+def get_option_labels(field_def) -> List[str]:
+    """获取选项标签列表（按 order_index 排序，id 为稳定回退键；仅导出 decode 非空项）。"""
     if not hasattr(field_def, "codelist") or not field_def.codelist:
         return []
     if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:

@@ -137,6 +137,7 @@ from src.services.field_rendering import (
     build_inline_column_demands,
     build_inline_table_model,
     extract_default_lines,
+    get_option_labels,
     render_date_time_placeholder,
     resolve_checkbox_label,
 )
@@ -2339,7 +2340,7 @@ class ExportService:
     def _render_single_choice(self, field_def) -> str:
         """渲染单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2349,7 +2350,7 @@ class ExportService:
     def _render_single_choice_vertical(self, field_def) -> str:
         """渲染纵向单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2359,7 +2360,7 @@ class ExportService:
     def _render_multi_choice(self, field_def) -> str:
         """渲染多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2369,7 +2370,7 @@ class ExportService:
     def _render_multi_choice_vertical(self, field_def) -> str:
         """渲染纵向多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2391,7 +2392,7 @@ class ExportService:
 
         field_type = field_def.field_type
 
-        option_data = self._get_option_data(field_def)
+        option_data = get_option_labels(field_def)
 
         if not option_data:
             run = cell.paragraphs[0].add_run("________________")
@@ -2476,7 +2477,7 @@ class ExportService:
 
         field_type = field_def.field_type
 
-        option_data = self._get_option_data(field_def)
+        option_data = get_option_labels(field_def)
 
         # 没有选项时显示下划线占位符
 
@@ -2522,46 +2523,6 @@ class ExportService:
             opt_run = paragraph.add_run(label)
 
             self._set_run_font(opt_run, size=Pt(10.5))
-
-    def _get_option_labels(
-        self,
-        field_def,
-    ) -> list:
-        """获取选项标签列表。"""
-
-        return list(self._get_option_data(field_def))
-
-    def _get_option_data(self, field_def) -> List[str]:
-        """获取选项标签列表。
-
-
-
-        排序规则：order_index 为主，id 为稳定回退键。
-
-        """
-
-        if not hasattr(field_def, "codelist") or not field_def.codelist:
-            return []
-
-        if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
-            return []
-
-        # 按 order_index 排序，缺失时回退到 id
-
-        options = sorted(
-            field_def.codelist.options,
-            key=lambda o: (o.order_index if o.order_index is not None else float("inf"), o.id or 0),
-        )
-
-        result: List[str] = []
-
-        for opt in options:
-            if not opt.decode:
-                continue
-
-            result.append(opt.decode)
-
-        return result
 
     def _add_fill_line_run(self, paragraph, length: int = 6):
         """添加填写线 run（纯下划线字符，与文本字段填写线风格一致）"""
