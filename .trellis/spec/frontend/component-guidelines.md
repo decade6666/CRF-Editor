@@ -757,27 +757,54 @@ DOCX are structurally identical.
 
 ---
 
-## Scenario: Delete Confirmation Dialogs
+## Scenario: Delete Confirmation Dialogs and Reference-Aware Delete Gating
 
 ### 1. Scope / Trigger
 
 - Trigger: any user-initiated delete, batch-delete, or destructive removal action in the frontend.
 - Applies to all list/tab components that expose delete buttons or batch-delete operations.
-- Goal: prevent accidental data loss while avoiding redundant confirmation dialogs.
+- Reference-gated entities: 字典 (`CodelistsTab.vue` `delCl` / `batchDelCl`), 单位 (`UnitsTab.vue` `del` / `batchDelUnits`), 字段定义 (`FieldsTab.vue` `del` / `batchDelFields`), 表单 (`FormDesignerTab.vue` `delForm` / `batchDelForms`). All eight handlers share `frontend/src/composables/referenceDeleteGuard.js`.
+- Goal: an object with any reference can never reach the delete API from the UI; a mixed batch deletes only the unreferenced part after one grouped confirmation; delete paths without references keep exactly one confirmation.
 
 ### 2. Signatures
 
 ```javascript
-// Element Plus confirm dialog
-ElMessageBox.confirm(message, title, options)
+// Shared pure helper (no vue / element-plus imports; the message box is injected,
+// same pattern as projectDeleteConfirmation.js)
+import {
+  REFERENCE_DELETE_BOX_CLASS,        // 'reference-delete-box'
+  REFERENCE_LIST_MAX,                // 10 — max blocked lines / deletable names in a batch dialog
+  formatFieldReference,              // codelist/unit ref row → '表单名(OID)-字段名(变量名)';
+                                     // no OID → '表单名-字段名(变量名)'; form_name == null (unplaced
+                                     // library-only definition) → '字段库-字段名(变量名)'
+  partitionByReferences,             // (items, refsMap) → { blocked: [{item, refs}], deletable: [item] }
+  showReferenceBlockedAlert,         // (messageBox, message) → alert '无法删除' / '知道了' / customClass
+  confirmReferenceAwareBatchDelete,  // (messageBox, { items, refsMap, noun, nameOf, describeRefs })
+                                     //   → Promise<items to delete>
+  buildPartialDeleteMessage,         // (noun, deletedCount, blockedCount) → '已删除 N 个X，M 个被引用的X未删除'
+} from '@/composables/referenceDeleteGuard.js'
 
-// Shared helper for generic single confirmation
-import { confirmDelete } from '@/composables/projectDeleteConfirmation.js'
-await confirmDelete(ElMessageBox.confirm, { targetText: '单位 "kg"' })
+// Single delete (all four entities): gate BEFORE confirm, confirm BEFORE api.del
+const refs = await api.get(`<references>`)            // codelist/unit append ?include_unplaced=true
+if (refs.length) return await showReferenceBlockedAlert(ElMessageBox, blockedText(refs))
+await ElMessageBox.confirm(`删除...？`, '确认', { type: 'warning' })
+await api.del(`<delete>`)
 
-// Shared helper for project-specific final confirmation
-import { confirmFinalProjectDelete } from '@/composables/projectDeleteConfirmation.js'
-await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: '测试项目' })
+// Batch delete: snapshot → references → grouped confirm → delete only the approved ids
+const items = [...selX.value]                         // snapshot before awaiting dialogs
+const refsMap = await api.post(`<batch-references>`, { ids })
+const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, { items, refsMap, noun, nameOf, describeRefs })
+if (!toDelete.length) return
+const deleteIds = toDelete.map((x) => x.id)
+await api.post(`<batch-delete>`, { ids: deleteIds })
+```
+
+Dialog style (global `main.css` block, because message boxes teleport to `<body>`):
+
+```css
+.el-message-box.reference-delete-box { --el-messagebox-width: 520px; width: var(--el-messagebox-width); max-width: calc(100vw - 32px); }
+.el-message-box.reference-delete-box .el-message-box__message { max-height: 50vh; overflow-y: auto; }
+.el-message-box.reference-delete-box .el-message-box__message p { white-space: pre-line; overflow-wrap: anywhere; }
 ```
 
 ### 3. Contracts
@@ -785,88 +812,124 @@ await confirmFinalProjectDelete(ElMessageBox.confirm, { projectName: '测试项�
 | Delete Path | Confirmation Level | Pattern |
 |-------------|-------------------|---------|
 | **Project delete** (normal/batch/hard) | Double | First: context warning → Second: `confirmFinalProjectDelete` |
-| **Already-confirmed deletes** (field/form/visit/user/batch) | Single | Existing `ElMessageBox.confirm` stays unchanged |
-| **Reference-check deletes** (codelist/unit) | Single + Gate | Reference check first → alert if blocked → `ElMessageBox.confirm` if clear |
-| **Local/removal paths** (option row, relation, draft field) | Single | Use `confirmDelete` helper |
+| **Reference-gated single delete** (codelist/unit/field/form) | Gate, then Single | Reference check → blocked alert (no confirm, no API call) → one `ElMessageBox.confirm` only when clear |
+| **Reference-gated batch delete** (codelist/unit/field/form) | One grouped dialog | `confirmReferenceAwareBatchDelete` partitions; only unreferenced ids go to the batch-delete API |
+| **Local/removal paths** (option row, visit-form relation, draft field, designer field-instance removal, visit delete) | Single | Existing `ElMessageBox.confirm` / `confirmDelete` stays unchanged |
+| **Edit-impact prompts** (update dictionary/option/unit, field-library and designer quick-edit codelist) | Notice only | Default (placed-only) `references` response; NOT part of the delete gate |
+
+Contracts:
+
+- Reference parity: the frontend gate condition is `refs.length > 0` and must stay exactly as strict as the backend 409 delete guards — codelist/unit = any `FieldDefinition.codelist_id/unit_id` (including library-only unplaced definitions), field = any `FormField`, form = any `VisitForm`. Codelist/unit delete-check calls therefore append `?include_unplaced=true`; the default (placed-only) response is reserved for edit-impact notices.
+- Backend batch-delete endpoints stay all-or-nothing 409 as the concurrency net: a reference added between the check and the delete fails the whole batch with today's error toast and nothing is deleted.
+- Batch selection is snapshotted (`const items = [...selX.value]`) before any dialog await, so selection changes while the dialog is open cannot change what gets deleted.
+- After a batch: selection arrays reset to `[]`; the property card / designer canvas selection clears only when its id is actually in `deleteIds`. A partial batch shows one success toast via `buildPartialDeleteMessage` instead of the plain message.
+- Cancellation semantics: alert dismissal (`'cancel'` / `'close'`) is a normal end and is swallowed inside `showReferenceBlockedAlert`; batch confirm `'cancel'` propagates so callers keep `catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }`; unexpected errors from the blocked alert propagate (single callers write `return await showReferenceBlockedAlert(...)` inside the same try) and reach the error toast.
+- The four single callers keep `return await` on the blocked alert; only cancel/close is ignored — an unexpected alert failure must surface as an error toast, not silence.
+- Do not grow this helper's responsibilities: message-box injection keeps it unit-testable; per-entity nouns/names/ref-formatters stay at the call sites.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected Behavior |
 |-----------|-------------------|
 | User clicks delete on project | Two dialogs: first shows project name warning, second is `confirmFinalProjectDelete` |
-| User clicks delete on codelist with references | Alert shows "该字典被以下字段引用，需先删除相关字段" — no delete API call |
-| User clicks delete on codelist without references | Single confirm dialog: "确认删除字典 \"xxx\"？" |
-| User clicks delete on codelist option | Single confirm dialog: "确认删除选项 \"xxx\"？" |
-| User clicks delete on unit with references | Alert shows "该单位被以下字段引用，需先删除相关字段" — no delete API call |
-| User clicks delete on unit without references | Single confirm dialog: "确认删除单位 \"xxx\"？" |
-| User clicks delete on draft field | Single confirm via `confirmDelete` |
-| User cancels any confirmation | `catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }` — no error toast |
-| User cancels first confirmation of double-confirm | Second dialog never appears, no API call |
+| Codelist/unit referenced only by an unplaced library field, single delete | Blocked alert lists `字段库-字段名(变量名)` — no confirm, no delete API call |
+| Codelist/unit with references, single delete | Alert `该字典/单位被以下字段引用，需先解除相关字段的引用：` + reference list — no delete API call |
+| Codelist/unit without references, single delete | Single confirm: `确认删除字典 "xxx"？` / `确认删除单位 "xxx"？` |
+| Field referenced by any form, single delete | Alert `该字段被以下表单引用，需先从相关表单中移除该字段：` — no delete API call |
+| Form referenced by any visit, single delete | Alert `该表单被以下访视引用，需先从相关访视中移除该表单：` — no delete API call |
+| Batch: mixed selection | ONE plain-text dialog: blocked objects + references on top (notice only), deletable names below, confirm button `删除 N 个X`; only unreferenced ids are posted to batch-delete; success toast `已删除 N 个X，M 个被引用的X未删除` |
+| Batch: all blocked | Alert only (button `知道了`), no confirm dialog, no write request |
+| Batch: none blocked | Original plain confirm `确认删除选中的 N 个X？`, then all selected ids posted |
+| User cancels batch confirm | `catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }` — no error toast, no API call |
+| User dismisses blocked alert (cancel / X / ESC) | Treated as a normal end — no error toast, no API call |
+| Blocked alert fails unexpectedly | Error propagates to the caller's catch → error toast (never silent) |
+| Reference appears between check and delete (race) | Backend batch-delete answers 409, nothing deleted; single delete answers 409 |
+| Property card / designer canvas had the selected object in a partial batch | Card/canvas clears only if that id is in `deleteIds`; otherwise stays on the surviving row |
 
 ### 5. Good/Base/Bad Cases
 
-- **Good**: Project delete shows two distinct dialogs with escalating warning tone.
-- **Good**: Codelist delete checks references first, then shows single confirm only when safe to proceed.
-- **Base**: Field delete keeps its existing single `ElMessageBox.confirm`.
-- **Base**: Inline option row delete uses `confirmDelete` with target text from option label.
-- **Bad**: Adding extra confirmation to paths that already have confirmation creates redundant UX.
+- **Good**: A mixed batch shows one dialog with both sections and posts only the unreferenced ids; the user sees how many were kept.
+- **Good**: A codelist referenced only by an unplaced library field is blocked in the UI, matching what the backend guard would have answered.
+- **Base**: A field with no references keeps its single `删除字段 "xxx"？` confirm.
+- **Base**: An inline option row delete keeps `confirmDelete` with the option label.
+- **Bad**: Re-introducing a "将同时删除/移除" confirmation for referenced fields/forms — referenced means blocked, not cascading.
+- **Bad**: Partitioning a batch with the default (placed-only) codelist/unit references response — unplaced-only references land in the deletable group and the whole batch 409s.
 - **Bad**: Skipping confirmation on persistent delete paths (like `delOpt`) creates click-to-delete risk.
 
 ### 6. Tests Required
 
 | Test | Assertion |
 |------|-----------|
-| `projectDeleteConfirmation.test.js` | All delete handlers have expected confirmation call before API call |
-| `projectDeleteConfirmation.test.js` | Confirmation appears before delete API in function body order |
-| `projectDeleteConfirmation.test.js` | Project delete uses `confirmFinalProjectDelete` |
-| `projectDeleteConfirmation.test.js` | Non-project deletes do NOT use `confirmFinalDelete` |
+| `referenceDeleteGuard.test.js` | Pure helper behavior: `formatFieldReference` (OID / no OID / unplaced), partition order + string keys + missing/empty/non-array refs + no input mutation, all four batch dialog cases (dialog shape, button text, customClass, return value), truncation at `REFERENCE_LIST_MAX`, alert dismissal swallowed vs real errors propagated, partial message text |
+| `referenceDeleteWiring.test.js` | Source-level wiring per component: single handlers fetch references (codelist/unit with `include_unplaced=true`) and call `showReferenceBlockedAlert` before confirm and `api.del`; batch handlers call `confirmReferenceAwareBatchDelete` before batch-delete and post `ids: deleteIds` (not the raw selection); edit-impact callers (`updateCl` / `updateOpt` / `saveUnit`) do NOT pass `include_unplaced`; selection clears only on actually-deleted ids; `main.css` carries the `.reference-delete-box` rules |
+| `referenceDeleteWiring.test.js` | Actual-function runtime: a failing blocked alert surfaces one error toast and no delete; cancel/close dismissal stays silent |
+| `projectDeleteConfirmation.test.js` | Batch handlers' confirmation call is `confirmReferenceAwareBatchDelete` and precedes the batch-delete call; single handlers still confirm before `api.del` |
+| `fieldsTabMultirefThreshold.test.js` | `del` / `batchDelFields` follow the new gate contract; the `save` multi-form impact threshold stays byte-identical |
 
 ### 7. Wrong vs Correct
 
-#### Wrong: Add extra confirmation to already-confirmed path
+#### Wrong: gate fields/forms with the old multi-form threshold
 
 ```javascript
-// del() in FieldsTab already has ElMessageBox.confirm
-async function del(f) {
-  await confirmDelete(ElMessageBox.confirm, { targetText: `字段 "${f.name}"` })  // REDUNDANT
-  await ElMessageBox.confirm(`确认删除字段 "${f.name}"？`, '确认', { type: 'warning' })  // SECOND DIALOG
-  await api.del(`/api/fields/${f.id}`)
+// Only warns when 2+ forms reference the field, then cascades anyway
+if (countDistinctForms(refs) > 1) {
+  await ElMessageBox.confirm(`删除字段 "${f.label}" 将同时删除以下表单中的该字段：…确认删除？`, '确认')
 }
+await api.del(`/api/field-definitions/${f.id}`)  // single-form reference deletes silently; 0-confirm path
 ```
 
-**Why wrong**: User sees two confirmation dialogs for the same action — friction without added safety.
+**Why wrong**: The backend guard rejects ANY `FormField` row; gating on `> 1` lets a referenced field through to a guaranteed 409 and hides the reference list.
 
-#### Correct: Keep single confirmation for already-confirmed paths
+#### Correct: any reference blocks, list the references
 
 ```javascript
-async function del(f) {
-  await ElMessageBox.confirm(`确认删除字段 "${f.name}"？`, '确认', { type: 'warning' })
-  await api.del(`/api/fields/${f.id}`)
+const refs = await api.get(`/api/field-definitions/${f.id}/references`)
+if (refs.length) {
+  const msg = formatFieldImpactMessage(refs, { max: 5, sep: '\n' })
+  return await showReferenceBlockedAlert(ElMessageBox, `该字段被以下表单引用，需先从相关表单中移除该字段：\n${msg}`)
 }
+await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
+await api.del(`/api/field-definitions/${f.id}`)
 ```
 
-#### Wrong: Reference-check delete skips confirmation
+#### Wrong: post the raw selection after a mixed batch dialog
 
 ```javascript
-async function delCl(c) {
-  const refs = await api.get(`/api/codelists/${c.id}/references`)
-  if (refs.length) return ElMessageBox.alert('该字典被引用...', '无法删除', { type: 'warning' })
-  await api.del(`/api/codelists/${c.id}`)  // NO CONFIRMATION when refs are empty!
-}
+const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, { items, refsMap, ... })
+await api.post(`<batch-delete>`, { ids: selX.value.map(x => x.id) })  // full selection!
 ```
 
-**Why wrong**: When no references exist, user can delete with a single click — no chance to reconsider.
+**Why wrong**: Blocked ids reach the all-or-nothing batch endpoint → 409 → nothing is deleted, and the dialog's promise is ignored.
 
-#### Correct: Add confirmation after reference check passes
+#### Correct: delete only the approved subset
 
 ```javascript
-async function delCl(c) {
-  const refs = await api.get(`/api/codelists/${c.id}/references`)
-  if (refs.length) return ElMessageBox.alert('该字典被引用...', '无法删除', { type: 'warning' })
-  await ElMessageBox.confirm(`确认删除字典 "${c.name}"？`, '删除确认', { type: 'warning' })
-  await api.del(`/api/codelists/${c.id}`)
-}
+const deleteIds = toDelete.map((x) => x.id)
+if (!deleteIds.length) return
+await api.post(`<batch-delete>`, { ids: deleteIds })
+if (deleteIds.includes(selected.value?.id)) selected.value = null   // clear card only when actually deleted
+if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', toDelete.length, items.length - toDelete.length))
 ```
+
+#### Wrong: teleported message box styled with the CSS variable only
+
+```css
+/* Scoped style or variable-only override */
+:deep(.reference-delete-box) { --el-messagebox-width: 520px; }
+```
+
+**Why wrong**: Message boxes teleport to `<body>` so scoped selectors miss the root, and Element Plus' own width comes from `.el-message-box { --el-messagebox-width: 420px }` combined with a 100%-width box — setting the variable alone still stretches the dialog edge-to-edge on narrow viewports.
+
+#### Correct: global block that sets variable AND explicit width
+
+```css
+/* Appended to the end of main.css (global, after Element Plus styles) */
+.el-message-box.reference-delete-box { --el-messagebox-width: 520px; width: var(--el-messagebox-width); max-width: calc(100vw - 32px); }
+.el-message-box.reference-delete-box .el-message-box__message { max-height: 50vh; overflow-y: auto; }
+.el-message-box.reference-delete-box .el-message-box__message p { white-space: pre-line; overflow-wrap: anywhere; }
+```
+
+The doubled class beats Element Plus' default regardless of stylesheet order, `width: var(--el-messagebox-width)` prevents the 100% stretch, and `white-space: pre-line` keeps the `\n`-joined reference lines readable.
 
 ---
 

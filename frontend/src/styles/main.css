@@ -694,3 +694,8 @@ html[data-theme="dark"] {
   outline: 2px solid rgba(255, 255, 255, 0.8);
   outline-offset: 2px;
 }
+
+/* 引用拦截 / 批量删除分组弹窗：保留换行，长列表可滚动 */
+.el-message-box.reference-delete-box { --el-messagebox-width: 520px; width: var(--el-messagebox-width); max-width: calc(100vw - 32px); }
+.el-message-box.reference-delete-box .el-message-box__message { max-height: 50vh; overflow-y: auto; }
+.el-message-box.reference-delete-box .el-message-box__message p { white-space: pre-line; overflow-wrap: anywhere; }
