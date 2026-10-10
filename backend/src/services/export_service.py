@@ -134,7 +134,6 @@ from src.schemas.form import (
 from src.schemas.project import normalize_screening_number_format
 
 from src.services.field_rendering import (
-    build_field_control_weight,
     build_inline_column_demands,
     build_inline_table_model,
     extract_default_lines,
@@ -143,9 +142,7 @@ from src.services.field_rendering import (
 )
 
 from src.services.width_planning import (
-    compute_text_weight,
     plan_inline_table_width,
-    plan_unified_table_width,
     plan_normal_table_width,
     compute_fill_line_char_count,
 )
@@ -182,26 +179,11 @@ def resolve_label_bold(form_field) -> bool:
 class LayoutDecision:
     """表单布局决策（内部数据结构，不持久化）。"""
 
-    mode: str  # "legacy" | "mixed_landscape" | "unified_landscape"
-
-    column_count: int  # N 列数（仅 unified 有意义）
-
-    label_span: int  # label 区合并列数
-
-    value_span: int  # value 区合并列数
+    mode: str  # "legacy" | "mixed_landscape"
 
     force_landscape: bool = False  # paper_orientation='landscape' 强制覆写：legacy 模式下切横向
 
     force_portrait: bool = False  # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
-
-
-@dataclass(frozen=True)
-class Segment:
-    """统一横向布局的字段片段（内部数据结构，不持久化）。"""
-
-    type: str  # "regular_field" | "full_row" | "inline_block"
-
-    fields: list
 
 
 class ExportService:
@@ -1602,38 +1584,6 @@ class ExportService:
                 if not is_last_form:
                     self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
-            elif layout.mode == "unified_landscape":
-                # 统一横向布局路径
-
-                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
-                )
-
-                segments = self._build_unified_segments(form_fields)
-
-                self._build_unified_table(
-                    doc,
-                    segments,
-                    layout,
-                    form_id=form.id,
-                    available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                    annotated=annotated,
-                )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                # 仅当后续还有表单时才切回 portrait，避免末尾空白页
-
-                if not is_last_form:
-                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
             else:
                 # legacy 路径（保持现有行为）
 
@@ -1817,7 +1767,7 @@ class ExportService:
         """
 
         if not form_fields:
-            decision = LayoutDecision("legacy", 0, 0, 0)
+            decision = LayoutDecision("legacy")
 
         else:
             sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
@@ -1844,80 +1794,18 @@ class ExportService:
             has_inline = max_block_width > 0
 
             if has_regular and has_inline and max_block_width > 4:
-                N = max_block_width
-
-                decision = LayoutDecision("mixed_landscape", N, 0, 0)
+                decision = LayoutDecision("mixed_landscape")
 
             else:
-                decision = LayoutDecision("legacy", 0, 0, 0)
+                decision = LayoutDecision("legacy")
 
         if paper_orientation == "portrait":
-            return LayoutDecision("legacy", 0, 0, 0, force_portrait=True)
+            return LayoutDecision("legacy", force_portrait=True)
 
         if paper_orientation == "landscape" and decision.mode == "legacy":
-            return LayoutDecision("legacy", 0, 0, 0, force_landscape=True)
+            return LayoutDecision("legacy", force_landscape=True)
 
         return decision
-
-    @staticmethod
-    def _compute_merge_spans(N: int, M: int) -> List[int]:
-        """将 N 列均分为 M 个 span，前面的 span 优先分配余数列。
-
-
-
-        前置条件：1 <= M <= N。若 M 超出范围，返回 [1] * N 作为安全回退。
-
-        """
-
-        if M <= 0 or M > N:
-            return [1] * N
-
-        base = N // M
-
-        extra = N % M
-
-        spans = []
-
-        for i in range(M):
-            spans.append(base + (1 if i < extra else 0))
-
-        return spans
-
-    def _build_unified_segments(self, form_fields) -> List[Segment]:
-        """按字段顺序构建 unified landscape 所需的渲染片段。"""
-
-        if not form_fields:
-            return []
-
-        sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
-
-        segments: List[Segment] = []
-
-        inline_buffer = []
-
-        for form_field in sorted_fields:
-            if form_field.inline_mark == 1:
-                inline_buffer.append(form_field)
-
-                continue
-
-            if inline_buffer:
-                segments.append(Segment("inline_block", list(inline_buffer)))
-
-                inline_buffer = []
-
-            field_def = form_field.field_definition
-
-            if form_field.is_log_row or (field_def and field_def.field_type in ("日志行", "标签")):
-                segments.append(Segment("full_row", [form_field]))
-
-            else:
-                segments.append(Segment("regular_field", [form_field]))
-
-        if inline_buffer:
-            segments.append(Segment("inline_block", list(inline_buffer)))
-
-        return segments
 
     def _switch_section(self, doc: Document, orientation, project: Project):
         """新建分节并切换页面方向，同时重设页眉页脚。"""
@@ -1941,418 +1829,6 @@ class ExportService:
         self._apply_footer_to_section(new_section)
 
         return new_section
-
-    def _build_unified_table(
-        self,
-        doc: Document,
-        segments,
-        layout: LayoutDecision,
-        form_id=None,
-        *,
-        available_cm: float = LANDSCAPE_CONTENT_WIDTH_CM,
-        annotated: bool = False,
-    ):
-        """创建 unified landscape 表格并按片段顺序渲染。
-
-        Args:
-            form_id: 表单 ID，用于获取列宽覆盖配置
-            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
-        """
-        N = layout.column_count
-        table = doc.add_table(rows=1, cols=N)
-        table.autofit = False
-
-        # 收集 inline block 的内容用于宽度规划（使用语义需求）
-        segment_data = []
-        all_block_demands = []
-        regular_field_demands = []
-        # 收集所有字段用于构建 table_instance_id
-        all_fields = []
-        for segment in segments:
-            if segment.type == "inline_block" and segment.fields:
-                headers, row_values, _ = build_inline_table_model(segment.fields)
-                segment_data.append(("inline_block", headers, row_values))
-                # 使用包含 choice/fill-line/unit 语义的需求
-                all_block_demands.append(build_inline_column_demands(segment.fields))
-                all_fields.extend(segment.fields)
-            elif segment.type == "regular_field" and segment.fields:
-                form_field = segment.fields[0]
-                field_def = getattr(form_field, "field_definition", None)
-                label = (
-                    getattr(form_field, "label_override", None)
-                    or (getattr(field_def, "label", None) if field_def else None)
-                    or ""
-                )
-                regular_field_demands.append(
-                    {
-                        "label_weight": compute_text_weight(label),
-                        "control_weight": build_field_control_weight(form_field),
-                    }
-                )
-                all_fields.extend(segment.fields)
-
-        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
-        table_instance_id = self._build_table_instance_id("unified", all_fields)
-        overrides = self._get_column_width_override_by_instance_id(
-            table_instance_id, N, form_id=form_id, table_kind="unified"
-        )
-        if overrides:
-            # 直接使用覆盖的 fraction 转换为 cm
-            col_widths = [overrides[i] * available_cm for i in range(N)]
-        else:
-            # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
-            col_widths = (
-                plan_unified_table_width(
-                    segment_data,
-                    available_cm,
-                    column_count=N,
-                    block_demands=all_block_demands,
-                    regular_field_demands=regular_field_demands,
-                )
-                if segment_data or regular_field_demands
-                else None
-            )
-
-        if col_widths and len(col_widths) == N:
-            # 应用规划的列宽
-            final_col_widths = [Cm(col_widths[col_idx]) for col_idx in range(N)]
-        else:
-            # 回退到等宽分配
-            avail = Cm(available_cm)
-            col_w = int(avail / N)
-            final_col_widths = [col_w] * N
-
-        for col_idx, col in enumerate(table.columns):
-            col.width = final_col_widths[col_idx]
-
-        table._tbl.remove(table.rows[0]._tr)
-
-        for segment in segments:
-            if segment.type == "regular_field" and segment.fields:
-                self._add_unified_regular_row(table, segment.fields[0], layout, annotated=annotated)
-
-            elif segment.type == "full_row" and segment.fields:
-                self._add_unified_full_row(table, segment.fields[0], N, annotated=annotated)
-
-            elif segment.type == "inline_block" and segment.fields:
-                self._add_unified_inline_band(table, segment.fields, N, annotated=annotated)
-
-        # 行添加完成后，同步 cell 的 tcW，避免 python-docx 默认 1234 twips 覆盖 gridCol
-        # 让 Word 渲染时 col 与 cell 宽度对齐（与 _add_inline_table 同等契约）。
-        for col_idx, col in enumerate(table.columns):
-            if col_idx >= len(final_col_widths):
-                break
-            for cell in col.cells:
-                cell.width = final_col_widths[col_idx]
-
-        self._apply_grid_table_style(table)
-
-        return table
-
-    def _add_unified_regular_row(
-        self,
-        table,
-        form_field,
-        layout: LayoutDecision,
-        *,
-        annotated: bool = False,
-    ):
-        """在 unified table 中添加普通字段行。"""
-
-        field_def = form_field.field_definition
-
-        if not field_def:
-            return
-
-        N = layout.column_count
-
-        row = table.add_row()
-        self._apply_exact_row_height(row)
-
-        left_cell = row.cells[0]
-
-        if layout.label_span > 1:
-            left_cell = left_cell.merge(row.cells[layout.label_span - 1])
-
-        right_start = layout.label_span
-
-        right_cell = row.cells[right_start]
-
-        if layout.value_span > 1:
-            right_cell = right_cell.merge(row.cells[N - 1])
-
-        label = form_field.label_override or field_def.label or ""
-
-        left_para = left_cell.paragraphs[0]
-
-        left_run = left_para.add_run(label)
-
-        self._set_run_font(
-            left_run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(left_para)
-
-        left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        left_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        right_para = right_cell.paragraphs[0]
-
-        default_lines = extract_default_lines(form_field)
-
-        is_vertical_choice = not default_lines and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
-        if default_lines:
-            for line_idx, line in enumerate(default_lines):
-                if line_idx > 0:
-                    right_para.add_run().add_break()
-
-                right_run = right_para.add_run(line)
-
-                self._set_run_font(right_run, size=Pt(10.5))
-
-        else:
-            if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-                self._render_vertical_choices(right_cell, field_def)
-
-            elif field_def.field_type in ["单选", "多选"]:
-                self._render_choice_field(right_para, field_def)
-
-            else:
-                right_run = right_para.add_run(self._render_field_control(field_def))
-
-                self._set_run_font(right_run, size=Pt(10.5))
-
-        self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
-
-        right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        self._apply_cell_paragraph_metrics(
-            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
-        )
-
-        right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        annotation_text = self._field_annotation_text(field_def)
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                right_cell.paragraphs[-1],
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
-
-        if form_field.bg_color:
-            self._apply_cell_shading(left_cell, form_field.bg_color)
-
-            self._apply_cell_shading(right_cell, form_field.bg_color)
-
-        if form_field.text_color:
-            text_color = RGBColor.from_string(form_field.text_color)
-
-            self._set_run_font(left_run, color=text_color)
-
-            for paragraph in right_cell.paragraphs:
-                for run in paragraph.runs:
-                    self._set_run_font(run, color=text_color)
-
-    def _add_unified_full_row(self, table, form_field, N: int, *, annotated: bool = False):
-        """在 unified table 中添加全宽行。"""
-
-        row = table.add_row()
-        self._apply_exact_row_height(row)
-
-        merged_cell = row.cells[0]
-
-        if N > 1:
-            merged_cell = merged_cell.merge(row.cells[N - 1])
-
-        para = merged_cell.paragraphs[0]
-
-        field_def = form_field.field_definition
-
-        is_log_row = form_field.is_log_row or (field_def and field_def.field_type == "日志行")
-
-        if is_log_row:
-            label = form_field.label_override or "以下为log行"
-
-            run = para.add_run(label)
-
-            self._set_run_font(
-                run,
-                size=Pt(resolve_label_font_pt(form_field)),
-                bold=resolve_label_bold(form_field),
-            )
-
-            self._apply_cell_paragraph_metrics(para)
-
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-            merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
-
-            if form_field.text_color:
-                self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-            annotation_text = self._field_annotation_text(field_def) if field_def else ""
-            if annotated and annotation_text:
-                self._add_oid_annotation_box(
-                    para,
-                    annotation_text,
-                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-                )
-
-            return
-
-        para.style = "FormLabel"
-
-        label = form_field.label_override or (field_def.label if field_def else "")
-
-        run = para.add_run(label)
-
-        self._set_run_font(
-            run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(para)
-
-        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        if form_field.bg_color:
-            self._apply_cell_shading(merged_cell, form_field.bg_color)
-
-        if form_field.text_color:
-            self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-        annotation_text = self._field_annotation_text(field_def) if field_def else ""
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                para,
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
-
-    def _add_unified_inline_band(self, table, block_fields, N: int, *, annotated: bool = False):
-        """在 unified table 中添加 inline block 的表头和数据行。"""
-
-        if not block_fields:
-            return
-
-        headers, row_values, field_defs = build_inline_table_model(block_fields)
-
-        M = len(block_fields)
-
-        spans = self._compute_merge_spans(N, M) if M < N else [1] * M
-
-        header_row = table.add_row()
-        self._apply_exact_row_height(header_row)
-
-        start_col = 0
-
-        for col_idx, label in enumerate(headers):
-            span = spans[col_idx]
-            field_def = field_defs[col_idx]
-
-            cell = header_row.cells[start_col]
-
-            if span > 1:
-                cell = cell.merge(header_row.cells[start_col + span - 1])
-
-            para = cell.paragraphs[0]
-
-            run = para.add_run(label)
-
-            self._set_run_font(
-                run,
-                size=Pt(resolve_label_font_pt(block_fields[col_idx])),
-                bold=resolve_label_bold(block_fields[col_idx]),
-            )
-
-            self._apply_cell_paragraph_metrics(para)
-
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            self._apply_cell_shading(cell, "D9D9D9")
-
-            annotation_text = self._field_annotation_text(field_def) if field_def else ""
-            if annotated and annotation_text:
-                self._add_oid_annotation_box(
-                    para,
-                    annotation_text,
-                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-                )
-
-            start_col += span
-
-        for row_values_item in row_values:
-            data_row = table.add_row()
-            self._apply_exact_row_height(data_row)
-
-            start_col = 0
-
-            for col_idx, cell_value in enumerate(row_values_item):
-                span = spans[col_idx]
-
-                cell = data_row.cells[start_col]
-
-                if span > 1:
-                    cell = cell.merge(data_row.cells[start_col + span - 1])
-
-                para = cell.paragraphs[0]
-
-                field_def = field_defs[col_idx]
-
-                is_vertical_choice = (
-                    cell_value is None and field_def and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-                )
-
-                if cell_value is not None:
-                    run = para.add_run(cell_value)
-
-                    self._set_run_font(run, size=Pt(10.5))
-
-                elif field_def:
-                    if is_vertical_choice:
-                        self._render_vertical_choices(cell, field_def)
-
-                    elif field_def.field_type in ["单选", "多选"]:
-                        self._render_choice_field(para, field_def)
-
-                    else:
-                        run = para.add_run(self._render_field_control(field_def))
-
-                        self._set_run_font(run, size=Pt(10.5))
-
-                self._apply_cell_paragraph_metrics(
-                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
-                )
-
-                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-                marked_field = block_fields[col_idx]
-
-                if marked_field.bg_color:
-                    self._apply_cell_shading(cell, marked_field.bg_color)
-
-                if marked_field.text_color:
-                    text_color = RGBColor.from_string(marked_field.text_color)
-
-                    for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            self._set_run_font(run, color=text_color)
-
-                start_col += span
 
     def _group_form_fields(self, form_fields):
         """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""

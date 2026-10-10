@@ -341,125 +341,6 @@ def test_export_unified_mixed_max5_creates_landscape_table(session: Session, tmp
     assert max_cols == 5, "unified 表格应为 5 列"
 
 
-# ========== Task 3.5: unified 字段顺序测试 ==========
-
-
-@pytest.mark.xfail(
-    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
-    strict=False,
-)
-def test_export_unified_field_order_matches_order_index(session: Session, tmp_path: Path) -> None:
-    """验证表格行顺序与 order_index 一致。"""
-    project, _ = create_minimal_project(session)
-
-    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
-    session.add(visit)
-    session.flush()
-
-    form = Form(project_id=project.id, name="顺序测试表单", code="F_ORDER", order_index=1)
-    session.add(form)
-    session.flush()
-
-    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
-    session.add(vf)
-    session.flush()
-
-    # 添加字段，故意设置乱序 order_index
-    fd1 = create_text_field_def(session, project.id, "字段A")
-    fd2 = create_text_field_def(session, project.id, "字段B")
-    fd3 = create_text_field_def(session, project.id, "列1")
-    fd4 = create_text_field_def(session, project.id, "列2")
-    fd5 = create_text_field_def(session, project.id, "列3")
-    fd6 = create_text_field_def(session, project.id, "列4")
-    fd7 = create_text_field_def(session, project.id, "列5")
-
-    add_field_to_form(session, form.id, fd1.id, order_index=10, inline_mark=0)  # 普通字段在前
-    add_field_to_form(session, form.id, fd3.id, order_index=20, inline_mark=1)
-    add_field_to_form(session, form.id, fd4.id, order_index=21, inline_mark=1)
-    add_field_to_form(session, form.id, fd5.id, order_index=22, inline_mark=1)
-    add_field_to_form(session, form.id, fd6.id, order_index=23, inline_mark=1)
-    add_field_to_form(session, form.id, fd7.id, order_index=24, inline_mark=1)
-    add_field_to_form(session, form.id, fd2.id, order_index=30, inline_mark=0)  # 普通字段在后
-
-    session.commit()
-
-    output_path = tmp_path / "order.docx"
-    ExportService(session).export_project_to_word(project.id, str(output_path))
-
-    doc = Document(str(output_path))
-
-    # 找到 unified 表格（5 列的那个）
-    unified_table = None
-    for table in doc.tables[2:]:
-        if len(table.columns) == 5:
-            unified_table = table
-            break
-
-    assert unified_table is not None, "应存在 5 列 unified 表格"
-
-    # 验证行内容顺序：字段A → inline block (列1-5) → 字段B
-    # 第一行应该是"字段A"的 label/value
-    first_row_text = unified_table.rows[0].cells[0].text
-    assert "字段A" in first_row_text, "第一行应为字段A"
-
-
-# ========== Task 3.7: unified label/log 行测试 ==========
-
-
-@pytest.mark.xfail(
-    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
-    strict=False,
-)
-def test_export_unified_full_row_span_equals_N(session: Session, tmp_path: Path) -> None:
-    """验证 label/log 行 gridSpan = N。"""
-    project, _ = create_minimal_project(session)
-
-    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
-    session.add(visit)
-    session.flush()
-
-    form = Form(project_id=project.id, name="全宽行测试", code="F_FULLROW", order_index=1)
-    session.add(form)
-    session.flush()
-
-    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
-    session.add(vf)
-    session.flush()
-
-    # 添加标签字段（全宽行）
-    fd_label = create_label_field_def(session, project.id, "标题行")
-    add_field_to_form(session, form.id, fd_label.id, order_index=1, inline_mark=0)
-
-    # 添加 5 个 inline 字段触发 unified
-    for i in range(1, 6):
-        fd = create_text_field_def(session, project.id, f"列{i}")
-        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
-
-    session.commit()
-
-    output_path = tmp_path / "fullrow.docx"
-    ExportService(session).export_project_to_word(project.id, str(output_path))
-
-    doc = Document(str(output_path))
-
-    # 找到 unified 表格
-    unified_table = None
-    for table in doc.tables[2:]:
-        if len(table.columns) == 5:
-            unified_table = table
-            break
-
-    assert unified_table is not None, "应存在 5 列 unified 表格"
-
-    # 验证第一行是全宽行（合并后所有 cell 指向同一对象）
-    first_row = unified_table.rows[0]
-    # 合并后 row.cells 返回 N 个对象，但它们共享同一个物理 cell（相同内存地址）
-    cells = list(first_row.cells)
-    # 检查所有 cell 对象是同一个（合并后的特征）
-    assert all(c is cells[0] for c in cells), "全宽行应合并为单一 cell"
-    assert "标题行" in cells[0].text, "全宽行内容应为标签字段"
-
-
 # ========== Task 3.8: unified 窄 block 测试 ==========
 
 
@@ -879,79 +760,6 @@ def test_export_choice_order_index_sorting(session: Session, tmp_path: Path) -> 
     assert idx1 < idx2 < idx3, f"选项应按 order_index 排序，但顺序为: idx1={idx1}, idx2={idx2}, idx3={idx3}"
 
 
-# ========== Task 4.2: unified 多 inline block 共享单表级宽度语义回归测试 ==========
-
-
-@pytest.mark.xfail(
-    reason="unified_landscape rendering disabled by 786aaa4; current product uses mixed_landscape",
-    strict=False,
-)
-def test_export_unified_multi_blocks_share_table_level_width(session: Session, tmp_path: Path) -> None:
-    """验证多个 inline block 共享单表级宽度规划，而非各自独立分配。
-
-    两个 inline block（5 列）共用一张 unified 表格，宽度分配应基于
-    per-slot-max 聚合语义，而非 block 间拼接需求向量。
-    """
-    project, _ = create_minimal_project(session)
-
-    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
-    session.add(visit)
-    session.flush()
-
-    form = Form(project_id=project.id, name="多块共享宽度", code="F_MULTI_BLK", order_index=1)
-    session.add(form)
-    session.flush()
-
-    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
-    session.add(vf)
-    session.flush()
-
-    # 第一个 inline block：5 列，标签短
-    for i in range(1, 6):
-        fd = create_text_field_def(session, project.id, f"A{i}")
-        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
-
-    # 普通字段分隔两个 block
-    fd_sep = create_text_field_def(session, project.id, "分隔字段")
-    add_field_to_form(session, form.id, fd_sep.id, order_index=20, inline_mark=0)
-
-    # 第二个 inline block：5 列，最后一列标签长
-    for i in range(1, 5):
-        fd = create_text_field_def(session, project.id, f"B{i}")
-        add_field_to_form(session, form.id, fd.id, order_index=30 + i, inline_mark=1)
-    fd_long = create_text_field_def(session, project.id, "这是一个非常长的中文标签文本")
-    add_field_to_form(session, form.id, fd_long.id, order_index=35, inline_mark=1)
-
-    session.commit()
-
-    output_path = tmp_path / "multi_block.docx"
-    ExportService(session).export_project_to_word(project.id, str(output_path))
-
-    doc = Document(str(output_path))
-
-    # 找到 unified 表格（5 列）
-    unified_table = None
-    for table in doc.tables[2:]:
-        if len(table.columns) == 5:
-            unified_table = table
-            break
-
-    assert unified_table is not None, "应存在 5 列 unified 表格"
-
-    # 验证结构完整性：表格只有一个，不是两个独立表格
-    five_col_tables = [t for t in doc.tables[2:] if len(t.columns) == 5]
-    assert len(five_col_tables) == 1, "多 inline block 应共享同一张 unified 表格"
-
-    # 验证第 5 列（index=4）比第 1 列（index=0）更宽
-    # （因为第二个 block 的长标签在 slot 4 注入了更大需求）
-    tbl_xml = unified_table._tbl
-    grid_cols = tbl_xml.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
-    if grid_cols and len(grid_cols) == 5:
-        w0 = int(grid_cols[0].get(qn("w:w"), "0"))
-        w4 = int(grid_cols[4].get(qn("w:w"), "0"))
-        assert w4 > w0, f"长标签列（slot 4）应比短标签列（slot 0）更宽: w0={w0}, w4={w4}"
-
-
 # ========== Task 4.3: 横向与纵向选择项相邻性测试 ==========
 
 
@@ -1282,7 +1090,7 @@ def test_export_multiline_default_value_in_inline_table(session: Session, tmp_pa
 def test_export_unified_cell_widths_match_gridcol(session: Session, tmp_path: Path) -> None:
     """unified 表格的每个 cell tcW 必须与 gridCol 对齐，避免 Word 按默认 1234 twips 渲染。
 
-    回归用例：当 _build_unified_table 只设置 col.width 而未同步 cell.width 时，
+    回归用例：当导出只设置 col.width 而未同步 cell.width 时，
     python-docx 会给后续添加的 cell 默认 tcW=1234 twips，导致 Word 渲染时按
     cell 默认宽度均分而非按 gridCol 的内容驱动列宽显示。
     """
