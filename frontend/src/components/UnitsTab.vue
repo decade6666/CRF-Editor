@@ -145,11 +145,11 @@ async function batchDelUnits() {
     })
     if (!toDelete.length) return
     const deleteIds = toDelete.map((x) => x.id)
-    await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids: deleteIds })
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/units/batch-delete`, { ids: deleteIds })
     if (deleteIds.includes(selectedUnitId.value)) clearUnitSelection()
     selUnits.value = []
     await reloadUnits()
-    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('单位', toDelete.length, items.length - toDelete.length))
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('单位', deleted, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

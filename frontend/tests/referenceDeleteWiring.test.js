@@ -5,7 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { truncRefs } from '../src/composables/useApi.js'
 import { formatFieldImpactMessage } from '../src/composables/fieldReferenceImpact.js'
-import { formatFieldReference, showReferenceBlockedAlert } from '../src/composables/referenceDeleteGuard.js'
+import {
+  buildPartialDeleteMessage,
+  confirmReferenceAwareBatchDelete,
+  formatFieldReference,
+  showReferenceBlockedAlert,
+} from '../src/composables/referenceDeleteGuard.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const codelistsSource = readFileSync(path.resolve(currentDir, '../src/components/CodelistsTab.vue'), 'utf8')
@@ -89,11 +94,86 @@ function createSingleDeleteSandbox({ alertImpl }) {
   return { sandbox, state }
 }
 
+function createBatchDeleteSandbox({ selectionName, items, deletedCount }) {
+  const selection = { value: items }
+  const selected = { value: { id: 2 } }
+  const selectedUnitId = { value: 2 }
+  const selectedFieldId = { value: 2 }
+  const selectedForm = { value: { id: 2 } }
+  const formFields = { value: [{ id: 21 }] }
+  const state = { postCalls: [], successToasts: [], errorToasts: [], confirmCalls: 0, clearCalls: 0, invalidations: 0 }
+  const refsMap = {
+    [items[0].id]: [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT', visit_name: '访视一' }],
+  }
+  const sandbox = {
+    api: {
+      post: async (url, body) => {
+        state.postCalls.push({ url, body })
+        if (url.includes('/batch-references')) return refsMap
+        if (url.includes('/batch-delete')) return { deleted: deletedCount }
+        throw new Error(`unexpected POST ${url}`)
+      },
+    },
+    ElMessageBox: {
+      confirm: async () => {
+        state.confirmCalls += 1
+        return 'confirm'
+      },
+      alert: async () => {},
+    },
+    ElMessage: {
+      success: (message) => state.successToasts.push(message),
+      error: (message) => state.errorToasts.push(message),
+      warning: () => {},
+    },
+    props: { projectId: 1 },
+    [selectionName]: selection,
+    selected,
+    selectedUnitId,
+    selectedFieldId,
+    selectedForm,
+    formFields,
+    truncRefs,
+    formatFieldReference,
+    formatFieldImpactMessage,
+    confirmReferenceAwareBatchDelete,
+    buildPartialDeleteMessage,
+    reload: () => {},
+    reloadUnits: async () => {},
+    reloadFields: () => {},
+    reloadForms: () => {},
+    clearUnitSelection: () => {
+      state.clearCalls += 1
+      selectedUnitId.value = null
+    },
+    clearSelection: () => {
+      state.clearCalls += 1
+      selectedFieldId.value = null
+    },
+    invalidateFormSelectionSession: () => {
+      state.invalidations += 1
+    },
+  }
+  return { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields }
+}
+
 const singleDeleteCases = [
   ['CodelistsTab', codelistsSource, 'delCl', { id: 11, name: '字典A' }],
   ['UnitsTab', unitsSource, 'del', { id: 12, symbol: 'kg' }],
   ['FieldsTab', fieldsSource, 'del', { id: 13, label: '体重' }],
   ['FormDesignerTab', designerSource, 'delForm', { id: 14, name: '筛选表' }],
+]
+
+const batchDeleteItems = [
+  { id: 1, name: '已引用字典', symbol: '已引用单位', label: '已引用字段' },
+  { id: 2, name: '字典A', symbol: 'kg', label: '体重' },
+  { id: 3, name: '字典B', symbol: 'cm', label: '身高' },
+]
+const batchDeleteCases = [
+  ['CodelistsTab', codelistsSource, 'batchDelCl', 'selCls', '字典'],
+  ['UnitsTab', unitsSource, 'batchDelUnits', 'selUnits', '单位'],
+  ['FieldsTab', fieldsSource, 'batchDelFields', 'selFields', '字段'],
+  ['FormDesignerTab', designerSource, 'batchDelForms', 'selForms', '表单'],
 ]
 
 test('all four components import the shared reference delete guard helpers', () => {
@@ -155,7 +235,8 @@ test('codelist batch delete groups items through the shared helper before batch-
   assert.match(body, /nameOf: \(c\) => c\.name/)
   assert.match(body, /truncRefs\(refs\.map\(formatFieldReference\), 3, '、'\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /buildPartialDeleteMessage\('字典', toDelete\.length, items\.length - toDelete\.length\)/)
+  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /buildPartialDeleteMessage\('字典', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })
 
@@ -167,7 +248,8 @@ test('unit batch delete groups items through the shared helper before batch-dele
   assert.match(body, /nameOf: \(u\) => u\.symbol/)
   assert.match(body, /truncRefs\(refs\.map\(formatFieldReference\), 3, '、'\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /buildPartialDeleteMessage\('单位', toDelete\.length, items\.length - toDelete\.length\)/)
+  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /buildPartialDeleteMessage\('单位', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })
 
@@ -179,7 +261,8 @@ test('field batch delete groups items through the shared helper before batch-del
   assert.match(body, /nameOf: \(f\) => f\.label/)
   assert.match(body, /formatFieldImpactMessage\(refs, \{ max: 3, sep: '、' \}\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /buildPartialDeleteMessage\('字段', toDelete\.length, items\.length - toDelete\.length\)/)
+  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /buildPartialDeleteMessage\('字段', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })
 
@@ -191,7 +274,8 @@ test('form batch delete groups items through the shared helper before batch-dele
   assert.match(body, /nameOf: \(f\) => f\.name/)
   assert.match(body, /truncRefs\(refs\.map\(\(r\) => r\.visit_name\), 3, '、'\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /buildPartialDeleteMessage\('表单', toDelete\.length, items\.length - toDelete\.length\)/)
+  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /buildPartialDeleteMessage\('表单', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })
 
@@ -254,5 +338,35 @@ for (const [name, source, handlerName, item] of singleDeleteCases) {
       assert.equal(state.delCalls, 0)
       assert.equal(state.confirmCalls, 0)
     }
+  })
+}
+
+for (const [name, source, handlerName, selectionName, noun] of batchDeleteCases) {
+  test(`${name}.${handlerName} reports the backend deletion count after a concurrent removal`, async () => {
+    const { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields } =
+      createBatchDeleteSandbox({ selectionName, items: batchDeleteItems, deletedCount: 1 })
+    const handler = buildHandler(extractFunctionSource(source, handlerName), handlerName, sandbox)
+
+    await handler()
+
+    assert.deepEqual(state.postCalls.map(({ body }) => body.ids), [[1, 2, 3], [2, 3]])
+    assert.deepEqual(state.successToasts, [buildPartialDeleteMessage(noun, 1, 1)])
+    assert.equal(state.confirmCalls, 1)
+    assert.deepEqual(selection.value, [])
+    if (selectionName === 'selCls') assert.equal(selected.value, null)
+    if (selectionName === 'selUnits') {
+      assert.equal(selectedUnitId.value, null)
+      assert.equal(state.clearCalls, 1)
+    }
+    if (selectionName === 'selFields') {
+      assert.equal(selectedFieldId.value, null)
+      assert.equal(state.clearCalls, 1)
+    }
+    if (selectionName === 'selForms') {
+      assert.equal(selectedForm.value, null)
+      assert.deepEqual(formFields.value, [])
+      assert.equal(state.invalidations, 1)
+    }
+    assert.deepEqual(state.errorToasts, [])
   })
 }

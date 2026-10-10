@@ -174,11 +174,11 @@ async function batchDelCl() {
     })
     if (!toDelete.length) return
     const deleteIds = toDelete.map((x) => x.id)
-    await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids: deleteIds })
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids: deleteIds })
     selCls.value = []
     if (deleteIds.includes(selected.value?.id)) selected.value = null
     reload()
-    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', toDelete.length, items.length - toDelete.length))
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', deleted, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

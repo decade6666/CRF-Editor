@@ -157,11 +157,11 @@ async function batchDelFields() {
     })
     if (!toDelete.length) return
     const deleteIds = toDelete.map((x) => x.id)
-    await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids: deleteIds })
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids: deleteIds })
     selFields.value = []
     if (deleteIds.includes(selectedFieldId.value)) clearSelection()
     reloadFields()
-    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字段', toDelete.length, items.length - toDelete.length))
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字段', deleted, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 

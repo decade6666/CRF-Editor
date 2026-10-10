@@ -507,7 +507,7 @@ async function batchDelForms() {
     });
     if (!toDelete.length) return;
     const deleteIds = toDelete.map((x) => x.id);
-    await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids: deleteIds });
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids: deleteIds });
     selForms.value = [];
     if (deleteIds.includes(selectedForm.value?.id)) {
       invalidateFormSelectionSession();
@@ -516,7 +516,7 @@ async function batchDelForms() {
     }
     reloadForms();
     if (toDelete.length < items.length) {
-      ElMessage.success(buildPartialDeleteMessage('表单', toDelete.length, items.length - toDelete.length));
+      ElMessage.success(buildPartialDeleteMessage('表单', deleted, items.length - toDelete.length));
     }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
