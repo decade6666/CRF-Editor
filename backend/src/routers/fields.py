@@ -65,6 +65,7 @@ from src.services.field_cleanup_service import (
     delete_form_field_and_cleanup_label_definition,
 )
 from src.services.order_service import OrderService
+from src.services.unique_name import first_free_name
 
 
 router = APIRouter(tags=["fields"])
@@ -444,18 +445,19 @@ def copy_field_definition(
 
     base = src.variable_name + "_copy"
 
-    candidate = base
-
-    idx = 1
-
-    while session.scalar(
-        select(FieldDefinition).where(
-            FieldDefinition.project_id == src.project_id, FieldDefinition.variable_name == candidate
-        )
-    ):
-        candidate = f"{base}{idx}"
-
-        idx += 1
+    candidate = first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda name: (
+            session.scalar(
+                select(FieldDefinition).where(
+                    FieldDefinition.project_id == src.project_id, FieldDefinition.variable_name == name
+                )
+            )
+            is not None
+        ),
+        start=1,
+    )
 
     new_fd = FieldDefinition(
         project_id=src.project_id,

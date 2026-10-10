@@ -25,6 +25,7 @@ from src.schemas import BatchDeleteRequest
 
 
 from src.services.order_service import OrderService
+from src.services.unique_name import first_free_name
 from src.models.visit_form import VisitForm
 
 
@@ -184,14 +185,14 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
 
     base = src.name + "_copy"
 
-    candidate = base
-
-    idx = 1
-
-    while session.scalar(select(Visit).where(Visit.project_id == src.project_id, Visit.name == candidate)):
-        candidate = f"{base}{idx}"
-
-        idx += 1
+    candidate = first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda name: (
+            session.scalar(select(Visit).where(Visit.project_id == src.project_id, Visit.name == name)) is not None
+        ),
+        start=1,
+    )
 
     from src.utils import generate_code
 

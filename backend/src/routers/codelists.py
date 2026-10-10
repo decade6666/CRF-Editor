@@ -23,6 +23,7 @@ from src.schemas.codelist import (
 from src.schemas import BatchDeleteRequest
 from src.services.field_definition_reference_service import collect_field_definition_references
 from src.services.order_service import OrderService
+from src.services.unique_name import first_free_name
 
 router = APIRouter(tags=["codelists"])
 
@@ -40,12 +41,15 @@ def _get_codelist_with_project_check(session: Session, cl_id: int, project_id: i
 
 def _build_codelist_copy_name(session: Session, project_id: int, source_name: str) -> str:
     base = f"{source_name}_copy"
-    candidate = base
-    idx = 1
-    while session.scalar(select(CodeList.id).where(CodeList.project_id == project_id, CodeList.name == candidate)):
-        candidate = f"{base}{idx}"
-        idx += 1
-    return candidate
+    return first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda candidate: (
+            session.scalar(select(CodeList.id).where(CodeList.project_id == project_id, CodeList.name == candidate))
+            is not None
+        ),
+        start=1,
+    )
 
 
 @router.get("/projects/{project_id}/codelists", response_model=List[CodeListResponse])

@@ -48,6 +48,7 @@ from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectResponse
 from src.services.order_service import OrderService
 from src.services.project_clone_service import ProjectCloneService
+from src.services.unique_name import first_free_name
 
 
 class RecycleBinProjectResponse(ProjectResponse):
@@ -113,16 +114,12 @@ def _resolve_restore_name(session: Session, owner_id: int, base_name: str) -> st
     existing_names = set(
         session.scalars(select(Project.name).where(Project.owner_id == owner_id, Project.deleted_at.is_(None))).all()
     )
-    candidate = f"{base_name} (恢复)"
-    if candidate not in existing_names:
-        return candidate
-
-    index = 2
-    while True:
-        candidate = f"{base_name} (恢复{index})"
-        if candidate not in existing_names:
-            return candidate
-        index += 1
+    return first_free_name(
+        f"{base_name} (恢复)",
+        lambda index: f"{base_name} (恢复{index})",
+        lambda candidate: candidate in existing_names,
+        start=2,
+    )
 
 
 @router.post("/admin/projects/{project_id}/restore", response_model=ProjectResponse)

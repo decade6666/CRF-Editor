@@ -23,6 +23,7 @@ from src.models.unit import Unit
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.services.form_field_copy import copy_form_field
+from src.services.unique_name import first_free_name
 
 logger = logging.getLogger(__name__)
 
@@ -138,16 +139,12 @@ class ProjectCloneService:
     def _resolve_copy_name(base_name: str, session: Session, owner_id: int) -> str:
         """生成副本名称：「原名 (副本)」→「原名 (副本2)」→ …"""
         existing_names = set(session.scalars(select(Project.name).where(Project.owner_id == owner_id)).all())
-        candidate = f"{base_name} (副本)"
-        if candidate not in existing_names:
-            return candidate
-
-        index = 2
-        while True:
-            candidate = f"{base_name} (副本{index})"
-            if candidate not in existing_names:
-                return candidate
-            index += 1
+        return first_free_name(
+            f"{base_name} (副本)",
+            lambda index: f"{base_name} (副本{index})",
+            lambda candidate: candidate in existing_names,
+            start=2,
+        )
 
     @staticmethod
     def clone(project_id: int, new_owner_id: int, session: Session) -> Project:
