@@ -23,6 +23,7 @@ from src.schemas.form import (
 )
 from src.services.order_service import OrderService
 from src.services.form_field_copy import copy_form_field
+from src.services.unique_name import first_free_name
 
 
 router = APIRouter(tags=["forms"])
@@ -250,11 +251,14 @@ def copy_form(
     src = verify_form_owner(form_id, current_user, session)
 
     base = src.name + "_copy"
-    candidate = base
-    idx = 1
-    while session.scalar(select(Form).where(Form.project_id == src.project_id, Form.name == candidate)):
-        candidate = f"{base}{idx}"
-        idx += 1
+    candidate = first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda name: (
+            session.scalar(select(Form).where(Form.project_id == src.project_id, Form.name == name)) is not None
+        ),
+        start=1,
+    )
 
     from src.utils import generate_code
 

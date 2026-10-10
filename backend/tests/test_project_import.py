@@ -1145,7 +1145,11 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
     old_engine = db_mod._engine
     db_mod._engine = None
     try:
-        with mock_patch("src.database.get_config", return_value=test_config):
+        # 保留管理员自愈已移入 services.admin_bootstrap_service，其 get_config 为模块内绑定
+        with (
+            mock_patch("src.database.get_config", return_value=test_config),
+            mock_patch("src.services.admin_bootstrap_service.get_config", return_value=test_config),
+        ):
             init_db()
             eng = get_engine()
 

@@ -28,6 +28,7 @@ from src.utils import generate_code, is_safe_path
 from src.schemas.form import preserve_annotation_positions_storage
 from src.services.order_service import OrderService
 from src.services.form_field_copy import copy_form_field
+from src.services.unique_name import first_free_name
 
 
 class OptionMetadata(TypedDict):
@@ -418,24 +419,22 @@ class ImportService:
     @staticmethod
     def _make_unique_name(existing: set, base: str, suffix: str = "_导入") -> str:
         """生成不冲突的名称：base_导入 → base_导入2 → ..."""
-        candidate = f"{base}{suffix}"
-        if candidate not in existing:
-            return candidate
-        idx = 2
-        while f"{base}{suffix}{idx}" in existing:
-            idx += 1
-        return f"{base}{suffix}{idx}"
+        return first_free_name(
+            f"{base}{suffix}",
+            lambda index: f"{base}{suffix}{index}",
+            lambda candidate: candidate in existing,
+            start=2,
+        )
 
     @staticmethod
     def _make_unique_import_codelist_name(existing: set[str], base: str) -> str:
         """生成字典冲突名：名称（导入）→ 名称（导入2）→ ..."""
-        candidate = f"{base}（导入）"
-        if candidate not in existing:
-            return candidate
-        idx = 2
-        while f"{base}（导入{idx}）" in existing:
-            idx += 1
-        return f"{base}（导入{idx}）"
+        return first_free_name(
+            f"{base}（导入）",
+            lambda index: f"{base}（导入{index}）",
+            lambda candidate: candidate in existing,
+            start=2,
+        )
 
     @staticmethod
     def _serialize_option_metadata(option: CodeListOption) -> OptionMetadata:
@@ -476,24 +475,22 @@ class ImportService:
     @staticmethod
     def _make_unique_var(existing: set, base: str) -> str:
         """生成不冲突的变量名：base_IMP → base_IMP2 → ..."""
-        candidate = f"{base}_IMP"
-        if candidate not in existing:
-            return candidate
-        idx = 2
-        while f"{base}_IMP{idx}" in existing:
-            idx += 1
-        return f"{base}_IMP{idx}"
+        return first_free_name(
+            f"{base}_IMP",
+            lambda index: f"{base}_IMP{index}",
+            lambda candidate: candidate in existing,
+            start=2,
+        )
 
     @staticmethod
     def _make_unique_code(existing: set[str], base: str) -> str:
         """生成不冲突的 OID：base_IMP → base_IMP2 → ..."""
-        candidate = f"{base}_IMP"
-        if candidate not in existing:
-            return candidate
-        idx = 2
-        while f"{base}_IMP{idx}" in existing:
-            idx += 1
-        return f"{base}_IMP{idx}"
+        return first_free_name(
+            f"{base}_IMP",
+            lambda index: f"{base}_IMP{index}",
+            lambda candidate: candidate in existing,
+            start=2,
+        )
 
     @staticmethod
     def _resolve_import_code(

@@ -32,6 +32,8 @@ def _run_init_db_for_test(
     previous_engine = database_module._engine
     database_module._engine = None
     monkeypatch.setattr(database_module, "get_config", lambda: test_config)
+    # 保留管理员自愈逻辑已移入 services.admin_bootstrap_service，其 get_config 为模块内绑定
+    monkeypatch.setattr("src.services.admin_bootstrap_service.get_config", lambda: test_config)
     if env is None:
         monkeypatch.delenv("CRF_ENV", raising=False)
     else:

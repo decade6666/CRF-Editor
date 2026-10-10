@@ -311,7 +311,8 @@ generate_code(prefix: str) -> str
 
 # backend/src/services/import_service.py
 _make_unique_code(existing: set[str], base: str) -> str
-# base_IMP → base_IMP2 → ... (same ladder as _make_unique_var, independently evolved)
+# base_IMP → base_IMP2 → ... (shares the ladder loop with _make_unique_var via
+# services/unique_name.first_free_name; the _IMP suffix + start index stay at this call site)
 
 _resolve_import_code(existing_codes: set[str], source_code: Optional[str], prefix: str) -> str
 # Non-empty source → strip and copy verbatim; empty/whitespace → mint; collision → _IMP ladder.

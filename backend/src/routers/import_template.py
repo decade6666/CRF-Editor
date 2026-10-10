@@ -1,12 +1,10 @@
 """Import Template Router - 模板导入预览与执行"""
 
 import logging
-from typing import List, Optional
 
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 
@@ -15,6 +13,12 @@ from src.database import get_session
 from src.dependencies import get_current_user, verify_project_owner
 from src.models.project import Project
 from src.models.user import User
+from src.schemas.template_import import (
+    ImportExecuteRequest,
+    ImportExecuteResponse,
+    ImportPreviewResponse,
+    TemplateFormFieldsResponse,
+)
 from src.services.import_service import ImportService
 
 
@@ -33,90 +37,26 @@ def _compatibility_error(message: str) -> JSONResponse:
     )
 
 
+def _template_import_error_response(exc: FileNotFoundError | ValueError) -> JSONResponse:
+    """把模板导入异常映射为 HTTP 响应（三个端点共用）。
+
+    - `FileNotFoundError` → 抛 404 `HTTPException`（detail = 异常消息）；
+    - `ValueError` 含「模板库不兼容」→ 返回结构化 `TEMPLATE_INCOMPATIBLE` JSON；
+    - 其余 `ValueError` → 抛 400 `HTTPException`（detail = 异常消息）。
+
+    前两种抛异常而非返回，保持走 FastAPI 的 HTTPException 处理路径（与改造前一致）。
+    """
+    if isinstance(exc, FileNotFoundError):
+        raise HTTPException(404, str(exc))
+    message = str(exc)
+    if "模板库不兼容" in message:
+        return _compatibility_error(message)
+    raise HTTPException(400, message)
+
+
 # ---- Schema ----
-
-
-class TemplateFormItem(BaseModel):
-    id: int
-    name: str
-    domain: Optional[str] = None
-
-
-class TemplateProjectItem(BaseModel):
-    id: int
-    name: str
-    version: str
-    forms: List[TemplateFormItem]
-
-
-class ImportPreviewResponse(BaseModel):
-    projects: List[TemplateProjectItem]
-
-
-class ImportExecuteRequest(BaseModel):
-    source_project_id: int
-    form_ids: List[int]
-    field_ids: Optional[List[int]] = None
-
-
-class ImportExecuteResponse(BaseModel):
-    imported_form_count: int
-    renamed_forms: List[str]
-    merged_codelists: int
-    merged_units: int
-    created_field_definitions: int
-    created_form_fields: int
-
-
-class TemplateFieldOptionPreview(BaseModel):
-    id: Optional[int] = None
-    code: Optional[str] = None
-    decode: str
-
-
-class TemplateFieldDefinitionPreview(BaseModel):
-    """字段定义预览 - 嵌套在 TemplateFieldPreview 中"""
-
-    id: int
-    project_id: int
-    variable_name: str
-    label: str
-    field_type: str
-    integer_digits: Optional[int] = None
-    decimal_digits: Optional[int] = None
-    date_format: Optional[str] = None
-    order_index: Optional[int] = None
-
-
-class TemplateFieldPreview(BaseModel):
-    id: int
-    project_id: int
-    order_index: int
-    index: int
-    label: str
-    field_type: str
-    options: Optional[List[TemplateFieldOptionPreview]] = None
-    integer_digits: Optional[int] = None
-    decimal_digits: Optional[int] = None
-    date_format: Optional[str] = None
-    default_value: Optional[str] = None
-    inline_mark: int = 0
-    unit_symbol: Optional[str] = None
-    # 结构性行与样式属性（Task 3.1）
-    is_log_row: int = 0
-    bg_color: Optional[str] = None
-    text_color: Optional[str] = None
-    label_bold: Optional[int] = None
-    label_font_size: Optional[str] = None
-    field_definition: Optional[TemplateFieldDefinitionPreview] = None
-
-
-class TemplateFormFieldsResponse(BaseModel):
-    form_id: int
-    fields: List[TemplateFieldPreview]
-    # 模板表单纸张方向（auto/portrait/landscape）；旧模板缺列时回退 'auto'。
-    # 供前端模板预览解析 normal 表填写线可用宽度，与导出 _build_form_table 一致。
-    paper_orientation: str = "auto"
+# 请求 / 响应模型已迁入 src.schemas.template_import；此处重新导出 ImportExecuteRequest，
+# 保持既有 `from src.routers.import_template import ImportExecuteRequest` 调用点可用。
 
 
 # ---- Endpoints ----
@@ -137,14 +77,8 @@ def preview_import(
     try:
         svc = ImportService(session)
         projects = svc.get_template_projects(cfg.template_path)
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        # Task 3.4: 兼容性错误返回结构化 JSON
-        msg = str(e)
-        if "模板库不兼容" in msg:
-            return _compatibility_error(msg)
-        raise HTTPException(400, msg)
+    except (FileNotFoundError, ValueError) as e:
+        return _template_import_error_response(e)
     return ImportPreviewResponse(projects=projects)
 
 
@@ -167,14 +101,8 @@ def preview_form_fields(
         svc = ImportService(session)
         fields = svc.get_template_form_fields(cfg.template_path, form_id)
         paper_orientation = svc.get_template_form_paper_orientation(cfg.template_path, form_id)
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        # Task 3.4: 兼容性错误返回结构化 JSON
-        msg = str(e)
-        if "模板库不兼容" in msg:
-            return _compatibility_error(msg)
-        raise HTTPException(400, msg)
+    except (FileNotFoundError, ValueError) as e:
+        return _template_import_error_response(e)
     return TemplateFormFieldsResponse(form_id=form_id, fields=fields, paper_orientation=paper_orientation)
 
 
@@ -204,14 +132,8 @@ def execute_import(
             form_ids=payload.form_ids,
             field_ids=payload.field_ids,
         )
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        # Task 3.4: 兼容性错误返回结构化 JSON
-        msg = str(e)
-        if "模板库不兼容" in msg:
-            return _compatibility_error(msg)
-        raise HTTPException(400, msg)
+    except (FileNotFoundError, ValueError) as e:
+        return _template_import_error_response(e)
     except Exception:
         logger.exception("导入模板执行失败")
         raise HTTPException(500, "导入失败，请检查模板文件是否有效")

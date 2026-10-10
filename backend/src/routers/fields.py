@@ -8,8 +8,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from sqlalchemy import select
 
-from pydantic import BaseModel, field_validator
-
 
 from src.database import get_session
 
@@ -49,6 +47,7 @@ from src.schemas.field import (
     FieldDefinitionResponse,
     FormFieldCreate,
     FormFieldResponse,
+    ReorderRequest,
 )
 
 from src.schemas import BatchDeleteRequest
@@ -65,6 +64,7 @@ from src.services.field_cleanup_service import (
     delete_form_field_and_cleanup_label_definition,
 )
 from src.services.order_service import OrderService
+from src.services.unique_name import first_free_name
 
 
 router = APIRouter(tags=["fields"])
@@ -387,10 +387,6 @@ def delete_form_field(
     delete_form_field_and_cleanup_label_definition(session, ff)
 
 
-class ReorderRequest(BaseModel):
-    ordered_ids: List[int]
-
-
 @router.post("/forms/{form_id}/fields/reorder", status_code=204)
 def reorder_form_fields(
     form_id: int,
@@ -444,18 +440,19 @@ def copy_field_definition(
 
     base = src.variable_name + "_copy"
 
-    candidate = base
-
-    idx = 1
-
-    while session.scalar(
-        select(FieldDefinition).where(
-            FieldDefinition.project_id == src.project_id, FieldDefinition.variable_name == candidate
-        )
-    ):
-        candidate = f"{base}{idx}"
-
-        idx += 1
+    candidate = first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda name: (
+            session.scalar(
+                select(FieldDefinition).where(
+                    FieldDefinition.project_id == src.project_id, FieldDefinition.variable_name == name
+                )
+            )
+            is not None
+        ),
+        start=1,
+    )
 
     new_fd = FieldDefinition(
         project_id=src.project_id,

@@ -4,8 +4,6 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from pydantic import BaseModel, Field
-
 from sqlalchemy.orm import Session, selectinload
 
 
@@ -19,20 +17,17 @@ from src.models.visit import Visit
 
 from src.repositories.base_repository import BaseRepository
 
-from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
+from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, VisitFormSequenceUpdate
 
 from src.schemas import BatchDeleteRequest
 
 
 from src.services.order_service import OrderService
+from src.services.unique_name import first_free_name
 from src.models.visit_form import VisitForm
 
 
 router = APIRouter(tags=["visits"])
-
-
-class VisitFormSequenceUpdate(BaseModel):
-    sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")
 
 
 @router.get("/projects/{project_id}/visits", response_model=List[VisitResponse])
@@ -184,14 +179,14 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
 
     base = src.name + "_copy"
 
-    candidate = base
-
-    idx = 1
-
-    while session.scalar(select(Visit).where(Visit.project_id == src.project_id, Visit.name == candidate)):
-        candidate = f"{base}{idx}"
-
-        idx += 1
+    candidate = first_free_name(
+        base,
+        lambda index: f"{base}{index}",
+        lambda name: (
+            session.scalar(select(Visit).where(Visit.project_id == src.project_id, Visit.name == name)) is not None
+        ),
+        start=1,
+    )
 
     from src.utils import generate_code
 
