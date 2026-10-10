@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
+import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, formatFieldReference, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
@@ -145,10 +146,10 @@ async function copyCl(c) {
 
 async function delCl(c) {
   try {
-    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${c.id}/references`)
+    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${c.id}/references?include_unplaced=true`)
     if (refs.length) {
-      const msg = truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
-      return ElMessageBox.alert(`该字典被以下字段引用，需先删除相关字段：\n${msg}`, '无法删除', { type: 'warning' })
+      const msg = truncRefs(refs.map(formatFieldReference))
+      return await showReferenceBlockedAlert(ElMessageBox, `该字典被以下字段引用，需先解除相关字段的引用：\n${msg}`)
     }
     await ElMessageBox.confirm(`确认删除字典 "${c.name}"？`, '删除确认', { type: 'warning' })
     await api.del(`/api/projects/${props.projectId}/codelists/${c.id}`)
@@ -162,16 +163,22 @@ async function batchDelCl() {
   try {
     const ids = selCls.value.map(c => c.id)
     if (!ids.length) return ElMessage.warning('请先选择要删除的字典')
-    const refsMap = await api.post(`/api/projects/${props.projectId}/codelists/batch-references`, { ids })
-    const allRefs = []
-    for (const c of selCls.value) {
-      const refs = refsMap[c.id] || []
-      if (refs.length) allRefs.push(`【${c.name}】：` + truncRefs(refs.map(r => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`), 3, '、'))
-    }
-    if (allRefs.length) return ElMessageBox.alert(`以下字典被字段引用，需先删除相关字段：\n${allRefs.join('\n')}`, '无法删除', { type: 'warning' })
-    await ElMessageBox.confirm(`确认删除选中的 ${ids.length} 个字典？`, '批量删除', { type: 'warning' })
-    await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids })
-    selCls.value = []; selected.value = null; reload()
+    const items = [...selCls.value]
+    const refsMap = await api.post(`/api/projects/${props.projectId}/codelists/batch-references?include_unplaced=true`, { ids })
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '字典',
+      nameOf: (c) => c.name,
+      describeRefs: (refs) => truncRefs(refs.map(formatFieldReference), 3, '、'),
+    })
+    if (!toDelete.length) return
+    const deleteIds = toDelete.map((x) => x.id)
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/codelists/batch-delete`, { ids: deleteIds })
+    selCls.value = []
+    if (deleteIds.includes(selected.value?.id)) selected.value = null
+    reload()
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', deleted, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
