@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "reviewer verifies behavioral tests and no-regression bar"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "reviewer checks aCRF/column-width/date-format contracts unchanged"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "reviewer traces preview data flow across composable/component layers"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "reviewer confirms no state-management rewrite sneaked in"}

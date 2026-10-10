@@ -531,3 +531,36 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Next Steps
 
 - 波次 D 仅剩 backend-dedup（基于当前 main 开新 worktree）；其余 5 个旧 worktree 分支均已合入但归其他波次/会话，清理需逐个确认
+
+## 2026-10-10 (session) — 波次 C 两项任务：前端规则收拢 + 临时资源生命周期
+
+### Main Changes
+
+- 前端共享规则收拢（`feat/shared-rule-convergence` → main `c38e31b`）：三组件预览纯函数收敛 `previewCellRender.js`；字典快捷增/改共享 `CodelistQuickEditDialog.vue`（含竞态守卫：opProjectId 捕获 + isOperationStale + confirmAdd/confirmSave 对齐 + FieldsTab load 身份门）；列宽存储键与导出收集收拢 `useColumnResize.js`；访视预览多行默认值修复；横向选项两空格 R8 对齐；aCRF 常量一致性测试。
+- 临时资源生命周期（`refactor/temp-resource-lifecycle` → main `340f1be`）：`temp_paths.py` / `upload_streaming.py` / `await_drain.py` 三个叶子模块；.db 与 docx 上传流式限长直写（独占 0600、BaseException 清理、半成品零残留）；.db 临时文件入归属目录 + 24h 清扫（含 SQLite 边车）；六端点线程池化 + `await_with_drain` 取消排水。
+- 修复合并暴露问题：`referenceDeleteWiring.test.js` 锚点随弹窗迁移（quickSaveCodelist → CodelistQuickEditDialog.confirmSave）；`FieldsTab.vue` 未用 confirmDelete 导入（lint error）；aCRF 一致性测试 ruff 格式。
+- OEL 归档、worktree/分支清理、main 推送均已完成。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c38e31b` | chore(merge): 合入前端重复规则收拢与访视多行默认值修复 |
+| `340f1be` | chore(merge): 合入统一临时资源生命周期与流式上传 |
+
+### Testing
+
+- [OK] 主检出后端 1144 passed / 857 warnings；ruff format --check 151 文件全过
+- [OK] 前端 node:test 915/915、vitest 26/26、lint 0 errors（prettier warning 既有基线）、build 成功
+- [OK] TRL 分支合并前 1144 passed；SRC 分支合并前 1099 passed（后端）/915 node:test/26 vitest
+- [未运行] 浏览器交互验证：隔离 CDP 启动被安全分类器以 Security Weaken / Expose Local Services / Credential Materialization 拒绝，未绕过；严格 parity 用存量 preview JSON + 新导出 DOCX 比对（20/20 cells、8/8 rows、1.0/1.0）
+- [未运行] PyInstaller 冻结构建（设计声明为 frozen 模式差异，未执行构建）
+
+### Decisions
+
+- 竞态守卫最终裁定：全量落地（弹窗 op-context pinning + FieldsTab 身份门 + 3 回归用例）。过程历经 8 次树翻转（消息队列乱序 + 裁定反转），最终按磁盘批准态收敛；教训已入记忆 `teammate-instruction-ordering`：消息全部按序执行、反转裁定须显式取代、震荡 ≥3 次后只批一次终态。
+- `backend/.claude/CLAUDE.md` 合并口径：服务 31（含新 3 叶子模块 + database_export_service）、测试 71 文件（69 test_*.py）。
+
+### Status
+
+[OK] **Completed**（两项任务已合入 main 并推送；worktree/分支已清理；任务已归档）

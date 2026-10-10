@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "reviewer quality bar for streaming and threadpool changes"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "verify session ownership unchanged when calls move to threads"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "verify owner checks and fail-closed behavior preserved"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "confirm import/docx contract sections untouched"}
