@@ -16,11 +16,11 @@
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
     B --> B1["src/routers (14)"];
-    B --> B2["src/services (28)"];
+    B --> B2["src/services (33)"];
     B --> B3["src/models (11)"];
-    B --> B4["src/schemas (9)"];
+    B --> B4["src/schemas (11)"];
     B --> B5["src/repositories (4)"];
-    B --> B6["tests (65)"];
+    B --> B6["tests (76)"];
     A --> C["frontend"];
     C --> C1["src/components (16)"];
     C --> C2["src/composables (32)"];
@@ -35,7 +35,7 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, reference-aware delete guards, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (65 files, including 63 `test_*.py`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, reference-aware delete guards, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (76 files, including 74 `test_*.py`) |
 | frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, reference-aware delete gating, theme and preview interaction | `frontend/src/main.js`, `frontend/src/App.vue` | `frontend/tests/` (77 files: 70 node:test `.test.js` + `testProperty.js` + 6 vitest mount-test files under `tests/component/` — 4 `.spec.js` + `setup.js` + `vueWarnGate.js`) |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
@@ -154,6 +154,8 @@ sudo bash deploy/install-service.sh uninstall
 ## Change Log
 
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
+
+- `2026-10-10` (task `backend-dedup`): 后端路由 / 迁移 / 排序去重（R1–R6，唯一行为变化为 R1）：共享 `ProjectBatchDeleteRequest`（1..500，空列表 / >500 → 422）、保留管理员自愈移入 `admin_bootstrap_service.py`、`_migrate_add_order_index` 六段回填抽为 `_backfill_null_order`（cx 29→7）、复制改名梯子收敛为 `unique_name.first_free_name`、模板导入错误映射收敛为一个函数、`OrderService` order/sequence 平行方法共用实现、触碰路由内联模型迁入 `schemas/`（新增 `admin.py` / `template_import.py`）；后端 1098→1210 passed / 0 xfailed。详见 `.context/history/archives/claudemd-changelog.md`。
 
 - `2026-10-10` (task `export-layer-cleanup`): Pure export-layer refactor with byte-identical `.docx` output (82 decompressed ZIP entries, 0 diffs at every step): deleted the unreachable `unified_landscape` path and its 4 xfail tests; consolidated option labels through `field_rendering.get_option_labels`, shared structure-row rendering and control dispatch; moved database export to `database_export_service.py` while keeping `ExportError` and `_EXPORT_ERROR_CODES` in `export_service.py`; split `_add_forms_content` by layout (cx 32→7). Final gates: 1071 backend tests passed / 0 xfailed, parity exact 1.0, and no backend source/test references to the removed `unified_landscape` mode. See `.context/history/archives/claudemd-changelog.md`.
 - `2026-10-10` (task `reference-delete-guard` 审查跟进): 四个批删接口的 409 引用预检限定本项目 id，消除跨用户「是否被引用」探测；补 56 条回归测试（后端 27 / 前端 29，均经变异验证），恢复 `index.json` 后端命令并修正规格示例；后端 1071→1098、前端 node:test 864→893。详见 `.context/history/archives/claudemd-changelog.md`.
