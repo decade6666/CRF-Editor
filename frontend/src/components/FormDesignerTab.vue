@@ -36,9 +36,10 @@ import {
   isLabelFieldDefinition,
   isVisibleInFieldLibrary,
 } from '../composables/fieldDefinitionVisibility';
-import { useColumnResize } from '../composables/useColumnResize';
+import { migrateLegacyColumnWidthKey, useColumnResize } from '../composables/useColumnResize';
 import { usePaneSplit } from '../composables/usePaneSplit';
 import { useDesignerHistory } from '../composables/useDesignerHistory';
+import CodelistQuickEditDialog from './CodelistQuickEditDialog.vue';
 import {
   buildTableInstanceId,
   useRowResize,
@@ -63,9 +64,7 @@ import {
 import { useAcrfAnnotationDrag } from '../composables/useAcrfAnnotationDrag.js';
 import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js';
 import {
-  renderCtrlHtml,
   renderCtrlTextHtml,
-  toHtml,
   isChoiceField,
   isDefaultValueSupported,
   normalizeDefaultValue,
@@ -115,7 +114,13 @@ import {
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit';
-import { resolveNormalTableAvailableCm, resolveInlineTableAvailableCm } from '../composables/visitPreviewLandscape';
+import { resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape';
+import {
+  computeMergeSpans,
+  computeLabelValueSpans,
+  getScopedDefaultValue,
+  createPreviewCellRenderers,
+} from '../composables/previewCellRender';
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability';
 import { summarizeDesignNotes, normalizeDesignNotesTooltip } from '../composables/designNotesSummary';
 import DesignNotesDialog from './DesignNotesDialog.vue';
@@ -1378,22 +1383,6 @@ function canToggleInline(ff) {
   return !ff?.is_log_row && type !== '标签' && type !== '日志行';
 }
 
-function getScopedDefaultValue(ff, singleLine = false) {
-  const fieldType = ff?.field_definition?.field_type;
-  const inlineMark = Boolean(ff?.inline_mark);
-  if (!fieldType || !ff?.default_value) return '';
-  if (!isDefaultValueSupported(fieldType, inlineMark)) return '';
-  return normalizeDefaultValue(ff.default_value, singleLine);
-}
-
-function renderCellHtml(ff, fillLineChars = null) {
-  const previewField = getPreviewField(ff);
-  if (!previewField) return '<span class="fill-line"></span>';
-  const defaultValue = getScopedDefaultValue(ff, false);
-  if (defaultValue) return toHtml(defaultValue);
-  return renderCtrlHtml(previewField, fillLineChars);
-}
-
 // normal 表 control 列宽（cm）：按整张表单的 render groups + 纸张方向解析（显式
 // landscape 或 mixed_landscape → 23.36），镜像后端 _build_form_table 的宽度选择。
 function normalColumnCm(groupIndex, group, scope) {
@@ -1410,30 +1399,6 @@ function normalFillChars(groupIndex, group, scope) {
   return columnCm == null ? null : computeFillLineCharCount(columnCm);
 }
 
-function getInlineRows(fields, fillCharsByCol = null) {
-  const cols = fields.map((ff, i) => {
-    const fillChars = fillCharsByCol ? (fillCharsByCol[i] ?? null) : null;
-    const defaultValue = getScopedDefaultValue(ff);
-    if (defaultValue) {
-      const lines = normalizeDefaultValue(defaultValue).split('\n');
-      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
-      return {
-        lines: lines.map((l) => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')),
-        repeat: false,
-        fallback: renderCtrlTextHtml(getPreviewField(ff), fillChars),
-      };
-    }
-    // 选项类用结构化渲染（renderCtrlHtml→renderChoiceHtml 产出 .choice-atom），
-    // 非选项类等价于 renderCtrlTextHtml（自动生成填写线带视觉宽度上限）。与 TemplatePreviewDialog 保持一致。
-    const ctrl = renderCtrlHtml(getPreviewField(ff), fillChars);
-    return { lines: [ctrl], repeat: true, fallback: ctrl };
-  });
-  const maxRows = Math.max(1, ...cols.filter((c) => !c.repeat).map((c) => c.lines.length));
-  return Array.from({ length: maxRows }, (_, i) =>
-    cols.map((col) => (col.repeat ? col.lines[0] : (col.lines[i] ?? col.fallback))),
-  );
-}
-
 function resolveInlineHostGroups(fields) {
   if (renderGroups.value.some((group) => group.type === 'inline' && group.fields === fields)) return renderGroups.value;
   if (designerRenderGroups.value.some((group) => group.type === 'inline' && group.fields === fields)) {
@@ -1442,33 +1407,17 @@ function resolveInlineHostGroups(fields) {
   return renderGroups.value;
 }
 
-// inline 整格文本填写线：每列按其规划宽度（cm）自适应根数，与后端 _add_inline_table
-// 共享 compute_fill_line_char_count 公式。仅独立 inline 组使用（unified band 不传）。
-function getInlineColumnCms(fields) {
-  const fractions = planInlineColumnFractions(fields);
-  const availableCm = resolveInlineTableAvailableCm(
-    resolveInlineHostGroups(fields),
-    { type: 'inline', fields },
-    selectedFormPaperOrientation.value,
-  );
-  return fractions.map((f) => f * availableCm);
-}
-
-function getInlineFillChars(fields) {
-  return getInlineColumnCms(fields).map((columnCm) => computeFillLineCharCount(columnCm));
-}
-
-function computeMergeSpans(N, M) {
-  if (M <= 0 || M > N) return Array(N).fill(1);
-  const base = Math.floor(N / M),
-    extra = N % M;
-  return Array.from({ length: M }, (_, i) => base + (i < extra ? 1 : 0));
-}
-
-function computeLabelValueSpans(N) {
-  const labelSpan = Math.max(1, Math.min(N - 1, Math.round(N * 0.4)));
-  return { labelSpan, valueSpan: N - labelSpan };
-}
+// 共享预览渲染函数（previewCellRender.js）：cell / inline 默认值策略经适配器注入，
+// 渲染分组来源复用本组件的 resolveInlineHostGroups。与原本地实现等价，
+// 由 tests/previewCellRender.test.js 的黄金参考矩阵锁定。
+const { renderCellHtml, getInlineRows, getInlineColumnCms, getInlineFillChars } = createPreviewCellRenderers({
+  toRendererField: getPreviewField,
+  getCellValue: (ff) => getScopedDefaultValue(ff, false),
+  getInlineValue: (ff) => getScopedDefaultValue(ff),
+  renderFallback: renderCtrlTextHtml,
+  resolveHostGroups: resolveInlineHostGroups,
+  getPaperOrientation: () => selectedFormPaperOrientation.value,
+});
 
 const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.value));
 
@@ -1694,29 +1643,8 @@ watch(
  * 用于迁移到新格式。
  */
 
-/**
- * 检测并迁移旧格式的 localStorage 键。
- * 在首次访问新格式键时，若发现旧格式键存在，则迁移后删除旧键。
- * @param {string} formId 表单 ID
- * @param {string} newTableInstanceId 新格式 table_instance_id
- * @param {string} legacyMapKey 旧格式 mapKey（groupIndex-kind-colCount）
- */
-function migrateLegacyKeyIfNeeded(formId, newTableInstanceId, legacyMapKey) {
-  if (!formId || !newTableInstanceId || !legacyMapKey) return;
-  const legacyKey = `crf:designer:col-widths:${formId}:${legacyMapKey}`;
-  const newKey = `crf:designer:col-widths:${formId}:${newTableInstanceId}`;
-  try {
-    const legacyValue = localStorage.getItem(legacyKey);
-    if (legacyValue != null && localStorage.getItem(newKey) == null) {
-      localStorage.setItem(newKey, legacyValue);
-    }
-    if (legacyValue != null) {
-      localStorage.removeItem(legacyKey);
-    }
-  } catch {
-    /* ignore localStorage errors */
-  }
-}
+// 旧格式键检测与迁移已集中到 useColumnResize.js（R4）：此处仅接线调用。
+
 function buildResizerDefaultsFactory(kind, colCount, group) {
   if (kind === 'normal') {
     return () => {
@@ -1749,7 +1677,7 @@ function getResizer(kind, colCount, groupIndex, group, scope = 'main') {
   const mapKey = `${scope}:${kind}:${colCount}:${tableInstanceId}`;
 
   if (!resizerCache.has(mapKey)) {
-    migrateLegacyKeyIfNeeded(selectedForm.value.id, tableInstanceId, legacyMapKey);
+    migrateLegacyColumnWidthKey(selectedForm.value.id, tableInstanceId, legacyMapKey);
 
     const tableKindRef = computed(() => tableInstanceId);
     const defaultsFactory = buildResizerDefaultsFactory(kind, colCount, group);
@@ -2882,206 +2810,34 @@ async function addLogRow() {
   }
 }
 
-// 选项字典快速CRUD
-const showQuickAddCodelist = ref(false),
-  quickCodelistName = ref(''),
-  quickCodelistDescription = ref(''),
-  quickCodelistOpts = ref([]),
-  quickOptCode = ref(''),
-  quickOptDecode = ref(''),
-  quickAddCodelistSaving = ref(false);
-function quickAddOptRow() {
-  if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签');
-  const n = quickCodelistOpts.value.length;
-  quickCodelistOpts.value.push({
-    id: null,
-    code: quickOptCode.value.trim() || `C.${n + 1}`,
-    decode: quickOptDecode.value.trim(),
-  });
-  quickOptCode.value = `C.${n + 2}`;
-  quickOptDecode.value = '';
-}
-async function quickDelOptRow(idx) {
-  try {
-    await confirmDelete(ElMessageBox.confirm, {
-      targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"`,
-    });
-    quickCodelistOpts.value.splice(idx, 1);
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error(e.message);
-  }
-}
-function closeQuickAddCodelist() {
-  showQuickAddCodelist.value = false;
-  quickCodelistName.value = '';
-  quickCodelistDescription.value = '';
-  quickCodelistOpts.value = [];
-  quickOptCode.value = '';
-  quickOptDecode.value = '';
-  quickAddCodelistSaving.value = false;
-}
+// 选项字典快捷增/改：共享弹窗 CodelistQuickEditDialog 承载表单状态、校验、引用确认与缓存失效
+// （codelists + field-definitions——后者为 R3 修复：设计器快改后左侧字段库 30 秒旧数据）。
+// 宿主只保留开关、编辑目标与保存后的刷新/回选（afterChange）。
+const showQuickAddCodelist = ref(false);
+const showQuickEditCodelist = ref(false);
+const quickEditCodelistId = ref(null);
 function openQuickAddCodelist() {
-  quickCodelistName.value = '';
-  quickCodelistDescription.value = '';
-  quickCodelistOpts.value = [];
-  quickOptCode.value = 'C.1';
-  quickOptDecode.value = '';
-  quickAddCodelistSaving.value = false;
   showQuickAddCodelist.value = true;
 }
-async function quickAddCodelist() {
-  if (quickAddCodelistSaving.value) return;
-
-  const savedName = quickCodelistName.value.trim();
-  if (!savedName) return ElMessage.warning('请输入字典名称');
-
-  const normalizedOptions = quickCodelistOpts.value.map((opt) => ({
-    ...opt,
-    code: String(opt.code ?? '').trim(),
-    decode: String(opt.decode ?? '').trim(),
-  }));
-  const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
-  if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
-
-  quickAddCodelistSaving.value = true;
-  try {
-    quickCodelistName.value = savedName;
-    quickCodelistOpts.value = normalizedOptions;
-    const created = await api.post(`/api/projects/${props.projectId}/codelists`, {
-      name: savedName,
-      description: quickCodelistDescription.value,
-      options: normalizedOptions.map((opt, index) => ({
-        code: opt.code,
-        decode: opt.decode,
-        order_index: index + 1,
-      })),
-    });
-    await loadCodelists();
-    editProp.codelist_id = created.id;
-    closeQuickAddCodelist();
-  } catch (e) {
-    ElMessage.error(e.message);
-  } finally {
-    quickAddCodelistSaving.value = false;
-  }
-}
-
-const showQuickEditCodelist = ref(false),
-  quickEditCodelistId = ref(null),
-  quickEditCodelistName = ref(''),
-  quickEditCodelistDescription = ref(''),
-  quickEditCodelistOpts = ref([]),
-  quickEditOptCode = ref(''),
-  quickEditOptDecode = ref(''),
-  quickEditCodelistSaving = ref(false);
 function openQuickEditCodelist() {
   if (!editProp.codelist_id) return;
-  const cl = codelists.value.find((c) => c.id === editProp.codelist_id);
-  if (!cl) return;
-  quickEditCodelistId.value = cl.id;
-  quickEditCodelistName.value = cl.name;
-  quickEditCodelistDescription.value = cl.description || '';
-  quickEditCodelistOpts.value = (cl.options || []).map((o) => ({
-    id: o.id,
-    code: o.code,
-    decode: o.decode,
-  }));
-  quickEditOptCode.value = `C.${(cl.options || []).length + 1}`;
-  quickEditOptDecode.value = '';
+  if (!codelists.value.some((c) => c.id === editProp.codelist_id)) return;
+  quickEditCodelistId.value = editProp.codelist_id;
   showQuickEditCodelist.value = true;
 }
-function quickEditAddOptRow() {
-  if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签');
-  const n = quickEditCodelistOpts.value.length;
-  quickEditCodelistOpts.value.push({
-    id: null,
-    code: quickEditOptCode.value.trim() || `C.${n + 1}`,
-    decode: quickEditOptDecode.value.trim(),
-  });
-  quickEditOptCode.value = `C.${n + 2}`;
-  quickEditOptDecode.value = '';
-}
-async function quickEditDelOptRow(idx) {
-  try {
-    await confirmDelete(ElMessageBox.confirm, {
-      targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"`,
-    });
-    quickEditCodelistOpts.value.splice(idx, 1);
-  } catch (e) {
-    if (e !== 'cancel') ElMessage.error(e.message);
+async function afterCodelistDialogChange(kind, { codelist }) {
+  await loadCodelists();
+  if (kind === 'add') {
+    editProp.codelist_id = codelist.id;
+    return;
   }
-}
-function closeQuickEditCodelist() {
-  showQuickEditCodelist.value = false;
-  quickEditCodelistId.value = null;
-  quickEditCodelistName.value = '';
-  quickEditCodelistDescription.value = '';
-  quickEditCodelistOpts.value = [];
-  quickEditOptCode.value = '';
-  quickEditOptDecode.value = '';
-}
-async function quickSaveCodelist() {
-  if (quickEditCodelistSaving.value) return;
-
-  const savedName = quickEditCodelistName.value.trim();
-  if (!savedName) return ElMessage.warning('请输入字典名称');
-
-  const normalizedOptions = quickEditCodelistOpts.value.map((opt) => ({
-    ...opt,
-    code: String(opt.code ?? '').trim(),
-    decode: String(opt.decode ?? '').trim(),
-  }));
-  const invalidOptionIndex = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode);
-  if (invalidOptionIndex !== -1) return ElMessage.warning(`请完整填写第 ${invalidOptionIndex + 1} 行的编码和值标签`);
-
-  quickEditCodelistSaving.value = true;
-  try {
-    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/references`);
-    if (refs.length) {
-      const msg = truncRefs(refs.map((r) => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`));
-      await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
-    }
-
-    quickEditCodelistName.value = savedName;
-    quickEditCodelistOpts.value = normalizedOptions;
-
-    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/snapshot`, {
-      name: savedName,
-      description: quickEditCodelistDescription.value,
-      options: normalizedOptions.map((opt) => ({
-        id: opt.id,
-        code: opt.code,
-        decode: opt.decode,
-      })),
-    });
-
-    api.invalidateCache(`/api/projects/${props.projectId}/codelists`);
-    await loadCodelists();
-    if (selectedForm.value) {
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
-      await loadFormFields();
-      const updated = formFields.value.find((f) => f.id === selectedFieldId.value);
-      if (updated && !isFieldPropDirty.value) selectField(updated);
-    }
-    refreshKey.value++;
-    closeQuickEditCodelist();
-    ElMessage.success('保存成功');
-  } catch (e) {
-    if (e === 'cancel') return;
-    api.invalidateCache(`/api/projects/${props.projectId}/codelists`);
-    await loadCodelists();
-    if (selectedForm.value) {
-      api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
-      await loadFormFields();
-      const updated = formFields.value.find((f) => f.id === selectedFieldId.value);
-      if (updated && !isFieldPropDirty.value) selectField(updated);
-    }
-    refreshKey.value++;
-    closeQuickEditCodelist();
-    ElMessage.error(`保存失败：${e.message}。已刷新为最新字典数据，请重新检查后再编辑。`);
-  } finally {
-    quickEditCodelistSaving.value = false;
+  if (selectedForm.value) {
+    api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
+    await loadFormFields();
+    const updated = formFields.value.find((f) => f.id === selectedFieldId.value);
+    if (updated && !isFieldPropDirty.value) selectField(updated);
   }
+  refreshKey.value++;
 }
 
 const showQuickAddUnit = ref(false),
@@ -5486,91 +5242,29 @@ function openAddForm() {
       >
     </el-dialog>
 
-    <el-dialog
+    <!-- 字典快捷增/改共享弹窗（新增 + 编辑两个实例，模式互斥；编码列恒显、占位符留空；
+         normalize-draft-before-submit 恢复设计器「提交前写回规范化值」的原始失败回显，仅 add 实例需要） -->
+    <CodelistQuickEditDialog
       v-model="showQuickAddCodelist"
-      title="新增选项"
-      width="560px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-    >
-      <el-form label-width="80px" size="small">
-        <el-form-item label="名称"><el-input v-model="quickCodelistName" /></el-form-item>
-        <el-form-item label="描述"
-          ><el-input v-model="quickCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }"
-        /></el-form-item>
-      </el-form>
-      <el-table :data="quickCodelistOpts" size="small" border>
-        <el-table-column prop="code" label="编码" width="120">
-          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
-        </el-table-column>
-        <el-table-column prop="decode" label="标签">
-          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ $index }"
-            ><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template
-          >
-        </el-table-column>
-      </el-table>
-      <div style="margin-top: 8px; display: flex; gap: 6px">
-        <el-input v-model="quickOptCode" size="small" style="width: 100px" />
-        <el-input v-model="quickOptDecode" size="small" style="flex: 1" />
-        <el-button size="small" @click="quickAddOptRow">添加</el-button>
-      </div>
-      <template #footer
-        ><el-button :disabled="quickAddCodelistSaving" @click="closeQuickAddCodelist">取消</el-button
-        ><el-button
-          type="primary"
-          :loading="quickAddCodelistSaving"
-          :disabled="quickAddCodelistSaving"
-          @click="quickAddCodelist"
-          >确定</el-button
-        ></template
-      >
-    </el-dialog>
-
-    <el-dialog
+      mode="add"
+      :project-id="projectId"
+      :codelists="codelists"
+      add-title="新增选项"
+      code-placeholder=""
+      decode-placeholder=""
+      :normalize-draft-before-submit="true"
+      :after-change="afterCodelistDialogChange"
+    />
+    <CodelistQuickEditDialog
       v-model="showQuickEditCodelist"
-      title="编辑选项字典"
-      width="560px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-    >
-      <el-form label-width="80px" size="small">
-        <el-form-item label="名称"><el-input v-model="quickEditCodelistName" /></el-form-item>
-        <el-form-item label="描述"
-          ><el-input v-model="quickEditCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }"
-        /></el-form-item>
-      </el-form>
-      <el-table :data="quickEditCodelistOpts" size="small" border>
-        <el-table-column prop="code" label="编码" width="120">
-          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
-        </el-table-column>
-        <el-table-column prop="decode" label="标签">
-          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ $index }"
-            ><el-button type="danger" size="small" link @click="quickEditDelOptRow($index)">删除</el-button></template
-          >
-        </el-table-column>
-      </el-table>
-      <div style="margin-top: 8px; display: flex; gap: 6px">
-        <el-input v-model="quickEditOptCode" size="small" style="width: 100px" />
-        <el-input v-model="quickEditOptDecode" size="small" style="flex: 1" />
-        <el-button size="small" @click="quickEditAddOptRow">添加</el-button>
-      </div>
-      <template #footer
-        ><el-button :disabled="quickEditCodelistSaving" @click="closeQuickEditCodelist">取消</el-button
-        ><el-button
-          type="primary"
-          :loading="quickEditCodelistSaving"
-          :disabled="quickEditCodelistSaving"
-          @click="quickSaveCodelist"
-          >确定</el-button
-        ></template
-      >
-    </el-dialog>
+      mode="edit"
+      :codelist-id="quickEditCodelistId"
+      :project-id="projectId"
+      :codelists="codelists"
+      code-placeholder=""
+      decode-placeholder=""
+      :after-change="afterCodelistDialogChange"
+    />
 
     <el-dialog v-model="showQuickAddUnit" title="新增单位" width="360px" :close-on-click-modal="false">
       <el-form label-width="80px" size="small">

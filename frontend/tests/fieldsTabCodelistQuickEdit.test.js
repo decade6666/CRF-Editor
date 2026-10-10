@@ -8,8 +8,10 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8')
 
 /**
- * 字段库内联编辑引用字典：在 FieldsTab 的选项行补齐「新增字典 / 编辑字典」入口，
- * 与表单设计器对齐，但为字段库内独立实现（不依赖 FormDesignerTab）。
+ * 字段库内联编辑引用字典：入口与保存后的刷新/回绑留在 FieldsTab（宿主侧），
+ * 表单状态、校验、引用确认、端点调用与缓存失效已共享到 CodelistQuickEditDialog
+ * （shared-rule-convergence R3），对应行为由
+ * tests/component/CodelistQuickEditDialog.spec.js 的挂载测试锁定。
  */
 
 test('FieldsTab imports the add/edit icons for inline codelist editing', () => {
@@ -23,28 +25,46 @@ test('choice option row exposes add and edit codelist buttons with correct wirin
   assert.match(source, /:icon="EditPen"[\s\S]*?:disabled="!editProp\.codelist_id"[\s\S]*?@click="openQuickEditCodelist"/)
 })
 
-test('quick add codelist posts to the create endpoint and selects the new codelist', () => {
-  assert.match(source, /async function quickAddCodelist\(\)/)
-  assert.match(source, /api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists`/)
-  assert.match(source, /editProp\.codelist_id = created\.id/)
+test('quick add opens the shared dialog; created codelist is bound by the host afterChange', () => {
+  // 端点与载荷断言随实现迁入弹窗（挂载测试断言 POST /codelists 载荷）；
+  // 宿主保留：共享弹窗接线 + afterChange('add') 内的新字典回绑；新增成功提示经
+  // add-success-message 由弹窗在关闭后发出（保持原 close→toast 顺序，挂载测试锁顺序）。
+  assert.match(source, /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickAddCodelist"[\s\S]*?mode="add"/)
+  assert.match(source, /function openQuickAddCodelist\(\) \{/)
+  assert.match(source, /editProp\.codelist_id = codelist\.id/)
+  assert.match(source, /add-success-message="新增成功"/)
 })
 
-test('quick edit codelist warns on references then saves via snapshot endpoint', () => {
-  assert.match(source, /async function quickSaveCodelist\(\)/)
-  assert.match(source, /\/codelists\/\$\{quickEditCodelistId\.value\}\/references/)
-  assert.match(source, /修改将影响以下字段/)
-  assert.match(source, /api\.put\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/snapshot`/)
+test('quick edit opens the shared dialog hydrated from the selected codelist', () => {
+  // 引用确认与 snapshot 端点断言迁入弹窗（挂载测试覆盖 references GET + snapshot PUT）；
+  // 宿主保留：编辑目标解析与未选字典守卫。
+  assert.match(source, /function openQuickEditCodelist\(\) \{/)
+  assert.match(source, /if \(!editProp\.codelist_id\) return/)
+  assert.match(source, /if \(!codelists\.value\.some\(\(c\) => c\.id === editProp\.codelist_id\)\) return/)
+  assert.match(source, /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickEditCodelist"[\s\S]*?mode="edit"[\s\S]*?:codelist-id="quickEditCodelistId"/)
 })
 
-test('codelist writes invalidate caches and bump the global refreshKey', () => {
-  assert.match(source, /async function reloadAfterCodelistChange\(\)/)
-  assert.match(source, /api\.invalidateCache\(`\/api\/projects\/\$\{props\.projectId\}\/codelists`\)/)
-  assert.match(source, /api\.invalidateCache\(`\/api\/projects\/\$\{props\.projectId\}\/field-definitions`\)/)
-  assert.match(source, /refreshKey\.value\+\+/)
+test('codelist writes refresh host data and bump the global refreshKey via afterChange', () => {
+  // 缓存失效（codelists + field-definitions）统一前移到共享弹窗内（挂载测试断言两键）；
+  // 宿主保留与历史 reloadAfterCodelistChange 相同的 load + refreshKey 联动刷新。
+  assert.match(
+    source,
+    /async function afterCodelistDialogChange\(kind, \{ codelist \}\) \{[\s\S]*?await load\(\)[\s\S]*?refreshKey\.value\+\+/,
+  )
 })
 
-test('quick edit failure refreshes to latest codelist data and reports the error', () => {
-  assert.match(source, /已刷新为最新字典数据/)
+test('FieldsTab load guards late responses against project switches', () => {
+  // 共享弹窗 afterChange 会调用宿主 load()：项目切换后迟到的批量加载
+  // 不得把旧项目数据写进新项目的列表状态（identity gate，同类于会话令牌守卫）。
+  assert.match(source, /async function load\(\) \{[\s\S]{0,200}const pid = props\.projectId/)
+  assert.match(source, /if \(props\.projectId !== pid\) return\n  fields\.value = nextFields/)
+})
+
+test('quick edit failure refresh flow moved to the shared dialog', () => {
+  // 失败后刷新 + 关闭 + 「已刷新为最新字典数据」提示属于弹窗级流程（design §2.2），
+  // 由挂载测试断言完整提示文案；FieldsTab 源内不再持有该文案。
+  assert.doesNotMatch(source, /已刷新为最新字典数据/)
+  assert.match(source, /<CodelistQuickEditDialog[\s\S]*?:after-change="afterCodelistDialogChange"/)
 })
 
 test('add and edit dialogs no longer render trailing-underscore toggles', () => {

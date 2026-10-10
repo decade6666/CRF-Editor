@@ -21,9 +21,11 @@ import {
   planUnifiedColumnFractions,
   renderCtrl,
   renderCtrlHtml,
+  renderCtrlTextHtml,
   toHtml,
   computeFillLineCharCount,
 } from '../src/composables/useCRFRenderer.js'
+import { createPreviewCellRenderers } from '../src/composables/previewCellRender.js'
 import {
   readColumnWidthRatios,
   readColumnWidthRatiosWithFallback,
@@ -198,10 +200,31 @@ test('9.3f5 inline 多行默认值回退同样走 renderCtrlTextHtml，不得绕
     /return renderCtrlTextHtml\(field, fillLineChars\)/,
     'renderCtrlHtml non-choice branch should delegate to renderCtrlTextHtml',
   )
-  // 设计器与访视的 inline 多行默认值回退必须复用 renderCtrlTextHtml（上限内），
-  // 不允许直连 toHtml(renderCtrl(...)) 绕过 .word-page flex 拉满截停
-  assert.match(formDesignerSource, /fallback: renderCtrlTextHtml\(getPreviewField\(ff\), fillChars\)/)
-  assert.match(visitsSource, /fallback: renderCtrlTextHtml\(toRendererField\(ff\.field_definition\), fillChars\)/)
+  // 设计器/访视的 inline 多行默认值回退已迁入 previewCellRender.js（shared-rule-convergence
+  // R1），输出等价由 tests/previewCellRender.test.js 黄金参考矩阵（含 fallback 格逐字节对比）
+  // 锁定；此处改为行为断言（回退格与 renderCtrlTextHtml 输出逐字节一致，含生成线视觉上限）
+  // 加两条接线守卫：两个组件的绑定仍把回退渲染指到 renderCtrlTextHtml，
+  // 不允许直连 toHtml(renderCtrl(...)) 绕过 .word-page flex 拉满截停。
+  const { getInlineRows } = createPreviewCellRenderers({
+    toRendererField: (ff) => ff.field_definition,
+    getCellValue: () => '',
+    getInlineValue: (ff) => ff.default_value || '',
+    renderFallback: renderCtrlTextHtml,
+    resolveHostGroups: () => [],
+    getPaperOrientation: () => 'auto',
+  })
+  const rows = getInlineRows(
+    [
+      { field_definition: { field_type: '文本' }, default_value: '一\n二' },
+      { field_definition: { field_type: '文本' }, default_value: '短' },
+    ],
+    [8, 8],
+  )
+  // 第二列默认值只有 1 行，第 2 行是回退格
+  assert.equal(rows[1][1], renderCtrlTextHtml({ field_type: '文本' }, 8))
+  assert.match(rows[1][1], /max-width:10\.0em/)
+  assert.match(formDesignerSource, /renderFallback: renderCtrlTextHtml,/)
+  assert.match(visitsSource, /renderFallback: renderCtrlTextHtml,/)
   assert.doesNotMatch(formDesignerSource, /fallback: toHtml\(renderCtrl/)
   assert.doesNotMatch(visitsSource, /fallback: toHtml\(renderCtrl/)
   assert.doesNotMatch(templatePreviewSource, /toHtml\(renderCtrl/)
@@ -793,19 +816,296 @@ test('16.1.5i visits inline column fractions reuse the resolved ratios once', ()
 })
 
 test('16.1.5j visits normal choice preview preserves fillLineChars forwarding', () => {
-  assert.doesNotMatch(
-    visitsSource,
-    /\['单选', '多选', '单选（纵向）', '多选（纵向）'\][\s\S]{0,120}return renderCtrlHtml\(field\)/,
-    'VisitsTab choice fields must not bypass fillLineChars in normal table preview',
-  )
+  // VisitsTab 本地 renderCellHtml 已迁入 previewCellRender.js（shared-rule-convergence R1）。
+  // 原源码断言（return renderCtrlHtml(field, fillLineChars)）改为行为断言：共享 renderCellHtml
+  // 把 fillLineChars 原样透传给渲染器（文本控件按根数生成填写线；选项类走同一条调用路径、
+  // 结构化渲染不含填写线，不存在旁路）。
+  const { renderCellHtml } = createPreviewCellRenderers({
+    toRendererField: (ff) => ff,
+    getCellValue: () => '',
+    getInlineValue: () => '',
+    renderFallback: renderCtrlHtml,
+    resolveHostGroups: () => [],
+    getPaperOrientation: () => 'auto',
+  })
+  const textRow = {
+    field_definition: { field_type: '文本', label: 'X' },
+    field_type: '文本',
+    default_value: null,
+  }
+  assert.equal(renderCellHtml(textRow, 20), renderCtrlHtml(textRow, 20))
+  // 20 根填写线渲染为 fill-line span（20 × 0.5em = min-width:10.0em），根数变化必须改变输出
+  assert.match(renderCellHtml(textRow, 20), /min-width:10\.0em/)
+  assert.notEqual(renderCellHtml(textRow, 20), renderCellHtml(textRow, null))
+  const choiceRow = {
+    field_definition: { field_type: '单选', label: '性别', codelist: { options: [{ text: '男' }, { text: '女' }] } },
+    field_type: '单选',
+    options: [{ text: '男' }, { text: '女' }],
+    default_value: null,
+  }
+  assert.equal(renderCellHtml(choiceRow, 20), renderCtrlHtml(choiceRow, 20))
+  // 接线守卫（仅接线，非行为）：VisitsTab 模板的 normal 表单元格仍以 normalFillChars(...) 传入根数
   assert.match(
     visitsSource,
-    /return renderCtrlHtml\(field, fillLineChars\)/,
-    'VisitsTab renderCellHtml should forward fillLineChars to all field types',
+    /renderCellHtml\(ff, normalFillChars\(gv, gi\)\)/,
+    'VisitsTab normal table preview should pass normalFillChars into the shared renderCellHtml',
   )
 })
 
 // ─── Phase 16.2：Export Column Width Override Contract 测试 ──────────────────
+
+// 黄金参考：App.vue collectColumnWidthOverrides 在迁移前（基线 f68ebe1）的逐字快照。
+// Step 4（shared-rule-convergence R4）把该函数移入 useColumnResize.js 并改为复用
+// parseColumnWidthStorageKey / isValidColumnWidthOverrideArray；黄金等价矩阵（16.2.5e）
+// 证明重写后的输出与该快照在脏存储上完全一致。
+function goldenCollectColumnWidthOverrides(forms) {
+  const overrides = {}
+  if (!forms || !forms.length) return overrides
+
+  const formIds = new Set(forms.map((f) => f.id).filter((id) => id != null))
+
+  // 遍历 localStorage 中所有相关键
+  const keyPrefix = 'crf:designer:col-widths:'
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key || !key.startsWith(keyPrefix)) continue
+
+    // 解析键格式：crf:designer:col-widths:<form_id>:<table_instance_id>
+    const parts = key.slice(keyPrefix.length).split(':')
+    if (parts.length < 2) continue
+
+    const formId = parseInt(parts[0], 10)
+    if (!formIds.has(formId)) continue
+
+    const tableInstanceId = parts.slice(1).join(':')
+
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr) && arr.length > 0 && arr.every((r) => Number.isFinite(r) && r >= 0 && r <= 1)) {
+        overrides[tableInstanceId] = arr
+      }
+    } catch {
+      // 忽略解析错误
+    }
+  }
+
+  return overrides
+}
+
+test('16.2.5a buildColumnWidthStorageKey 与 parseColumnWidthStorageKey 互逆', async () => {
+  const {
+    buildColumnWidthStorageKey,
+    parseColumnWidthStorageKey,
+  } = await import('../src/composables/useColumnResize.js')
+  assert.equal(typeof buildColumnWidthStorageKey, 'function')
+  assert.equal(typeof parseColumnWidthStorageKey, 'function')
+
+  assert.equal(
+    buildColumnWidthStorageKey(42, 'normal:fieldIds=1,2'),
+    'crf:designer:col-widths:42:normal:fieldIds=1,2',
+  )
+  assert.deepEqual(parseColumnWidthStorageKey('crf:designer:col-widths:42:normal:fieldIds=1,2'), {
+    formId: 42,
+    tableInstanceId: 'normal:fieldIds=1,2',
+  })
+  // 互逆
+  assert.deepEqual(
+    parseColumnWidthStorageKey(buildColumnWidthStorageKey(7, 'inline:fieldIds=3,4,5')),
+    { formId: 7, tableInstanceId: 'inline:fieldIds=3,4,5' },
+  )
+  // 空 formId / 空实例不产键
+  assert.equal(buildColumnWidthStorageKey(null, 'normal:fieldIds=1,2'), null)
+  assert.equal(buildColumnWidthStorageKey(42, null), null)
+})
+
+test('16.2.5b parseColumnWidthStorageKey 拒绝非前缀与残缺键，保留 parseInt/NaN 语义', async () => {
+  const { parseColumnWidthStorageKey } = await import('../src/composables/useColumnResize.js')
+
+  // 旧格式键：tableInstanceId 即 <groupIndex-kind-colCount>
+  assert.deepEqual(parseColumnWidthStorageKey('crf:designer:col-widths:42:0-normal-2'), {
+    formId: 42,
+    tableInstanceId: '0-normal-2',
+  })
+  // 非本前缀
+  assert.equal(parseColumnWidthStorageKey('crf:designer:row-heights:42:normal:fieldIds=1,2'), null)
+  assert.equal(parseColumnWidthStorageKey('random'), null)
+  assert.equal(parseColumnWidthStorageKey(null), null)
+  // 前缀对但缺 tableInstanceId
+  assert.equal(parseColumnWidthStorageKey('crf:designer:col-widths:42'), null)
+  // formId 非数字沿用 parseInt → NaN（由调用方 Set 成员检查兜底）
+  assert.deepEqual(parseColumnWidthStorageKey('crf:designer:col-widths:abc:inline:fieldIds=1'), {
+    formId: NaN,
+    tableInstanceId: 'inline:fieldIds=1',
+  })
+})
+
+test('16.2.5c isValidColumnWidthOverrideArray 保持导出收集器的宽松 [0,1] 门（无和校验）', async () => {
+  const { isValidColumnWidthOverrideArray } = await import('../src/composables/useColumnResize.js')
+  assert.equal(typeof isValidColumnWidthOverrideArray, 'function')
+
+  assert.equal(isValidColumnWidthOverrideArray([0.4, 0.6]), true)
+  // 宽松门：边界 0/1 合法、无和校验（和漂移 0.1 仍收集——导出端语义，迁移前后一致）
+  assert.equal(isValidColumnWidthOverrideArray([0, 1]), true)
+  assert.equal(isValidColumnWidthOverrideArray([0.5, 0.6]), true)
+  assert.equal(isValidColumnWidthOverrideArray([]), false)
+  assert.equal(isValidColumnWidthOverrideArray([-0.1, 1.1]), false)
+  assert.equal(isValidColumnWidthOverrideArray(['0.5', 0.5]), false)
+  assert.equal(isValidColumnWidthOverrideArray({ not: 'array' }), false)
+  assert.equal(isValidColumnWidthOverrideArray(null), false)
+})
+
+test('16.2.5d migrateLegacyColumnWidthKey：缺失即复制、已存在不覆盖、无旧键零操作', async () => {
+  const { migrateLegacyColumnWidthKey } = await import('../src/composables/useColumnResize.js')
+  assert.equal(typeof migrateLegacyColumnWidthKey, 'function')
+
+  // ① 旧键有值、新键缺失 → 复制后删除旧键（value 原样字节保留）
+  let ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', '{"0":0.7,"1":0.3,"len":2}')
+  migrateLegacyColumnWidthKey(42, 'normal:fieldIds=1,2', '0-normal-2')
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2'), '{"0":0.7,"1":0.3,"len":2}')
+  assert.equal(ls.getItem('crf:designer:col-widths:42:0-normal-2'), null)
+  delete globalThis.localStorage
+
+  // ② 新键已有值 → 永不覆盖；旧键仍被删除
+  ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.25, 0.75]))
+  migrateLegacyColumnWidthKey(42, 'normal:fieldIds=1,2', '0-normal-2')
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2'), JSON.stringify([0.25, 0.75]))
+  assert.equal(ls.getItem('crf:designer:col-widths:42:0-normal-2'), null)
+  delete globalThis.localStorage
+
+  // ③ 旧键不存在 → 不新建任何键
+  ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  migrateLegacyColumnWidthKey(42, 'normal:fieldIds=1,2', '0-normal-2')
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2'), null)
+  assert.equal(ls.length, 0)
+  delete globalThis.localStorage
+
+  // ④ 参数缺失 → 零操作
+  ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+  migrateLegacyColumnWidthKey(null, 'normal:fieldIds=1,2', '0-normal-2')
+  migrateLegacyColumnWidthKey(42, '', '0-normal-2')
+  assert.equal(ls.length, 0)
+  delete globalThis.localStorage
+})
+
+test('16.2.5e collectColumnWidthOverrides 与黄金参考在脏存储矩阵上输出一致', async () => {
+  const { collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
+  assert.equal(typeof collectColumnWidthOverrides, 'function')
+
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 脏存储矩阵：新格式 / 旧格式 / 损坏 JSON / 越界 / 和漂移 / 非数值 / 空数组 /
+  // 无关前缀 / 行高键 / 其他表单
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2,3', JSON.stringify([0.35, 0.65]))
+  ls.setItem('crf:designer:col-widths:42:inline:fieldIds=4,5', JSON.stringify([0.4, 0.6]))
+  ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
+  ls.setItem('crf:designer:col-widths:42:1-inline-3', JSON.stringify([0.33, 0.33, 0.34]))
+  ls.setItem('crf:designer:col-widths:42:bad:fieldIds=6', '{"not":"array"}')
+  ls.setItem('crf:designer:col-widths:42:broken:fieldIds=7', '{oops')
+  ls.setItem('crf:designer:col-widths:42:range:fieldIds=8', JSON.stringify([-0.1, 1.1]))
+  // 和漂移：宽松导出门有意放行（无和校验），读取端严格门会拒绝
+  ls.setItem('crf:designer:col-widths:42:drift:fieldIds=9', JSON.stringify([0.5, 0.6]))
+  ls.setItem('crf:designer:col-widths:42:nan:fieldIds=10', JSON.stringify([0.5, 'x']))
+  ls.setItem('crf:designer:col-widths:42:empty:fieldIds=11', '[]')
+  ls.setItem('crf:other:42:normal', JSON.stringify([0.5, 0.5]))
+  ls.setItem('crf:designer:row-heights:42:normal:fieldIds=1,2', JSON.stringify([30, 60]))
+  ls.setItem('crf:designer:col-widths:99:unified:fieldIds=6,7,8', JSON.stringify([0.3, 0.4, 0.3]))
+
+  const forms = [{ id: 42 }, { id: 99 }, { id: null }]
+  assert.deepEqual(collectColumnWidthOverrides(forms), goldenCollectColumnWidthOverrides(forms))
+
+  // 其他形态的入参：空列表 / null
+  assert.deepEqual(collectColumnWidthOverrides([]), goldenCollectColumnWidthOverrides([]))
+  assert.deepEqual(collectColumnWidthOverrides(null), goldenCollectColumnWidthOverrides(null))
+
+  delete globalThis.localStorage
+})
+
+test('16.2.5f collectColumnWidthOverrides 严格只读：脏存储收集后 localStorage 不变', async () => {
+  const { collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.4, 0.6]))
+  ls.setItem('crf:designer:col-widths:42:legacy-2', JSON.stringify([0.5, 0.5]))
+  ls.setItem('crf:designer:col-widths:42:broken:fieldIds=3', '{oops')
+  ls.setItem('crf:designer:col-widths:42:drift:fieldIds=4', JSON.stringify([0.5, 0.6]))
+
+  const before = ls._peek()
+  collectColumnWidthOverrides([{ id: 42 }])
+  assert.deepEqual(ls._peek(), before)
+
+  delete globalThis.localStorage
+})
+
+test('16.2.5g 宽松容差历史数组不被规范化或删除：读取端拒绝回退，键原样保留', async () => {
+  const { readColumnWidthRatios, collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 和漂移 0.01 ∈ (1e-3, 0.02]：旧 VisitsTab 本地门接受，统一后的模块门拒绝
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.5, 0.51]))
+  // 越界（模块门 [0.02,0.98] 之外，宽松导出门之内）
+  ls.setItem('crf:designer:col-widths:42:inline:fieldIds=3,4', JSON.stringify([0.005, 0.995]))
+
+  assert.equal(readColumnWidthRatios(42, 'normal:fieldIds=1,2', 2), null)
+  assert.equal(readColumnWidthRatios(42, 'inline:fieldIds=3,4', 2), null)
+
+  // 导出收集器（宽松门）仍收集，且所有键在收集后原样保留（不删除、不规范化）
+  const overrides = collectColumnWidthOverrides([{ id: 42 }])
+  assert.deepEqual(overrides['normal:fieldIds=1,2'], [0.5, 0.51])
+  assert.deepEqual(overrides['inline:fieldIds=3,4'], [0.005, 0.995])
+  assert.equal(ls.getItem('crf:designer:col-widths:42:normal:fieldIds=1,2'), JSON.stringify([0.5, 0.51]))
+  assert.equal(ls.getItem('crf:designer:col-widths:42:inline:fieldIds=3,4'), JSON.stringify([0.005, 0.995]))
+
+  delete globalThis.localStorage
+})
+
+test('16.2.5h 读取端统一模块门：和容差 1e-3、边界 [0.02,0.98]、长度校验', async () => {
+  const { readColumnWidthRatios } = await import('../src/composables/useColumnResize.js')
+  const ls = createLocalStorageStub()
+  globalThis.localStorage = ls
+
+  // 合法数组照常读取
+  ls.setItem('crf:designer:col-widths:42:normal:fieldIds=1,2', JSON.stringify([0.4, 0.6]))
+  assert.deepEqual(readColumnWidthRatios(42, 'normal:fieldIds=1,2', 2), [0.4, 0.6])
+
+  // 和漂移 0.01 > 1e-3 → 拒绝（统一前 VisitsTab 本地门 0.02 会接受）
+  ls.setItem('crf:designer:col-widths:43:normal:fieldIds=1,2', JSON.stringify([0.5, 0.51]))
+  assert.equal(readColumnWidthRatios(43, 'normal:fieldIds=1,2', 2), null)
+
+  // 边界越界 → 拒绝
+  ls.setItem('crf:designer:col-widths:44:normal:fieldIds=1,2', JSON.stringify([0.005, 0.995]))
+  assert.equal(readColumnWidthRatios(44, 'normal:fieldIds=1,2', 2), null)
+
+  // 长度不符 → 拒绝
+  assert.equal(readColumnWidthRatios(42, 'normal:fieldIds=1,2', 3), null)
+
+  delete globalThis.localStorage
+})
+
+test('16.2.5i 列宽键拼装/解析/校验/迁移只存在于 useColumnResize（接线守卫）', () => {
+  // 接线守卫（仅接线，非行为）：三处调用方改为导入模块函数，本地副本删除。
+  assert.doesNotMatch(visitsSource, /function readPersistedColRatios/)
+  assert.match(visitsSource, /readColumnWidthRatios\(/)
+  assert.match(visitsSource, /buildTableInstanceId\('inline', fields\)/)
+  assert.match(visitsSource, /buildTableInstanceId\('normal', fields\)/)
+  assert.match(visitsSource, /buildTableInstanceId\('unified', group\.fields\)/)
+  assert.doesNotMatch(formDesignerSource, /function migrateLegacyKeyIfNeeded/)
+  assert.match(formDesignerSource, /migrateLegacyColumnWidthKey\(/)
+  const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
+  assert.doesNotMatch(appSource, /function collectColumnWidthOverrides/)
+  assert.match(appSource, /collectColumnWidthOverrides\(/)
+})
 
 test('16.2.6a collectColumnWidthOverrides_new_format: 收集新格式键', async () => {
   const ls = createLocalStorageStub()
@@ -816,31 +1116,8 @@ test('16.2.6a collectColumnWidthOverrides_new_format: 收集新格式键', async
   ls.setItem('crf:designer:col-widths:42:inline:fieldIds=4,5', JSON.stringify([0.4, 0.6]))
   ls.setItem('crf:designer:col-widths:99:unified:fieldIds=6,7,8', JSON.stringify([0.3, 0.4, 0.3]))
 
-  // 模拟 collectColumnWidthOverrides 逻辑
-  function collectColumnWidthOverrides(forms) {
-    const overrides = {}
-    if (!forms || !forms.length) return overrides
-    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
-    const keyPrefix = 'crf:designer:col-widths:'
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key || !key.startsWith(keyPrefix)) continue
-      const parts = key.slice(keyPrefix.length).split(':')
-      if (parts.length < 2) continue
-      const formId = parseInt(parts[0], 10)
-      if (!formIds.has(formId)) continue
-      const tableInstanceId = parts.slice(1).join(':')
-      try {
-        const raw = localStorage.getItem(key)
-        if (!raw) continue
-        const arr = JSON.parse(raw)
-        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
-          overrides[tableInstanceId] = arr
-        }
-      } catch { /* ignore */ }
-    }
-    return overrides
-  }
+  // R4：改为导入真实实现（与黄金参考的等价性见 16.2.5e）
+  const { collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
 
   const forms = [{ id: 42 }, { id: 99 }]
   const overrides = collectColumnWidthOverrides(forms)
@@ -861,30 +1138,8 @@ test('16.2.6b collectColumnWidthOverrides_legacy_format: 兼容旧格式键', as
   ls.setItem('crf:designer:col-widths:42:0-normal-2', JSON.stringify([0.7, 0.3]))
   ls.setItem('crf:designer:col-widths:42:1-inline-3', JSON.stringify([0.33, 0.33, 0.34]))
 
-  function collectColumnWidthOverrides(forms) {
-    const overrides = {}
-    if (!forms || !forms.length) return overrides
-    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
-    const keyPrefix = 'crf:designer:col-widths:'
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key || !key.startsWith(keyPrefix)) continue
-      const parts = key.slice(keyPrefix.length).split(':')
-      if (parts.length < 2) continue
-      const formId = parseInt(parts[0], 10)
-      if (!formIds.has(formId)) continue
-      const tableInstanceId = parts.slice(1).join(':')
-      try {
-        const raw = localStorage.getItem(key)
-        if (!raw) continue
-        const arr = JSON.parse(raw)
-        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
-          overrides[tableInstanceId] = arr
-        }
-      } catch { /* ignore */ }
-    }
-    return overrides
-  }
+  // R4：改为导入真实实现（与黄金参考的等价性见 16.2.5e）
+  const { collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
 
   const forms = [{ id: 42 }]
   const overrides = collectColumnWidthOverrides(forms)
@@ -911,30 +1166,8 @@ test('16.2.6c collectColumnWidthOverrides_invalid_entry: 跳过无效条目', as
   // 无效：空数组
   ls.setItem('crf:designer:col-widths:42:invalid4:fieldIds=6', '[]')
 
-  function collectColumnWidthOverrides(forms) {
-    const overrides = {}
-    if (!forms || !forms.length) return overrides
-    const formIds = new Set(forms.map(f => f.id).filter(id => id != null))
-    const keyPrefix = 'crf:designer:col-widths:'
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key || !key.startsWith(keyPrefix)) continue
-      const parts = key.slice(keyPrefix.length).split(':')
-      if (parts.length < 2) continue
-      const formId = parseInt(parts[0], 10)
-      if (!formIds.has(formId)) continue
-      const tableInstanceId = parts.slice(1).join(':')
-      try {
-        const raw = localStorage.getItem(key)
-        if (!raw) continue
-        const arr = JSON.parse(raw)
-        if (Array.isArray(arr) && arr.length > 0 && arr.every(r => Number.isFinite(r) && r >= 0 && r <= 1)) {
-          overrides[tableInstanceId] = arr
-        }
-      } catch { /* ignore */ }
-    }
-    return overrides
-  }
+  // R4：改为导入真实实现（与黄金参考的等价性见 16.2.5e）
+  const { collectColumnWidthOverrides } = await import('../src/composables/useColumnResize.js')
 
   const forms = [{ id: 42 }]
   const overrides = collectColumnWidthOverrides(forms)
