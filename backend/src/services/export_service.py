@@ -1926,38 +1926,7 @@ class ExportService:
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
-        para = merged_cell.paragraphs[0]
-
-        label = form_field.label_override or "以下为log行"
-
-        run = para.add_run(label)
-
-        self._set_run_font(
-            run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(para)
-
-        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
-
-        if form_field.text_color:
-            self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-        field_def = form_field.field_definition
-
-        annotation_text = self._field_annotation_text(field_def) if field_def else ""
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                para,
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
+        self._fill_structure_row_cell(merged_cell, form_field, is_log=True, annotated=annotated)
 
     def _add_label_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
         """添加标签字段行。"""
@@ -1967,13 +1936,24 @@ class ExportService:
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
-        para = merged_cell.paragraphs[0]
+        self._fill_structure_row_cell(merged_cell, form_field, is_log=False, annotated=annotated)
 
-        para.style = "FormLabel"
+    def _fill_structure_row_cell(self, cell, form_field, *, is_log: bool, annotated: bool) -> None:
+        """填充日志行 / 标签行共享的结构行单元格。
+
+        底纹与文字色重染是日志行专属样式：标签行不写底纹、不重染（保持既有导出语义）。
+        """
+
+        para = cell.paragraphs[0]
 
         field_def = form_field.field_definition
 
-        label = form_field.label_override or (field_def.label if field_def else "")
+        if not is_log:
+            para.style = "FormLabel"
+
+        fallback = "以下为log行" if is_log else getattr(field_def, "label", "")
+
+        label = form_field.label_override or fallback
 
         run = para.add_run(label)
 
@@ -1985,11 +1965,23 @@ class ExportService:
 
         self._apply_cell_paragraph_metrics(para)
 
-        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT if is_log else WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+        if is_log:
+            self._apply_cell_shading(cell, form_field.bg_color or "D9D9D9")
+
+            if form_field.text_color:
+                self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
+
+        self._add_structure_row_annotation(para, field_def, annotated=annotated)
+
+    def _add_structure_row_annotation(self, para, field_def, *, annotated: bool) -> None:
+        """按需为结构行段落追加 aCRF OID 注记盒。"""
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
+
         if annotated and annotation_text:
             self._add_oid_annotation_box(
                 para,
