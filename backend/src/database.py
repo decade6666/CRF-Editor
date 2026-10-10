@@ -6,6 +6,8 @@ from typing import Optional
 
 from sqlalchemy import create_engine, event, text, inspect
 
+from sqlalchemy.engine import Connection, Engine
+
 from sqlalchemy.orm import Session
 
 
@@ -187,17 +189,58 @@ def _migrate_add_field_definition_checkbox_label(engine):
             conn.execute(text('ALTER TABLE "field_definition" ADD COLUMN checkbox_label VARCHAR(255)'))
 
 
-def _migrate_add_order_index(engine):
+# order_index / sequence 回填迁移的表清单：(表名, 分组列, 序号列)。
+# 标识符只允许取自此元组（_backfill_null_order 内做成员断言）。
+_ORDER_BACKFILL_TARGETS = (
+    ("unit", "project_id", "order_index"),
+    ("field_definition", "project_id", "order_index"),
+    ("form", "project_id", "order_index"),
+    ("codelist", "project_id", "order_index"),
+    ("codelist_option", "codelist_id", "order_index"),
+    ("visit", "project_id", "sequence"),
+)
+
+
+def _backfill_null_order(conn: Connection, table: str, group_column: str, order_column: str) -> None:
+    """单表回填：按分组列为 NULL 序号行编号，起点为该分组现状最大序号 + 1。
+
+    仅回填 NULL 值（不重置用户已有排序）；分组列为 NULL 的行不回填。
+    """
+
+    if (table, group_column, order_column) not in _ORDER_BACKFILL_TARGETS:
+        raise ValueError(f"未登记的回填目标: {table}.{group_column} / {order_column}")
+
+    groups = conn.execute(
+        text(f"SELECT DISTINCT {group_column} FROM {table} WHERE {group_column} IS NOT NULL AND {order_column} IS NULL")
+    )
+
+    for (group_value,) in groups:
+        rows = conn.execute(
+            text(f"SELECT id FROM {table} WHERE {group_column} = :group_value AND {order_column} IS NULL ORDER BY id"),
+            {"group_value": group_value},
+        ).fetchall()
+
+        if not rows:
+            continue
+
+        max_order = conn.execute(
+            text(f"SELECT COALESCE(MAX({order_column}), 0) FROM {table} WHERE {group_column} = :group_value"),
+            {"group_value": group_value},
+        ).scalar()
+
+        for idx, (row_id,) in enumerate(rows, start=max_order + 1):
+            conn.execute(text(f"UPDATE {table} SET {order_column} = :idx WHERE id = :id"), {"idx": idx, "id": row_id})
+
+
+def _migrate_add_order_index(engine: Engine) -> None:
     """给相关表补上 order_index 列并回填数据"""
 
     insp = inspect(engine)
 
-    tables = ["unit", "field_definition", "form", "codelist", "codelist_option"]
-
     with engine.begin() as conn:
         # 1. 添加 order_index 列
 
-        for table in tables:
+        for table in ("unit", "field_definition", "form", "codelist", "codelist_option"):
             if not insp.has_table(table):
                 continue
 
@@ -208,156 +251,9 @@ def _migrate_add_order_index(engine):
 
         # 2. 回填数据（仅回填 NULL 值，避免重置用户排序）
 
-        # Unit: 按 project_id 分组
-
-        if insp.has_table("unit"):
-            result = conn.execute(
-                text("SELECT DISTINCT project_id FROM unit WHERE project_id IS NOT NULL AND order_index IS NULL")
-            )
-
-            for (project_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM unit WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
-                    {"pid": project_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_order = conn.execute(
-                    text("SELECT COALESCE(MAX(order_index), 0) FROM unit WHERE project_id = :pid"), {"pid": project_id}
-                ).scalar()
-
-                for idx, (unit_id,) in enumerate(rows, start=max_order + 1):
-                    conn.execute(text("UPDATE unit SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": unit_id})
-
-        # FieldDefinition: 按 project_id 分组
-
-        if insp.has_table("field_definition"):
-            result = conn.execute(
-                text(
-                    "SELECT DISTINCT project_id FROM field_definition WHERE project_id IS NOT NULL AND order_index IS NULL"
-                )
-            )
-
-            for (project_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM field_definition WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
-                    {"pid": project_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_order = conn.execute(
-                    text("SELECT COALESCE(MAX(order_index), 0) FROM field_definition WHERE project_id = :pid"),
-                    {"pid": project_id},
-                ).scalar()
-
-                for idx, (fd_id,) in enumerate(rows, start=max_order + 1):
-                    conn.execute(
-                        text("UPDATE field_definition SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": fd_id}
-                    )
-
-        # Form: 按 project_id 分组
-
-        if insp.has_table("form"):
-            result = conn.execute(
-                text("SELECT DISTINCT project_id FROM form WHERE project_id IS NOT NULL AND order_index IS NULL")
-            )
-
-            for (project_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM form WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
-                    {"pid": project_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_order = conn.execute(
-                    text("SELECT COALESCE(MAX(order_index), 0) FROM form WHERE project_id = :pid"), {"pid": project_id}
-                ).scalar()
-
-                for idx, (form_id,) in enumerate(rows, start=max_order + 1):
-                    conn.execute(text("UPDATE form SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": form_id})
-
-        # CodeList: 按 project_id 分组
-
-        if insp.has_table("codelist"):
-            result = conn.execute(
-                text("SELECT DISTINCT project_id FROM codelist WHERE project_id IS NOT NULL AND order_index IS NULL")
-            )
-
-            for (project_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM codelist WHERE project_id = :pid AND order_index IS NULL ORDER BY id"),
-                    {"pid": project_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_order = conn.execute(
-                    text("SELECT COALESCE(MAX(order_index), 0) FROM codelist WHERE project_id = :pid"),
-                    {"pid": project_id},
-                ).scalar()
-
-                for idx, (cl_id,) in enumerate(rows, start=max_order + 1):
-                    conn.execute(
-                        text("UPDATE codelist SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": cl_id}
-                    )
-
-        # CodeListOption: 按 codelist_id 分组
-
-        if insp.has_table("codelist_option"):
-            result = conn.execute(
-                text(
-                    "SELECT DISTINCT codelist_id FROM codelist_option WHERE codelist_id IS NOT NULL AND order_index IS NULL"
-                )
-            )
-
-            for (codelist_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM codelist_option WHERE codelist_id = :cid AND order_index IS NULL ORDER BY id"),
-                    {"cid": codelist_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_order = conn.execute(
-                    text("SELECT COALESCE(MAX(order_index), 0) FROM codelist_option WHERE codelist_id = :cid"),
-                    {"cid": codelist_id},
-                ).scalar()
-
-                for idx, (opt_id,) in enumerate(rows, start=max_order + 1):
-                    conn.execute(
-                        text("UPDATE codelist_option SET order_index = :idx WHERE id = :id"), {"idx": idx, "id": opt_id}
-                    )
-
-        # Visit: 仅回填 sequence IS NULL 的记录
-
-        if insp.has_table("visit"):
-            result = conn.execute(
-                text("SELECT DISTINCT project_id FROM visit WHERE project_id IS NOT NULL AND sequence IS NULL")
-            )
-
-            for (project_id,) in result:
-                rows = conn.execute(
-                    text("SELECT id FROM visit WHERE project_id = :pid AND sequence IS NULL ORDER BY id"),
-                    {"pid": project_id},
-                ).fetchall()
-
-                if not rows:
-                    continue
-
-                max_seq = conn.execute(
-                    text("SELECT COALESCE(MAX(sequence), 0) FROM visit WHERE project_id = :pid"), {"pid": project_id}
-                ).scalar()
-
-                for idx, (visit_id,) in enumerate(rows, start=max_seq + 1):
-                    conn.execute(text("UPDATE visit SET sequence = :idx WHERE id = :id"), {"idx": idx, "id": visit_id})
+        for table, group_column, order_column in _ORDER_BACKFILL_TARGETS:
+            if insp.has_table(table):
+                _backfill_null_order(conn, table, group_column, order_column)
 
         # 3. 创建唯一索引（IF NOT EXISTS 已处理重复创建）
 
