@@ -190,15 +190,19 @@ test('visit flow matrix removes an unchecked association directly without confir
 })
 
 test('quick codelist option row deletes require a single confirmation before local removal', () => {
+  // 字典快捷增/改已共享为 CodelistQuickEditDialog（shared-rule-convergence R3）：
+  // 两宿主共用的选项行删除函数 delOptRow 迁入弹窗，确认→本地移除的顺序断言随迁
+  // （本地移除已改为不可变 filter 替换）。
+  const quickEditDialogSource = readFileSync(
+    path.resolve(currentDir, '../src/components/CodelistQuickEditDialog.vue'),
+    'utf8',
+  )
   for (const [source, functionName] of [
-    [fieldsSource, 'quickDelOptRow'],
-    [fieldsSource, 'quickEditDelOptRow'],
-    [designerSource, 'quickDelOptRow'],
-    [designerSource, 'quickEditDelOptRow'],
+    [quickEditDialogSource, 'delOptRow'],
   ]) {
     const body = getFunctionBody(source, functionName)
     assert.match(body, /confirmDelete\(ElMessageBox\.confirm/)
     assert.doesNotMatch(body, /confirmDeleteTwice\(ElMessageBox\.confirm/)
-    assert.ok(body.indexOf('confirmDelete') < body.indexOf('.splice('))
+    assert.ok(body.indexOf('confirmDelete') < body.indexOf('.filter('))
   }
 })

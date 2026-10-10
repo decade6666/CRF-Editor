@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "naming and structure rules for the new shared composable modules"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "component conventions for the shared codelist dialog refactor"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "frontend test conventions for converting text-assertion tests to behavioral tests"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "dedup thinking checklist for merging the three preview helper copies"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "aCRF annotation and column-width contracts that must not drift"}

@@ -228,72 +228,46 @@ test('inline toggle is hidden for label and log-row fields', () => {
 })
 
 
-test('quick add codelist dialog template aligns with edit dialog', () => {
+test('quick add codelist dialog wires the shared component with designer texts', () => {
+  // 字典快捷弹窗已共享为 CodelistQuickEditDialog（shared-rule-convergence R3）：
+  // 宿主保留开关接线与设计器文案绑定（mode/add-title/空占位符）；表单状态、busy 守卫、
+  // 选项行模板与确定/取消按钮断言迁移至 tests/component/CodelistQuickEditDialog.spec.js。
   assert.match(
     formDesignerSource,
-    /<el-dialog[\s\S]*v-model="showQuickAddCodelist"[\s\S]*title="新增选项"[\s\S]*width="560px"[\s\S]*:close-on-click-modal="false"[\s\S]*:close-on-press-escape="false"/,
+    /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickAddCodelist"[\s\S]*?mode="add"[\s\S]*?add-title="新增选项"[\s\S]*?code-placeholder=""/,
   )
-  assert.match(formDesignerSource, /v-model="quickCodelistName"/)
-  assert.match(formDesignerSource, /v-model="quickCodelistDescription"/)
-  assert.match(formDesignerSource, /v-model="row.code"/)
-  assert.match(formDesignerSource, /v-model="row.decode"/)
-  assert.doesNotMatch(formDesignerSource, /row\.trailing_underscore === 1/)
-  assert.match(formDesignerSource, /@click="quickDelOptRow\(\$index\)"/)
-  assert.match(formDesignerSource, /quickAddCodelistSaving/)
-  assert.match(formDesignerSource, /:loading="quickAddCodelistSaving"/)
-  assert.match(formDesignerSource, /@click="quickAddCodelist"/)
+  assert.match(formDesignerSource, /@click="openQuickAddCodelist"/)
+  assert.match(formDesignerSource, /:after-change="afterCodelistDialogChange"/)
 })
 
 
-test('quick add codelist saves description and options in a single request', () => {
-  assert.match(formDesignerSource, /quickCodelistDescription = ref\(''\)/)
-  assert.match(formDesignerSource, /quickAddCodelistSaving = ref\(false\)/)
-  assert.match(
-    formDesignerSource,
-    /quickCodelistOpts\.value\.push\(\{[\s\S]*id: null,[\s\S]*code: quickOptCode\.value\.trim\(\) \|\| `C\.\$\{n \+ 1\}`[\s\S]*decode: quickOptDecode\.value\.trim\(\)[\s\S]*\}\)/,
-  )
-  assert.match(formDesignerSource, /quickAddCodelistSaving\.value = false/)
-  assert.match(formDesignerSource, /quickCodelistDescription\.value = ''/)
-  assert.match(formDesignerSource, /if \(quickAddCodelistSaving\.value\) return/)
-  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\([\s\S]*!opt\.code \|\| !opt\.decode\)/)
-  assert.match(formDesignerSource, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists`, \{/)
-  assert.match(formDesignerSource, /description: quickCodelistDescription\.value/)
-  assert.match(formDesignerSource, /options: normalizedOptions\.map\(\(opt, index\) => \(\{/)
-  assert.doesNotMatch(formDesignerSource, /for \(const opt of normalizedOptions\) await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{created\.id\}\/options/)
-  assert.match(formDesignerSource, /editProp\.codelist_id = created\.id/)
+test('quick add codelist posts description and options in a single request via the shared dialog', () => {
+  // 单请求保存（description + options 一次 POST，含 order_index）由挂载测试断言 POST 载荷与调用次数；
+  // 宿主侧保留：新建字典回绑 editProp.codelist_id（afterChange('add')）。
+  assert.match(formDesignerSource, /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickAddCodelist"/)
+  assert.match(formDesignerSource, /editProp\.codelist_id = codelist\.id/)
 })
 
 
-test('quick edit codelist dialog template is mounted', () => {
+test('quick edit codelist dialog mounts the shared component in edit mode', () => {
+  // 编辑弹窗模板随实现迁入共享组件；宿主保留编辑目标解析与守卫。
   assert.match(
     formDesignerSource,
-    /<el-dialog[\s\S]*v-model="showQuickEditCodelist"[\s\S]*title="编辑选项字典"[\s\S]*width="560px"[\s\S]*:close-on-click-modal="false"[\s\S]*:close-on-press-escape="false"/,
+    /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickEditCodelist"[\s\S]*?mode="edit"[\s\S]*?:codelist-id="quickEditCodelistId"/,
   )
-  assert.match(formDesignerSource, /v-model="quickEditCodelistName"/)
-  assert.match(formDesignerSource, /v-model="quickEditCodelistDescription"/)
-  assert.match(formDesignerSource, /v-model="quickEditOptCode"/)
-  assert.match(formDesignerSource, /v-model="quickEditOptDecode"/)
-  assert.match(formDesignerSource, /quickEditCodelistSaving/)
-  assert.match(formDesignerSource, /:loading="quickEditCodelistSaving"/)
-  assert.match(formDesignerSource, /@click="quickSaveCodelist"/)
+  assert.match(formDesignerSource, /@click="openQuickEditCodelist"/)
+  assert.match(formDesignerSource, /:disabled="!editProp\.codelist_id"/)
 })
 
 
-test('quick edit codelist save uses single snapshot request and preserves description', () => {
-  assert.match(formDesignerSource, /quickEditCodelistDescription\.value = cl\.description \|\| ''/)
-  assert.match(formDesignerSource, /if \(quickEditCodelistSaving\.value\) return/)
-  assert.match(formDesignerSource, /api\.get\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/references`\)/)
-  assert.match(formDesignerSource, /修改将影响以下字段：[\s\S]*确认修改？/)
-  assert.match(formDesignerSource, /const invalidOptionIndex = normalizedOptions\.findIndex\([\s\S]*!opt\.code \|\| !opt\.decode\)/)
-  assert.match(formDesignerSource, /await api\.put\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/snapshot`, \{/)
-  assert.match(formDesignerSource, /description: quickEditCodelistDescription\.value/)
-  assert.match(formDesignerSource, /options: normalizedOptions\.map\([\s\S]*opt[\s\S]*=>[\s\S]*\(\{/)
-  assert.doesNotMatch(formDesignerSource, /for \(const id of originalIds\) if \(!currentIds\.has\(id\)\) await api\.del/)
-  assert.doesNotMatch(formDesignerSource, /await api\.post\(`\/api\/projects\/\$\{props\.projectId\}\/codelists\/\$\{quickEditCodelistId\.value\}\/options/)
-  assert.match(formDesignerSource, /const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)/)
-  assert.match(formDesignerSource, /closeQuickEditCodelist\(\)/)
-  assert.match(formDesignerSource, /保存失败：\$\{e\.message\}。已刷新为最新字典数据，请重新检查后再编辑。/)
-  assert.match(formDesignerSource, /quickEditCodelistSaving\.value = false/)
+test('quick edit codelist save delegates to the shared dialog and keeps host reselect/refresh', () => {
+  // snapshot 单请求 / 描述保留 / 失败提示与关闭流程由挂载测试覆盖；
+  // 宿主侧保留：保存与失败后的 loadCodelists、forms-fields 失效重载、干净字段回选与 refreshKey。
+  assert.match(
+    formDesignerSource,
+    /async function afterCodelistDialogChange\(kind, \{ codelist \}\) \{[\s\S]*?await loadCodelists\(\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)[\s\S]*?const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*?if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)[\s\S]*?refreshKey\.value\+\+/,
+  )
+  assert.match(formDesignerSource, /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickEditCodelist"/)
 })
 
 

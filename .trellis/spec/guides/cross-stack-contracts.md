@@ -279,6 +279,106 @@ if 2 <= hit_count <= 4:
 ```
 Decide TOC/index status from independent matched-form density, using length only as a gray-zone tiebreaker.
 
+#### Managed Import Temporary Resources (temp-resource-lifecycle extension)
+
+##### 1. Scope / Trigger
+- Trigger: changes to streamed Word `.docx` preview uploads or project `.db` import uploads in `backend/src/routers/import_docx.py` and `backend/src/routers/projects.py`.
+- Trigger: changes to `DocxImportService` temp naming / expiry, screenshot temp-directory placement, upload cancellation handling, or synchronous-heavy calls in async import routes.
+
+##### 2. Signatures
+```python
+from pathlib import Path
+from typing import Awaitable, Protocol, TypeVar
+
+_T = TypeVar("_T")
+
+class AsyncReader(Protocol):
+    async def read(self, size: int = -1) -> bytes: ...
+
+async def stream_upload_to_file(
+    reader: AsyncReader,
+    dest_path: Path,
+    *,
+    max_bytes: int,
+    over_limit_message: str,
+    magic_prefix: bytes | None = None,
+    magic_message: str | None = None,
+    chunk_size: int = 1024 * 1024,
+) -> int: ...
+
+async def await_with_drain(awaitable: Awaitable[_T]) -> _T: ...
+
+DocxImportService.build_owned_filename(filename: str, *, user_id: int, project_id: int) -> tuple[str, str]
+DocxImportService.build_owned_db_filename(*, user_id: int) -> tuple[str, str]
+DocxImportService.purge_expired_uploads(*, max_age_hours: int = 24, now: float | None = None) -> int
+```
+
+Managed routes (the "six async routes" referenced below):
+- `POST /api/projects/import/project-db` — Session-bearing: `run_in_threadpool` + `await_with_drain`
+- `POST /api/projects/import/database-merge` — Session-bearing: `run_in_threadpool` + `await_with_drain`
+- `POST /api/projects/import/auto` — Session-bearing: `run_in_threadpool` + `await_with_drain`
+- `POST /api/projects/{project_id}/import-docx/preview` — `run_in_threadpool` for `parse_full` and screenshot start
+- `POST /api/projects/{project_id}/import-docx/{temp_id}/screenshots/start` — `run_in_threadpool` for `parse_full` and screenshot start
+- `POST /api/admin/cleanup-screenshots` — `run_in_threadpool` for `cleanup_old_caches`
+
+##### 3. Contracts
+- `DocxImportService.TEMP_DIR` and `DocxScreenshotService.BASE_DIR` MUST resolve to the same absolute `backend/uploads/docx_temp` directory via the leaf `temp_paths.py`; all callers MUST read the class attributes at call time so `backend/tests/conftest.py` can redirect them. `DOCX_TEMP_DIR` is referenced only by its definition and the two class-attribute assignments.
+- Both `.docx` and project `.db` uploads MUST use `stream_upload_to_file`; the endpoint MUST NOT read the whole upload into a bytes object or duplicate the chunk loop.
+- The writer MUST create the destination exclusively (`O_EXCL`) with mode `0600`, read/write in bounded chunks, reject before writing a chunk that exceeds `max_bytes`, and delete only its own partial file on any `BaseException`; cleanup failure is warning-only, MUST NOT replace the original exception, and the warning MUST NOT include the untrusted uploaded filename or raw exception text (newline-safe against log injection). SQLite magic validation uses the 15-byte prefix `b"SQLite format 3"` before checking size; a file hitting EOF before the full prefix simply fails the prefix check and is rejected with the same 400 (EOF-short compatible, no crash or hang), and validation MUST NOT require the trailing NUL byte. Chunk disk writes inside `stream_upload_to_file` MUST run via `run_in_threadpool` and be protected by `await_with_drain` (mirrors Starlette's spool write path).
+- `.docx` stored names remain `{temp_id}_u{user_id}_p{project_id}_{sanitized_basename}.docx`. Project `.db` stored names MUST be `{temp_id}_u{user_id}_p0_upload.db`: the fixed stem and suffix do not include user-supplied filename text; `p0` means the destination project does not exist at upload time and is not an addressing API.
+- Successful `.db` imports remove their temp file in the request `finally`; `purge_expired_uploads` also sweeps stale `.db` files — including SQLite sidecars `.db-wal` / `.db-shm` / `.db-journal` left by a hard kill — alongside `.docx` crash leftovers at the existing 24-hour TTL, and `cleanup_temp` globs cover `{temp_id}_*.db` plus the same sidecar suffixes so owned-id discard drops same-id `.db` artifacts too. The class-attribute path is the swept directory; do not create a second cleanup scheduler or a `.db` lookup-by-id endpoint. The removed full-read helper `DocxImportService.save_temp_file` MUST NOT be reintroduced.
+- The Word preview endpoint MUST discard the saved upload on any failure after the file lands, including `CancelledError` raised at the threadpool `parse_full` / screenshot-start awaits (an outer `except BaseException: discard_upload(temp_id); raise` guard; the inner 400 mappings stay unchanged and discard is idempotent). `screenshots/start` MUST NOT discard — it creates no temp file and cancellation there must not remove an upload the client may still use.
+- Synchronous-heavy calls in the six async routes MUST use `fastapi.concurrency.run_in_threadpool`. Calls sharing a request Session or an upload/file handle MUST additionally be wrapped in `await_with_drain`; its first cancellation is re-raised only after the worker completes, and worker errors during drain are logged without masking that cancellation. Do not substitute `asyncio.to_thread` for these calls.
+- Multipart parsing and network transfer happen before the endpoint reads `UploadFile`; streaming only removes the endpoint-level whole-file RAM copy. It does not promise early network rejection or remove the framework spool-to-managed-file disk copy.
+
+##### 4. Validation & Error Matrix
+| Condition | Expected behavior |
+|---|---|
+| Project `.db` has an invalid / EOF-short magic prefix | HTTP 400, `文件不是有效的 SQLite 数据库`; remove partial file |
+| Valid SQLite bytes exceed `_MAX_IMPORT_SIZE` | HTTP 400 with existing size-limit text; stop reading further chunks and remove partial file |
+| `.docx` extension is absent / invalid | HTTP 400, `请上传 .docx 格式的Word文件`; no temp file |
+| `.docx` stream exceeds `MAX_FILE_SIZE` | HTTP 400 with existing 10 MB limit text; remove partial file |
+| Destination already exists or is a symlink | Exclusive create fails; preserve the pre-existing target |
+| Read/write raises or caller is cancelled during a chunk | Close and remove only this call's partial file, then propagate the original failure |
+| Request cancellation arrives while a Session/file-sharing worker runs | Drain until that worker finishes, then re-raise the first cancellation; dependency teardown does not overlap the worker |
+| Request cancellation arrives during preview post-save processing (parse / screenshot start) | Saved upload discarded, cancellation propagates unchanged |
+| Stale owned `.db` / `.docx` upload is older than 24 h | Existing sweep removes the file; owned Word uploads also drop screenshot cache and AI task |
+| Hard kill leaves `.db-wal` / `.db-shm` / `.db-journal` sidecars | Sweep's suffix filter and `cleanup_temp` globs cover the sidecar suffixes: owned ids purged whole, legacy ids file-only |
+
+##### 5. Good / Base / Bad Cases
+- **Good**: a long or unusual uploaded `.db` filename is accepted, stored as a fixed owned `.db` name, imported, and removed in the request `finally`.
+- **Base**: a valid upload below the cap is copied in bounded reads and written chunk-by-chunk; SQLite magic error precedence remains unchanged.
+- **Bad**: `content = await file.read()` buffers the whole spool into application memory, `open(path, "wb")` overwrites a pre-existing path / uses permissive defaults, or a raw `Task.cancel()` lets request teardown race a worker using the same Session or file handle.
+
+##### 6. Tests Required
+- `backend/tests/test_streaming_db_upload.py` MUST cover magic-before-size including EOF-short input, cap enforcement on the already-read header, chunk-count / early-stop behavior, exact errors, partial-file cleanup, cleanup-warning privacy, exclusive-create preservation, `0600` permissions, fixed owned filename, and successful import.
+- `backend/tests/test_streaming_docx_upload.py` MUST cover size rejection / early stop / cancellation cleanup, preview cancellation discarding the saved upload (`test_cancelled_parse_discards_saved_docx_upload`), and normal upload preview.
+- `backend/tests/test_temp_dir_single_source.py` MUST assert defaults are equal, absolute, cwd-independent, and end in the `uploads/docx_temp` path (platform-agnostic parts comparison) in a subprocess without the pytest fixture redirect.
+- `backend/tests/test_docx_temp_isolation.py` MUST cover `.db` expiry, fresh-file retention, legacy-file cleanup, `cleanup_temp` covering `{temp_id}_*.db`, SQLite sidecar purge (`test_should_purge_expired_owned_db_upload_with_sidecar_files` / `test_should_purge_expired_legacy_db_sidecar_file_only`), and associated owned-artifact cleanup (including newline-filename regressions proving cleanup/sweep failure warnings never log the untrusted basename).
+- `backend/tests/test_async_heavy_threadpool.py` MUST spy on `fastapi.concurrency.run_in_threadpool` for each of the six heavy async endpoints and assert the three Session-bearing routes call `await_with_drain`.
+- `backend/tests/test_await_drain.py` MUST cover successful work, worker errors with and without cancellation, repeated raw cancellation, inner cancellation, AnyIO-scope cancellation during drain, and worker completion before request teardown.
+
+##### 7. Wrong vs Correct
+**Wrong**
+```python
+content = await file.read()
+path.write_bytes(content)
+```
+This creates a second whole-file RAM copy and does not provide shared partial-file cleanup / exclusive creation.
+
+**Correct**
+```python
+await stream_upload_to_file(
+    file,
+    dest,
+    max_bytes=MAX_BYTES,
+    over_limit_message=OVER_LIMIT_MESSAGE,
+    magic_prefix=b"SQLite format 3",
+    magic_message="文件不是有效的 SQLite 数据库",
+)
+```
+The shared writer applies bounded reads, magic-before-size validation, exclusive private creation, and cleanup on every failure; callers retain their existing response mapping and request `finally` cleanup.
+
 ---
 
 ### 5. Word Preview / Export Strict Table-Field Parity
@@ -467,6 +567,7 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 - [ ] Update `acrfAnnotationGeometry.js` constants, unit conversions, and `resolveAnnotationTopCm`
 - [ ] Keep `FormDesignerTab.vue` and `VisitsTab.vue` on the same `annotation_positions` storage shape and drag gate rules
 - [ ] Run `backend/tests/test_export_acrf.py`, `backend/tests/test_export_service.py`, `backend/tests/test_export_unified.py`, `backend/tests/test_word_table_parity.py`
+- [ ] Run `backend/tests/test_acrf_offset_consistency.py`: the frontend-exported `ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU` must equal the backend constant; changing either side alone must fail this test.
 - [ ] Run `frontend/tests/acrfAnnotationGeometry.test.js`, `frontend/tests/acrfAnnotationPersistence.test.js`, `frontend/tests/acrfViewToggle.test.js`
 
 ---
