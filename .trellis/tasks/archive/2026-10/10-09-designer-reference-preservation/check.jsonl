@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply frontend quality review; use the actual node:test plus vitest suites from module documentation, not the legacy fast-check examples in this guide."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/spec-excerpt-designer-contracts.md","reason":"Verify the designer candidate and label-OID contracts still hold; confirm the new rows were added to the original component-guidelines.md (lines ~1086-1117)."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Review only the intended task diff; frontend changes need a read-only Haiku review and no proactive commit or publish."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/root-cause.md","reason":"Check every confirmed cause (C1-C3, D1-D3) is covered by a behavioral test and that legacy-structure assertions were updated rather than weakened."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/verification-baseline.md","reason":"Coverage must not fall below the recorded baseline; distinguish run, failed, and not-run checks in the final report."}

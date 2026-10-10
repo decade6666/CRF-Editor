@@ -125,7 +125,8 @@ export function sameFormPropState(a, b) {
 
 // ── 字段 profile 原子命令构造（field-profile / binding-profile 共用）────────
 
-const DEFINITION_PAYLOAD_KEYS = [
+// 定义级 payload 的完整键集（含结构键）；历史快照的 fd 必须由此派生，防止新增键漏进回放
+export const DEFINITION_PAYLOAD_KEYS = [
   'variable_name', 'label', 'field_type', 'checkbox_label',
   'integer_digits', 'decimal_digits', 'date_format',
   'codelist_id', 'unit_id', 'is_multi_record', 'table_type',
@@ -136,12 +137,13 @@ const INSTANCE_KEYS = [
   'inline_mark', 'bg_color', 'text_color', 'label_bold', 'label_font_size',
 ]
 
-// 草稿链接候选时的定义级差异键：is_multi_record/table_type 是保留结构键，不参与差异判断
-export const DRAFT_DEFINITION_DIFF_KEYS = [
-  'variable_name', 'label', 'field_type', 'checkbox_label',
-  'integer_digits', 'decimal_digits', 'date_format',
-  'codelist_id', 'unit_id',
-]
+// 保留结构键：随目标快照走，不参与差异判断、不被编辑态覆盖
+const STRUCTURE_KEYS = ['is_multi_record', 'table_type']
+
+// 草稿链接候选时的定义级差异键：从完整 payload 键派生（排除结构键），新增可编辑键自动参与比较
+export const DRAFT_DEFINITION_DIFF_KEYS = DEFINITION_PAYLOAD_KEYS.filter(
+  (key) => !STRUCTURE_KEYS.includes(key),
+)
 
 /**
  * 判定草稿保存时「链接候选后是否改了定义级属性」：候选快照与编辑态在
@@ -168,6 +170,18 @@ export function buildDefinitionPayload(definition = {}) {
   return payload
 }
 
+/**
+ * 定义级 payload 的类型归一（DEC2 比较基线）：与编辑器同规则
+ * （syncFieldTypeSpecificProps）补日期默认格式、清理类型无关键；
+ * 结构键（is_multi_record/table_type）原样保留。入参为 null（无候选快照）时
+ * 返回 null，便于调用方保持「无快照」语义。
+ */
+export function normalizeDefinitionPayload(definition, dateFormatOptions, defaultDateFormats) {
+  if (definition == null) return null
+  const payload = buildDefinitionPayload(definition)
+  return syncFieldTypeSpecificProps(payload, payload.field_type, dateFormatOptions, defaultDateFormats)
+}
+
 /** 从实例快照提取 instance upsert 载荷（显式 null 可清值）。 */
 export function buildInstanceUpsert(instance = {}, keys = INSTANCE_KEYS) {
   const payload = {}
@@ -177,7 +191,64 @@ export function buildInstanceUpsert(instance = {}, keys = INSTANCE_KEYS) {
   return payload
 }
 
-/** 设计器「保存字段属性」命令：明确选候选 → 换绑；OID 变更 → 分叉；否则共享更新。 */
+function buildDefinitionPayloadFromTarget(targetDefinitionPayload, editorState) {
+  const structure = targetDefinitionPayload ?? editorState
+  return buildDefinitionPayload({
+    ...targetDefinitionPayload,
+    ...editorState,
+    is_multi_record: structure.is_multi_record,
+    table_type: structure.table_type,
+  })
+}
+
+function buildSharedDefinitionOperation(targetDefinitionId, targetDefinitionPayload, editorState) {
+  if (
+    targetDefinitionPayload != null &&
+    sameDraftDefinitionPayload(editorState, targetDefinitionPayload)
+  ) {
+    return { operation: 'none' }
+  }
+  return {
+    operation: 'update_shared',
+    update_shared: {
+      target_definition_id: targetDefinitionId,
+      definition: buildDefinitionPayloadFromTarget(targetDefinitionPayload, editorState),
+    },
+  }
+}
+
+function buildCandidateRebindCommand(baseCommand, selectedDefinitionId, candidateDefinitionPayload, editorState) {
+  return {
+    ...baseCommand,
+    definition_operation: buildSharedDefinitionOperation(
+      selectedDefinitionId,
+      candidateDefinitionPayload,
+      editorState,
+    ),
+    binding: { mode: 'existing', target_field_definition_id: selectedDefinitionId },
+  }
+}
+
+function buildForkCommand(baseCommand, editorState, sourceDefinitionPayload, preferredDefinitionId) {
+  return {
+    ...baseCommand,
+    definition_operation: {
+      operation: 'create_or_restore',
+      create_or_restore: {
+        definition: buildDefinitionPayloadFromTarget(sourceDefinitionPayload, editorState),
+        ...(preferredDefinitionId != null ? { preferred_definition_id: preferredDefinitionId } : {}),
+      },
+    },
+    binding: { mode: 'operation_result' },
+  }
+}
+
+/**
+ * 设计器「保存字段属性」命令：明确选候选 → 换绑；OID 变更 → 分叉；否则共享更新。
+ * 传入归一化后的 currentDefinitionPayload / candidateDefinitionPayload（DEC2）时，
+ * 编辑态与目标快照在 9 个可编辑键上一致即 definition_operation: none（纯绑定/纯实例更新，
+ * 不重写共享定义）；省略快照保持旧行为（始终 update_shared），兼容既有调用方与测试。
+ */
 export function buildBindingProfileCommand({
   currentDefinitionId,
   currentDefinitionOid,
@@ -186,55 +257,43 @@ export function buildBindingProfileCommand({
   candidateOid = null,
   preferredDefinitionId = null,
   cleanupDefinitionId = null,
+  currentDefinitionPayload = null,
+  candidateDefinitionPayload = null,
 }) {
-  const definitionPayload = buildDefinitionPayload(editorState)
-  const command = {
+  const baseCommand = {
     instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
+    ...(cleanupDefinitionId != null ? { cleanup_definition_id: cleanupDefinitionId } : {}),
   }
-  if (cleanupDefinitionId != null) command.cleanup_definition_id = cleanupDefinitionId
-
   const isCandidateRebind =
     selectedDefinitionId != null &&
     selectedDefinitionId !== currentDefinitionId &&
     (candidateOid == null || editorState.variable_name === candidateOid)
 
+  if (isCandidateRebind) {
+    return buildCandidateRebindCommand(
+      baseCommand,
+      selectedDefinitionId,
+      candidateDefinitionPayload,
+      editorState,
+    )
+  }
+
+  const forkSourcePayload = candidateDefinitionPayload ?? currentDefinitionPayload
   const oidChanged =
     currentDefinitionOid != null && editorState.variable_name !== currentDefinitionOid
-
-  if (isCandidateRebind) {
-    // 明确点击候选换绑：绑定既有定义 + 共享更新该定义（OID 与候选一致，后端校验通过）
-    command.definition_operation = {
-      operation: 'update_shared',
-      update_shared: {
-        target_definition_id: selectedDefinitionId,
-        definition: definitionPayload,
-      },
-    }
-    command.binding = { mode: 'existing', target_field_definition_id: selectedDefinitionId }
-    return command
-  }
-
   if (oidChanged) {
-    command.definition_operation = {
-      operation: 'create_or_restore',
-      create_or_restore: {
-        definition: definitionPayload,
-        ...(preferredDefinitionId != null ? { preferred_definition_id: preferredDefinitionId } : {}),
-      },
-    }
-    command.binding = { mode: 'operation_result' }
-    return command
+    return buildForkCommand(baseCommand, editorState, forkSourcePayload, preferredDefinitionId)
   }
 
-  command.definition_operation = {
-    operation: 'update_shared',
-    update_shared: {
-      target_definition_id: currentDefinitionId,
-      definition: definitionPayload,
-    },
+  return {
+    ...baseCommand,
+    definition_operation: buildSharedDefinitionOperation(
+      currentDefinitionId,
+      currentDefinitionPayload,
+      editorState,
+    ),
+    binding: { mode: 'keep' },
   }
-  command.binding = { mode: 'keep' }
-  return command
 }
 
 /**
@@ -257,14 +316,14 @@ export function buildFieldProfileCommand({
       binding: { mode: 'existing', target_field_definition_id: selectedDefinitionId },
       instance: { mode: 'upsert', upsert: instance },
     }
-    if (!sameDraftDefinitionPayload(editorState, candidateDefinitionPayload)) {
-      command.definition_operation = {
-        operation: 'update_shared',
-        update_shared: {
-          target_definition_id: selectedDefinitionId,
-          definition: buildDefinitionPayload({ ...candidateDefinitionPayload, ...editorState }),
-        },
-      }
+    // 无候选快照（省略）保持「纯绑定」语义；有快照时复用共享更新的统一封装
+    if (candidateDefinitionPayload != null) {
+      const definitionOperation = buildSharedDefinitionOperation(
+        selectedDefinitionId,
+        candidateDefinitionPayload,
+        editorState,
+      )
+      if (definitionOperation.operation !== 'none') command.definition_operation = definitionOperation
     }
     return command
   }
@@ -272,7 +331,7 @@ export function buildFieldProfileCommand({
     definition_operation: {
       operation: 'create_or_restore',
       create_or_restore: {
-        definition: buildDefinitionPayload(editorState),
+        definition: buildDefinitionPayloadFromTarget(candidateDefinitionPayload, editorState),
         ...(preferredDefinitionId != null ? { preferred_definition_id: preferredDefinitionId } : {}),
       },
     },
@@ -299,25 +358,14 @@ export function buildInstanceOnlyProfileCommand({ instance }) {
 }
 
 /**
- * 保存前解析共享写入目标（与 buildBindingProfileCommand 的判定顺序一致）：
- * 返回真正会被 update_shared 写入的定义 id；OID 分叉（新建定义）返回 null，
- * 此时不存在对其他表单的共享影响，无需引用确认。
+ * 保存前解析共享写入目标（DEC3 单一决策源）：直接派生自 buildBindingProfileCommand，
+ * 返回真正会被 update_shared 写入的定义 id；definition_operation 为 none（纯绑定）
+ * 或 OID 分叉（新建定义）时返回 null，此时不存在对其他表单的共享影响，无需引用确认。
  */
-export function resolveSharedWriteTarget({
-  currentDefinitionId,
-  currentDefinitionOid,
-  editorState,
-  selectedDefinitionId = null,
-  candidateOid = null,
-}) {
-  const isCandidateRebind =
-    selectedDefinitionId != null &&
-    selectedDefinitionId !== currentDefinitionId &&
-    (candidateOid == null || editorState.variable_name === candidateOid)
-  if (isCandidateRebind) return selectedDefinitionId
-  const oidChanged = currentDefinitionOid != null && editorState.variable_name !== currentDefinitionOid
-  if (oidChanged) return null
-  return currentDefinitionId
+export function resolveSharedWriteTarget(args) {
+  const command = buildBindingProfileCommand(args)
+  if (command.definition_operation.operation !== 'update_shared') return null
+  return command.definition_operation.update_shared.target_definition_id
 }
 
 /** 从历史快照（fd 嵌套 + 实例属性）展开为编辑态，供 undo/redo 回放命令构造。 */
@@ -333,6 +381,8 @@ export function buildEditorStateFromSnapshot(snapshot = {}) {
     checkbox_label: fd.checkbox_label ?? null,
     codelist_id: fd.codelist_id ?? null,
     unit_id: fd.unit_id ?? null,
+    is_multi_record: fd.is_multi_record ?? null,
+    table_type: fd.table_type ?? null,
     required: snapshot.required ?? null,
     label_override: snapshot.label_override ?? null,
     help_text: snapshot.help_text ?? null,
@@ -343,4 +393,78 @@ export function buildEditorStateFromSnapshot(snapshot = {}) {
     label_bold: snapshot.label_bold ?? 1,
     label_font_size: snapshot.label_font_size ?? null,
   }
+}
+
+/**
+ * 撤销/重做属性编辑回放命令（DEC4）：按正向保存实际做过的操作重建，
+ * definitionUpdated 为 false 时只回放绑定 + 实例，不重写共享定义。
+ * 缺省为 false（fail-closed）：省略标记的回放绝不会误写共享定义。
+ */
+function buildReplayDefinitionOperation(targetDefinitionId, definition) {
+  if (targetDefinitionId == null) return { operation: 'none' }
+  return {
+    operation: 'update_shared',
+    update_shared: {
+      target_definition_id: targetDefinitionId,
+      definition: buildDefinitionPayload(definition ?? undefined),
+    },
+  }
+}
+
+function buildReplayProfileCommand({
+  targetDefinitionId = null,
+  definition,
+  binding,
+  instance,
+  cleanupDefinitionId = null,
+}) {
+  return {
+    definition_operation: buildReplayDefinitionOperation(targetDefinitionId, definition),
+    binding,
+    instance,
+    ...(cleanupDefinitionId != null ? { cleanup_definition_id: cleanupDefinitionId } : {}),
+  }
+}
+
+export function buildFieldPropReplayCommand({
+  entryType,
+  writtenDefinitionId,
+  originalDefinitionId = null,
+  originalDefinitionOid = null,
+  candidateBeforePayload = null,
+  definitionUpdated = false,
+  snapshot,
+}) {
+  const editorState = buildEditorStateFromSnapshot(snapshot)
+  const instance = { mode: 'upsert', upsert: buildInstanceUpsert(editorState) }
+  const targetDefinitionId = definitionUpdated ? writtenDefinitionId : null
+  const replayProfile = (targetId, definition, binding, cleanupDefinitionId) =>
+    buildReplayProfileCommand({ targetDefinitionId: targetId, definition, binding, instance, cleanupDefinitionId })
+
+  if (entryType === 'shared') return replayProfile(targetDefinitionId, snapshot.fd, { mode: 'keep' })
+  if (entryType === 'rebind-undo') {
+    // 恢复候选快照时 OID 必须与当前候选定义一致，后端才接受共享更新。
+    return replayProfile(targetDefinitionId, candidateBeforePayload, {
+      mode: 'existing',
+      target_field_definition_id: originalDefinitionId,
+    })
+  }
+  if (entryType === 'rebind-redo') {
+    return replayProfile(targetDefinitionId, snapshot.fd, {
+      mode: 'existing',
+      target_field_definition_id: writtenDefinitionId,
+    })
+  }
+  if (entryType === 'fork-undo') {
+    return replayProfile(null, null, { mode: 'existing', target_field_definition_id: originalDefinitionId }, writtenDefinitionId)
+  }
+  if (entryType === 'fork-redo') {
+    return buildBindingProfileCommand({
+      currentDefinitionId: originalDefinitionId,
+      currentDefinitionOid: originalDefinitionOid,
+      editorState,
+      preferredDefinitionId: writtenDefinitionId,
+    })
+  }
+  throw new Error('未知的属性回放类型')
 }

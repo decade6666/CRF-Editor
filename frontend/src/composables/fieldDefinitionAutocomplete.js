@@ -59,8 +59,10 @@ export function candidateDisplayText(definition) {
 }
 
 /**
- * 点击候选后水合属性编辑器：丢弃当前未保存修改，以候选定义重建编辑状态。
- * 实例级覆盖（required/label_override/help_text/颜色/加粗/字号/order）保留；
+ * 点击候选后水合属性编辑器（DEC1）：仅替换候选定义级内容（9 个可编辑键）；
+ * 编辑器中的展示属性（bg_color/text_color/label_bold/label_font_size，含未保存修改
+ * 与 'default' 字号哨兵）经 ...editor 原样保留，不被已保存实例覆盖；
+ * required/label_override/help_text 仍取自实例；
  * default_value / inline_mark 由调用方按候选类型归一后写入。
  */
 export function hydrateEditorFromCandidate({
@@ -86,10 +88,6 @@ export function hydrateEditorFromCandidate({
     required: instance.required ?? editor.required,
     label_override: instance.label_override ?? null,
     help_text: instance.help_text ?? null,
-    bg_color: instance.bg_color ?? null,
-    text_color: instance.text_color ?? null,
-    label_bold: instance.label_bold ?? 1,
-    label_font_size: instance.label_font_size ?? null,
   }
 }
 

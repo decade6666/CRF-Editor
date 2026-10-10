@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Load project-local frontend guidelines before touching designer selection or save behavior."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/spec-excerpt-designer-contracts.md","reason":"Designer label-OID and autocomplete contract tables (verbatim excerpt; the full component-guidelines.md exceeds the injection limit) that must stay valid and receive the new candidate-pick and impact-decision rows."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Keep implementation in the dedicated task worktree; Trellis updates are separate from code commits; frontend review is read-only Haiku."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/root-cause.md","reason":"Confirmed causal chains, backend support evidence, read-only repro output, and the inventory of source-level tests that encode the old structure."}
+{"file":".trellis/tasks/10-09-designer-reference-preservation/research/verification-baseline.md","reason":"Authorization boundary, baseline test and coverage numbers, and the missing-node_modules blocker for designerHistory.test.js."}

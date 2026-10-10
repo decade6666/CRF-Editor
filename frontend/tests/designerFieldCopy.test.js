@@ -61,7 +61,7 @@ function buildCopyDraftFromSource(ff, definitions, formId) {
   )
 }
 
-function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, confirmDiscardDraft, isReordering = false } = {}) {
+function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, confirmDiscardDraft, isReordering = false, isSavingFieldProp = false, savingDraft = false } = {}) {
   api = { invalidateCache: () => {}, ...api }
   const recordHistory = useDesignerHistory()
   const formFields = { value: fields }
@@ -88,6 +88,8 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     'confirmDiscardDraft',
     'copyingFieldIds',
     'isReordering',
+    'isSavingFieldProp',
+    'savingDraft',
     'resolveFieldPropLeave',
     'selectedFieldId',
     'resolveFormPropLeave',
@@ -107,7 +109,7 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     'ElMessage',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 23, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 25, 'runtime copy function should receive its full dependency context')
   const copyingFieldIds = { value: new Set() }
   const context = [
     (ff) => ff?.__draft === true || ff?.id === '__draft__',
@@ -115,6 +117,8 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     resolveDraftConfirmation,
     copyingFieldIds,
     { value: isReordering },
+    { value: isSavingFieldProp },
+    { value: savingDraft },
     async () => true,
     { value: 20 },
     async () => true,
@@ -208,7 +212,7 @@ test('字段列表复制按钮位于删除左侧，并保留草稿与行级锁�
 
   const body = functionBody('copyFormField')
   assert.match(body, /if \(isDraftField\(ff\)\) return;/)
-  assert.match(body, /if \(designerHistory\.busy\.value \|\| isReordering\.value\) return;/)
+  assert.match(body, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
   assert.match(body, /if \(copyingFieldIds\.value\.has\(ff\.id\)\) return;/)
   assert.match(body, /if \(hasDraft\.value\) \{[\s\S]*?await confirmDiscardDraft\(\)/)
   assert.match(body, /if \(!isLogRow\) \{[\s\S]*?buildCopyDraft\(/)
