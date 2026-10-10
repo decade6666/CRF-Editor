@@ -450,3 +450,47 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: 导出层整理合入本地 main 并归档
+<!-- trellis-session: v=2 fp=7d14cb83cf23f376 -->
+
+**Date**: 2026-10-10
+**Task**: 导出层整理合入本地 main 并归档
+**Branch**: `main`
+
+### Summary
+
+删除不可达 unified_landscape 导出分支并合并重复渲染（选项标签单一实现、结构行/控件分派共用、_add_forms_content 按版式拆分 cx 32→7），数据库导出移入独立模块；全程以任务本地金标（82 ZIP 条目逐步 0 差异）证明导出字节不变。合入前修正评审发现的过时测试描述、xfail 规范与残留表述范围；两个 changelog 冲突保留双方条目。合入后 main：后端 1098 passed / 0 xfailed、覆盖率 85%、ruff 干净、parity plain+annotated 均 exact 1.0、前端 node:test 893 + vitest 11、width fixtures 49 通过。未推送、未部署；worktree 与分支删除待用户确认。共享 worktree 中两处无主类型注解经复核后保留（全量套件与格式检查通过）。
+
+### Main Changes
+
+- 代码提交 18e6699（--no-ff 合入 refactor/export-layer-cleanup，含 b445272/0cda92b/462d0b2/653452b/e06cc12/c36718d 六步重构与三个文档/测试提交）
+- 新模块 backend/src/services/database_export_service.py；test_export_unified.py 描述校正并新增普通字段底纹断言（并行 checker 认领）
+- spec 更正：quality-guidelines xfail 约定区分保留路径与彻底删除路径；cross-stack §5 填写线行重写为无宽度回退规则
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `18e6699` | chore(merge): 合入导出层整理与文档更正 |
+| `509ac90` | chore(merge): 同步主线引用删除修复 |
+| `d0aa4ae` | refactor(export): 校正混合布局测试与类型标注 |
+| `76d8b54` | docs(spec): 更正导出布局与 xfail 规范 |
+| `09c784c` | docs(export): 同步导出模块文档 |
+
+### Testing
+
+- [OK] 后端全量 1098 passed / 0 xfailed（worktree 与 main 各跑一次）；覆盖率 TOTAL 85%（export_service 88%、database_export_service 94%）
+- [OK] 金标对比 82 entries / 0 differences（合并后重新导出 vs Step 0 before）；parity CLI plain+annotated exact 1.0 / 0 mismatch；test_word_table_parity 4 passed
+- [OK] 前端 npm test：node:test 893 passed + vitest 11 passed（worktree，node_modules 临时软链已删）；columnWidthPlanning 49 passed（main）
+- [OK] ruff format --check 149 files clean；git diff --check clean；git grep unified_landscape -- backend 零命中；index.json 校验 28 services
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 波次 D 仅剩 backend-dedup：基于当前 main 开新 worktree；若提取批删 helper 必须保持先按项目取 own_ids 再做引用预检（防跨租户探测），由 test_batch_delete_isolation.py 守护
+- ELC worktree 与分支删除需用户单独确认
