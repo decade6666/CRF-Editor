@@ -26,13 +26,11 @@ def session() -> Iterator[Session]:
     engine.dispose()
 
 
-
 def _create_project(session: Session, name: str = "规则测试项目") -> Project:
     project = Project(name=name, version="v1.0")
     session.add(project)
     session.flush()
     return project
-
 
 
 def test_detect_field_type_underscores_to_text() -> None:
@@ -42,15 +40,12 @@ def test_detect_field_type_underscores_to_text() -> None:
     assert config == {}
 
 
-
 def test_choice_layout_no_line_break_is_horizontal() -> None:
     assert M._choice_layout(False) == ("单选", "多选")
 
 
-
 def test_choice_layout_with_line_break_is_vertical() -> None:
     assert M._choice_layout(True) == ("单选（纵向）", "多选（纵向）")
-
 
 
 def test_choice_layout_returns_both_types() -> None:
@@ -80,7 +75,6 @@ def test_split_option_trailing_underscore_only_follows_literal_tail(
     )
 
 
-
 def test_create_field_definition_accepts_dict_options(session: Session) -> None:
     service = DocxImportService(session)
     project = _create_project(session, name="字典选项项目")
@@ -103,11 +97,15 @@ def test_create_field_definition_accepts_dict_options(session: Session) -> None:
     )
 
     assert field_definition is not None
-    options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == field_definition.codelist_id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == field_definition.codelist_id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
     assert [option.decode for option in options] == ["汉族", "其他民族"]
-
 
 
 def test_create_field_definition_accepts_str_options(session: Session) -> None:
@@ -129,11 +127,15 @@ def test_create_field_definition_accepts_str_options(session: Session) -> None:
     )
 
     assert field_definition is not None
-    options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == field_definition.codelist_id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == field_definition.codelist_id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
     assert [option.decode for option in options] == ["男_", "女"]
-
 
 
 def test_build_preview_forms_accepts_dict_options() -> None:
@@ -162,7 +164,6 @@ def test_build_preview_forms_accepts_dict_options() -> None:
     ]
 
 
-
 def test_normalize_binary_choice_order_for_yes_no_label() -> None:
     options = [
         {"decode": "否"},
@@ -175,7 +176,6 @@ def test_normalize_binary_choice_order_for_yes_no_label() -> None:
     ]
 
 
-
 def test_date_not_overtrigger_as_datetime() -> None:
     text = "|__|__|__|__|年|__|__|月|__|__|日\n|__|__|:|__|__|"
 
@@ -183,7 +183,6 @@ def test_date_not_overtrigger_as_datetime() -> None:
 
     assert field_type == "日期"
     assert config == {"date_format": "yyyy-MM-dd"}
-
 
 
 def test_date_time_preserves_hh_mm() -> None:
@@ -195,7 +194,6 @@ def test_date_time_preserves_hh_mm() -> None:
     assert config == {"date_format": "yyyy-MM-dd HH:mm"}
 
 
-
 def test_date_time_preserves_hh_mm_ss() -> None:
     text = "|__|__|__|__|年|__|__|月|__|__|日 |__|__|:|__|__|:|__|__|"
 
@@ -203,7 +201,6 @@ def test_date_time_preserves_hh_mm_ss() -> None:
 
     assert field_type == "日期时间"
     assert config == {"date_format": "yyyy-MM-dd HH:mm:ss"}
-
 
 
 def test_date_time_hour_only_detected_from_exported_placeholder() -> None:
@@ -215,7 +212,6 @@ def test_date_time_hour_only_detected_from_exported_placeholder() -> None:
     assert config == {"date_format": "yyyy-MM-dd HH"}
 
 
-
 def test_hour_only_time_detected_from_exact_cell() -> None:
     field_type, config = M._detect_field_type("|__|__|时")
 
@@ -223,13 +219,11 @@ def test_hour_only_time_detected_from_exact_cell() -> None:
     assert config == {"date_format": "HH"}
 
 
-
 def test_hour_with_unit_label_stays_numeric() -> None:
     field_type, config = M._detect_field_type("|__|__|小时")
 
     assert field_type == "数值"
     assert config == {"integer_digits": 2, "decimal_digits": 0}
-
 
 
 def test_vertical_layout_date_with_hour_stays_date() -> None:
@@ -241,7 +235,6 @@ def test_vertical_layout_date_with_hour_stays_date() -> None:
     assert config == {"date_format": "yyyy-MM-dd"}
 
 
-
 def test_build_choice_options_marks_description_fields() -> None:
     options = M._build_choice_options("○汉族  ○其他民族______", "○")
 
@@ -249,7 +242,6 @@ def test_build_choice_options_marks_description_fields() -> None:
         {"decode": "汉族", "_src_order": 1},
         {"decode": "其他民族", "_src_order": 2, "needs_description": True},
     ]
-
 
 
 def test_expand_underscore_option_fields_appends_description_text_fields() -> None:
@@ -284,7 +276,6 @@ def test_expand_underscore_option_fields_appends_description_text_fields() -> No
     ]
 
 
-
 def test_expand_description_fields_follow_word_source_order_after_binary_normalization() -> None:
     """「否/是」重排后，描述字段仍按 Word 源顺序生成，而非重排后的列表序。"""
     fields = [
@@ -302,10 +293,7 @@ def test_expand_description_fields_follow_word_source_order_after_binary_normali
 
     assert [f["label"] for f in expanded[1:]] == ["否描述", "是描述"]
     # 临时键必须全部消费，不泄漏进预览/建库
-    assert all(
-        "_src_order" not in str(f) and "needs_description" not in str(f)
-        for f in expanded
-    )
+    assert all("_src_order" not in str(f) and "needs_description" not in str(f) for f in expanded)
 
 
 def test_collect_select_options_returns_decode_dicts() -> None:
@@ -321,7 +309,6 @@ def test_collect_select_options_returns_decode_dicts() -> None:
     assert [option["_src_order"] for option in tuples[0]] == [1, 2]
 
 
-
 def test_detect_field_type_no_line_break_is_horizontal() -> None:
     text = "○高中及高中以下  ○本科  ○硕士  ○博士"
 
@@ -331,7 +318,6 @@ def test_detect_field_type_no_line_break_is_horizontal() -> None:
     assert len(config.get("options", [])) == 4
 
 
-
 def test_detect_field_type_multiline_is_vertical_single() -> None:
     text = "○正常\n○异常无临床意义\n○异常有临床意义"
 
@@ -339,7 +325,6 @@ def test_detect_field_type_multiline_is_vertical_single() -> None:
 
     assert field_type == "单选（纵向）"
     assert len(config.get("options", [])) == 3
-
 
 
 def test_detect_field_type_multiline_is_vertical_multi() -> None:

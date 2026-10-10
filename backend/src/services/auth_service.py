@@ -1,4 +1,5 @@
 """认证服务：JWT 签发/验证"""
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -71,9 +72,7 @@ def change_own_password(user: User, current_password: str, new_password: str) ->
 
 def create_access_token(user_id: int, username: str, auth_version: int) -> str:
     config = get_config().auth
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=config.access_token_expire_minutes
-    )
+    expire = datetime.now(timezone.utc) + timedelta(minutes=config.access_token_expire_minutes)
     return jwt.encode(
         {
             "sub": str(user_id),

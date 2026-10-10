@@ -1,4 +1,5 @@
 """Export Router"""
+
 import logging
 import os
 import tempfile
@@ -14,15 +15,13 @@ from src.config import get_config
 from src.database import get_read_session
 from src.dependencies import get_current_user, require_admin, verify_project_owner
 from src.models.user import User
-from src.perf import perf_span, record_counter
 from src.repositories.project_repository import ProjectRepository
-from src.services.export_service import (
-    ExportService,
-    ExportError,
+from src.services.database_export_service import (
     export_full_database,
     export_project_database,
     export_user_projects_database,
 )
+from src.services.export_service import ExportService, ExportError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
@@ -53,11 +52,9 @@ def export_word(
             { "form_id": { "normal": [0.3, 0.7], "inline": [...], "unified": [...] } }
             其中每个数组元素表示该列占总宽度的比例（0.0~1.0）
     """
-    with perf_span("auth_owner"):
-        verify_project_owner(project_id, current_user, session)
+    verify_project_owner(project_id, current_user, session)
 
-    with perf_span("project_tree_load"):
-        project = ProjectRepository(session).get_by_id(project_id)
+    project = ProjectRepository(session).get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
 
@@ -67,24 +64,21 @@ def export_word(
 
     try:
         service = ExportService(session)
-        with perf_span("docx_generate"):
-            ok = service.export_project_to_word(
-                project_id,
-                tmp_path,
-                column_width_overrides=column_width_overrides,
-                bake_toc_page_numbers=True,
-                annotated=annotated,
-            )
+        ok = service.export_project_to_word(
+            project_id,
+            tmp_path,
+            column_width_overrides=column_width_overrides,
+            bake_toc_page_numbers=True,
+            annotated=annotated,
+        )
         if not ok:
             _remove_temp_file(tmp_path)
             raise HTTPException(500, "导出失败，请检查项目数据是否完整")
 
-        with perf_span("output_validate"):
-            valid, reason = ExportService._validate_output(tmp_path)
+        valid, reason = ExportService._validate_output(tmp_path)
         if not valid:
             _remove_temp_file(tmp_path)
             raise HTTPException(500, f"导出失败: {reason}")
-        record_counter("output_size_bytes", os.path.getsize(tmp_path))
     except HTTPException:
         raise
     except ExportError as exc:
@@ -97,13 +91,12 @@ def export_word(
         _remove_temp_file(tmp_path)
         raise HTTPException(500, "导出失败，请稍后重试或联系管理员")
 
-    with perf_span("file_response_prepare"):
-        response = FileResponse(
-            tmp_path,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=f"{project.name}_{'aCRF' if annotated else 'CRF'}.docx",
-            background=BackgroundTask(os.unlink, tmp_path),
-        )
+    response = FileResponse(
+        tmp_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{project.name}_{'aCRF' if annotated else 'CRF'}.docx",
+        background=BackgroundTask(os.unlink, tmp_path),
+    )
     return response
 
 

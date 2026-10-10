@@ -3,17 +3,10 @@
 from sqlalchemy.orm import DeclarativeBase
 
 
-
-
-
 class Base(DeclarativeBase):
-
     """所有模型的基类"""
 
     pass
-
-
-
 
 
 from .codelist import CodeList, CodeListOption
@@ -38,33 +31,18 @@ from .visit import Visit
 from .visit_form import VisitForm
 
 
-
 __all__ = [
-
     "Base",
-
     "CodeList",
-
     "CodeListOption",
-
     "Field",
-
     "FieldDefinition",
-
     "Form",
-
     "FormField",
     "OrganizationPreset",
-
     "Project",
-
     "Unit",
-
     "User",
-
     "Visit",
-
     "VisitForm",
-
 ]
-

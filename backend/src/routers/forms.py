@@ -45,17 +45,13 @@ def _serialize_form_response(form: Form) -> FormResponse:
 def _normalize_form_payload(payload: dict) -> dict:
     normalized = dict(payload)
     if "annotation_positions" in normalized:
-        normalized["annotation_positions"] = serialize_annotation_positions(
-            normalized["annotation_positions"]
-        )
+        normalized["annotation_positions"] = serialize_annotation_positions(normalized["annotation_positions"])
     return normalized
 
 
 def _apply_form_update(form: Form, data: FormUpdate, session: Session) -> Form:
     old_order = form.order_index
-    payload = _normalize_form_payload(
-        data.model_dump(exclude={"order_index"}, exclude_unset=True)
-    )
+    payload = _normalize_form_payload(data.model_dump(exclude={"order_index"}, exclude_unset=True))
 
     for key, value in payload.items():
         setattr(form, key, value)
@@ -156,11 +152,7 @@ def get_form_references(
     from src.models.visit import Visit
     from src.models.visit_form import VisitForm
 
-    stmt = (
-        select(Visit.name)
-        .join(VisitForm, VisitForm.visit_id == Visit.id)
-        .where(VisitForm.form_id == form_id)
-    )
+    stmt = select(Visit.name).join(VisitForm, VisitForm.visit_id == Visit.id).where(VisitForm.form_id == form_id)
     return [{"visit_name": row[0]} for row in session.execute(stmt).all()]
 
 
@@ -192,11 +184,10 @@ def batch_delete_forms(
 
     from src.models.visit_form import VisitForm
 
-    ref_ids = set(
-        session.scalars(
-            select(VisitForm.form_id).where(VisitForm.form_id.in_(data.ids))
-        ).all()
-    )
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(session.scalars(select(Form.id).where(Form.project_id == project_id, Form.id.in_(data.ids))).all())
+    ref_ids = set(session.scalars(select(VisitForm.form_id).where(VisitForm.form_id.in_(own_ids))).all())
     if ref_ids:
         raise HTTPException(409, "部分表单被访视引用，无法删除")
 
@@ -220,9 +211,7 @@ def batch_form_references(
     from src.models.visit_form import VisitForm
 
     valid_form_ids = set(
-        session.scalars(
-            select(Form.id).where(Form.project_id == project_id, Form.id.in_(data.ids))
-        ).all()
+        session.scalars(select(Form.id).where(Form.project_id == project_id, Form.id.in_(data.ids))).all()
     )
     stmt = (
         select(VisitForm.form_id, Visit.name)
@@ -263,18 +252,14 @@ def copy_form(
     base = src.name + "_copy"
     candidate = base
     idx = 1
-    while session.scalar(
-        select(Form).where(Form.project_id == src.project_id, Form.name == candidate)
-    ):
+    while session.scalar(select(Form).where(Form.project_id == src.project_id, Form.name == candidate)):
         candidate = f"{base}{idx}"
         idx += 1
 
     from src.utils import generate_code
 
     try:
-        annotation_positions = preserve_annotation_positions_storage(
-            src.annotation_positions
-        )
+        annotation_positions = preserve_annotation_positions_storage(src.annotation_positions)
     except ValueError as exc:
         raise HTTPException(409, f"源表单 annotation_positions 数据非法，无法复制：{exc}") from exc
 
@@ -297,11 +282,7 @@ def copy_form(
     session.flush()
 
     src_fields = list(
-        session.scalars(
-            select(FormField)
-            .where(FormField.form_id == form_id)
-            .order_by(FormField.order_index)
-        ).all()
+        session.scalars(select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index)).all()
     )
     for form_field in src_fields:
         session.add(

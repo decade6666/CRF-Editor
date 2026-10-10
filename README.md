@@ -14,6 +14,7 @@ CRF（Case Report Form，病例报告表）编辑器是一个用于临床研究�
 - **实时预览与快编**：设计器底部提供实时预览，支持双击预览字段快速编辑标签、颜色、横向显示与默认值等实例属性；字段行复制先生成本地草稿，点击「保存」后才入库，日志行复制因不属于字段库仍直接保存；完全模式下设计器与访视表单预览都可在 eCRF / aCRF 视图间切换，aCRF 字段 OID / 表单 domain 标注支持竖直拖动、位置持久化，并与导出样式统一
 - **字段库 / 代码列表 / 单位管理**：统一管理字段定义、选项字典和测量单位，支持复用与标准化；字段库中单选 / 多选字段可直接内联新增或编辑所引用的选项字典内容，无需切换到字典页；复选字段为不关联字典的单一复选框，可设置复选文本（为空时默认为 ✔），预览和 Word 导出显示为「字段标签 | □复选文本」
 - **列表排序与序号快编**：字典、选项、单位、字段、访视、访视内表单，以及表单设计器左侧表单列表均支持拖拽排序；双击「序号」可直接输入目标位置并复用既有 reorder 接口快速移动
+- **被引用删除保护**：字典、单位、字段、表单被引用时，单个删除会弹窗列出引用位置并拒绝删除（需先解除引用；仅被字段库中未放入表单的字段引用的字典/单位同样拦截）；批量删除在同一个弹窗中分组展示——被引用的对象仅提醒不可删除，未被引用的确认后删除，混合情况提示「已删除 N 个，M 个未删除」
 - **简要 / 完全编辑模式**：默认隐藏 OID / 变量名等高级标识符，完全模式下统一显示并可维护；表单 / 字段 / 字典 OID 编辑时限制为仅字母、数字、`-`、`_`、`.`，非法字符即时拦截且不改写存量；字典选项编码与标签一样不限制字符内容
 - **导入能力**：支持模板库 `.db` 导入、项目数据库导入 / 整库合并导入，以及 Word `.docx` 导入对比预览与原文截图证据面板；Word 导入的 AI 复核建议可按单条 / 单表单 / 全部三级选择性接受（默认关闭），并在「导入效果」预览中实时反映接受后的字段类型；未完成导入的上传文档默认 24 小时后自动清理
 - **模板字段查询**：完全编辑模式下可打开只读、非模态可拖拽的「模板字段查询」弹窗，检索模板库全量可用字段实现 OID / 标签 / 来源表单 OID 互查（自动排除标签字段、日志行与软删项目）；搜索按「字段精确/包含 > 表单 OID 精确/包含 > 字段模糊 > 表单 OID 模糊」四组排序并复用全局模糊规则，来源列内联多行展示「表单OID 表单名称」（无 OID 仅示名称、仅字段库示「仅字段库」）；来源只读，其余有值的单元格点击即可复制
@@ -459,8 +460,8 @@ node --test tests/*.test.js # 仅运行 node:test 源码级回归测试
 - `tests/component/**/*.spec.js`：vitest + @vue/test-utils + happy-dom 组件挂载测试（真实渲染组件并断言交互，共享 `tests/component/setup.js` 全局注册与 mock 约定；含 Vue 警告门禁——测试期间出现任何 Vue 警告（含卸载阶段）即判该用例失败，实现于 `tests/component/vueWarnGate.js`）
 
 当前仓库中：
-- `backend/tests/` 当前包含 69 个 Python 测试文件（67 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
-- `frontend/tests/` 当前包含 76 个前端测试文件（69 个 `.test.js` + `testProperty.js` 的 node:test，另加 `tests/component/` 下 6 个 vitest 组件挂载测试文件（4 个 `.spec.js` + 共享 `setup.js` + `vueWarnGate.js`）），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡、管理端机构弹窗编辑，以及 `useApi` 会话令牌竞态守卫等契约
+- `backend/tests/` 当前包含 63 个 Python 测试文件（61 个 `test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
+- `frontend/tests/` 当前包含 75 个前端测试文件（68 个 `.test.js` + `testProperty.js` 的 node:test，另加 `tests/component/` 下 6 个 vitest 组件挂载测试文件（4 个 `.spec.js` + 共享 `setup.js` + `vueWarnGate.js`）），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡、管理端机构弹窗编辑，以及 `useApi` 会话令牌竞态守卫等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 
 ### 提交前检查（pre-commit 门禁）
@@ -483,6 +484,26 @@ git config core.hooksPath .githooks
 - 该配置写入 `.git/config`，对本仓库的**所有 worktree 共享**——在任一 worktree 启用后，其他 worktree 的提交同样经过该钩子。
 - 使用前需安装 gitleaks：从 [gitleaks GitHub Releases](https://github.com/gitleaks/gitleaks/releases) 下载对应平台的单个二进制文件，放置为 `~/.local/bin/gitleaks`（确保 `~/.local/bin` 在 PATH 中）。
 - `git commit --no-verify` 可在紧急情况下绕过钩子，但仅限紧急使用，不得日常使用；gitleaks 误报请按 `.gitleaks.toml` 的 allowlist 流程处理。
+
+### 后端代码格式化（ruff format）
+
+后端使用 [ruff](https://docs.astral.sh/ruff/) 的格式化器统一代码风格（仅 format，不启用任何 lint 规则）：
+
+- 版本固定在 `backend/requirements-dev.txt`（`ruff==0.16.10`）；配置见 `backend/ruff.toml`（行宽 120、双引号）。
+- 格式化与检查：
+
+```bash
+cd backend && python -m ruff format .          # 格式化
+cd backend && python -m ruff format --check .  # 仅检查（退出码 1 表示存在待格式化文件；其他非零表示运行/配置错误）
+```
+
+- 2026-10-09 已用一次只改格式不改语义的提交统一 `backend/` 全部 Python 文件（134 个文件，其中 17 个同时统一了历史 CRCRLF 行尾）；该提交登记在仓库根 `.git-blame-ignore-revs`，执行以下命令后 `git blame` 会自动跳过它，保持行级历史可读：
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+- 提交前钩子的第 4 道检查依赖 PATH 中存在 `ruff`：未安装时跳过并提示一行，安装后自动启用；待格式化（退出码 1）与运行出错（其他非零）分别报错。
 
 ## 参与贡献
 

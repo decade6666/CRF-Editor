@@ -174,15 +174,11 @@ def test_project_clone_preserves_form_annotation_positions(engine) -> None:
 
         cloned_project = ProjectCloneService.clone(project.id, user.id, session)
         cloned_form = session.scalar(
-            select(Form)
-            .where(Form.project_id == cloned_project.id)
-            .order_by(Form.order_index, Form.id)
+            select(Form).where(Form.project_id == cloned_project.id).order_by(Form.order_index, Form.id)
         )
 
     assert cloned_form is not None
-    assert cloned_form.annotation_positions == serialize_annotation_positions(
-        '{"_form":{"y":18},"AEVAR":{"y":-12}}'
-    )
+    assert cloned_form.annotation_positions == serialize_annotation_positions('{"_form":{"y":18},"AEVAR":{"y":-12}}')
 
 
 def test_copy_form_rejects_invalid_annotation_positions(engine) -> None:
@@ -219,14 +215,10 @@ def test_project_import_preserves_form_annotation_positions(engine, tmp_path: Pa
             owner.id,
             session,
         )
-        imported_form = session.scalar(
-            select(Form).where(Form.project_id == result.project_id)
-        )
+        imported_form = session.scalar(select(Form).where(Form.project_id == result.project_id))
 
     assert imported_form is not None
-    assert imported_form.annotation_positions == serialize_annotation_positions(
-        source_positions
-    )
+    assert imported_form.annotation_positions == serialize_annotation_positions(source_positions)
 
 
 def test_project_import_rejects_invalid_form_annotation_positions(engine, tmp_path: Path) -> None:
@@ -285,9 +277,7 @@ def test_form_update_schema_clamps_annotation_positions() -> None:
 def test_migration_adds_annotation_positions_to_legacy_form_table(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy_annotation_positions.db"
     conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, name TEXT NOT NULL)"
-    )
+    conn.execute("CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, name TEXT NOT NULL)")
     conn.execute("INSERT INTO form (id, project_id, name) VALUES (1, 1, 'Legacy Form')")
     conn.commit()
     conn.close()
@@ -299,9 +289,7 @@ def test_migration_adds_annotation_positions_to_legacy_form_table(tmp_path: Path
     columns = {column["name"] for column in inspect(engine).get_columns("form")}
     assert "annotation_positions" in columns
     with engine.connect() as connection:
-        value = connection.execute(
-            text("SELECT annotation_positions FROM form WHERE id = 1")
-        ).scalar()
+        value = connection.execute(text("SELECT annotation_positions FROM form WHERE id = 1")).scalar()
     assert value is None
     engine.dispose()
 
@@ -315,9 +303,7 @@ def test_copy_form_canonicalizes_out_of_range_string_storage(engine) -> None:
         copied = copy_form(form.id, session, user)
         session.flush()
         stored = session.scalar(select(Form).where(Form.id == copied.id))
-    assert stored.annotation_positions == serialize_annotation_positions(
-        '{"_form":{"y":999},"AEVAR":{"y":-999}}'
-    )
+    assert stored.annotation_positions == serialize_annotation_positions('{"_form":{"y":999},"AEVAR":{"y":-999}}')
     assert stored.annotation_positions == '{"AEVAR":{"y":-200},"_form":{"y":200}}'
 
 

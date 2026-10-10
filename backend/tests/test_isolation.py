@@ -4,6 +4,7 @@
 - 用户 B 无法 GET/PUT/DELETE 用户 A 的项目（403）
 - GET /api/projects 仅返回当前用户自己的项目
 """
+
 from fastapi.testclient import TestClient
 
 from helpers import auth_headers, login_as

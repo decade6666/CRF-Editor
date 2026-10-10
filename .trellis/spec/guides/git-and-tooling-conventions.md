@@ -81,12 +81,26 @@ Four gates run on every `git commit` (no test suites, no builds, no npm; a few s
 | 1 | gitleaks staged scan: `gitleaks git --staged --config <repo-root>/.gitleaks.toml --exit-code 1 --no-banner --verbose` (`--verbose` required: v8.30.1 prints only a count otherwise, not the RuleID/file/line) | commit blocked; gitleaks missing from PATH or `.gitleaks.toml` missing also blocks (fail closed) with a dedicated Chinese hint |
 | 2 | `git diff --cached --check` (whitespace errors, conflict markers) | commit blocked |
 | 3 | staged `*.py` files (from `git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR`; `quotePath=false` keeps non-ASCII filenames literal so the `*.py` match cannot silently skip them): `python3 -m py_compile` per file | commit blocked, failing file named |
-| 4 | `ruff format --check` on staged `*.py` files when `ruff` is on PATH | commit blocked; when ruff is absent, exactly one notice line is printed and the check is skipped |
+| 4 | `ruff format --check --` on staged `*.py` files when `ruff` is on PATH | commit blocked; when ruff is absent, exactly one notice line is printed and the check is skipped. Exit code 1 (would reformat) and any other non-zero (runtime/config error) fail with separate Chinese messages |
 
 - **Worktree semantics**: `core.hooksPath` lives in `.git/config`, which is shared by every worktree of this repository — enabling it in one worktree activates the hook for commits in all worktrees. The script and config are versioned, so each worktree checks out its own copy.
 - **gitleaks version facts** (verified 2026-10-08, v8.30.1): staged scanning uses `gitleaks git --staged`; the old `protect` subcommand is deprecated since v8.19.0. The repo-root `.gitleaks.toml` (restored byte-identical from `8ed19cd^`) extends the default rule set and uses the `[[allowlists]]` array-of-tables syntax. Note for fake-key tests: the default rules do not flag the AWS example key (`AKIA…EXAMPLE`) or very short PEM bodies; `ghp_` / `xoxb-` style tokens are detected.
 - **`--no-verify` policy**: `git commit --no-verify` exists for emergencies only and must not be used routinely; gitleaks false positives go through the `.gitleaks.toml` allowlist process instead of bypassing the hook.
-- **backend-format integration**: Gate 4 is conditional — once the `backend-format` task lands and `ruff` is installed on PATH, the format check lights up automatically with no hook change. When wiring that up, verify against the installed ruff version: (a) whether `ruff format --check` accepts a `--` end-of-options separator (staged files named like `-foo.py` currently hit flag parsing, failing with a misleading message); (b) distinguish exit code 1 (would reformat) from 2 (runtime/config error) so the block message stays accurate.
+- **backend-format integration (settled 2026-10-09, ruff 0.16.10)**: Gate 4 runs `ruff format --check -- "$f"`. The `--` end-of-options separator is accepted (a staged clean `-foo.py` passes; without `--` a filename like `-foo.py` hits flag parsing and fails misleadingly). Exit codes are separated: 1 = would reformat → 「ruff format --check 未通过：…」; any other non-zero (missing file, syntax error, invalid config — e.g. an invalid `ruff.toml` yields status 2) → 「ruff format --check 运行出错（状态码 N，详情见上方输出）：…」. Verified in a throwaway `/tmp` repo: clean file commits (rc 0), unformatted file blocked (rc 1, 未通过), invalid `ruff.toml` blocked (rc 1, 运行出错). Activation stays a user choice: Gate 4 only runs when `ruff` is on PATH (ruff is pinned as `ruff==0.16.10` in `backend/requirements-dev.txt`; format-only config lives in `backend/ruff.toml` — no lint rules are enabled).
+- **Merging a branch that predates the format commit `fb1ae18`**: the 2026-10-09 one-shot `ruff format` commit rewrote formatting across all of `backend/`; branches opened before it must re-format their own changes while merging, or the merge collapses into wholesale format conflicts:
+
+  ```bash
+  git merge <format-commit>^                    # first take everything before the format commit
+  (cd backend && python -m ruff format .)       # pinned ruff + backend/ruff.toml
+  git add -- <all intended backend paths, including modified, deleted, and new files>
+  git commit -m "chore(<scope>): 按 ruff 格式化本分支改动"
+  git merge -X ours <format-commit>             # both sides are now formatted; keep the branch's hunks
+  (cd backend && python -m ruff format --check .) && <full backend suite>
+  ```
+
+  If Gate 2 (`git diff --cached --check`) flags CR bytes as trailing whitespace after formatting, inspect the affected files' bytes. Ruff 0.16.10 may turn legacy CRCRLF into bare CR; normalize affected files to LF, then rerun `ruff format --check`, `git diff --cached --check`, `git diff --check`, AST equivalence, and the full backend suite. Never bypass Gate 2.
+
+  Branches created after the format commit start formatted and merge normally. The format commit is registered in the repo-root `.git-blame-ignore-revs` (enable with `git config blame.ignoreRevsFile .git-blame-ignore-revs`); never rebase, amend, or squash it — its hash must stay stable.
 
 ---
 

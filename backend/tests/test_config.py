@@ -11,9 +11,7 @@ from src.config import AppConfig, RecycleBinConfig
 def test_yaml_server_port_overrides_model_default(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "server:\n"
-        "  host: 127.0.0.1\n"
-        "  port: 9999\n",
+        "server:\n  host: 127.0.0.1\n  port: 9999\n",
         encoding="utf-8",
     )
 
@@ -26,8 +24,7 @@ def test_yaml_server_port_overrides_model_default(tmp_path: Path) -> None:
 def test_missing_server_port_falls_back_to_server_default(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "server:\n"
-        "  host: 127.0.0.1\n",
+        "server:\n  host: 127.0.0.1\n",
         encoding="utf-8",
     )
 
@@ -39,9 +36,7 @@ def test_missing_server_port_falls_back_to_server_default(tmp_path: Path) -> Non
 def test_yaml_auth_expire_minutes_overrides_model_default(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "auth:\n"
-        "  secret_key: test-secret-key-for-config\n"
-        "  access_token_expire_minutes: 60\n",
+        "auth:\n  secret_key: test-secret-key-for-config\n  access_token_expire_minutes: 60\n",
         encoding="utf-8",
     )
 
@@ -56,8 +51,7 @@ def test_missing_auth_expire_minutes_falls_back_to_auth_default(
 ) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "auth:\n"
-        "  secret_key: test-secret-key-for-config\n",
+        "auth:\n  secret_key: test-secret-key-for-config\n",
         encoding="utf-8",
     )
     # conftest 为整个会话注入了 CRF_AUTH_SECRET_KEY；本测试验证的是
@@ -69,7 +63,6 @@ def test_missing_auth_expire_minutes_falls_back_to_auth_default(
     assert config.auth.secret_key == "test-secret-key-for-config"
     assert config.auth.access_token_expire_minutes == AuthConfig().access_token_expire_minutes
     assert config.auth.access_token_expire_minutes == 30
-
 
 
 def test_load_config_applies_explicit_crf_env_overrides(tmp_path: Path, monkeypatch) -> None:
@@ -100,13 +93,10 @@ def test_load_config_applies_explicit_crf_env_overrides(tmp_path: Path, monkeypa
     assert config.server.port == 7777
 
 
-
 def test_load_config_rejects_auth_expire_minutes_above_60(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "auth:\n"
-        "  secret_key: test-secret-key-for-config\n"
-        "  access_token_expire_minutes: 61\n",
+        "auth:\n  secret_key: test-secret-key-for-config\n  access_token_expire_minutes: 61\n",
         encoding="utf-8",
     )
 
@@ -114,13 +104,10 @@ def test_load_config_rejects_auth_expire_minutes_above_60(tmp_path: Path) -> Non
         load_config(config_file)
 
 
-
 def test_env_override_rejects_auth_expire_minutes_above_60(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "auth:\n"
-        "  secret_key: test-secret-key-for-config\n"
-        "  access_token_expire_minutes: 30\n",
+        "auth:\n  secret_key: test-secret-key-for-config\n  access_token_expire_minutes: 30\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "61")
@@ -129,14 +116,10 @@ def test_env_override_rejects_auth_expire_minutes_above_60(tmp_path: Path, monke
         load_config(config_file)
 
 
-
 def test_update_config_does_not_persist_env_only_secret(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "auth:\n"
-        "  access_token_expire_minutes: 30\n"
-        "template:\n"
-        "  template_path: ./template.db\n",
+        "auth:\n  access_token_expire_minutes: 30\ntemplate:\n  template_path: ./template.db\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("CRF_AUTH_SECRET_KEY", "env-only-secret")
@@ -193,9 +176,7 @@ def test_recycle_bin_yaml_overrides_defaults(tmp_path: Path) -> None:
 def test_recycle_bin_rejects_invalid_unit_at_load(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "recycle_bin:\n"
-        "  age:\n"
-        "    unit: week\n",
+        "recycle_bin:\n  age:\n    unit: week\n",
         encoding="utf-8",
     )
 
@@ -206,9 +187,7 @@ def test_recycle_bin_rejects_invalid_unit_at_load(tmp_path: Path) -> None:
 def test_recycle_bin_rejects_zero_value(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "recycle_bin:\n"
-        "  size:\n"
-        "    value: 0\n",
+        "recycle_bin:\n  size:\n    value: 0\n",
         encoding="utf-8",
     )
 

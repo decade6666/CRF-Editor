@@ -28,6 +28,11 @@ import {
 } from '@element-plus/icons-vue';
 import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
+import {
+  buildPartialDeleteMessage,
+  confirmReferenceAwareBatchDelete,
+  showReferenceBlockedAlert,
+} from '../composables/referenceDeleteGuard';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
 import { isValidOptionalOid, isValidRequiredOid, OID_ERROR } from '../composables/oidValidation';
@@ -101,7 +106,6 @@ import {
   findOidConflict,
   hydrateEditorFromCandidate,
 } from '../composables/fieldDefinitionAutocomplete';
-import { markPerfEnd, markPerfStart, recordPerfEvent } from '../composables/usePerfBaseline';
 import {
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
@@ -476,14 +480,11 @@ async function delForm(f) {
       const msg = truncRefs(
         refs.map((r) => r.visit_name),
         5,
-        '、',
+        '\n',
       );
-      await ElMessageBox.confirm(`删除表单 "${f.name}" 将同时从以下访视中移除：\n${msg}\n确认删除？`, '确认', {
-        type: 'warning',
-      });
-    } else {
-      await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' });
+      return await showReferenceBlockedAlert(ElMessageBox, `该表单被以下访视引用，需先从相关访视中移除该表单：\n${msg}`);
     }
+    await ElMessageBox.confirm(`删除表单 "${f.name}"？`, '确认', { type: 'warning' });
     await api.del(`/api/forms/${f.id}`);
     if (selectedForm.value?.id === f.id) {
       invalidateFormSelectionSession();
@@ -500,30 +501,28 @@ const selForms = ref([]);
 async function batchDelForms() {
   try {
     const ids = selForms.value.map((f) => f.id);
+    const items = [...selForms.value];
     const refsMap = await api.post(`/api/projects/${props.projectId}/forms/batch-references`, { ids });
-    const allRefs = [];
-    for (const f of selForms.value) {
-      const refs = refsMap[f.id] || [];
-      if (refs.length)
-        allRefs.push(
-          `【${f.name}】：` +
-            truncRefs(
-              refs.map((r) => r.visit_name),
-              3,
-              '、',
-            ),
-        );
-    }
-    const msg = allRefs.length
-      ? `以下表单将同时从相关访视中移除：\n${allRefs.join('\n')}\n确认删除？`
-      : `确认删除选中的 ${selForms.value.length} 个表单？`;
-    await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' });
-    await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids });
-    invalidateFormSelectionSession();
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '表单',
+      nameOf: (f) => f.name,
+      describeRefs: (refs) => truncRefs(refs.map((r) => r.visit_name), 3, '、'),
+    });
+    if (!toDelete.length) return;
+    const deleteIds = toDelete.map((x) => x.id);
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids: deleteIds });
     selForms.value = [];
-    selectedForm.value = null;
-    formFields.value = [];
+    if (deleteIds.includes(selectedForm.value?.id)) {
+      invalidateFormSelectionSession();
+      selectedForm.value = null;
+      formFields.value = [];
+    }
     reloadForms();
+    if (toDelete.length < items.length) {
+      ElMessage.success(buildPartialDeleteMessage('表单', deleted, items.length - toDelete.length));
+    }
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(e.message);
   }
@@ -1240,12 +1239,6 @@ async function onDrop(e, targetIdx) {
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = null;
   if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy()) return;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_reorder_field',
-    project_id: props.projectId,
-    form_id: selectedForm.value?.id ?? null,
-  });
   const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
   if (srcIdx === -1 || srcIdx === targetIdx) return;
   if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
@@ -1797,8 +1790,6 @@ async function selectForm(nextForm) {
   const selectionSession = formSelectionSession;
   const projectId = props.projectId;
   const selectionAttempt = ++formSelectionAttempt;
-  const eventName = currentForm ? 'designer_switch_form' : 'designer_select_form';
-  markPerfStart(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
     if (!isFormSelectionAttemptCurrent(selectionAttempt, selectionSession, projectId)) return;
@@ -1834,7 +1825,6 @@ async function selectForm(nextForm) {
   selectedIds.value = [];
   selectedForm.value = nextForm || null;
   syncFormPropEditor(selectedForm.value);
-  markPerfEnd(eventName, { project_id: projectId, form_id: nextForm?.id ?? null });
 }
 
 // 快速编辑
@@ -1853,13 +1843,6 @@ const quickEditProp = reactive({
 function openQuickEdit(ff) {
   if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
   if (ff?.is_log_row || ff?.field_definition?.field_type === '日志行') return;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_edit_label',
-    project_id: props.projectId,
-    form_id: selectedForm.value?.id ?? null,
-    field_id: ff?.id ?? null,
-  });
   quickEditField.value = ff;
   Object.assign(quickEditProp, {
     label: getFormFieldDisplayLabel(ff) || '',
@@ -1936,13 +1919,6 @@ async function toggleInline(ff) {
   if (!historyContext || !canToggleInline(ff)) return;
   const formId = historyContext.formId;
   const nextInlineMark = ff.inline_mark ? 0 : 1;
-  recordPerfEvent({
-    type: 'instant',
-    name: 'designer_toggle_inline',
-    project_id: props.projectId,
-    form_id: formId,
-    field_id: ff?.id ?? null,
-  });
   try {
     await confirmFormChange();
     if (!isCurrentDesignerHistoryContext(historyContext) || isReordering.value) return;
@@ -3027,19 +3003,12 @@ async function handleDesignerBeforeClose(done) {
 }
 
 async function openDesigner() {
-  markPerfStart('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   try {
     await ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs: true });
     syncFormPropEditor(selectedForm.value);
     showDesigner.value = true;
     refreshDesignerPreviewOverrides();
-    markPerfEnd('designer_open_fullscreen', { project_id: props.projectId, form_id: selectedForm.value?.id ?? null });
   } catch (error) {
-    markPerfEnd('designer_open_fullscreen', {
-      project_id: props.projectId,
-      form_id: selectedForm.value?.id ?? null,
-      error: true,
-    });
     ElMessage.error(`设计器辅助数据加载失败：${error?.message || designerAuxiliaryLoadError.value || '未知错误'}`);
   }
 }

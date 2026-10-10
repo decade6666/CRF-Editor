@@ -6,6 +6,7 @@
 - 列表接口返回 design_notes
 - 复制表单时继承 design_notes
 """
+
 from unittest.mock import patch
 
 import pytest
@@ -57,12 +58,14 @@ def client(engine):
                 yield session
 
     app.dependency_overrides[get_session] = _override
-    with patch("main.get_config", return_value=_TEST_CONFIG), \
-         patch("src.database.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
-         patch("main.init_db"):
+    with (
+        patch("main.get_config", return_value=_TEST_CONFIG),
+        patch("src.database.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.routers.admin.get_config", return_value=_TEST_CONFIG),
+        patch("main.init_db"),
+    ):
         with TestClient(app, raise_server_exceptions=False) as c:
             token = login_as(c, "alice")
             c.headers.update(auth_headers(token))

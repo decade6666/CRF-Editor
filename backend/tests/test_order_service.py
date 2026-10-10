@@ -17,26 +17,22 @@ class FakeItem(ModelBase):
     """用于验证 OrderService 行为的最小模型。"""
 
     __tablename__ = "fake_item"
-    __table_args__ = (
-        UniqueConstraint("scope_id", "order_index"),
-    )
+    __table_args__ = (UniqueConstraint("scope_id", "order_index"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     scope_id: Mapped[int] = mapped_column(Integer, nullable=False)
     order_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+
 class FakeSequenceItem(ModelBase):
     """用于验证 sequence 重排行为的最小模型。"""
 
     __tablename__ = "fake_sequence_item"
-    __table_args__ = (
-        UniqueConstraint("scope_id", "sequence"),
-    )
+    __table_args__ = (UniqueConstraint("scope_id", "sequence"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     scope_id: Mapped[int] = mapped_column(Integer, nullable=False)
     sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
 
 
 @pytest.fixture
@@ -52,32 +48,23 @@ def session() -> Session:
 
 
 def seed_items(session: Session, orders: list[Optional[int]], scope_id: int = 1) -> list[FakeItem]:
-    items = [
-        FakeItem(scope_id=scope_id, order_index=order_index)
-        for order_index in orders
-    ]
+    items = [FakeItem(scope_id=scope_id, order_index=order_index) for order_index in orders]
     session.add_all(items)
     session.flush()
     return items
 
 
 def get_scope_items(session: Session, scope_id: int = 1) -> list[FakeItem]:
-    stmt = (
-        select(FakeItem)
-        .where(FakeItem.scope_id == scope_id)
-        .order_by(FakeItem.order_index, FakeItem.id)
-    )
+    stmt = select(FakeItem).where(FakeItem.scope_id == scope_id).order_by(FakeItem.order_index, FakeItem.id)
     return list(session.scalars(stmt).all())
 
 
 def get_scope_orders(session: Session, scope_id: int = 1) -> list[int]:
     return [item.order_index for item in get_scope_items(session, scope_id)]
 
+
 def seed_sequence_items(session: Session, sequences: list[Optional[int]], scope_id: int = 1) -> list[FakeSequenceItem]:
-    items = [
-        FakeSequenceItem(scope_id=scope_id, sequence=sequence)
-        for sequence in sequences
-    ]
+    items = [FakeSequenceItem(scope_id=scope_id, sequence=sequence) for sequence in sequences]
     session.add_all(items)
     session.flush()
     return items

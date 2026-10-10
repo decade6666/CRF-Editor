@@ -51,8 +51,7 @@ def test_config_accepts_docx_screenshot_backend_yaml_and_env(
 ) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
-        "docx_screenshot:\n"
-        "  backend: word\n",
+        "docx_screenshot:\n  backend: word\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("CRF_DOCX_SCREENSHOT_BACKEND", "libreoffice")
@@ -373,12 +372,7 @@ def test_is_toc_page_flags_compact_index() -> None:
         "不良事件",
         "合并疾病",
     ]
-    text = (
-        "表单访视分布图。"
-        + "；".join(form_names)
-        + "。本页仅供快速导航，请按目录跳转填写。"
-        + "说明" * 85
-    )
+    text = "表单访视分布图。" + "；".join(form_names) + "。本页仅供快速导航，请按目录跳转填写。" + "说明" * 85
 
     assert 200 <= len(text) <= 400
     assert DocxScreenshotService.is_toc_page(text, form_names) is True
@@ -397,8 +391,7 @@ def test_is_toc_page_ignores_content_cross_reference() -> None:
     ]
     text = (
         "本页记录受试者筛选过程和研究现场说明。"
-        "研究者需要结合知情同意与访视日期两张表核对来源文件，但本页主要承载筛选描述。"
-        + "受试者描述和现场记录。" * 120
+        "研究者需要结合知情同意与访视日期两张表核对来源文件，但本页主要承载筛选描述。" + "受试者描述和现场记录。" * 120
     )
 
     assert len(text) > 1200

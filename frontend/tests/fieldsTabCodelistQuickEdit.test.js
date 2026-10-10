@@ -38,6 +38,8 @@ test('quick add opens the shared dialog; created codelist is bound by the host a
 test('quick edit opens the shared dialog hydrated from the selected codelist', () => {
   // 引用确认与 snapshot 端点断言迁入弹窗（挂载测试覆盖 references GET + snapshot PUT）；
   // 宿主保留：编辑目标解析与未选字典守卫。
+  // 引用查询不带 include_unplaced 的默认口径与「修改将影响以下字段」文案由挂载测试的
+  // 精确参数断言锁定（CodelistQuickEditDialog.spec.js：getSpy 仅以 /codelists/5/references 调用）。
   assert.match(source, /function openQuickEditCodelist\(\) \{/)
   assert.match(source, /if \(!editProp\.codelist_id\) return/)
   assert.match(source, /if \(!codelists\.value\.some\(\(c\) => c\.id === editProp\.codelist_id\)\) return/)

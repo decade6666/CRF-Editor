@@ -1,4 +1,5 @@
 """Project 模型"""
+
 from __future__ import annotations
 
 from datetime import datetime, date
@@ -20,24 +21,16 @@ if TYPE_CHECKING:
 
 class Project(Base):
     """项目模型"""
+
     __tablename__ = "project"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
-    db_type: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="其他", default="其他"
-    )
+    db_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="其他", default="其他")
     order_index: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    deleted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # CRF 元数据字段
     trial_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -52,28 +45,13 @@ class Project(Base):
     data_management_unit: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # 归属用户
-    owner_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("user.id"), nullable=True, index=True
-    )
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("user.id"), nullable=True, index=True)
     owner: Mapped[Optional["User"]] = relationship(back_populates="projects")
 
-    visits: Mapped[List["Visit"]] = relationship(
-        back_populates="project",
-        cascade="all, delete-orphan"
-    )
-    forms: Mapped[List["Form"]] = relationship(
-        back_populates="project",
-        cascade="all, delete-orphan"
-    )
-    units: Mapped[List["Unit"]] = relationship(
-        back_populates="project",
-        cascade="all, delete-orphan"
-    )
-    codelists: Mapped[List["CodeList"]] = relationship(
-        back_populates="project",
-        cascade="all, delete-orphan"
-    )
+    visits: Mapped[List["Visit"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    forms: Mapped[List["Form"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    units: Mapped[List["Unit"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    codelists: Mapped[List["CodeList"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     field_definitions: Mapped[List["FieldDefinition"]] = relationship(
-        back_populates="project",
-        cascade="all, delete-orphan"
+        back_populates="project", cascade="all, delete-orphan"
     )

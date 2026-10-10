@@ -8,6 +8,7 @@
 - 单实例限制：N 个应用实例会跑 N 个循环，行为仍正确（删前重查 + 单项目事务使重复工作变 no-op），
   但浪费，与现有限流器同属单节点限制。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +50,7 @@ async def _recycle_bin_cleanup_loop() -> None:
             purged = report.get("purged_count", 0)
             if purged:
                 from src.services.project_size_service import format_bytes
+
                 logger.info(
                     "回收站定时清理：彻底删除 %d 个项目，释放约 %s",
                     purged,
@@ -94,12 +96,8 @@ def start_background_jobs(app) -> None:
     if not should_enable_background_jobs():
         logger.info("后台任务已通过 %s 关闭", _DISABLE_ENV)
         return
-    app.state.recycle_bin_cleanup_task = asyncio.create_task(
-        _recycle_bin_cleanup_loop(), name="recycle-bin-cleanup"
-    )
-    app.state.docx_temp_sweep_task = asyncio.create_task(
-        _docx_temp_sweep_loop(), name="docx-temp-sweep"
-    )
+    app.state.recycle_bin_cleanup_task = asyncio.create_task(_recycle_bin_cleanup_loop(), name="recycle-bin-cleanup")
+    app.state.docx_temp_sweep_task = asyncio.create_task(_docx_temp_sweep_loop(), name="docx-temp-sweep")
     logger.info("后台任务已启动：回收站定时清理 + docx 临时文件过期清扫")
 
 

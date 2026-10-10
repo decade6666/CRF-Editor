@@ -40,10 +40,12 @@ def test_extract_docx_form_table_fields_ignores_scaffolding_tables(tmp_path: Pat
     forms = extract_docx_form_table_fields(docx_path)
 
     assert [form.name for form in forms] == ["生命体征", "实验室"]
-    assert forms[0].tables == [[
-        ["收缩压", "|__||__|"],
-        ["是否吸烟", "○是  ○否"],
-    ]]
+    assert forms[0].tables == [
+        [
+            ["收缩压", "|__||__|"],
+            ["是否吸烟", "○是  ○否"],
+        ]
+    ]
     assert forms[1].tables == [[["其他", "其他，请描述______"]]]
 
 
@@ -58,8 +60,7 @@ def test_extract_docx_form_table_fields_collapses_merged_cells(tmp_path: Path) -
 
     forms = extract_docx_form_table_fields(docx_path)
 
-    assert forms[0].tables == [[['以下为log行']]]
-
+    assert forms[0].tables == [[["以下为log行"]]]
 
 
 def test_compare_table_field_forms_reports_exact_counts_and_mismatches(tmp_path: Path) -> None:
@@ -72,10 +73,12 @@ def test_compare_table_field_forms_reports_exact_counts_and_mismatches(tmp_path:
                 "forms": [
                     {
                         "name": "生命体征",
-                        "tables": [[
-                            ["收缩压", "|__||__|"],
-                            ["是否吸烟", "○是 ○否"],
-                        ]],
+                        "tables": [
+                            [
+                                ["收缩压", "|__||__|"],
+                                ["是否吸烟", "○是 ○否"],
+                            ]
+                        ],
                     },
                     {
                         "name": "实验室",
@@ -116,12 +119,16 @@ def test_compare_table_field_forms_reports_exact_counts_and_mismatches(tmp_path:
 
 
 def test_compare_table_field_forms_counts_extra_cells_in_denominator() -> None:
-    preview_forms = load_preview_table_fields([
-        {"name": "A", "tables": [[['x']]]},
-    ])
-    export_forms = load_preview_table_fields([
-        {"name": "A", "tables": [[['x', 'extra']]]},
-    ])
+    preview_forms = load_preview_table_fields(
+        [
+            {"name": "A", "tables": [[["x"]]]},
+        ]
+    )
+    export_forms = load_preview_table_fields(
+        [
+            {"name": "A", "tables": [[["x", "extra"]]]},
+        ]
+    )
 
     report = compare_table_field_forms(preview_forms, export_forms)
 

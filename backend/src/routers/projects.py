@@ -1,4 +1,5 @@
 """Projects Router"""
+
 import logging
 from typing import List, Optional
 
@@ -17,7 +18,6 @@ from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
 from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from src.services.project_clone_service import ProjectCloneService
-from src.perf import perf_span, record_counter, record_payload_size
 
 from src.services.project_import_service import (
     DatabaseMergeService,
@@ -78,6 +78,7 @@ def _save_bytes_to_temp(filename: str, content: bytes) -> Path:
     """将上传内容保存到临时文件，返回路径。调用方负责删除。"""
     import os
     import tempfile
+
     if not content[:16].startswith(b"SQLite format 3"):
         raise HTTPException(400, "文件不是有效的 SQLite 数据库")
     if len(content) > _MAX_IMPORT_SIZE:
@@ -85,7 +86,7 @@ def _save_bytes_to_temp(filename: str, content: bytes) -> Path:
             400,
             f"文件大小超过限制（最大 {_MAX_IMPORT_SIZE // 1024 // 1024} MB）",
         )
-    suffix = Path(filename or 'upload.db').suffix or '.db'
+    suffix = Path(filename or "upload.db").suffix or ".db"
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -103,31 +104,21 @@ async def import_project_db(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    with perf_span("rate_limit"):
-        limit_import_action(request, current_user.id,"project-db-import")
+    limit_import_action(request, current_user.id, "project-db-import")
     """导入单项目 .db 文件。"""
     import sqlite3
-    with perf_span("upload_read"):
-        file_bytes = await file.read()
-    with perf_span("temp_file_write"):
-        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
-    record_payload_size(tmp_path.stat().st_size)
+
+    file_bytes = await file.read()
+    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
     try:
-        result = ProjectDbImportService.import_single_project(
-            str(tmp_path), current_user.id, session
-        )
-        record_counter("project_count", 1)
+        result = ProjectDbImportService.import_single_project(str(tmp_path), current_user.id, session)
         return {"project_id": result.project_id, "project_name": result.project_name}
     except ValueError as e:
         raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
     except sqlite3.DatabaseError as e:
-        raise ImportError(
-            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
-        )
+        raise ImportError(f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"])
     except Exception as e:
-        raise ImportError(
-            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
-        )
+        raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -140,36 +131,23 @@ async def import_database_merge(
     current_user: User = Depends(get_current_user),
 ):
     """整库合并导入。"""
-    with perf_span("rate_limit"):
-        limit_import_action(request, current_user.id, "database-merge-import")
+    limit_import_action(request, current_user.id, "database-merge-import")
     import sqlite3
-    with perf_span("upload_read"):
-        file_bytes = await file.read()
-    with perf_span("temp_file_write"):
-        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
-    record_payload_size(tmp_path.stat().st_size)
+
+    file_bytes = await file.read()
+    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
     try:
-        report = DatabaseMergeService.merge(
-            str(tmp_path), current_user.id, session
-        )
-        record_counter("project_count", len(report.imported))
+        report = DatabaseMergeService.merge(str(tmp_path), current_user.id, session)
         return {
-            "imported": [
-                {"id": r.project_id, "name": r.project_name}
-                for r in report.imported
-            ],
+            "imported": [{"id": r.project_id, "name": r.project_name} for r in report.imported],
             "renamed": report.renamed,
         }
     except ValueError as e:
         raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
     except sqlite3.DatabaseError as e:
-        raise ImportError(
-            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
-        )
+        raise ImportError(f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"])
     except Exception as e:
-        raise ImportError(
-            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
-        )
+        raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -184,19 +162,12 @@ async def import_auto(
     """统一导入入口：自动检测 db 文件类型（单项目/多项目），调用对应服务。"""
     limit_import_action(request, current_user.id, "auto-import")
     import sqlite3
-    with perf_span("upload_read"):
-        file_bytes = await file.read()
-    with perf_span("temp_file_write"):
-        tmp_path = _save_bytes_to_temp(file.filename or 'upload.db', file_bytes)
-    record_payload_size(tmp_path.stat().st_size)
+
+    file_bytes = await file.read()
+    tmp_path = _save_bytes_to_temp(file.filename or "upload.db", file_bytes)
     try:
-        report = DatabaseMergeService.merge(
-            str(tmp_path), current_user.id, session
-        )
-        imported = [
-            {"id": r.project_id, "name": r.project_name}
-            for r in report.imported
-        ]
+        report = DatabaseMergeService.merge(str(tmp_path), current_user.id, session)
+        imported = [{"id": r.project_id, "name": r.project_name} for r in report.imported]
         return {
             "imported": imported,
             "renamed": report.renamed,
@@ -205,13 +176,9 @@ async def import_auto(
     except ValueError as e:
         raise ImportError(str(e), _IMPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"])
     except sqlite3.DatabaseError as e:
-        raise ImportError(
-            f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"]
-        )
+        raise ImportError(f"数据库 schema 不兼容: {e}", _IMPORT_ERROR_CODES["DATABASE_ERROR"])
     except Exception as e:
-        raise ImportError(
-            f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500
-        )
+        raise ImportError(f"导入失败: {e}", _IMPORT_ERROR_CODES["UNEXPECTED_ERROR"], 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -312,13 +279,14 @@ def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     from datetime import datetime
+
     repo = ProjectRepository(session)
     project = repo.get_by_id(project_id)
     if not project:
         raise HTTPException(404, "项目不存在")
     if project.owner_id != current_user.id:
         raise HTTPException(403, "无权访问此项目")
-    
+
     project.deleted_at = datetime.now()
     repo.update(project)
 
@@ -329,16 +297,14 @@ def copy_project(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    with perf_span("auth_owner"):
-        project = ProjectRepository(session).get_by_id(project_id)
-        if not project:
-            raise HTTPException(404, "项目不存在")
-        if project.owner_id != current_user.id:
-            raise HTTPException(403, "无权访问此项目")
+    project = ProjectRepository(session).get_by_id(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(403, "无权访问此项目")
 
     cloned_project = ProjectCloneService.clone(project_id, current_user.id, session)
-    with perf_span("flush"):
-        session.flush()
+    session.flush()
     session.refresh(cloned_project)
     return cloned_project
 
@@ -385,6 +351,7 @@ def batch_delete_projects(
 ):
     """当前用户批量软删除自己的项目。"""
     from datetime import datetime
+
     if not data.project_ids:
         return
     # 单条带 owner 过滤的批量软删除：仅命中本人项目，他人/不存在 id 被 WHERE 静默排除，
@@ -396,5 +363,3 @@ def batch_delete_projects(
         .where(Project.owner_id == current_user.id)
         .values(deleted_at=datetime.now())
     )
-
-

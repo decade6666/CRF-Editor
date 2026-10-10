@@ -5,32 +5,19 @@ from docx import Document
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from src.models import Base
 from src.models.project import Project
 from src.models.user import User
 from src.routers.export import export_word as export_word_route
-from src.services.export_service import (
-    ExportService,
+from src.services.database_export_service import (
     export_full_database,
     export_project_database,
     export_user_projects_database,
 )
-from tests.helpers import auth_headers, login_as
-
-
-@pytest.fixture
-def session() -> Session:
-    engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-
-    with session_factory() as db_session:
-        yield db_session
-
-    engine.dispose()
+from src.services.export_service import ExportService
 
 
 @pytest.fixture
@@ -48,13 +35,6 @@ def engine():
     Base.metadata.create_all(_engine)
     yield _engine
     _engine.dispose()
-
-
-def create_project(session: Session, name: str = "项目") -> Project:
-    project = Project(name=name, version="v1.0")
-    session.add(project)
-    session.flush()
-    return project
 
 
 # ── 验证相关 ──
@@ -117,7 +97,9 @@ def test_export_word_returns_docx_file(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Document().save(output_path) or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: (
+            Document().save(output_path) or True
+        ),
     )
     monkeypatch.setattr(
         ExportService,
@@ -172,7 +154,9 @@ def test_export_word_rejects_invalid_docx(
     monkeypatch.setattr(
         ExportService,
         "export_project_to_word",
-        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: Path(output_path).write_bytes(b"PK") or True,
+        lambda self, pid, output_path, column_width_overrides=None, bake_toc_page_numbers=False, annotated=False: (
+            Path(output_path).write_bytes(b"PK") or True
+        ),
     )
     monkeypatch.setattr(
         ExportService,
@@ -247,7 +231,6 @@ def test_export_project_database_prunes_correctly(tmp_path: Path) -> None:
         Path(result_path).unlink(missing_ok=True)
 
 
-
 def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> None:
     """用户聚合导出仅保留当前用户项目，并清空 user 表与 owner_id。"""
     src_path = str(tmp_path / "user_scope.db")
@@ -257,20 +240,20 @@ def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> 
     conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT, owner_id INTEGER REFERENCES user(id))")
     conn.executemany(
         "INSERT INTO user VALUES (?, ?)",
-        [(1, 'alice'), (2, 'bob')],
+        [(1, "alice"), (2, "bob")],
     )
     conn.executemany(
         "INSERT INTO project VALUES (?, ?, ?)",
         [
-            (1, 'Alice-A', 1),
-            (2, 'Alice-B', 1),
-            (3, 'Bob-A', 2),
+            (1, "Alice-A", 1),
+            (2, "Alice-B", 1),
+            (3, "Bob-A", 2),
         ],
     )
     conn.commit()
     conn.close()
 
-    result_path = export_user_projects_database(src_path, 1, 'alice')
+    result_path = export_user_projects_database(src_path, 1, "alice")
     try:
         result_conn = sqlite3.connect(result_path)
         projects = result_conn.execute("SELECT id, name, owner_id FROM project ORDER BY id").fetchall()
@@ -278,8 +261,8 @@ def test_export_user_projects_database_prunes_to_owner_scope(tmp_path: Path) -> 
         result_conn.close()
 
         assert projects == [
-            (1, 'Alice-A', None),
-            (2, 'Alice-B', None),
+            (1, "Alice-A", None),
+            (2, "Alice-B", None),
         ]
         assert users == []
     finally:

@@ -26,14 +26,12 @@ def test_validate_app_config_requires_env_secret_in_production(monkeypatch: pyte
         main_module._validate_app_config()
 
 
-
 def test_build_fastapi_kwargs_disables_docs_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CRF_ENV", "production")
 
     kwargs = main_module._build_fastapi_kwargs()
 
     assert kwargs == {"docs_url": None, "redoc_url": None, "openapi_url": None}
-
 
 
 def _make_access_record(status_code: int, level: int = logging.INFO) -> logging.LogRecord:
@@ -48,7 +46,6 @@ def _make_access_record(status_code: int, level: int = logging.INFO) -> logging.
     )
 
 
-
 def test_access_log_filter_suppresses_only_404_access_records() -> None:
     access_filter = main_module._SuppressNotFoundAccessLog()
 
@@ -56,7 +53,6 @@ def test_access_log_filter_suppresses_only_404_access_records() -> None:
     assert access_filter.filter(_make_access_record(404, logging.WARNING)) is True
     assert access_filter.filter(_make_access_record(200)) is True
     assert access_filter.filter(_make_access_record(500)) is True
-
 
 
 def test_setup_app_logging_installs_access_filter() -> None:
@@ -71,8 +67,9 @@ def test_setup_app_logging_installs_access_filter() -> None:
         access_logger.filters = original_filters
 
 
-
-def test_security_headers_are_added_to_success_error_and_static_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_security_headers_are_added_to_success_error_and_static_responses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assets_dir = tmp_path / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "app.js").write_text("console.log('ok')", encoding="utf-8")
@@ -131,9 +128,14 @@ def test_unhandled_exception_is_logged_with_traceback(
     assert error_resp.json()["detail"] == "内部服务器错误"
 
     # 服务端留下带完整堆栈的 ERROR 日志，含请求方法与路径
-    matching = [r for r in caplog.records
-                if r.name == "src.main" and r.levelno == logging.ERROR
-                and "GET" in r.getMessage() and "/__test-500-log" in r.getMessage()]
+    matching = [
+        r
+        for r in caplog.records
+        if r.name == "src.main"
+        and r.levelno == logging.ERROR
+        and "GET" in r.getMessage()
+        and "/__test-500-log" in r.getMessage()
+    ]
     assert matching, "未处理异常必须留下含请求方法与路径的 ERROR 日志"
     record = matching[-1]
     assert record.exc_info is not None, "ERROR 日志必须带完整堆栈"

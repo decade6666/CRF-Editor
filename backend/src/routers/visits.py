@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
 
-
 from src.database import get_session
 
 from src.dependencies import get_current_user, verify_form_owner, verify_project_owner
@@ -24,31 +23,22 @@ from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
 
 from src.schemas import BatchDeleteRequest
 
-from src.perf import perf_span
 
 from src.services.order_service import OrderService
 from src.models.visit_form import VisitForm
 
 
-
 router = APIRouter(tags=["visits"])
 
 
-
-
-
 class VisitFormSequenceUpdate(BaseModel):
-
     sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")
 
 
-
-
-
-
 @router.get("/projects/{project_id}/visits", response_model=List[VisitResponse])
-
-def list_visits(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def list_visits(
+    project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
 
     verify_project_owner(project_id, current_user, session)
 
@@ -59,52 +49,46 @@ def list_visits(project_id: int, session: Session = Depends(get_session), curren
     return list(session.scalars(stmt).all())
 
 
-
-
-
 @router.post("/projects/{project_id}/visits", response_model=VisitResponse, status_code=201)
-
-def create_visit(project_id: int, data: VisitCreate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def create_visit(
+    project_id: int,
+    data: VisitCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     verify_project_owner(project_id, current_user, session)
 
     from src.utils import generate_code
 
-    dump = data.model_dump(exclude={'sequence'})
+    dump = data.model_dump(exclude={"sequence"})
 
     if not dump.get("code"):
-
         dump["code"] = generate_code("VISIT")
-
-
 
     visit = Visit(project_id=project_id, **dump)
 
-
-
     if data.sequence is None:
-
         visit.sequence = OrderService.get_next_sequence(session, Visit, Visit.project_id == project_id)
 
         session.add(visit)
 
     else:
-
         OrderService.insert_at_sequence(session, Visit, Visit.project_id == project_id, visit, data.sequence)
-
-
 
     session.flush()
 
     return visit
 
 
-
-
-
 @router.put("/projects/{project_id}/visits/{visit_id}", response_model=VisitResponse)
-
-def update_visit(project_id: int, visit_id: int, data: VisitUpdate, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def update_visit(
+    project_id: int,
+    visit_id: int,
+    data: VisitUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     verify_project_owner(project_id, current_user, session)
 
@@ -113,49 +97,34 @@ def update_visit(project_id: int, visit_id: int, data: VisitUpdate, session: Ses
     visit = repo.get_by_id(visit_id)
 
     if not visit:
-
         raise HTTPException(404, "访视不存在")
 
     if visit.project_id != project_id:
-
         raise HTTPException(403, "无权修改该项目的访视")
-
-
 
     old_seq = visit.sequence
 
-
-
-    for k, v in data.model_dump(exclude={'sequence'}, exclude_unset=True).items():
-
+    for k, v in data.model_dump(exclude={"sequence"}, exclude_unset=True).items():
         setattr(visit, k, v)
 
-
-
     if data.sequence is not None and data.sequence != old_seq:
-
         OrderService.move_to_sequence(session, Visit, Visit.project_id == visit.project_id, visit, data.sequence)
-
-
 
     session.flush()
 
     return visit
 
 
-
-
-
 @router.delete("/visits/{visit_id}", status_code=204)
-
-def delete_visit(visit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def delete_visit(
+    visit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
 
     repo = BaseRepository(session, Visit)
 
     visit = repo.get_by_id(visit_id)
 
     if not visit:
-
         raise HTTPException(404, "访视不存在")
 
     verify_project_owner(visit.project_id, current_user, session)
@@ -163,12 +132,13 @@ def delete_visit(visit_id: int, session: Session = Depends(get_session), current
     OrderService.delete_and_compact_sequence(session, Visit, Visit.project_id == visit.project_id, visit)
 
 
-
-
-
 @router.post("/projects/{project_id}/visits/batch-delete")
-
-def batch_delete_visits(project_id: int, data: BatchDeleteRequest, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+def batch_delete_visits(
+    project_id: int,
+    data: BatchDeleteRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
 
     verify_project_owner(project_id, current_user, session)
 
@@ -179,13 +149,13 @@ def batch_delete_visits(project_id: int, data: BatchDeleteRequest, session: Sess
     return {"deleted": count}
 
 
-
-
-
 @router.post("/projects/{project_id}/visits/reorder")
-
-def reorder_visits(project_id: int, id_list: List[int], session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def reorder_visits(
+    project_id: int,
+    id_list: List[int],
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
     """批量重排序号（拖拽场景）"""
 
     verify_project_owner(project_id, current_user, session)
@@ -195,13 +165,8 @@ def reorder_visits(project_id: int, id_list: List[int], session: Session = Depen
     return {"message": "Reordered"}
 
 
-
-
-
 @router.post("/visits/{visit_id}/copy", response_model=VisitResponse, status_code=201)
-
 def copy_visit(visit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
     """复制访视，name 加 _copy 后缀（冲突时追加数字），并复制访视内表单关联。"""
 
     from sqlalchemy import select
@@ -211,7 +176,6 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
     src = repo.get_by_id(visit_id)
 
     if not src:
-
         raise HTTPException(404, "访视不存在")
 
     verify_project_owner(src.project_id, current_user, session)
@@ -225,7 +189,6 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
     idx = 1
 
     while session.scalar(select(Visit).where(Visit.project_id == src.project_id, Visit.name == candidate)):
-
         candidate = f"{base}{idx}"
 
         idx += 1
@@ -234,15 +197,18 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
 
     # sequence 取当前最大值+1
 
-    new_visit = Visit(project_id=src.project_id, name=candidate, code=generate_code("VISIT"), sequence=OrderService.get_next_sequence(session, Visit, Visit.project_id == src.project_id))
+    new_visit = Visit(
+        project_id=src.project_id,
+        name=candidate,
+        code=generate_code("VISIT"),
+        sequence=OrderService.get_next_sequence(session, Visit, Visit.project_id == src.project_id),
+    )
 
     created_visit = repo.create(new_visit)
 
     source_visit_forms = list(
         session.scalars(
-            select(VisitForm)
-            .where(VisitForm.visit_id == src.id)
-            .order_by(VisitForm.sequence, VisitForm.id)
+            select(VisitForm).where(VisitForm.visit_id == src.id).order_by(VisitForm.sequence, VisitForm.id)
         ).all()
     )
     for source_visit_form in source_visit_forms:
@@ -258,13 +224,10 @@ def copy_visit(visit_id: int, session: Session = Depends(get_session), current_u
     return created_visit
 
 
-
-
-
 @router.get("/projects/{project_id}/visit-form-matrix")
-
-def visit_form_matrix(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def visit_form_matrix(
+    project_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
     """返回访视-表单分布矩阵数据"""
 
     verify_project_owner(project_id, current_user, session)
@@ -273,7 +236,12 @@ def visit_form_matrix(project_id: int, session: Session = Depends(get_session), 
 
     from src.models.form import Form
 
-    stmt = select(Visit).where(Visit.project_id == project_id).order_by(Visit.sequence).options(selectinload(Visit.visit_forms))
+    stmt = (
+        select(Visit)
+        .where(Visit.project_id == project_id)
+        .order_by(Visit.sequence)
+        .options(selectinload(Visit.visit_forms))
+    )
 
     visits = list(session.scalars(stmt).all())
 
@@ -284,23 +252,16 @@ def visit_form_matrix(project_id: int, session: Session = Depends(get_session), 
     matrix = {v.id: {vf.form_id: vf.sequence for vf in v.visit_forms} for v in visits}
 
     return {
-
         "visits": [{"id": v.id, "name": v.name, "sequence": v.sequence} for v in visits],
-
         "forms": [{"id": f.id, "name": f.name} for f in forms],
-
         "matrix": matrix,
-
     }
 
 
-
-
-
 @router.post("/visits/{visit_id}/forms/{form_id:int}", status_code=201)
-
-def add_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def add_visit_form(
+    visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
     """将表单加入访视"""
 
     from sqlalchemy import select, func
@@ -318,7 +279,6 @@ def add_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_s
     existing = session.scalar(select(VisitForm).where(VisitForm.visit_id == visit_id, VisitForm.form_id == form_id))
 
     if existing:
-
         return {"id": existing.id}
 
     max_seq = session.scalar(select(func.max(VisitForm.sequence)).where(VisitForm.visit_id == visit_id)) or 0
@@ -329,30 +289,19 @@ def add_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_s
 
     session.flush()  # flush 让 DB 分配 id，此时 vf.id 已有值
 
-    new_id = vf.id   # 在 commit/事务关闭前保存 id
+    new_id = vf.id  # 在 commit/事务关闭前保存 id
 
     return {"id": new_id}
 
 
-
-
-
 @router.put("/visits/{visit_id}/forms/{form_id:int}")
-
 def update_visit_form_sequence(
-
     visit_id: int,
-
     form_id: int,
-
     body: VisitFormSequenceUpdate,
-
     session: Session = Depends(get_session),
-
     current_user: User = Depends(get_current_user),
-
 ):
-
     """更新访视-表单关联的 sequence"""
 
     from sqlalchemy import select
@@ -370,23 +319,17 @@ def update_visit_form_sequence(
     vf = session.scalar(select(VisitForm).where(VisitForm.visit_id == visit_id, VisitForm.form_id == form_id))
 
     if not vf:
-
         raise HTTPException(404, "关联不存在")
 
     try:
-
         OrderService.move_to_sequence(session, VisitForm, VisitForm.visit_id == visit_id, vf, body.sequence)
 
     except ValueError:
-
         raise HTTPException(400, "sequence 越界，请检查目标序号是否在有效范围内")
 
     session.flush()
 
     return {"id": vf.id, "sequence": vf.sequence}
-
-
-
 
 
 @router.post("/visits/{visit_id}/forms/reorder", status_code=204)
@@ -405,24 +348,20 @@ def reorder_visit_forms(
         raise HTTPException(404, "访视不存在")
     verify_project_owner(visit.project_id, current_user, session)
 
-    with perf_span("order_scope_load"):
-        visit_forms = list(
-            session.scalars(
-                select(VisitForm)
-                .where(VisitForm.visit_id == visit_id)
-                .order_by(VisitForm.sequence, VisitForm.id)
-            ).all()
-        )
-        valid_form_ids = {item.form_id for item in visit_forms}
+    visit_forms = list(
+        session.scalars(
+            select(VisitForm).where(VisitForm.visit_id == visit_id).order_by(VisitForm.sequence, VisitForm.id)
+        ).all()
+    )
+    valid_form_ids = {item.form_id for item in visit_forms}
 
-    with perf_span("order_validate"):
-        if not id_list:
-            raise HTTPException(400, "ID 列表不能为空")
-        request_form_id_set = set(id_list)
-        if len(request_form_id_set) != len(id_list):
-            raise HTTPException(400, "ID 列表包含重复项")
-        if request_form_id_set != valid_form_ids:
-            raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
+    if not id_list:
+        raise HTTPException(400, "ID 列表不能为空")
+    request_form_id_set = set(id_list)
+    if len(request_form_id_set) != len(id_list):
+        raise HTTPException(400, "ID 列表包含重复项")
+    if request_form_id_set != valid_form_ids:
+        raise HTTPException(400, "ID 列表不完整，必须包含访视内所有表单")
 
     visit_form_by_form_id = {item.form_id: item for item in visit_forms}
     ordered_visit_form_ids = [visit_form_by_form_id[form_id].id for form_id in id_list]
@@ -435,9 +374,9 @@ def reorder_visit_forms(
 
 
 @router.delete("/visits/{visit_id}/forms/{form_id:int}", status_code=204)
-
-def remove_visit_form(visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
-
+def remove_visit_form(
+    visit_id: int, form_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+):
     """从访视移除表单"""
 
     from sqlalchemy import select
@@ -455,5 +394,4 @@ def remove_visit_form(visit_id: int, form_id: int, session: Session = Depends(ge
     vf = session.scalar(select(VisitForm).where(VisitForm.visit_id == visit_id, VisitForm.form_id == form_id))
 
     if vf:
-
         OrderService.delete_and_compact_sequence(session, VisitForm, VisitForm.visit_id == visit_id, vf)

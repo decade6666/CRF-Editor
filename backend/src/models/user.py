@@ -1,4 +1,5 @@
 """User 模型"""
+
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
@@ -13,19 +14,14 @@ if TYPE_CHECKING:
 
 class User(Base):
     """用户模型"""
+
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    is_admin: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0"
-    )
-    auth_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     projects: Mapped[List["Project"]] = relationship(back_populates="owner")

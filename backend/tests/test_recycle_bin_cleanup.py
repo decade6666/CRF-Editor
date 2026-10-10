@@ -1,4 +1,5 @@
 """回收站定时清理 + 项目体积估算回归测试。"""
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -41,9 +42,14 @@ from src.services.recycle_bin_cleanup_service import (
 
 def _make_policy(
     *,
-    age_enabled=False, age_value=30, age_unit="day",
-    size_enabled=False, size_value=500, size_unit="MB",
-    interval_minutes=60, min_retain_hours=24,
+    age_enabled=False,
+    age_value=30,
+    age_unit="day",
+    size_enabled=False,
+    size_value=500,
+    size_unit="MB",
+    interval_minutes=60,
+    min_retain_hours=24,
 ) -> RecycleBinConfig:
     return RecycleBinConfig(
         interval_minutes=interval_minutes,
@@ -54,8 +60,7 @@ def _make_policy(
 
 
 def _create_owned_project(session, owner_id, name, *, order_index, deleted_at=None) -> Project:
-    project = Project(name=name, version="1.0", owner_id=owner_id,
-                      order_index=order_index, deleted_at=deleted_at)
+    project = Project(name=name, version="1.0", owner_id=owner_id, order_index=order_index, deleted_at=deleted_at)
     session.add(project)
     session.flush()
     return project
@@ -68,12 +73,12 @@ def _create_project_graph(session, owner_id, name, *, order_index, deleted_at=No
     session.add_all([form, visit])
     session.flush()
     session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=1))
-    field_definition = FieldDefinition(project_id=project.id, variable_name=f"{name}_FIELD",
-                                        label=f"{name}-字段", field_type="文本", order_index=1)
+    field_definition = FieldDefinition(
+        project_id=project.id, variable_name=f"{name}_FIELD", label=f"{name}-字段", field_type="文本", order_index=1
+    )
     session.add(field_definition)
     session.flush()
-    session.add(FormField(form_id=form.id, field_definition_id=field_definition.id,
-                          order_index=1, inline_mark=0))
+    session.add(FormField(form_id=form.id, field_definition_id=field_definition.id, order_index=1, inline_mark=0))
     session.flush()
     return project
 
@@ -108,10 +113,12 @@ def test_estimate_sizes_counts_child_tables(engine):
         cl = CodeList(project_id=p.id, name="字典", code="C1", order_index=1)
         session.add(cl)
         session.flush()
-        session.add_all([
-            CodeListOption(codelist_id=cl.id, code="1", decode="选项一", order_index=1),
-            CodeListOption(codelist_id=cl.id, code="2", decode="选项二", order_index=2),
-        ])
+        session.add_all(
+            [
+                CodeListOption(codelist_id=cl.id, code="1", decode="选项一", order_index=1),
+                CodeListOption(codelist_id=cl.id, code="2", decode="选项二", order_index=2),
+            ]
+        )
         session.add(Unit(project_id=p.id, symbol="mg", code="mg", order_index=1))
         session.commit()
 
@@ -161,11 +168,19 @@ def test_estimate_sizes_query_count_independent_of_project_count(engine):
         admin = User(username="u1", hashed_password="x", is_admin=False, auth_version=0)
         session.add(admin)
         session.flush()
-        small = [_create_project_graph(session, admin.id, f"S{i}", order_index=i + 1, deleted_at=datetime.now(timezone.utc)) for i in range(2)]
+        small = [
+            _create_project_graph(session, admin.id, f"S{i}", order_index=i + 1, deleted_at=datetime.now(timezone.utc))
+            for i in range(2)
+        ]
         session.commit()
         small_ids = [p.id for p in small]
 
-        more = [_create_project_graph(session, admin.id, f"M{i}", order_index=20 + i + 1, deleted_at=datetime.now(timezone.utc)) for i in range(18)]
+        more = [
+            _create_project_graph(
+                session, admin.id, f"M{i}", order_index=20 + i + 1, deleted_at=datetime.now(timezone.utc)
+            )
+            for i in range(18)
+        ]
         session.commit()
         all_ids = small_ids + [p.id for p in more]
 
@@ -205,14 +220,18 @@ def test_format_bytes_basic():
 def test_resolve_age_cutoff_units():
     now = datetime(2026, 1, 1, 0, 0, 0)
     assert resolve_age_cutoff(RecycleBinAgeRule(enabled=True, value=10, unit="day"), now) == now - timedelta(days=10)
-    assert resolve_age_cutoff(RecycleBinAgeRule(enabled=True, value=2, unit="month"), now) == now - timedelta(days=2 * DAYS_PER_MONTH)
-    assert resolve_age_cutoff(RecycleBinAgeRule(enabled=True, value=3, unit="year"), now) == now - timedelta(days=3 * DAYS_PER_YEAR)
+    assert resolve_age_cutoff(RecycleBinAgeRule(enabled=True, value=2, unit="month"), now) == now - timedelta(
+        days=2 * DAYS_PER_MONTH
+    )
+    assert resolve_age_cutoff(RecycleBinAgeRule(enabled=True, value=3, unit="year"), now) == now - timedelta(
+        days=3 * DAYS_PER_YEAR
+    )
     assert resolve_age_cutoff(RecycleBinAgeRule(enabled=False, value=10, unit="day"), now) is None
 
 
 def test_resolve_size_limit_bytes_units():
-    assert resolve_size_limit_bytes(RecycleBinSizeRule(enabled=True, value=5, unit="MB")) == 5 * 1024 ** 2
-    assert resolve_size_limit_bytes(RecycleBinSizeRule(enabled=True, value=2, unit="GB")) == 2 * 1024 ** 3
+    assert resolve_size_limit_bytes(RecycleBinSizeRule(enabled=True, value=5, unit="MB")) == 5 * 1024**2
+    assert resolve_size_limit_bytes(RecycleBinSizeRule(enabled=True, value=2, unit="GB")) == 2 * 1024**3
     assert resolve_size_limit_bytes(RecycleBinSizeRule(enabled=False, value=5, unit="MB")) is None
 
 
@@ -250,10 +269,12 @@ def test_size_rule_deletes_oldest_first_until_under_threshold(engine):
         session.flush()
         # 4 个项目，各自数据量递增；删除时间从早到晚（p0 最早）
         from src.models.form import Form as _Form
+
         projs = []
         for i in range(4):
-            p = _create_owned_project(session, admin.id, f"p{i}", order_index=i + 1,
-                                       deleted_at=now - timedelta(days=100 - i))
+            p = _create_owned_project(
+                session, admin.id, f"p{i}", order_index=i + 1, deleted_at=now - timedelta(days=100 - i)
+            )
             f = _Form(project_id=p.id, name=f"f{i}", code=f"F{i}", order_index=1)
             f.design_notes = "y" * (3_000_000 + i * 100_000)  # 约 3MB+，递增
             session.add(f)
@@ -264,7 +285,7 @@ def test_size_rule_deletes_oldest_first_until_under_threshold(engine):
         total = sum(sizes.values())
         # 阈值 = 总量减去最小一个项目的体积 +1，使删掉最小（删除时间最早）那一项后即达标
         target_survivor_total = total - sizes[projs[0].id] + 1
-        mb_value = max(1, (target_survivor_total + 1024 ** 2 - 1) // (1024 ** 2))
+        mb_value = max(1, (target_survivor_total + 1024**2 - 1) // (1024**2))
 
         plan = build_cleanup_plan(
             session,
@@ -276,7 +297,7 @@ def test_size_rule_deletes_oldest_first_until_under_threshold(engine):
         # 存活项目总量低于阈值
         survivors = [p for p in projs if p.id not in plan.size_ids]
         survivor_total = sum(sizes[p.id] for p in survivors)
-        assert survivor_total <= mb_value * 1024 ** 2
+        assert survivor_total <= mb_value * 1024**2
 
 
 def test_size_rule_noop_when_under_threshold(engine):
@@ -302,6 +323,7 @@ def test_size_rule_excludes_age_selected_projects(engine):
         session.add(admin)
         session.flush()
         from src.models.form import Form as _Form
+
         old = _create_owned_project(session, admin.id, "old", order_index=1, deleted_at=now - timedelta(days=30))
         fo = _Form(project_id=old.id, name="fo", code="FO", order_index=1)
         fo.design_notes = "x" * 100000
@@ -314,8 +336,9 @@ def test_size_rule_excludes_age_selected_projects(engine):
 
         plan = build_cleanup_plan(
             session,
-            _make_policy(age_enabled=True, age_value=10, age_unit="day",
-                         size_enabled=True, size_value=1, size_unit="MB"),
+            _make_policy(
+                age_enabled=True, age_value=10, age_unit="day", size_enabled=True, size_value=1, size_unit="MB"
+            ),
             now=now,
         )
         assert old.id in plan.age_ids
@@ -330,15 +353,15 @@ def test_plan_total_bytes_after_deducts_each_selected_project_once(engine: Engin
         session.add(admin)
         session.flush()
         # old 由年龄规则命中；其余三个删除时间较新，由容量规则按删除时间最早优先命中
-        old = _create_owned_project(session, admin.id, "old", order_index=1,
-                                    deleted_at=now - timedelta(days=100))
+        old = _create_owned_project(session, admin.id, "old", order_index=1, deleted_at=now - timedelta(days=100))
         fo = Form(project_id=old.id, name="fo", code="FO", order_index=1)
         fo.design_notes = "x" * 200_000
         session.add(fo)
         recent = []
         for i in range(3):
-            p = _create_owned_project(session, admin.id, f"p{i}", order_index=i + 2,
-                                      deleted_at=now - timedelta(days=10 - i))
+            p = _create_owned_project(
+                session, admin.id, f"p{i}", order_index=i + 2, deleted_at=now - timedelta(days=10 - i)
+            )
             f = Form(project_id=p.id, name=f"f{i}", code=f"F{i}", order_index=1)
             f.design_notes = "y" * (3_000_000 + i * 100_000)
             session.add(f)
@@ -350,13 +373,19 @@ def test_plan_total_bytes_after_deducts_each_selected_project_once(engine: Engin
         total_before = sum(sizes.values())
         # 阈值取「剩余总量减去最早可清项目后向上取整到 MB」，使容量规则只命中 recent[0]
         survivor_target = sum(sizes[p.id] for p in recent) - sizes[recent[0].id]
-        mb_value = max(1, (survivor_target + 1024 ** 2 - 1) // (1024 ** 2))
+        mb_value = max(1, (survivor_target + 1024**2 - 1) // (1024**2))
 
         plan = build_cleanup_plan(
             session,
-            _make_policy(age_enabled=True, age_value=30, age_unit="day",
-                         size_enabled=True, size_value=mb_value, size_unit="MB",
-                         min_retain_hours=0),
+            _make_policy(
+                age_enabled=True,
+                age_value=30,
+                age_unit="day",
+                size_enabled=True,
+                size_value=mb_value,
+                size_unit="MB",
+                min_retain_hours=0,
+            ),
             now=now,
         )
 
@@ -375,9 +404,11 @@ def test_min_retain_hours_protects_recent_projects(engine):
         session.flush()
         # 4 个项目都很大（各约 3MB，总量约 12MB > 1MB 阈值），且都很新（5 小时前删除）
         from src.models.form import Form as _Form
+
         for i in range(4):
-            p = _create_owned_project(session, admin.id, f"p{i}", order_index=i + 1,
-                                       deleted_at=now - timedelta(hours=5))
+            p = _create_owned_project(
+                session, admin.id, f"p{i}", order_index=i + 1, deleted_at=now - timedelta(hours=5)
+            )
             f = _Form(project_id=p.id, name=f"f{i}", code=f"F{i}", order_index=1)
             f.design_notes = "x" * 3_000_000
             session.add(f)
@@ -408,7 +439,9 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
         project_ids = [p.id]
         form_ids = [f.id for f in session.scalars(select(Form).where(Form.project_id == p.id)).all()]
         visit_ids = [v.id for v in session.scalars(select(Visit).where(Visit.project_id == p.id)).all()]
-        field_def_ids = [fd.id for fd in session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == p.id)).all()]
+        field_def_ids = [
+            fd.id for fd in session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == p.id)).all()
+        ]
 
         logos_dir = tmp_path / "logos"
         logos_dir.mkdir(parents=True)
@@ -417,8 +450,10 @@ def test_run_cleanup_purges_graph_and_logo(engine, tmp_path):
 
         # 记录每次提交时项目行是否已消失、Logo 文件是否仍在（锁定先提交后删文件）
         with commit_probe(engine, project_ids[0], logo_path) as observations:
-            with patch("src.services.logo_storage_service.get_config") as m, \
-                 patch("src.services.project_size_service.get_config") as m2:
+            with (
+                patch("src.services.logo_storage_service.get_config") as m,
+                patch("src.services.project_size_service.get_config") as m2,
+            ):
                 m.return_value.upload_path = str(tmp_path)
                 m2.return_value.upload_path = str(tmp_path)
                 report = run_recycle_bin_cleanup(
@@ -455,7 +490,10 @@ def test_run_cleanup_skips_project_restored_between_plan_and_purge(engine):
         # 计划后、执行前恢复项目
         with patch("src.services.recycle_bin_cleanup_service.build_cleanup_plan") as m:
             from src.services.recycle_bin_cleanup_service import CleanupPlan
-            m.return_value = CleanupPlan(age_ids=[pid], size_ids=[], total_bytes_before=0, total_bytes_after=0, would_converge=True)
+
+            m.return_value = CleanupPlan(
+                age_ids=[pid], size_ids=[], total_bytes_before=0, total_bytes_after=0, would_converge=True
+            )
             p.deleted_at = None  # 管理员刚恢复
             session.commit()
             report = run_recycle_bin_cleanup(session, _make_policy(), now=now)
@@ -492,8 +530,10 @@ def test_run_cleanup_keeps_logo_when_commit_fails(
 
         monkeypatch.setattr(Session, "commit", _fail_commit)
 
-        with patch("src.services.logo_storage_service.get_config") as m, \
-             patch("src.services.project_size_service.get_config") as m2:
+        with (
+            patch("src.services.logo_storage_service.get_config") as m,
+            patch("src.services.project_size_service.get_config") as m2,
+        ):
             m.return_value.upload_path = str(tmp_path)
             m2.return_value.upload_path = str(tmp_path)
             report = run_recycle_bin_cleanup(

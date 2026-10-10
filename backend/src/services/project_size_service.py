@@ -10,6 +10,7 @@
 通常比真实磁盘增量低报 1.5-3 倍。字段名统一 estimated_size_bytes，
 UI/文档必须标注「估算」。它只需满足「单调、项目间可比」即可驱动容量规则。
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,12 +67,20 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             Project.id,
             _text_bytes(
-                Project.name, Project.version, Project.db_type, Project.trial_name,
-                Project.crf_version, Project.protocol_number,
-                Project.screening_number_format, Project.sponsor,
-                Project.company_logo_path, Project.data_management_unit,
+                Project.name,
+                Project.version,
+                Project.db_type,
+                Project.trial_name,
+                Project.crf_version,
+                Project.protocol_number,
+                Project.screening_number_format,
+                Project.sponsor,
+                Project.company_logo_path,
+                Project.data_management_unit,
             ),
-        ).where(Project.id.in_(list(project_ids))).group_by(Project.id)
+        )
+        .where(Project.id.in_(list(project_ids)))
+        .group_by(Project.id)
     ).all()
     _merge(rows)
 
@@ -80,7 +89,9 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             Visit.project_id,
             _text_bytes(Visit.name, Visit.code),
-        ).where(Visit.project_id.in_(list(project_ids))).group_by(Visit.project_id)
+        )
+        .where(Visit.project_id.in_(list(project_ids)))
+        .group_by(Visit.project_id)
     ).all()
     _merge(rows)
 
@@ -101,9 +112,15 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             Form.project_id,
             _text_bytes(
-                Form.name, Form.code, Form.domain, Form.design_notes, Form.annotation_positions,
+                Form.name,
+                Form.code,
+                Form.domain,
+                Form.design_notes,
+                Form.annotation_positions,
             ),
-        ).where(Form.project_id.in_(list(project_ids))).group_by(Form.project_id)
+        )
+        .where(Form.project_id.in_(list(project_ids)))
+        .group_by(Form.project_id)
     ).all()
     _merge(rows)
 
@@ -111,8 +128,7 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
     rows = session.execute(
         select(
             Form.project_id,
-            _text_bytes(Field.variable_name, Field.label, Field.field_type,
-                        Field.date_format, Field.table_type),
+            _text_bytes(Field.variable_name, Field.label, Field.field_type, Field.date_format, Field.table_type),
         )
         .join(Field, Field.form_id == Form.id)
         .where(Form.project_id.in_(list(project_ids)))
@@ -125,8 +141,12 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             Form.project_id,
             _text_bytes(
-                FormField.label_override, FormField.help_text, FormField.default_value,
-                FormField.bg_color, FormField.text_color, FormField.label_font_size,
+                FormField.label_override,
+                FormField.help_text,
+                FormField.default_value,
+                FormField.bg_color,
+                FormField.text_color,
+                FormField.label_font_size,
             ),
         )
         .join(FormField, FormField.form_id == Form.id)
@@ -140,10 +160,16 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             FieldDefinition.project_id,
             _text_bytes(
-                FieldDefinition.variable_name, FieldDefinition.label, FieldDefinition.field_type,
-                FieldDefinition.checkbox_label, FieldDefinition.date_format, FieldDefinition.table_type,
+                FieldDefinition.variable_name,
+                FieldDefinition.label,
+                FieldDefinition.field_type,
+                FieldDefinition.checkbox_label,
+                FieldDefinition.date_format,
+                FieldDefinition.table_type,
             ),
-        ).where(FieldDefinition.project_id.in_(list(project_ids))).group_by(FieldDefinition.project_id)
+        )
+        .where(FieldDefinition.project_id.in_(list(project_ids)))
+        .group_by(FieldDefinition.project_id)
     ).all()
     _merge(rows)
 
@@ -152,7 +178,9 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             CodeList.project_id,
             _text_bytes(CodeList.name, CodeList.code, CodeList.description),
-        ).where(CodeList.project_id.in_(list(project_ids))).group_by(CodeList.project_id)
+        )
+        .where(CodeList.project_id.in_(list(project_ids)))
+        .group_by(CodeList.project_id)
     ).all()
     _merge(rows)
 
@@ -173,7 +201,9 @@ def _collect_project_text_bytes(session: Session, project_ids: Sequence[int]) ->
         select(
             Unit.project_id,
             _text_bytes(Unit.symbol, Unit.code),
-        ).where(Unit.project_id.in_(list(project_ids))).group_by(Unit.project_id)
+        )
+        .where(Unit.project_id.in_(list(project_ids)))
+        .group_by(Unit.project_id)
     ).all()
     _merge(rows)
 
@@ -208,11 +238,7 @@ def estimate_project_sizes(session: Session, project_ids: Sequence[int]) -> Dict
 
 def estimate_recycled_project_sizes(session: Session) -> Dict[int, int]:
     """估算所有回收站项目（deleted_at 非空）的数据占用。"""
-    ids = list(
-        session.scalars(
-            select(Project.id).where(Project.deleted_at.is_not(None)).order_by(Project.id)
-        ).all()
-    )
+    ids = list(session.scalars(select(Project.id).where(Project.deleted_at.is_not(None)).order_by(Project.id)).all())
     return estimate_project_sizes(session, ids)
 
 

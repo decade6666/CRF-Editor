@@ -6,6 +6,7 @@
 1. 接口层：POST body 中的 column_width_overrides 参数能正确传递到 ExportService
 2. 服务层：传入的列宽覆盖比例实际应用到 Word 表格的 tblGrid
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -140,9 +141,7 @@ def _create_inline_form_with_visit(
     form_fields = []
     for index, label in enumerate(["列A", "列B", "列C"], start=1):
         field_def = create_text_field_def(session, project.id, label)
-        form_fields.append(
-            add_field_to_form(session, form.id, field_def.id, order_index=index, inline_mark=1)
-        )
+        form_fields.append(add_field_to_form(session, form.id, field_def.id, order_index=index, inline_mark=1))
     return form, form_fields
 
 
@@ -178,7 +177,7 @@ def test_export_word_accepts_column_width_overrides(session: Session, tmp_path: 
 
     # 准备列宽覆盖参数
     # 格式：{ form_id: { table_kind: [fraction, ...] } }
-    # table_kind: "normal" | "inline" | "unified"
+    # table_kind: "normal" | "inline"（历史键 "unified" 已无对应表格）
     # fraction: 0.0 ~ 1.0，表示该列占总宽度的比例
     column_width_overrides = {
         str(form.id): {
@@ -201,11 +200,11 @@ def test_export_word_accepts_column_width_overrides(session: Session, tmp_path: 
     # 验证列宽比例
     normal_table = form_tables[0]
     tbl_xml = normal_table._tbl
-    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
+    grid_cols = tbl_xml.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
 
     if grid_cols and len(grid_cols) == 2:
-        w0 = int(grid_cols[0].get(qn('w:w'), '0'))
-        w1 = int(grid_cols[1].get(qn('w:w'), '0'))
+        w0 = int(grid_cols[0].get(qn("w:w"), "0"))
+        w1 = int(grid_cols[1].get(qn("w:w"), "0"))
         total = w0 + w1
         if total > 0:
             ratio0 = w0 / total
@@ -273,10 +272,10 @@ def test_export_inline_table_column_width_override(session: Session, tmp_path: P
 
     # 验证列宽比例
     tbl_xml = inline_table._tbl
-    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
+    grid_cols = tbl_xml.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
 
     if grid_cols and len(grid_cols) == 3:
-        widths = [int(gc.get(qn('w:w'), '0')) for gc in grid_cols]
+        widths = [int(gc.get(qn("w:w"), "0")) for gc in grid_cols]
         total = sum(widths)
         if total > 0:
             ratios = [w / total for w in widths]
@@ -333,83 +332,6 @@ def test_export_landscape_inline_new_format_override_sets_fixed_cell_widths(
     _assert_width_ratios(cell_widths, expected)
 
 
-# ========== 测试 4：unified 表格列宽覆盖 ==========
-
-
-@pytest.mark.xfail(
-    reason="unified_landscape rendering disabled by 786aaa4; column-width override on unified path not exercised",
-    strict=False,
-)
-def test_export_unified_table_column_width_override(session: Session, tmp_path: Path) -> None:
-    """验证 unified 表格列宽覆盖应用到 Word 表格。
-
-    当前预期：测试失败，因为服务层未实现列宽覆盖逻辑。
-    """
-    project, _ = create_minimal_project(session)
-
-    visit = Visit(project_id=project.id, name="访视1", code="V1", sequence=1)
-    session.add(visit)
-    session.flush()
-
-    form = Form(project_id=project.id, name="混合表单", code="F_MIXED", order_index=1)
-    session.add(form)
-    session.flush()
-
-    vf = VisitForm(visit_id=visit.id, form_id=form.id, sequence=1)
-    session.add(vf)
-    session.flush()
-
-    # 添加 1 个普通字段 + 5 个 inline 字段触发 unified
-    fd_normal = create_text_field_def(session, project.id, "普通字段")
-    add_field_to_form(session, form.id, fd_normal.id, order_index=1, inline_mark=0)
-
-    inline_fds = []
-    for i in range(1, 6):
-        fd = create_text_field_def(session, project.id, f"列{i}")
-        inline_fds.append(fd)
-        add_field_to_form(session, form.id, fd.id, order_index=10 + i, inline_mark=1)
-
-    session.commit()
-
-    # 准备列宽覆盖：5 列，自定义比例
-    column_width_overrides = {
-        str(form.id): {
-            "unified": [0.1, 0.25, 0.2, 0.25, 0.2],
-        }
-    }
-
-    output_path = tmp_path / "unified_override.docx"
-
-    service = ExportService(session)
-    ok = service.export_project_to_word(project.id, str(output_path), column_width_overrides=column_width_overrides)
-
-    assert ok is True, "导出应成功"
-
-    doc = Document(str(output_path))
-
-    # 找到 5 列的 unified 表格
-    unified_table = None
-    for t in doc.tables[2:]:
-        if len(t.columns) == 5:
-            unified_table = t
-            break
-
-    assert unified_table is not None, "应存在 5 列 unified 表格"
-
-    # 验证列宽比例
-    tbl_xml = unified_table._tbl
-    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
-
-    if grid_cols and len(grid_cols) == 5:
-        widths = [int(gc.get(qn('w:w'), '0')) for gc in grid_cols]
-        total = sum(widths)
-        if total > 0:
-            ratios = [w / total for w in widths]
-            expected = [0.1, 0.25, 0.2, 0.25, 0.2]
-            for i, (actual, exp) in enumerate(zip(ratios, expected)):
-                assert abs(actual - exp) < 0.05, f"第 {i+1} 列比例应为 {exp:.2f}，实际为 {actual:.3f}"
-
-
 # ========== 测试 4~7：边界情况处理 ==========
 
 
@@ -457,11 +379,11 @@ def test_export_ignores_invalid_fraction_values(session: Session, tmp_path: Path
     # 验证列宽不是按无效覆盖值设置（而是按内容驱动默认值）
     normal_table = form_tables[0]
     tbl_xml = normal_table._tbl
-    grid_cols = tbl_xml.findall(qn('w:tblGrid') + '/' + qn('w:gridCol'))
+    grid_cols = tbl_xml.findall(qn("w:tblGrid") + "/" + qn("w:gridCol"))
 
     if grid_cols and len(grid_cols) == 2:
-        w0 = int(grid_cols[0].get(qn('w:w'), '0'))
-        w1 = int(grid_cols[1].get(qn('w:w'), '0'))
+        w0 = int(grid_cols[0].get(qn("w:w"), "0"))
+        w1 = int(grid_cols[1].get(qn("w:w"), "0"))
         total = w0 + w1
         if total > 0:
             ratio0 = w0 / total
@@ -578,4 +500,3 @@ def test_export_handles_empty_overrides(session: Session, tmp_path: Path) -> Non
     doc = Document(str(output_path))
     form_tables = doc.tables[2:]
     assert len(form_tables) >= 1, "应有至少一个表单表格"
-

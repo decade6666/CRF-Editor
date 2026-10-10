@@ -20,7 +20,7 @@ from src.models.codelist import CodeList, CodeListOption
 from src.repositories.form_field_repository import FormFieldRepository
 from src.services.docx_import_service import DocxImportService
 from src.services.export_service import ExportService
-from src.services.field_rendering import build_inline_table_model, extract_default_lines
+from src.services.field_rendering import build_inline_table_model, extract_default_lines, get_option_labels
 from src.services.import_service import ImportService
 
 
@@ -106,12 +106,14 @@ def create_codelist(
     session.flush()
 
     for index, (option_code, decode) in enumerate(option_metadata or [], start=1):
-        session.add(CodeListOption(
-            codelist_id=codelist.id,
-            code=option_code,
-            decode=decode,
-            order_index=index,
-        ))
+        session.add(
+            CodeListOption(
+                codelist_id=codelist.id,
+                code=option_code,
+                decode=decode,
+                order_index=index,
+            )
+        )
     session.flush()
     return codelist
 
@@ -192,7 +194,8 @@ def build_template_db(
                 project.id,
                 name=codelist_name,
                 code=codelist_code,
-                option_metadata=option_metadata or [
+                option_metadata=option_metadata
+                or [
                     ("1", "男"),
                     ("2", "女"),
                 ],
@@ -236,9 +239,7 @@ def test_get_template_form_paper_orientation_returns_explicit_landscape(
     tmp_path: Path,
     session: Session,
 ) -> None:
-    template_path, form_id = build_template_db(
-        tmp_path, with_unit=False, paper_orientation="landscape"
-    )
+    template_path, form_id = build_template_db(tmp_path, with_unit=False, paper_orientation="landscape")
     service = ImportService(session)
 
     assert service.get_template_form_paper_orientation(str(template_path), form_id) == "landscape"
@@ -282,14 +283,10 @@ def test_get_template_form_fields_returns_structured_option_metadata(
 
     assert len(fields) == 1
     options = fields[0]["options"]
-    assert [
-        {key: option[key] for key in ("code", "decode")}
-        for option in options
-    ] == [
+    assert [{key: option[key] for key in ("code", "decode")} for option in options] == [
         {"code": "1", "decode": "男"},
         {"code": "2", "decode": "女"},
     ]
-
 
 
 def test_template_preview_and_import_preserve_checkbox_label(
@@ -321,14 +318,17 @@ def test_template_preview_and_import_preserve_checkbox_label(
     session.commit()
 
     assert summary["imported_form_count"] == 1
-    imported = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.variable_name == "TEMP_FIELD",
-    ).one()
+    imported = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.variable_name == "TEMP_FIELD",
+        )
+        .one()
+    )
     assert imported.field_type == "复选"
     assert imported.checkbox_label == "受试者已确认"
     assert imported.codelist_id is None
-
 
 
 def test_template_preview_and_import_discard_stale_checkbox_codelist(
@@ -364,12 +364,15 @@ def test_template_preview_and_import_discard_stale_checkbox_codelist(
 
     assert summary["merged_codelists"] == 0
     assert session.query(CodeList).filter(CodeList.project_id == target_project.id).count() == 0
-    imported = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.variable_name == "TEMP_FIELD",
-    ).one()
+    imported = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.variable_name == "TEMP_FIELD",
+        )
+        .one()
+    )
     assert imported.codelist_id is None
-
 
 
 def test_template_preview_and_import_default_checkbox_label_when_legacy_column_is_missing(
@@ -395,33 +398,36 @@ def test_template_preview_and_import_default_checkbox_label_when_legacy_column_i
     session.commit()
 
     assert summary["imported_form_count"] == 1
-    imported = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.variable_name == "TEMP_FIELD",
-    ).one()
+    imported = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.variable_name == "TEMP_FIELD",
+        )
+        .one()
+    )
     assert imported.checkbox_label is None
 
     with sqlite3.connect(str(template_path)) as legacy:
-        source_columns = {
-            row[1]
-            for row in legacy.execute("PRAGMA table_info(field_definition)").fetchall()
-        }
+        source_columns = {row[1] for row in legacy.execute("PRAGMA table_info(field_definition)").fetchall()}
     assert "checkbox_label" not in source_columns
-
 
 
 def test_open_template_session_rejects_template_path_outside_allowlist(tmp_path: Path, session: Session) -> None:
     outside_template = tmp_path / "outside.db"
     outside_template.write_bytes(b"SQLite format 3\x00")
-    cfg = type("Cfg", (), {
-        "db_path": str(tmp_path / "database" / "crf_editor.db"),
-        "upload_path": str(tmp_path / "uploads"),
-    })()
+    cfg = type(
+        "Cfg",
+        (),
+        {
+            "db_path": str(tmp_path / "database" / "crf_editor.db"),
+            "upload_path": str(tmp_path / "uploads"),
+        },
+    )()
 
     with patch("src.services.import_service.get_config", return_value=cfg):
         with pytest.raises(ValueError, match="模板路径不安全"):
             ImportService._open_template_session(str(outside_template))
-
 
 
 def test_resolve_existing_template_path_does_not_create_missing_file(tmp_path: Path) -> None:
@@ -433,15 +439,18 @@ def test_resolve_existing_template_path_does_not_create_missing_file(tmp_path: P
     assert missing_template.exists() is False
 
 
-
 def test_open_template_session_allows_template_path_inside_upload_dir(tmp_path: Path, session: Session) -> None:
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     template_path, form_id = build_template_db(upload_dir, with_unit=True)
-    cfg = type("Cfg", (), {
-        "db_path": str(tmp_path / "database" / "crf_editor.db"),
-        "upload_path": str(upload_dir),
-    })()
+    cfg = type(
+        "Cfg",
+        (),
+        {
+            "db_path": str(tmp_path / "database" / "crf_editor.db"),
+            "upload_path": str(upload_dir),
+        },
+    )()
 
     with patch("src.services.import_service.get_config", return_value=cfg):
         fields = ImportService(session).get_template_form_fields(str(template_path), form_id)
@@ -457,26 +466,25 @@ def _drop_form_paper_orientation_column(db_path: Path) -> None:
         conn.execute('ALTER TABLE "form" RENAME TO "form__legacy_with_orientation"')
         conn.execute(
             'CREATE TABLE "form" ('
-            'id INTEGER NOT NULL PRIMARY KEY, '
-            'project_id INTEGER NOT NULL, '
-            'name VARCHAR(255) NOT NULL, '
-            'code VARCHAR(100), '
-            'domain VARCHAR(255), '
-            'order_index INTEGER, '
-            'design_notes TEXT, '
-            'FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE'
-            ')'
+            "id INTEGER NOT NULL PRIMARY KEY, "
+            "project_id INTEGER NOT NULL, "
+            "name VARCHAR(255) NOT NULL, "
+            "code VARCHAR(100), "
+            "domain VARCHAR(255), "
+            "order_index INTEGER, "
+            "design_notes TEXT, "
+            "FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE"
+            ")"
         )
         conn.execute(
             'INSERT INTO "form" (id, project_id, name, code, domain, order_index, design_notes) '
-            'SELECT id, project_id, name, code, domain, order_index, design_notes '
+            "SELECT id, project_id, name, code, domain, order_index, design_notes "
             'FROM "form__legacy_with_orientation"'
         )
         conn.execute('DROP TABLE "form__legacy_with_orientation"')
         conn.commit()
     finally:
         conn.close()
-
 
 
 def _build_template_db_with_orientation(
@@ -655,16 +663,24 @@ def test_import_forms_preserves_choice_option_metadata(tmp_path: Path, session: 
 
     assert summary["imported_form_count"] == 1
 
-    imported_codelist = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id,
-        CodeList.name == "性别",
-    ).one()
-    options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == imported_codelist.id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    imported_codelist = (
+        session.query(CodeList)
+        .filter(
+            CodeList.project_id == target_project.id,
+            CodeList.name == "性别",
+        )
+        .one()
+    )
+    options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == imported_codelist.id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
 
     assert [(option.code, option.decode) for option in options] == [("1", "男"), ("2", "女")]
-
 
 
 def test_imported_choice_options_match_export_semantics(tmp_path: Path, session: Session) -> None:
@@ -684,15 +700,18 @@ def test_imported_choice_options_match_export_semantics(tmp_path: Path, session:
     )
     session.commit()
 
-    imported_field_definition = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.label == "模板字段",
-        FieldDefinition.field_type == "单选",
-    ).one()
-    exported_labels = ExportService(session)._get_option_labels(imported_field_definition)
+    imported_field_definition = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.label == "模板字段",
+            FieldDefinition.field_type == "单选",
+        )
+        .one()
+    )
+    exported_labels = get_option_labels(imported_field_definition)
 
     assert exported_labels == ["男", "女"]
-
 
 
 def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
@@ -725,22 +744,36 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
     )
     session.commit()
 
-    codelists = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id,
-    ).order_by(CodeList.id).all()
+    codelists = (
+        session.query(CodeList)
+        .filter(
+            CodeList.project_id == target_project.id,
+        )
+        .order_by(CodeList.id)
+        .all()
+    )
     assert [codelist.name for codelist in codelists] == ["性别"]
 
-    reused_options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == existing_codelist.id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
-    imported_field_definition = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.label == "模板字段",
-    ).one()
+    reused_options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == existing_codelist.id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
+    imported_field_definition = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.label == "模板字段",
+        )
+        .one()
+    )
 
     assert imported_field_definition.codelist_id == existing_codelist.id
     assert [option.decode for option in reused_options] == ["男", "女"]
-    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男", "女"]
+    assert get_option_labels(imported_field_definition) == ["男", "女"]
 
 
 @pytest.mark.parametrize(
@@ -791,24 +824,43 @@ def test_import_forms_creates_import_suffixed_codelist_when_same_name_signature_
     )
     session.commit()
 
-    codelists = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id,
-    ).order_by(CodeList.id).all()
+    codelists = (
+        session.query(CodeList)
+        .filter(
+            CodeList.project_id == target_project.id,
+        )
+        .order_by(CodeList.id)
+        .all()
+    )
     assert [codelist.name for codelist in codelists] == ["性别", "性别（导入）"]
 
-    original_options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == existing_codelist.id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    original_options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == existing_codelist.id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
     assert [(option.code, option.decode) for option in original_options] == existing_options
 
     imported_codelist = next(codelist for codelist in codelists if codelist.name == "性别（导入）")
-    imported_options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == imported_codelist.id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
-    imported_field_definition = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.label == "模板字段",
-    ).one()
+    imported_options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == imported_codelist.id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
+    imported_field_definition = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.label == "模板字段",
+        )
+        .one()
+    )
 
     assert imported_field_definition.codelist_id == imported_codelist.id
     assert [(option.code, option.decode) for option in imported_options] == template_options
@@ -831,11 +883,15 @@ def test_docx_import_creates_codelist_for_vertical_multiselect(session: Session)
     assert field_definition is not None
     assert field_definition.field_type == "多选（纵向）"
     assert field_definition.codelist_id is not None
-    options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == field_definition.codelist_id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == field_definition.codelist_id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
     assert [option.decode for option in options] == ["恶心", "呕吐"]
-
 
 
 def test_docx_import_preserves_literal_option_text(session: Session) -> None:
@@ -853,11 +909,15 @@ def test_docx_import_preserves_literal_option_text(session: Session) -> None:
     )
 
     assert field_definition is not None
-    options = session.query(CodeListOption).filter(
-        CodeListOption.codelist_id == field_definition.codelist_id,
-    ).order_by(CodeListOption.order_index, CodeListOption.id).all()
+    options = (
+        session.query(CodeListOption)
+        .filter(
+            CodeListOption.codelist_id == field_definition.codelist_id,
+        )
+        .order_by(CodeListOption.order_index, CodeListOption.id)
+        .all()
+    )
     assert [option.decode for option in options] == ["男_", "女"]
-
 
 
 def test_export_service_renders_vertical_multiselect_one_option_per_line(session: Session) -> None:
@@ -887,7 +947,6 @@ def test_export_service_renders_vertical_multiselect_one_option_per_line(session
     assert rendered == "□恶心\n□呕吐"
 
 
-
 def test_docx_imported_literal_option_text_matches_export_semantics(session: Session) -> None:
     service = DocxImportService(session)
     project = create_project(session, name="DOCX导出项目")
@@ -902,9 +961,8 @@ def test_docx_imported_literal_option_text_matches_export_semantics(session: Ses
         existing_vars=set(),
     )
     assert field_definition is not None
-    exported_labels = ExportService(session)._get_option_labels(field_definition)
+    exported_labels = get_option_labels(field_definition)
     assert exported_labels == ["男_", "女"]
-
 
 
 def test_extract_default_lines_preserves_blank_lines_spaces_and_crlf(session: Session) -> None:
@@ -927,7 +985,6 @@ def test_extract_default_lines_preserves_blank_lines_spaces_and_crlf(session: Se
     form_field.field_definition = field_definition
 
     assert extract_default_lines(form_field) == ["A", "", " B "]
-
 
 
 def test_build_inline_table_model_preserves_row_alignment_and_label_override(session: Session) -> None:
@@ -972,7 +1029,6 @@ def test_build_inline_table_model_preserves_row_alignment_and_label_override(ses
     assert field_defs == [field_definition_a, field_definition_b]
 
 
-
 def test_export_service_preserves_literal_option_text(session: Session) -> None:
     project = create_project(session, name="下划线项目")
     codelist = create_codelist(
@@ -994,8 +1050,7 @@ def test_export_service_preserves_literal_option_text(session: Session) -> None:
     )
     field_definition.codelist = codelist
 
-    assert ExportService(session)._get_option_labels(field_definition) == ["男_"]
-
+    assert get_option_labels(field_definition) == ["男_"]
 
 
 def test_template_import_preview_contract_includes_default_inline_and_option_semantics(
@@ -1016,14 +1071,10 @@ def test_template_import_preview_contract_includes_default_inline_and_option_sem
     assert field["default_value"] == "模板默认值"
     assert field["inline_mark"] == 1  # integer flag (Task 3.1: raw inline_mark)
     assert field["unit_symbol"] is None
-    assert [
-        {key: option[key] for key in ("code", "decode")}
-        for option in field["options"]
-    ] == [
+    assert [{key: option[key] for key in ("code", "decode")} for option in field["options"]] == [
         {"code": "1", "decode": "男"},
         {"code": "2", "decode": "女"},
     ]
-
 
 
 def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
@@ -1066,13 +1117,22 @@ def test_import_forms_increments_import_suffix_for_repeated_codelist_conflicts(
     )
     session.commit()
 
-    codelists = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id,
-    ).order_by(CodeList.id).all()
-    imported_field_definition = session.query(FieldDefinition).filter(
-        FieldDefinition.project_id == target_project.id,
-        FieldDefinition.label == "模板字段",
-    ).one()
+    codelists = (
+        session.query(CodeList)
+        .filter(
+            CodeList.project_id == target_project.id,
+        )
+        .order_by(CodeList.id)
+        .all()
+    )
+    imported_field_definition = (
+        session.query(FieldDefinition)
+        .filter(
+            FieldDefinition.project_id == target_project.id,
+            FieldDefinition.label == "模板字段",
+        )
+        .one()
+    )
 
     # 目标库已有「性别（导入）」且签名一致：import_forms 的冲突路径会复用同名
     # 「性别（导入）」而非继续递增后缀（命名冲突后先查 target 库内同名）。
@@ -1200,9 +1260,14 @@ def test_template_preview_field_ids_are_form_field_ids(tmp_path: Path, session: 
     engine = create_engine(f"sqlite+pysqlite:///{template_path.as_posix()}")
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     with session_factory() as template_session:
-        form_fields = template_session.query(FormField).filter(
-            FormField.form_id == form_id,
-        ).order_by(FormField.order_index).all()
+        form_fields = (
+            template_session.query(FormField)
+            .filter(
+                FormField.form_id == form_id,
+            )
+            .order_by(FormField.order_index)
+            .all()
+        )
         expected_ids = [ff.id for ff in form_fields]
 
     # 预览返回的 id 应与 form_field.id 一致
@@ -1238,22 +1303,27 @@ def test_template_import_preserves_order_after_partial_selection(
     session.commit()
 
     # 验证导入结果
-    imported_form = session.query(Form).filter(
-        Form.project_id == target_project.id,
-    ).first()
+    imported_form = (
+        session.query(Form)
+        .filter(
+            Form.project_id == target_project.id,
+        )
+        .first()
+    )
     assert imported_form is not None
 
-    imported_fields = session.query(FormField).filter(
-        FormField.form_id == imported_form.id,
-    ).order_by(FormField.order_index).all()
+    imported_fields = (
+        session.query(FormField)
+        .filter(
+            FormField.form_id == imported_form.id,
+        )
+        .order_by(FormField.order_index)
+        .all()
+    )
 
     # 仅导入 2 个字段，顺序保持
     assert len(imported_fields) == 2
-    imported_labels = [
-        ff.label_override or ff.field_definition.label
-        for ff in imported_fields
-        if ff.field_definition
-    ]
+    imported_labels = [ff.label_override or ff.field_definition.label for ff in imported_fields if ff.field_definition]
     assert imported_labels == ["字段A", "字段B"]
 
 
@@ -1285,11 +1355,16 @@ def test_template_import_preserves_styling_attributes(
     session.commit()
 
     # 验证样式属性已复制
-    imported_ff = session.query(FormField).join(FieldDefinition).filter(
-        FormField.form_id == Form.id,
-        Form.project_id == target_project.id,
-        FieldDefinition.variable_name == "FIELD_B",
-    ).first()
+    imported_ff = (
+        session.query(FormField)
+        .join(FieldDefinition)
+        .filter(
+            FormField.form_id == Form.id,
+            Form.project_id == target_project.id,
+            FieldDefinition.variable_name == "FIELD_B",
+        )
+        .first()
+    )
     assert imported_ff is not None
     assert imported_ff.bg_color == "FFEEEE"
     assert imported_ff.text_color == "CC0000"
@@ -1490,15 +1565,23 @@ def test_import_forms_preserves_bg_color_text_color(
     session.commit()
 
     # 验证样式被复制
-    imported_form = session.query(Form).filter(
-        Form.project_id == target_project.id,
-        Form.name == "结构行表单",
-    ).one()
+    imported_form = (
+        session.query(Form)
+        .filter(
+            Form.project_id == target_project.id,
+            Form.name == "结构行表单",
+        )
+        .one()
+    )
 
-    imported_ff = session.query(FormField).filter(
-        FormField.form_id == imported_form.id,
-        FormField.bg_color == "FFEEEE",
-    ).first()
+    imported_ff = (
+        session.query(FormField)
+        .filter(
+            FormField.form_id == imported_form.id,
+            FormField.bg_color == "FFEEEE",
+        )
+        .first()
+    )
     assert imported_ff is not None
     assert imported_ff.text_color == "CC0000"
 
@@ -1511,6 +1594,7 @@ def test_import_forms_preserves_bg_color_text_color(
 def test_migration_script_outputs_new_file(tmp_path: Path) -> None:
     """Task 3.7: 迁移脚本输出新文件，原文件保持不变"""
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from scripts.migrate_template_db import migrate_template
 
@@ -1588,9 +1672,7 @@ def test_migration_script_outputs_new_file(tmp_path: Path) -> None:
     new_conn = sqlite3.connect(str(output_path))
     new_cols = new_conn.execute("PRAGMA table_info(form_field)").fetchall()
     new_col_map = {row[1]: row for row in new_cols}
-    label_style_values = new_conn.execute(
-        "SELECT label_bold, label_font_size FROM form_field WHERE id = 7"
-    ).fetchone()
+    label_style_values = new_conn.execute("SELECT label_bold, label_font_size FROM form_field WHERE id = 7").fetchone()
     new_conn.close()
     assert "order_index" in new_col_map
     assert "is_log_row" in new_col_map
@@ -1643,20 +1725,20 @@ def _drop_form_annotation_positions_column(db_path: Path) -> None:
         conn.execute('ALTER TABLE "form" RENAME TO "form__legacy_with_annotation"')
         conn.execute(
             'CREATE TABLE "form" ('
-            'id INTEGER NOT NULL PRIMARY KEY, '
-            'project_id INTEGER NOT NULL, '
-            'name VARCHAR(255) NOT NULL, '
-            'code VARCHAR(100), '
-            'domain VARCHAR(255), '
-            'order_index INTEGER, '
-            'design_notes TEXT, '
-            'paper_orientation VARCHAR(255), '
-            'FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE'
-            ')'
+            "id INTEGER NOT NULL PRIMARY KEY, "
+            "project_id INTEGER NOT NULL, "
+            "name VARCHAR(255) NOT NULL, "
+            "code VARCHAR(100), "
+            "domain VARCHAR(255), "
+            "order_index INTEGER, "
+            "design_notes TEXT, "
+            "paper_orientation VARCHAR(255), "
+            "FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE CASCADE"
+            ")"
         )
         conn.execute(
             'INSERT INTO "form" (id, project_id, name, code, domain, order_index, design_notes, paper_orientation) '
-            'SELECT id, project_id, name, code, domain, order_index, design_notes, paper_orientation '
+            "SELECT id, project_id, name, code, domain, order_index, design_notes, paper_orientation "
             'FROM "form__legacy_with_annotation"'
         )
         conn.execute('DROP TABLE "form__legacy_with_annotation"')
@@ -1688,9 +1770,7 @@ def test_import_forms_preserves_annotation_positions(tmp_path: Path, session: Se
     assert imported.annotation_positions == serialize_annotation_positions(source_positions)
 
 
-def test_import_forms_canonicalizes_out_of_range_annotation_positions(
-    tmp_path: Path, session: Session
-) -> None:
+def test_import_forms_canonicalizes_out_of_range_annotation_positions(tmp_path: Path, session: Session) -> None:
     """模板导入的越界 y 应被 clamp + canonical 重序列化落库。"""
     source_positions = '{"_form":{"y":999},"VAR0":{"y":-999}}'
     template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
@@ -1711,9 +1791,7 @@ def test_import_forms_canonicalizes_out_of_range_annotation_positions(
     assert imported.annotation_positions == '{"VAR0":{"y":-200},"_form":{"y":200}}'
 
 
-def test_import_forms_rejects_invalid_annotation_positions(
-    tmp_path: Path, session: Session
-) -> None:
+def test_import_forms_rejects_invalid_annotation_positions(tmp_path: Path, session: Session) -> None:
     """模板导入遇非法保留 key 时应 fail closed，不静默接受。"""
     template_path, src_project_id, src_form_id = _build_template_db_with_annotation_positions(
         tmp_path, annotation_positions='{"_bad":{"y":1}}'
@@ -1760,9 +1838,7 @@ def test_import_forms_defaults_to_none_when_source_missing_annotation_positions(
     assert "annotation_positions" not in cols
 
 
-def test_get_template_form_paper_orientation_tolerates_mixed_column_legacy(
-    tmp_path: Path, session: Session
-) -> None:
+def test_get_template_form_paper_orientation_tolerates_mixed_column_legacy(tmp_path: Path, session: Session) -> None:
     """有 paper_orientation 列但缺 annotation_positions 列的旧模板，预览读取不应 OperationalError。"""
     template_path, _src_project_id, src_form_id = _build_template_db_with_annotation_positions(
         tmp_path,
@@ -1873,9 +1949,7 @@ def test_import_forms_preserves_source_form_codelist_and_unit_oids(
     assert imported_form.code == "DM"
     imported_unit = session.query(Unit).filter(Unit.project_id == target_project.id).one()
     assert imported_unit.code == "MG"
-    imported_codelist = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id
-    ).one()
+    imported_codelist = session.query(CodeList).filter(CodeList.project_id == target_project.id).one()
     assert imported_codelist.code == "CL_SEX"
 
 
@@ -1912,9 +1986,7 @@ def test_import_forms_mints_oid_when_source_is_empty(
     assert imported_form.code.startswith("FORM_")
     imported_unit = session.query(Unit).filter(Unit.project_id == target_project.id).one()
     assert imported_unit.code.startswith("UNIT_")
-    imported_codelist = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id
-    ).one()
+    imported_codelist = session.query(CodeList).filter(CodeList.project_id == target_project.id).one()
     assert imported_codelist.code.startswith("CL_")
 
 
@@ -1934,15 +2006,23 @@ def test_import_forms_suffixes_form_code_when_target_already_uses_it(
     )
     session.commit()
 
-    imported = session.query(Form).filter(
-        Form.project_id == target_project.id,
-        Form.name == "模板表单",
-    ).one()
+    imported = (
+        session.query(Form)
+        .filter(
+            Form.project_id == target_project.id,
+            Form.name == "模板表单",
+        )
+        .one()
+    )
     assert imported.code == "DM_IMP"
-    existing = session.query(Form).filter(
-        Form.project_id == target_project.id,
-        Form.name == "别的表单",
-    ).one()
+    existing = (
+        session.query(Form)
+        .filter(
+            Form.project_id == target_project.id,
+            Form.name == "别的表单",
+        )
+        .one()
+    )
     assert existing.code == "DM"
 
 
@@ -2075,10 +2155,14 @@ def test_import_forms_renamed_form_keeps_source_code_when_code_is_free(
     session.commit()
 
     assert summary["renamed_forms"] == ["模板表单 → 模板表单_导入"]
-    imported = session.query(Form).filter(
-        Form.project_id == target_project.id,
-        Form.name == "模板表单_导入",
-    ).one()
+    imported = (
+        session.query(Form)
+        .filter(
+            Form.project_id == target_project.id,
+            Form.name == "模板表单_导入",
+        )
+        .one()
+    )
     assert imported.code == "DM"
 
 
@@ -2116,9 +2200,7 @@ def test_import_forms_twice_into_same_project_suffixes_form_oid(
     units = session.query(Unit).filter(Unit.project_id == target_project.id).all()
     assert len(units) == 1
     assert units[0].code == "ZHI"
-    codelists = session.query(CodeList).filter(
-        CodeList.project_id == target_project.id
-    ).all()
+    codelists = session.query(CodeList).filter(CodeList.project_id == target_project.id).all()
     assert len(codelists) == 1
     assert codelists[0].code == "CL_SEX"
 

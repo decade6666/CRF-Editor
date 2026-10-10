@@ -6,6 +6,7 @@
 - 保守留余量，绝不换行（物理宽度不超过列宽）；
 - 设下限避免窄列出现 0 根，设上限防御异常超宽。
 """
+
 from src.services.width_planning import (
     CELL_HPAD_CM,
     FILL_LINE_MAX_CHARS,

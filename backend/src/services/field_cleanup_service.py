@@ -1,4 +1,5 @@
 """字段删除后结构性定义清理。"""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -37,11 +38,11 @@ def _delete_orphan_label_definitions(
     if not collected:
         return
 
-    remaining_ids = set(session.scalars(
-        select(FormField.field_definition_id).where(
-            FormField.field_definition_id.in_(list(collected.keys()))
-        )
-    ).all())
+    remaining_ids = set(
+        session.scalars(
+            select(FormField.field_definition_id).where(FormField.field_definition_id.in_(list(collected.keys())))
+        ).all()
+    )
 
     orphan_ids_by_project: dict[int, list[int]] = defaultdict(list)
     for field_definition_id, field_definition in collected.items():

@@ -1,4 +1,5 @@
 """用户管理集成测试（Phase 5）"""
+
 import sqlite3
 
 import pytest
@@ -129,12 +130,8 @@ def test_list_users_project_count(client, engine):
 
     with Session(engine) as session:
         with session.begin():
-            admin_user = session.scalar(
-                select(User).where(User.username == "admin")
-            )
-            session.add(
-                Project(name="测试项目", version="1.0", owner_id=admin_user.id)
-            )
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
+            session.add(Project(name="测试项目", version="1.0", owner_id=admin_user.id))
 
     resp = client.get("/api/admin/users", headers=auth_headers(token))
     data = resp.json()
@@ -241,7 +238,6 @@ def test_reserved_admin_username_cannot_be_auto_created_by_login(client, engine)
     with Session(engine) as session:
         admin_user = session.scalar(select(User).where(User.username == "admin"))
         assert admin_user is None
-
 
 
 def test_reserved_admin_login_accepts_legacy_whitespace_username_after_heal(client, engine):
@@ -351,9 +347,7 @@ def test_reserved_admin_user_cannot_be_renamed(client, engine):
     assert "保留管理员账号" in resp.json()["detail"]
 
 
-def test_old_token_stays_invalid_after_rename_and_recreate_username(
-    client, engine
-):
+def test_old_token_stays_invalid_after_rename_and_recreate_username(client, engine):
     """用户改名后旧 token 即使在旧用户名被重建后也必须继续 401。"""
     admin_token = login_as(client, "admin")
     old_token = login_as(client, "bob")
@@ -401,9 +395,7 @@ def test_list_users_marks_damaged_hash_as_no_password(client, engine):
 
     with Session(engine) as session:
         with session.begin():
-            user = session.scalar(
-                select(User).where(User.username == "damaged_hash_user")
-            )
+            user = session.scalar(select(User).where(User.username == "damaged_hash_user"))
             user.hashed_password = "$pbkdf2-sha256$bad"
 
     response = client.get("/api/admin/users", headers=auth_headers(admin_token))
@@ -449,9 +441,7 @@ def test_delete_user_success(client, engine):
     )
     uid = create_resp.json()["id"]
 
-    resp = client.delete(
-        f"/api/admin/users/{uid}", headers=auth_headers(token)
-    )
+    resp = client.delete(f"/api/admin/users/{uid}", headers=auth_headers(token))
     assert resp.status_code == 204
 
 
@@ -467,13 +457,9 @@ def test_delete_user_with_projects(client, engine):
 
     with Session(engine) as session:
         with session.begin():
-            session.add(
-                Project(name="某项目", version="1.0", owner_id=uid)
-            )
+            session.add(Project(name="某项目", version="1.0", owner_id=uid))
 
-    resp = client.delete(
-        f"/api/admin/users/{uid}", headers=auth_headers(token)
-    )
+    resp = client.delete(f"/api/admin/users/{uid}", headers=auth_headers(token))
     assert resp.status_code == 409
     assert "项目" in resp.json()["detail"]
 
@@ -506,14 +492,10 @@ def test_deleted_projects_do_not_inflate_count_when_active_projects_exist(client
 
     list_resp = client.get("/api/admin/users", headers=auth_headers(token))
     assert list_resp.status_code == 200, list_resp.text
-    user_info = next(
-        user for user in list_resp.json() if user["id"] == uid
-    )
+    user_info = next(user for user in list_resp.json() if user["id"] == uid)
     assert user_info["project_count"] == 1
 
-    delete_resp = client.delete(
-        f"/api/admin/users/{uid}", headers=auth_headers(token)
-    )
+    delete_resp = client.delete(f"/api/admin/users/{uid}", headers=auth_headers(token))
     assert delete_resp.status_code == 409, delete_resp.text
     assert "项目" in delete_resp.json()["detail"]
 
@@ -541,14 +523,10 @@ def test_deleted_projects_do_not_block_user_count_or_deletion(client, engine):
 
     list_resp = client.get("/api/admin/users", headers=auth_headers(token))
     assert list_resp.status_code == 200, list_resp.text
-    user_info = next(
-        user for user in list_resp.json() if user["id"] == uid
-    )
+    user_info = next(user for user in list_resp.json() if user["id"] == uid)
     assert user_info["project_count"] == 0
 
-    delete_resp = client.delete(
-        f"/api/admin/users/{uid}", headers=auth_headers(token)
-    )
+    delete_resp = client.delete(f"/api/admin/users/{uid}", headers=auth_headers(token))
     assert delete_resp.status_code == 204, delete_resp.text
 
     with Session(engine) as session:
@@ -557,9 +535,7 @@ def test_deleted_projects_do_not_block_user_count_or_deletion(client, engine):
 
 def test_delete_nonexistent_user(client, engine):
     token = login_as(client, "admin")
-    resp = client.delete(
-        "/api/admin/users/99999", headers=auth_headers(token)
-    )
+    resp = client.delete("/api/admin/users/99999", headers=auth_headers(token))
     assert resp.status_code == 400
 
 
@@ -646,11 +622,11 @@ def test_init_db_migrates_is_admin_and_heals_reserved_admin(tmp_path, monkeypatc
         """
     )
     conn.execute(
-        'INSERT INTO user (username, hashed_password) VALUES (?, ?)',
+        "INSERT INTO user (username, hashed_password) VALUES (?, ?)",
         ("admin", "legacy-secret"),
     )
     conn.execute(
-        'INSERT INTO user (username, hashed_password) VALUES (?, ?)',
+        "INSERT INTO user (username, hashed_password) VALUES (?, ?)",
         ("alice", "legacy-secret"),
     )
     conn.commit()
@@ -659,15 +635,11 @@ def test_init_db_migrates_is_admin_and_heals_reserved_admin(tmp_path, monkeypatc
     _run_init_db_for_test(db_path, monkeypatch)
 
     conn = sqlite3.connect(str(db_path))
-    columns = {
-        row[1]: row for row in conn.execute("PRAGMA table_info(user)").fetchall()
-    }
+    columns = {row[1]: row for row in conn.execute("PRAGMA table_info(user)").fetchall()}
     assert "is_admin" in columns
     assert columns["is_admin"][3] == 1
     assert "0" in str(columns["is_admin"][4])
-    rows = conn.execute(
-        'SELECT username, is_admin FROM user ORDER BY id'
-    ).fetchall()
+    rows = conn.execute("SELECT username, is_admin FROM user ORDER BY id").fetchall()
     assert rows == [("admin", 1), ("alice", 0)]
     conn.close()
 
@@ -675,11 +647,11 @@ def test_init_db_migrates_is_admin_and_heals_reserved_admin(tmp_path, monkeypatc
 
     conn = sqlite3.connect(str(db_path))
     admin_rows = conn.execute(
-        'SELECT COUNT(*) FROM user WHERE username = ?',
+        "SELECT COUNT(*) FROM user WHERE username = ?",
         ("admin",),
     ).fetchone()[0]
     admin_flag = conn.execute(
-        'SELECT is_admin FROM user WHERE username = ?',
+        "SELECT is_admin FROM user WHERE username = ?",
         ("admin",),
     ).fetchone()[0]
     assert admin_rows == 1
@@ -693,9 +665,7 @@ def test_init_db_bootstraps_reserved_admin_once_in_production(tmp_path, monkeypa
     _run_init_db_for_test(db_path, monkeypatch, env="production")
 
     conn = sqlite3.connect(str(db_path))
-    rows = conn.execute(
-        'SELECT username, is_admin, hashed_password, auth_version FROM user ORDER BY id'
-    ).fetchall()
+    rows = conn.execute("SELECT username, is_admin, hashed_password, auth_version FROM user ORDER BY id").fetchall()
     assert len(rows) == 1
     assert rows[0][0] == "admin"
     assert rows[0][1] == 1
@@ -706,12 +676,9 @@ def test_init_db_bootstraps_reserved_admin_once_in_production(tmp_path, monkeypa
     _run_init_db_for_test(db_path, monkeypatch, env="production")
 
     conn = sqlite3.connect(str(db_path))
-    rows = conn.execute(
-        'SELECT username, is_admin FROM user ORDER BY id'
-    ).fetchall()
+    rows = conn.execute("SELECT username, is_admin FROM user ORDER BY id").fetchall()
     assert rows == [("admin", 1)]
     conn.close()
-
 
 
 def test_init_db_repairs_reserved_admin_when_production_db_is_not_empty(tmp_path, monkeypatch):
@@ -721,7 +688,7 @@ def test_init_db_repairs_reserved_admin_when_production_db_is_not_empty(tmp_path
 
     conn = sqlite3.connect(str(db_path))
     conn.execute(
-        'INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)',
+        "INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)",
         ("alice", None, 0, 0),
     )
     conn.commit()
@@ -730,16 +697,13 @@ def test_init_db_repairs_reserved_admin_when_production_db_is_not_empty(tmp_path
     _run_init_db_for_test(db_path, monkeypatch, env="production")
 
     conn = sqlite3.connect(str(db_path))
-    rows = conn.execute(
-        'SELECT username, is_admin, hashed_password FROM user ORDER BY id'
-    ).fetchall()
+    rows = conn.execute("SELECT username, is_admin, hashed_password FROM user ORDER BY id").fetchall()
     assert len(rows) == 2
     assert rows[0] == ("alice", 0, None)
     assert rows[1][0] == "admin"
     assert rows[1][1] == 1
     assert rows[1][2].startswith("$pbkdf2-sha256$")
     conn.close()
-
 
 
 def test_init_db_repairs_damaged_reserved_admin_hash_in_production(tmp_path, monkeypatch):
@@ -749,7 +713,7 @@ def test_init_db_repairs_damaged_reserved_admin_hash_in_production(tmp_path, mon
 
     conn = sqlite3.connect(str(db_path))
     conn.execute(
-        'INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)',
+        "INSERT INTO user (username, hashed_password, is_admin, auth_version) VALUES (?, ?, ?, ?)",
         ("admin", "$pbkdf2-sha256$bad", 1, 7),
     )
     conn.commit()
@@ -759,7 +723,7 @@ def test_init_db_repairs_damaged_reserved_admin_hash_in_production(tmp_path, mon
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute(
-        'SELECT hashed_password, auth_version FROM user WHERE username = ?',
+        "SELECT hashed_password, auth_version FROM user WHERE username = ?",
         ("admin",),
     ).fetchone()
     assert row is not None

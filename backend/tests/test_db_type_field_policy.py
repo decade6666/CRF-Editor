@@ -34,9 +34,7 @@ def test_field_type_policy_helpers():
 def test_migrate_add_project_db_type_backfills_and_is_idempotent(tmp_path: Path):
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)"
-    )
+    conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)")
     conn.execute("INSERT INTO project (id, name, version) VALUES (1, 'P', '1.0')")
     conn.commit()
     conn.close()
@@ -76,6 +74,7 @@ def test_create_project_with_saimeisi_and_update_roundtrip(client):
     assert r.json()["db_type"] == "赛美斯"
 
     import json as _json
+
     r2 = client.put(
         f"/api/projects/{pid}/profile",
         data={"metadata": _json.dumps({"name": "S", "version": "1.0", "db_type": "其他"}), "logo_action": "keep"},
@@ -240,9 +239,7 @@ def test_split_passthrough_non_multi_and_log_row():
 def test_split_empty_options_fallback():
     vertical = _split_multiselect_field({"label": "空多选", "field_type": "多选", "options": []})
     assert vertical == [{"label": "空多选", "field_type": "标签"}]
-    inline = _split_multiselect_field(
-        {"label": "空内联", "field_type": "多选", "inline_mark": True, "options": []}
-    )
+    inline = _split_multiselect_field({"label": "空内联", "field_type": "多选", "inline_mark": True, "options": []})
     assert inline == [{"label": "空内联", "field_type": "文本", "inline_mark": True}]
 
 

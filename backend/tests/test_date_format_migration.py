@@ -42,14 +42,17 @@ def _dump(conn):
 
 def test_migrates_uppercase_and_keeps_unknown_values(engine):
     with engine.begin() as conn:
-        _seed(conn, [
-            {"id": 1, "field_type": "日期", "date_format": "YYYY-MM-DD"},
-            {"id": 2, "field_type": "日期", "date_format": "yyyy-MM-dd"},
-            {"id": 3, "field_type": "时间", "date_format": "HH:mm"},
-            {"id": 4, "field_type": "日期", "date_format": "MM-dd-yyyy"},
-            {"id": 5, "field_type": "日期", "date_format": None},
-            {"id": 6, "field_type": "文本", "date_format": "YYYY-MM-DD"},
-        ])
+        _seed(
+            conn,
+            [
+                {"id": 1, "field_type": "日期", "date_format": "YYYY-MM-DD"},
+                {"id": 2, "field_type": "日期", "date_format": "yyyy-MM-dd"},
+                {"id": 3, "field_type": "时间", "date_format": "HH:mm"},
+                {"id": 4, "field_type": "日期", "date_format": "MM-dd-yyyy"},
+                {"id": 5, "field_type": "日期", "date_format": None},
+                {"id": 6, "field_type": "文本", "date_format": "YYYY-MM-DD"},
+            ],
+        )
 
     _migrate_normalize_date_formats(engine)
 
@@ -66,11 +69,14 @@ def test_migrates_uppercase_and_keeps_unknown_values(engine):
 
 def test_migration_is_idempotent(engine):
     with engine.begin() as conn:
-        _seed(conn, [
-            {"id": 1, "field_type": "日期", "date_format": "YYYY-MM-DD"},
-            {"id": 2, "field_type": "日期时间", "date_format": "yyyy-MM-dd hh:mm:ss"},
-            {"id": 3, "field_type": "时间", "date_format": "HH:mm"},
-        ])
+        _seed(
+            conn,
+            [
+                {"id": 1, "field_type": "日期", "date_format": "YYYY-MM-DD"},
+                {"id": 2, "field_type": "日期时间", "date_format": "yyyy-MM-dd hh:mm:ss"},
+                {"id": 3, "field_type": "时间", "date_format": "HH:mm"},
+            ],
+        )
 
     _migrate_normalize_date_formats(engine)
     _migrate_normalize_date_formats(engine)
@@ -90,11 +96,14 @@ def test_migration_skips_missing_table():
 
 def test_migrates_legacy_uppercase_hour_format_and_keeps_hour_only_values(engine):
     with engine.begin() as conn:
-        _seed(conn, [
-            {"id": 1, "field_type": "日期时间", "date_format": "YYYY-MM-DD HH"},
-            {"id": 2, "field_type": "时间", "date_format": "HH"},
-            {"id": 3, "field_type": "时间", "date_format": "hh AP"},
-        ])
+        _seed(
+            conn,
+            [
+                {"id": 1, "field_type": "日期时间", "date_format": "YYYY-MM-DD HH"},
+                {"id": 2, "field_type": "时间", "date_format": "HH"},
+                {"id": 3, "field_type": "时间", "date_format": "hh AP"},
+            ],
+        )
 
     _migrate_normalize_date_formats(engine)
     _migrate_normalize_date_formats(engine)
@@ -110,16 +119,12 @@ def test_migrates_legacy_uppercase_hour_format_and_keeps_hour_only_values(engine
 def _read_frontend_date_format_options():
     """从前端共享模块 dateFormatOptions.js 解析 DATE_FORMAT_OPTIONS（唯一事实来源）。"""
     repo_root = Path(__file__).resolve().parents[2]
-    source = (repo_root / "frontend" / "src" / "composables" / "dateFormatOptions.js").read_text(
-        encoding="utf-8"
-    )
+    source = (repo_root / "frontend" / "src" / "composables" / "dateFormatOptions.js").read_text(encoding="utf-8")
     body_match = re.search(r"export const DATE_FORMAT_OPTIONS = \{(.*?)\n\}", source, re.S)
     assert body_match, "dateFormatOptions.js 缺少 DATE_FORMAT_OPTIONS 导出"
     options = {}
     # 键名交替按最长优先（日期时间 先于 日期），避免前缀键误吞
-    for key, list_body in re.findall(
-        r"['\"]?(日期时间|日期|时间)['\"]?\s*:\s*\[(.*?)\]", body_match.group(1), re.S
-    ):
+    for key, list_body in re.findall(r"['\"]?(日期时间|日期|时间)['\"]?\s*:\s*\[(.*?)\]", body_match.group(1), re.S):
         options[key] = re.findall(r"['\"]([^'\"]+)['\"]", list_body)
     assert set(options) == {"日期", "日期时间", "时间"}, f"前端选项键不符: {sorted(options)}"
     assert all(options.values()), "前端选项列表存在空列表"

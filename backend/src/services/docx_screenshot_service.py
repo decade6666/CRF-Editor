@@ -6,6 +6,7 @@
     3. 任务状态以 temp_id 为 key 缓存在进程内存中
     4. 图片写入 uploads/docx_temp/{temp_id}/pages/ 目录
 """
+
 from __future__ import annotations
 
 import copy
@@ -41,8 +42,9 @@ _PROCESS_OUTPUT_SNIPPET = 1200
 @dataclass
 class ScreenshotTask:
     """截图任务状态"""
-    status: str = "idle"       # idle | starting | running | done | failed
-    pages: List[str] = field(default_factory=list)   # 各页图片路径列表
+
+    status: str = "idle"  # idle | starting | running | done | failed
+    pages: List[str] = field(default_factory=list)  # 各页图片路径列表
     error: Optional[str] = None
     page_count: int = 0
     page_ranges: Dict[str, List[int]] = field(default_factory=dict)  # {表单名: [start, end]}
@@ -198,11 +200,7 @@ class DocxScreenshotService:
     @staticmethod
     def _configured_backend() -> DocxScreenshotBackend:
         raw_backend = get_config().docx_screenshot.backend
-        return (
-            raw_backend
-            if isinstance(raw_backend, DocxScreenshotBackend)
-            else DocxScreenshotBackend(raw_backend)
-        )
+        return raw_backend if isinstance(raw_backend, DocxScreenshotBackend) else DocxScreenshotBackend(raw_backend)
 
     @classmethod
     def _select_pdf_backend(cls) -> _PdfBackendSelection:
@@ -233,9 +231,7 @@ class DocxScreenshotService:
         try:
             selection = cls._select_pdf_backend()
         except RuntimeError as exc:
-            install_hint = (
-                "" if _is_windows() else "，Ubuntu/Debian 可执行 sudo apt install libreoffice-writer-nogui"
-            )
+            install_hint = "" if _is_windows() else "，Ubuntu/Debian 可执行 sudo apt install libreoffice-writer-nogui"
             logger.warning("Word 导入截图渲染后端不可用：%s%s", exc, install_hint)
             return
         logger.info("Word 导入截图渲染后端就绪：%s", selection.backend.value)
@@ -575,9 +571,7 @@ class DocxScreenshotService:
             if not normalized_form:
                 continue
 
-            exact_matches = [
-                item for item in processed_outline if item["normalized_title"] == normalized_form
-            ]
+            exact_matches = [item for item in processed_outline if item["normalized_title"] == normalized_form]
             if exact_matches:
                 match = min(exact_matches, key=lambda item: item["page"])
                 form_starts[form_name] = int(match["page"])
@@ -615,9 +609,8 @@ class DocxScreenshotService:
         for name in targets:
             found = False
             for index, text in enumerate(page_texts, 1):
-                if (
-                    cls._form_appears_independently(name, text, toc_form_names)
-                    and not cls.is_toc_page(text, toc_form_names)
+                if cls._form_appears_independently(name, text, toc_form_names) and not cls.is_toc_page(
+                    text, toc_form_names
                 ):
                     form_starts[name] = index
                     logger.info("表单 '%s' 匹配到页码: %d", name, index)
@@ -655,17 +648,12 @@ class DocxScreenshotService:
                 all_form_names=form_names,
             )
 
-        merged_starts = {
-            name: page_range[0]
-            for name, page_range in {**outline_ranges, **text_ranges}.items()
-        }
+        merged_starts = {name: page_range[0] for name, page_range in {**outline_ranges, **text_ranges}.items()}
         return cls._build_page_ranges(merged_starts, list(merged_starts.values()), total_pages)
 
     @staticmethod
     def _detect_field_pages(
-        pdf_path: str,
-        forms_data: List[dict],
-        page_ranges: Dict[str, List[int]]
+        pdf_path: str, forms_data: List[dict], page_ranges: Dict[str, List[int]]
     ) -> Dict[str, Dict[int, int]]:
         """检测每个字段的页码（在表单页码范围内搜索字段label）
 
@@ -678,6 +666,7 @@ class DocxScreenshotService:
             {表单名: {字段索引: 页码}}
         """
         import fitz
+
         doc = fitz.open(pdf_path)
         page_texts = [doc[i].get_text("text") for i in range(len(doc))]
         doc.close()
@@ -729,6 +718,7 @@ class DocxScreenshotService:
         pages_dir = cls._get_pages_dir(temp_id)
         if pages_dir.exists():
             import shutil
+
             shutil.rmtree(str(pages_dir), ignore_errors=True)
             logger.info("已清理截图目录 %s", pages_dir)
 
@@ -761,7 +751,7 @@ class DocxScreenshotService:
                 mtime = datetime.fromtimestamp(temp_dir.stat().st_mtime)
                 if mtime < cutoff:
                     # 计算目录大小
-                    dir_size = sum(f.stat().st_size for f in temp_dir.rglob('*') if f.is_file())
+                    dir_size = sum(f.stat().st_size for f in temp_dir.rglob("*") if f.is_file())
                     shutil.rmtree(str(temp_dir), ignore_errors=True)
                     deleted_count += 1
                     freed_bytes += dir_size

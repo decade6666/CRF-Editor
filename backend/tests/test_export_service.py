@@ -26,7 +26,7 @@ from src.models.project import Project
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.services import toc_pagination
-from src.services.export_service import ExportService, LayoutDecision, Segment
+from src.services.export_service import ExportService
 
 
 @pytest.fixture
@@ -41,13 +41,11 @@ def session() -> Session:
     engine.dispose()
 
 
-
 def create_project(session: Session, name: str = "项目") -> Project:
     project = Project(name=name, version="v1.0")
     session.add(project)
     session.flush()
     return project
-
 
 
 def create_form(
@@ -68,7 +66,6 @@ def create_form(
     return form
 
 
-
 def create_visit(
     session: Session,
     project_id: int,
@@ -87,7 +84,6 @@ def create_visit(
     return visit
 
 
-
 def create_visit_form(
     session: Session,
     visit_id: int,
@@ -99,7 +95,6 @@ def create_visit_form(
     session.add(visit_form)
     session.flush()
     return visit_form
-
 
 
 def create_field_definition(
@@ -121,7 +116,6 @@ def create_field_definition(
     return field_definition
 
 
-
 def create_form_field(
     session: Session,
     form_id: int,
@@ -141,27 +135,22 @@ def create_form_field(
     return form_field
 
 
-
 def export_document(session: Session, project_id: int, tmp_path: Path) -> Document:
     output_path = tmp_path / f"project-{project_id}.docx"
     # 关闭 LibreOffice 页码预计算：保持单测快速、确定（不依赖外部渲染进程）
-    ok = ExportService(session).export_project_to_word(
-        project_id, str(output_path), bake_toc_page_numbers=False
-    )
+    ok = ExportService(session).export_project_to_word(project_id, str(output_path), bake_toc_page_numbers=False)
     assert ok is True
     return Document(output_path)
-
 
 
 def assert_table_rows_at_least_one_centimeter(table) -> None:
     for row in table.rows:
         tr_pr = row._tr.trPr
         assert tr_pr is not None
-        tr_height = tr_pr.find(qn('w:trHeight'))
+        tr_height = tr_pr.find(qn("w:trHeight"))
         assert tr_height is not None
-        assert tr_height.get(qn('w:hRule')) == 'atLeast'
-        assert tr_height.get(qn('w:val')) == str(Cm(1).twips)
-
+        assert tr_height.get(qn("w:hRule")) == "atLeast"
+        assert tr_height.get(qn("w:val")) == str(Cm(1).twips)
 
 
 def extract_form_headings(doc: Document) -> list[str]:
@@ -180,11 +169,11 @@ def _find_toc_paragraph_tokens(doc: Document) -> list[tuple[str, str]]:
     for paragraph in doc.paragraphs:
         tokens: list[tuple[str, str]] = []
         for element in paragraph._p.iter():
-            if element.tag == qn('w:fldChar'):
-                tokens.append(("fldChar", element.get(qn('w:fldCharType')) or ""))
-            elif element.tag == qn('w:instrText'):
+            if element.tag == qn("w:fldChar"):
+                tokens.append(("fldChar", element.get(qn("w:fldCharType")) or ""))
+            elif element.tag == qn("w:instrText"):
                 tokens.append(("instrText", element.text or ""))
-            elif element.tag == qn('w:t') and element.text:
+            elif element.tag == qn("w:t") and element.text:
                 tokens.append(("text", element.text))
         if any(kind == "instrText" and "TOC" in value for kind, value in tokens):
             return tokens
@@ -196,7 +185,6 @@ def _first_token_index(tokens: list[tuple[str, str]], kind: str, value: str) -> 
         if token == (kind, value):
             return index
     raise AssertionError(f"missing token: {(kind, value)}")
-
 
 
 def test_export_project_renders_one_table_per_form_for_standard_fields(
@@ -231,7 +219,6 @@ def test_export_project_renders_one_table_per_form_for_standard_fields(
     assert len(form_table.columns) == 2
     assert form_table.cell(0, 0).text.strip() == "收缩压"
     assert form_table.cell(1, 0).text.strip() == "舒张压"
-
 
 
 def test_export_text_field_fill_line_scales_with_column_width(
@@ -272,7 +259,6 @@ def test_export_text_field_fill_line_scales_with_column_width(
     assert len(fill_cell_text) <= 20
 
 
-
 def test_export_choice_options_render_without_fill_suffix(
     session: Session,
     tmp_path: Path,
@@ -287,10 +273,12 @@ def test_export_choice_options_render_without_fill_suffix(
     codelist = CodeList(project_id=project.id, name="诊断结果", code="CL_DIAG")
     session.add(codelist)
     session.flush()
-    session.add_all([
-        CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
-        CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
-    ])
+    session.add_all(
+        [
+            CodeListOption(codelist_id=codelist.id, code="1", decode="有尾线", order_index=1),
+            CodeListOption(codelist_id=codelist.id, code="2", decode="无尾线", order_index=2),
+        ]
+    )
     session.flush()
 
     choice = create_field_definition(
@@ -324,7 +312,7 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
         field_type="文本",
     )
 
-    # 未传 fill_line_chars 的调用方（inline / unified / 空占位）保持旧行为
+    # 未传 fill_line_chars 的调用方（inline 越界回退 / 空占位）保持旧行为
     rendered = ExportService(session)._render_field_control(text_field)
 
     assert rendered == "________________"
@@ -412,7 +400,6 @@ def test_export_project_sorts_form_headings_by_order_index_then_id(
     ]
 
 
-
 def test_export_sets_update_fields_on_open(
     session: Session,
     tmp_path: Path,
@@ -423,12 +410,12 @@ def test_export_sets_update_fields_on_open(
     doc = export_document(session, project.id, tmp_path)
 
     settings = doc.settings.element
-    update_fields = settings.find(qn('w:updateFields'))
+    update_fields = settings.find(qn("w:updateFields"))
     assert update_fields is not None
-    assert update_fields.get(qn('w:val')) == 'true'
+    assert update_fields.get(qn("w:val")) == "true"
     # CT_Settings 顺序：updateFields 必须排在 compat 之前
     children = list(settings)
-    compat = settings.find(qn('w:compat'))
+    compat = settings.find(qn("w:compat"))
     if compat is not None:
         assert children.index(update_fields) < children.index(compat)
 
@@ -445,16 +432,10 @@ def test_export_toc_field_is_well_formed_and_keeps_heading_extraction_clean(
 
     tokens = _find_toc_paragraph_tokens(doc)
     assert tokens
-    assert any(
-        kind == "instrText"
-        and 'TOC \\o "1-3" \\h \\z \\u' in value
-        for kind, value in tokens
-    )
+    assert any(kind == "instrText" and 'TOC \\o "1-3" \\h \\z \\u' in value for kind, value in tokens)
     begin_index = _first_token_index(tokens, "fldChar", "begin")
     instr_index = next(
-        index
-        for index, (kind, value) in enumerate(tokens)
-        if kind == "instrText" and "TOC" in value and "\\h" in value
+        index for index, (kind, value) in enumerate(tokens) if kind == "instrText" and "TOC" in value and "\\h" in value
     )
     separate_index = _first_token_index(tokens, "fldChar", "separate")
 
@@ -555,10 +536,7 @@ def test_export_toc_entries_use_song_font_defined_styles_and_fallback_page_no(
     doc = export_document(session, project.id, tmp_path)
 
     # 1) TOC1/2/3 段落样式已注入 styles.xml，pStyle 不再悬空
-    style_ids = {
-        s.get(qn("w:styleId"))
-        for s in doc.styles.element.findall(qn("w:style"))
-    }
+    style_ids = {s.get(qn("w:styleId")) for s in doc.styles.element.findall(qn("w:style"))}
     assert {"TOC1", "TOC2", "TOC3"} <= style_ids
 
     # 2) 定位首条预渲染条目
@@ -611,10 +589,7 @@ def test_export_toc_field_end_wraps_prerendered_entries(
         for i, para in enumerate(paragraphs)
         if any("TOC" in (instr.text or "") for instr in para._p.iter(qn("w:instrText")))
     )
-    toc_fld_types = [
-        fc.get(qn("w:fldCharType"))
-        for fc in paragraphs[toc_idx]._p.iter(qn("w:fldChar"))
-    ]
+    toc_fld_types = [fc.get(qn("w:fldCharType")) for fc in paragraphs[toc_idx]._p.iter(qn("w:fldChar"))]
     assert toc_fld_types[0] == "begin"
     assert "separate" in toc_fld_types
     assert toc_fld_types.count("begin") == 2, "TOC begin + PAGEREF begin"
@@ -623,15 +598,11 @@ def test_export_toc_field_end_wraps_prerendered_entries(
     entry_indices = [
         i
         for i in range(toc_idx, len(paragraphs))
-        if any(
-            (hl.get(qn("w:anchor")) or "").startswith("_Toc")
-            for hl in paragraphs[i]._p.findall(qn("w:hyperlink"))
-        )
+        if any((hl.get(qn("w:anchor")) or "").startswith("_Toc") for hl in paragraphs[i]._p.findall(qn("w:hyperlink")))
     ]
     assert entry_indices, "未找到预渲染条目"
     last_entry_fld_types = [
-        fc.get(qn("w:fldCharType"))
-        for fc in paragraphs[entry_indices[-1]]._p.iter(qn("w:fldChar"))
+        fc.get(qn("w:fldCharType")) for fc in paragraphs[entry_indices[-1]]._p.iter(qn("w:fldChar"))
     ]
     # 末条条目内：PAGEREF(begin/separate/end) + 外层 TOC end
     assert last_entry_fld_types[-1] == "end"
@@ -643,7 +614,7 @@ def test_export_toc_entries_immediately_follow_title_without_blank_line(
     session: Session,
     tmp_path: Path,
 ) -> None:
-    """"目录"标题段之后紧跟首条目录条目，中间无空行；条目紧邻标题不在文档末尾。"""
+    """ "目录"标题段之后紧跟首条目录条目，中间无空行；条目紧邻标题不在文档末尾。"""
     project = create_project(session)
     create_form(session, project.id, name="生命体征", order_index=1)
     create_form(session, project.id, name="实验室", order_index=2)
@@ -653,16 +624,12 @@ def test_export_toc_entries_immediately_follow_title_without_blank_line(
     paragraphs = doc.paragraphs
 
     # 找"目录"标题段
-    title_idx = next(
-        i for i, para in enumerate(paragraphs) if (para.text or "").strip() == "目录"
-    )
+    title_idx = next(i for i, para in enumerate(paragraphs) if (para.text or "").strip() == "目录")
 
     # 紧邻的下一段即首条目录条目：含 _Toc 超链接（若中间有空行，此段将无超链接）
     nxt = paragraphs[title_idx + 1]
     anchors = [hl.get(qn("w:anchor")) for hl in nxt._p.findall(qn("w:hyperlink"))]
-    assert any(a and a.startswith("_Toc") for a in anchors), (
-        "目录标题段后应紧跟首条目录条目（中间不得有空行/空域壳段）"
-    )
+    assert any(a and a.startswith("_Toc") for a in anchors), "目录标题段后应紧跟首条目录条目（中间不得有空行/空域壳段）"
     # 首条条目同时合入 TOC 域起始（begin/separate）
     fld_types = [fc.get(qn("w:fldCharType")) for fc in nxt._p.iter(qn("w:fldChar"))]
     assert "begin" in fld_types and "separate" in fld_types
@@ -671,10 +638,7 @@ def test_export_toc_entries_immediately_follow_title_without_blank_line(
     last_entry_idx = max(
         i
         for i in range(title_idx + 1, len(paragraphs))
-        if any(
-            (hl.get(qn("w:anchor")) or "").startswith("_Toc")
-            for hl in paragraphs[i]._p.findall(qn("w:hyperlink"))
-        )
+        if any((hl.get(qn("w:anchor")) or "").startswith("_Toc") for hl in paragraphs[i]._p.findall(qn("w:hyperlink")))
     )
     assert last_entry_idx - title_idx <= 10
 
@@ -684,8 +648,7 @@ def _toc_entry_page_numbers(doc: Document) -> list[str]:
     numbers: list[str] = []
     for paragraph in doc.paragraphs:
         has_toc_anchor = any(
-            (hl.get(qn("w:anchor")) or "").startswith("_Toc")
-            for hl in paragraph._p.findall(qn("w:hyperlink"))
+            (hl.get(qn("w:anchor")) or "").startswith("_Toc") for hl in paragraph._p.findall(qn("w:hyperlink"))
         )
         if not has_toc_anchor:
             continue
@@ -776,9 +739,7 @@ def test_export_toc_bakes_real_page_numbers_with_libreoffice(
         create_form(session, project.id, name=f"表单{i}", order_index=i)
 
     output_path = tmp_path / "baked.docx"
-    ok = ExportService(session).export_project_to_word(
-        project.id, str(output_path), bake_toc_page_numbers=True
-    )
+    ok = ExportService(session).export_project_to_word(project.id, str(output_path), bake_toc_page_numbers=True)
     assert ok is True
 
     doc = Document(output_path)
@@ -823,7 +784,6 @@ def test_export_project_uses_next_page_section_break_between_portrait_forms(
     assert switch_calls.count(WD_ORIENT.PORTRAIT) >= 2
     assert len(doc.sections) >= 4
     assert all(section.start_type == WD_SECTION.NEW_PAGE for section in doc.sections[1:])
-
 
 
 def test_export_project_sets_form_table_rows_to_at_least_one_centimeter(
@@ -908,7 +868,6 @@ def test_export_project_preserves_mixed_normal_inline_group_order(
     assert form_tables[2].cell(0, 0).text.strip() == "综合判定结果"
 
 
-
 def test_export_project_visit_flow_uses_cross_marks_and_order_index_sorting(
     session: Session,
     tmp_path: Path,
@@ -940,14 +899,15 @@ def test_export_project_visit_flow_uses_cross_marks_and_order_index_sorting(
 
 def _find_tbl_headers(tr) -> list:
     from docx.oxml.ns import qn
-    trPr = tr.find(qn('w:trPr'))
+
+    trPr = tr.find(qn("w:trPr"))
     if trPr is None:
         return []
-    return [el for el in trPr.findall(qn('w:tblHeader')) if el.get(qn('w:val')) == 'true']
+    return [el for el in trPr.findall(qn("w:tblHeader")) if el.get(qn("w:val")) == "true"]
 
 
 def _find_applicable_visits_paragraphs(doc) -> list:
-    return [p for p in doc.paragraphs if p.style and p.style.name == 'ApplicableVisits']
+    return [p for p in doc.paragraphs if p.style and p.style.name == "ApplicableVisits"]
 
 
 def test_export_project_visit_flow_header_row_sets_tblHeader(
@@ -1041,9 +1001,9 @@ def test_export_project_applicable_visits_footer_prefix_bold_and_names_run_use_e
     assert names_run.bold is not True
 
     for run in paragraph.runs:
-        rFonts = run._element.find(qn('w:rPr')).find(qn('w:rFonts'))
-        assert rFonts.get(qn('w:eastAsia')) == "SimSun"
-        assert rFonts.get(qn('w:ascii')) == "Times New Roman"
+        rFonts = run._element.find(qn("w:rPr")).find(qn("w:rFonts"))
+        assert rFonts.get(qn("w:eastAsia")) == "SimSun"
+        assert rFonts.get(qn("w:ascii")) == "Times New Roman"
 
 
 def test_export_project_groups_adjacent_inline_fields_into_one_table(
@@ -1086,11 +1046,9 @@ def test_export_project_groups_adjacent_inline_fields_into_one_table(
     assert_table_rows_at_least_one_centimeter(inline_table)
 
 
-def test_build_unified_table_sets_all_rows_to_at_least_one_centimeter(
-    session: Session,
-) -> None:
+def test_export_live_mixed_layout_tables_keep_minimum_row_height(session: Session, tmp_path: Path) -> None:
     project = create_project(session)
-    form = create_form(session, project.id, name="统一横向表", order_index=1)
+    form = create_form(session, project.id, name="混合横向表", order_index=1)
     regular_def = create_field_definition(
         session,
         project.id,
@@ -1104,55 +1062,31 @@ def test_build_unified_table_sets_all_rows_to_at_least_one_centimeter(
         label="分区标签",
         field_type="标签",
     )
-    inline_a_def = create_field_definition(
-        session,
-        project.id,
-        variable_name="INLINE_A",
-        label="内联A",
-    )
-    inline_b_def = create_field_definition(
-        session,
-        project.id,
-        variable_name="INLINE_B",
-        label="内联B",
-    )
-    regular = create_form_field(session, form.id, regular_def.id, order_index=1)
-    full_row = create_form_field(session, form.id, label_def.id, order_index=2)
-    inline_a = create_form_field(
-        session,
-        form.id,
-        inline_a_def.id,
-        order_index=3,
-        default_value="第一行\n第二行",
-    )
-    inline_b = create_form_field(
-        session,
-        form.id,
-        inline_b_def.id,
-        order_index=4,
-        default_value="仅一行",
-    )
-    inline_a.inline_mark = 1
-    inline_b.inline_mark = 1
+    create_form_field(session, form.id, regular_def.id, order_index=1)
+    create_form_field(session, form.id, label_def.id, order_index=2)
+
+    for order_index in range(3, 8):
+        inline_def = create_field_definition(
+            session,
+            project.id,
+            variable_name=f"INLINE_{order_index}",
+            label=f"内联{order_index}",
+        )
+        create_form_field(
+            session,
+            form.id,
+            inline_def.id,
+            order_index=order_index,
+            default_value="第一行\n第二行" if order_index == 3 else "单行",
+        ).inline_mark = 1
     session.flush()
 
-    service = ExportService(session)
-    service._column_width_overrides = {}
-    doc = Document()
-    service._apply_document_style(doc)
-    table = service._build_unified_table(
-        doc,
-        [
-            Segment("regular_field", [regular]),
-            Segment("full_row", [full_row]),
-            Segment("inline_block", [inline_a, inline_b]),
-        ],
-        LayoutDecision("unified_landscape", 4, 1, 3),
-        form_id=form.id,
-    )
+    doc = export_document(session, project.id, tmp_path)
+    form_tables = doc.tables[2:]
 
-    assert len(table.rows) == 5
-    assert_table_rows_at_least_one_centimeter(table)
+    assert len(form_tables) == 2
+    assert_table_rows_at_least_one_centimeter(form_tables[0])
+    assert_table_rows_at_least_one_centimeter(form_tables[1])
 
 
 def test_export_project_renders_cover_table_with_three_rows_two_cols(
@@ -1332,6 +1266,7 @@ def test_export_visit_flow_has_landscape_section_restored_to_portrait(
 # Phase 4.4: PBT 属性测试（hypothesis）
 # ---------------------------------------------------------------------------
 
+
 def _make_in_memory_session():
     """创建内存 SQLite session（供 hypothesis 测试使用，独立于 pytest fixture）"""
     engine = create_engine("sqlite+pysqlite:///:memory:")
@@ -1413,8 +1348,10 @@ def test_pbt_p8_export_is_idempotent_in_structure(form_count: int) -> None:
             db.add(Form(project_id=project.id, name=f"表单{i}", code=f"F{i}", order_index=i))
         db.flush()
 
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f1, \
-             tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f2:
+        with (
+            tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f1,
+            tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f2,
+        ):
             path1, path2 = f1.name, f2.name
         try:
             ExportService(db).export_project_to_word(project.id, path1)
@@ -1429,14 +1366,16 @@ def test_pbt_p8_export_is_idempotent_in_structure(form_count: int) -> None:
         engine.dispose()
 
 
-@given(trial_name=st.one_of(
-    st.none(),
-    st.text(
-        alphabet=st.characters(min_codepoint=32, max_codepoint=0x9FFF, blacklist_categories=("Cc", "Cs")),
-        min_size=1,
-        max_size=50,
-    ),
-))
+@given(
+    trial_name=st.one_of(
+        st.none(),
+        st.text(
+            alphabet=st.characters(min_codepoint=32, max_codepoint=0x9FFF, blacklist_categories=("Cc", "Cs")),
+            min_size=1,
+            max_size=50,
+        ),
+    )
+)
 @settings(max_examples=10, deadline=None)
 def test_pbt_p9_empty_form_always_has_skeleton_table(trial_name) -> None:
     """P9: 空表单（无字段）导出后仍有骨架表格"""

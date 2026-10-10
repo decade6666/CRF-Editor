@@ -14,6 +14,7 @@ CRF (Case Report Form) Editor is a form design and management tool for clinical 
 - **Live Preview & Quick Edit**: The designer provides a live preview and supports double-clicking previewed fields to quickly edit instance properties such as labels, colors, inline layout, and default values; copying a regular field first creates a local draft that is persisted only after Save, while log-row copies remain immediate because log rows are not field-library definitions; in complete mode, both the designer and the visits form preview can switch between eCRF / aCRF views, and the aCRF field OID / form-domain annotations support vertical dragging, persisted positions, and export-matched styling
 - **Field Library / Code Lists / Units**: Centralized management of reusable field definitions, option dictionaries, and measurement units; in the field library, single-/multi-choice fields can add or edit the referenced option dictionary inline without switching to the code-list page; a single checkbox is codelist-free, can define checkbox text (defaulting to `✔` when empty), and renders as `field label | □checkbox text` in previews and Word exports
 - **List Ordering and Ordinal Quick Edit**: Code lists, options, units, fields, visits, visit-form relations, and the form list in the designer all support drag ordering; double-clicking the ordinal cell opens direct target-position input backed by the existing reorder endpoints
+- **Reference-Aware Delete Guard**: Deleting a referenced dictionary, unit, field, or form opens an alert listing the reference locations and refuses the deletion (references must be removed first; dictionaries/units referenced only by library fields not yet placed in any form are blocked as well); batch deletes are grouped in a single dialog — referenced objects are notice-only and never deleted, unreferenced objects are confirmed and deleted, and a mixed batch reports how many were deleted vs kept
 - **Simple / Complete Edit Modes**: Hide advanced identifiers such as OIDs and variable names by default, and expose them consistently in complete edit mode; form / field / codelist OIDs are restricted at edit time to letters, digits, `-`, `_`, `.` only — invalid characters are blocked immediately without rewriting existing data, while codelist option codes are free-form like labels
 - **Import Flows**: Supports template `.db` import, project database import / full-database merge import, and Word `.docx` compare-based import preview with an original-document screenshot evidence panel; Word import AI review suggestions can be accepted selectively at three levels (per suggestion / per form / all, default off), and the "import effect" preview reflects accepted field types in real time; unfinished import uploads are automatically cleaned up after 24 hours by default
 - **Template Field Search**: In complete edit mode, a read-only non-modal draggable "Template Field Search" dialog cross-references all usable template-library fields by OID / label / source-form OID (label-type fields, log rows, and soft-deleted projects are excluded automatically); results rank in four groups (field exact/substring > form-OID exact/substring > field fuzzy > form-OID fuzzy) reusing the shared fuzzy rules, the source column shows inline multi-line "form OID + form name" (name only when the OID is missing, "library only" for library-only definitions); sources are read-only, while clicking a populated cell in any other column copies its content
@@ -459,8 +460,8 @@ The two suites are disjoint and can run independently:
 - `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions; includes a Vue-warning gate — any Vue warning during a test, including during unmount, fails that test, implemented in `tests/component/vueWarnGate.js`)
 
 In the current repository:
-- `backend/tests/` currently contains 69 Python test files (67 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 76 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 6 vitest component-mount test files under `tests/component/` — 4 `.spec.js` files, a shared `setup.js`, and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
+- `backend/tests/` currently contains 63 Python test files (61 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 75 frontend test files (68 node:test `.test.js` files plus `testProperty.js`, plus 6 vitest component-mount test files under `tests/component/` — 4 `.spec.js` files, a shared `setup.js`, and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ### Pre-commit Gate
@@ -483,6 +484,26 @@ Notes:
 - The setting is stored in `.git/config` and is **shared by all worktrees** of this repository — enabling it in one worktree routes commits in every other worktree through the hook as well.
 - gitleaks must be installed first: download the single binary for your platform from the [gitleaks GitHub releases](https://github.com/gitleaks/gitleaks/releases) and place it at `~/.local/bin/gitleaks` (make sure `~/.local/bin` is on PATH).
 - `git commit --no-verify` can bypass the hook in an emergency, but must not be used routinely; for gitleaks false positives, follow the allowlist process in `.gitleaks.toml`.
+
+### Backend Code Formatting (ruff format)
+
+The backend uses the [ruff](https://docs.astral.sh/ruff/) formatter to keep code style uniform (format only; no lint rules are enabled):
+
+- The version is pinned in `backend/requirements-dev.txt` (`ruff==0.16.10`); configuration lives in `backend/ruff.toml` (line length 120, double quotes).
+- Format and check:
+
+```bash
+cd backend && python -m ruff format .          # format
+cd backend && python -m ruff format --check .  # check only (exit code 1 = files need formatting; other non-zero = runtime/config error)
+```
+
+- On 2026-10-09 a single format-only commit (no semantic changes) unified every Python file under `backend/` (134 files, 17 of which also had legacy CRCRLF line endings normalized); that commit is registered in the repo-root `.git-blame-ignore-revs`, and after running the command below `git blame` skips it automatically, keeping line-level history readable:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+- The pre-commit hook's 4th check requires `ruff` on PATH: it is skipped with a one-line notice when absent and enabled automatically once installed; "would be reformatted" (exit code 1) and runtime errors (any other non-zero) are reported separately.
 
 ## Contributing
 

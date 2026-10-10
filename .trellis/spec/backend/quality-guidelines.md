@@ -8,7 +8,7 @@
 
 - **Testing**: pytest with 80%+ coverage requirement
 - **Linting**: ruff for fast linting
-- **Formatting**: black for code formatting
+- **Formatting**: `ruff format` (format-only config in `backend/ruff.toml`; version pinned in `backend/requirements-dev.txt`; no lint rules enabled by this config)
 - **Type Checking**: mypy or pyright for static analysis
 - **Code Review**: Required for all changes
 
@@ -357,41 +357,30 @@ python -m pytest --cov=src --cov=main --cov-report=term-missing:skip-covered
 python -m pytest tests/test_auth.py -v
 ```
 
-### Convention: `xfail` Stale Tests with Commit Hash
+### Convention: `xfail` Tests for Retained Legacy Paths
 
-**What**: When production code paths are replaced (renamed, swapped for an alternative
-implementation, or temporarily disabled) but the tests covering the old path are still
-useful as future-restore guards, mark them `@pytest.mark.xfail` and cite the commit
-hash that introduced the divergence in `reason`.
+**What**: When a production path is intentionally replaced or disabled but remains in source for possible restoration, and its old tests are useful as restore guards, mark those tests `@pytest.mark.xfail` and cite the commit hash that introduced the divergence in `reason`.
 
-**Why**: Deleting the tests loses the contract; updating them to pass against the new
-path silently rewrites history of what the old code guaranteed. `xfail` keeps the
-contract green-on-CI, while the commit reference lets future readers locate exactly
-when and why the path diverged — without grepping through years of history.
+**Why**: An xfail preserves a guard for code that is still present but intentionally inactive, while the commit reference lets future readers locate when and why the path diverged. It is not a reason to keep unreachable production code or obsolete tests indefinitely.
 
 **Example**:
 ```python
-# tests/test_export_unified.py
+# tests/test_legacy_layout.py
 import pytest
 
 @pytest.mark.xfail(
-    reason=(
-        "unified_landscape rendering path replaced by mixed_landscape in 786aaa4 "
-        "(tag 0.2.0); restore this test if unified path is reinstated."
-    ),
+    reason="legacy renderer replaced by the active layout in a1b2c3d; restore if the retained legacy path is re-enabled.",
     strict=True,
 )
-def test_unified_landscape_column_alignment():
+def test_legacy_layout_column_alignment():
     ...
 ```
 
 **Rules**:
-- Always set `strict=True` so an accidental pass becomes a CI failure (signals the path
-  is alive again and the test should be re-enabled).
-- The `reason` must contain a 7+ char commit hash and a one-line description of the
-  replacement, not just "deprecated".
-- Do **not** delete the dead production code in the same change as the `xfail`. Keeping
-  the path navigable preserves the option to restore.
+- Use `strict=True` so an accidental pass becomes a test failure and signals that the retained path may be active again.
+- The `reason` must contain a 7+ character commit hash and a concise description of the replacement, not just "deprecated".
+- Do not delete retained production code in the same change as its xfail guard; keeping the code navigable preserves the option to restore it.
+- If a path is proven unreachable or dead and is removed outright, remove its obsolete xfail tests in the same change after converting any still-relevant assertions to live-path tests; record the reachability proof and test disposition in the change log.
 
 ---
 
@@ -401,7 +390,7 @@ def test_unified_landscape_column_alignment():
 
 - [ ] All tests pass (`pytest`)
 - [ ] No type errors (`mypy src/`)
-- [ ] Code formatted (`black .`)
+- [ ] Code formatted (`ruff format .`)
 - [ ] No lint errors (`ruff check .`)
 - [ ] New code has tests
 - [ ] Breaking changes documented

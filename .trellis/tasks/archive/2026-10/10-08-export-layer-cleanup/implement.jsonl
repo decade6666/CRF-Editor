@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "rules for adding the new database_export_service module"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "ExportError passthrough semantics must survive the refactor"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "column-width / checkbox / date-format / aCRF contracts are the hard gate"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "dedup checklist for merging render dispatch and option-label helpers"}
+{"file": ".context/prefs/coding-style.md", "reason": "function size and complexity limits for the _add_forms_content split"}
+{"file": ".trellis/tasks/10-08-export-layer-cleanup/research/current-state.md", "reason": "verified inventory: unified-only call graph, live tests to convert, duplicate render sites, DB-export callers, determinism probe (cited at a4431b0, pre-format)"}

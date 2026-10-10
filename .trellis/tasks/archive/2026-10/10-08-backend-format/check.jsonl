@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "reviewer verifies AST-equivalence evidence and full test run"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "reviewer checks the format commit contains no semantic changes and docs updated"}
+{"file": ".context/prefs/coding-style.md", "reason": "reviewer confirms config does not smuggle in style changes beyond formatting"}

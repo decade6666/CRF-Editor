@@ -13,7 +13,13 @@ from src.models.project import Project
 from src.models.user import User
 from src.routers import import_docx
 from src.services import ai_review_service
-from src.services.ai_review_service import AIReviewTask, get_ai_task, remove_ai_task, start_ai_review, test_ai_connection
+from src.services.ai_review_service import (
+    AIReviewTask,
+    get_ai_task,
+    remove_ai_task,
+    start_ai_review,
+    test_ai_connection,
+)
 
 test_ai_connection.__test__ = False
 
@@ -171,9 +177,11 @@ def test_start_ai_review_creates_background_task(monkeypatch: pytest.MonkeyPatch
         started.set()
         if "表单名称：表单A" in user_prompt:
             await release.wait()
-            return json.dumps([
-                {"index": 0, "ok": False, "suggested_type": "单选", "reason": "存在互斥选项"},
-            ])
+            return json.dumps(
+                [
+                    {"index": 0, "ok": False, "suggested_type": "单选", "reason": "存在互斥选项"},
+                ]
+            )
         return "[]"
 
     async def scenario() -> None:
@@ -215,9 +223,11 @@ def test_review_forms_uses_real_field_indexes_when_log_rows_exist(monkeypatch: p
 
     async def fake_call_llm(_api_url, _api_key, _model, user_prompt, _timeout, **_kwargs):
         prompts.append(user_prompt)
-        return json.dumps([
-            {"index": 1, "ok": False, "suggested_type": "日期", "reason": "真实字段序号应重排"},
-        ])
+        return json.dumps(
+            [
+                {"index": 1, "ok": False, "suggested_type": "日期", "reason": "真实字段序号应重排"},
+            ]
+        )
 
     monkeypatch.setattr(ai_review_service, "get_config", _mock_ai_config)
     monkeypatch.setattr(ai_review_service, "_call_llm", fake_call_llm)
@@ -246,11 +256,13 @@ def test_review_forms_rejects_negative_and_string_indexes(monkeypatch: pytest.Mo
     ]
 
     async def fake_call_llm(_api_url, _api_key, _model, _user_prompt, _timeout, **_kwargs):
-        return json.dumps([
-            {"index": -1, "ok": False, "suggested_type": "日期", "reason": "负索引非法"},
-            {"index": "1", "ok": False, "suggested_type": "日期", "reason": "字符串索引非法"},
-            {"index": 1, "ok": False, "suggested_type": "日期", "reason": "仅该条应保留"},
-        ])
+        return json.dumps(
+            [
+                {"index": -1, "ok": False, "suggested_type": "日期", "reason": "负索引非法"},
+                {"index": "1", "ok": False, "suggested_type": "日期", "reason": "字符串索引非法"},
+                {"index": 1, "ok": False, "suggested_type": "日期", "reason": "仅该条应保留"},
+            ]
+        )
 
     monkeypatch.setattr(ai_review_service, "get_config", _mock_ai_config)
     monkeypatch.setattr(ai_review_service, "_call_llm", fake_call_llm)

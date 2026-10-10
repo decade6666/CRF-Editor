@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Delete Confirmation Dialogs scenario (reference-check gate, cancel handling) and component patterns"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Composable conventions for the new pure helper module"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend forbidden patterns and node:test source-level test conventions"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Router/service layering for the new reference query service"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test conventions and fixtures"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "How cross-stack contracts are maintained; reference/guard parity is a new contract"}
+{"file": ".context/prefs/coding-style.md", "reason": "Project coding style"}

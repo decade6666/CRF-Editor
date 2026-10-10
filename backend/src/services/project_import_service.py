@@ -1,4 +1,5 @@
 """项目导入服务 — 从外部 .db 文件导入单项目或合并整库"""
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,6 @@ from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.database import _is_form_field_rowid_pk_compatible
-from src.perf import perf_span
 from src.models.project import Project
 from src.schemas.project import normalize_screening_number_format
 from src.services.project_clone_service import ProjectCloneService, ProjectGraph, ProjectGraphLoader
@@ -19,38 +19,95 @@ from src.services.project_clone_service import ProjectCloneService, ProjectGraph
 logger = logging.getLogger(__name__)
 
 # 导入兼容性要求的核心表
-_REQUIRED_TABLES = frozenset({
-    "project", "visit", "form", "visit_form",
-    "field_definition", "form_field",
-    "codelist", "codelist_option", "unit",
-})
+_REQUIRED_TABLES = frozenset(
+    {
+        "project",
+        "visit",
+        "form",
+        "visit_form",
+        "field_definition",
+        "form_field",
+        "codelist",
+        "codelist_option",
+        "unit",
+    }
+)
 
 _REQUIRED_COLUMNS: Dict[str, frozenset[str]] = {
-    "project": frozenset({
-        "id", "name", "version", "db_type", "order_index", "created_at", "deleted_at",
-        "trial_name", "crf_version", "crf_version_date", "protocol_number", "screening_number_format", "sponsor",
-        "company_logo_path", "data_management_unit", "owner_id",
-    }),
+    "project": frozenset(
+        {
+            "id",
+            "name",
+            "version",
+            "db_type",
+            "order_index",
+            "created_at",
+            "deleted_at",
+            "trial_name",
+            "crf_version",
+            "crf_version_date",
+            "protocol_number",
+            "screening_number_format",
+            "sponsor",
+            "company_logo_path",
+            "data_management_unit",
+            "owner_id",
+        }
+    ),
     "visit": frozenset({"id", "project_id", "name", "code", "sequence"}),
-    "form": frozenset({
-        "id", "project_id", "name", "code", "domain", "order_index",
-        "design_notes", "annotation_positions", "paper_orientation",
-    }),
+    "form": frozenset(
+        {
+            "id",
+            "project_id",
+            "name",
+            "code",
+            "domain",
+            "order_index",
+            "design_notes",
+            "annotation_positions",
+            "paper_orientation",
+        }
+    ),
     "visit_form": frozenset({"id", "visit_id", "form_id", "sequence"}),
-    "field_definition": frozenset({
-        "id", "project_id", "variable_name", "label", "field_type",
-        "integer_digits", "decimal_digits", "date_format", "codelist_id", "unit_id",
-        "is_multi_record", "table_type", "order_index", "created_at", "updated_at",
-    }),
-    "form_field": frozenset({
-        "id", "form_id", "field_definition_id", "is_log_row", "order_index", "required",
-        "label_override", "help_text", "default_value", "inline_mark", "bg_color",
-        "text_color", "created_at", "updated_at",
-    }),
+    "field_definition": frozenset(
+        {
+            "id",
+            "project_id",
+            "variable_name",
+            "label",
+            "field_type",
+            "integer_digits",
+            "decimal_digits",
+            "date_format",
+            "codelist_id",
+            "unit_id",
+            "is_multi_record",
+            "table_type",
+            "order_index",
+            "created_at",
+            "updated_at",
+        }
+    ),
+    "form_field": frozenset(
+        {
+            "id",
+            "form_id",
+            "field_definition_id",
+            "is_log_row",
+            "order_index",
+            "required",
+            "label_override",
+            "help_text",
+            "default_value",
+            "inline_mark",
+            "bg_color",
+            "text_color",
+            "created_at",
+            "updated_at",
+        }
+    ),
     "codelist": frozenset({"id", "project_id", "name", "code", "description", "order_index"}),
-    "codelist_option": frozenset({
-        "id", "codelist_id", "code", "decode", "order_index"
-    }),
+    "codelist_option": frozenset({"id", "codelist_id", "code", "decode", "order_index"}),
     "unit": frozenset({"id", "project_id", "symbol", "code", "order_index"}),
 }
 
@@ -60,41 +117,28 @@ def _patch_legacy_project_schema(file_path: str) -> None:
     conn = sqlite3.connect(file_path)
     try:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        if 'project' in tables:
+        if "project" in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(project)").fetchall()}
-            if 'screening_number_format' not in cols:
-                conn.execute('ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)')
-            if 'db_type' not in cols:
-                conn.execute(
-                    "ALTER TABLE project ADD COLUMN db_type VARCHAR(20) "
-                    "NOT NULL DEFAULT '其他'"
-                )
-        if 'form' in tables:
+            if "screening_number_format" not in cols:
+                conn.execute("ALTER TABLE project ADD COLUMN screening_number_format VARCHAR(100)")
+            if "db_type" not in cols:
+                conn.execute("ALTER TABLE project ADD COLUMN db_type VARCHAR(20) NOT NULL DEFAULT '其他'")
+        if "form" in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(form)").fetchall()}
-            if 'annotation_positions' not in cols:
+            if "annotation_positions" not in cols:
                 conn.execute("ALTER TABLE form ADD COLUMN annotation_positions TEXT")
-            if 'paper_orientation' not in cols:
-                conn.execute(
-                    "ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) "
-                    "NOT NULL DEFAULT 'auto'"
-                )
-        if 'field_definition' in tables:
-            cols = {
-                row[1]
-                for row in conn.execute(
-                    "PRAGMA table_info(field_definition)"
-                ).fetchall()
-            }
-            if 'checkbox_label' not in cols:
-                conn.execute(
-                    'ALTER TABLE field_definition ADD COLUMN checkbox_label VARCHAR(255)'
-                )
-        if 'form_field' in tables:
+            if "paper_orientation" not in cols:
+                conn.execute("ALTER TABLE form ADD COLUMN paper_orientation VARCHAR(16) NOT NULL DEFAULT 'auto'")
+        if "field_definition" in tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(field_definition)").fetchall()}
+            if "checkbox_label" not in cols:
+                conn.execute("ALTER TABLE field_definition ADD COLUMN checkbox_label VARCHAR(255)")
+        if "form_field" in tables:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(form_field)").fetchall()}
-            if 'label_bold' not in cols:
-                conn.execute('ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1')
-            if 'label_font_size' not in cols:
-                conn.execute('ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL')
+            if "label_bold" not in cols:
+                conn.execute("ALTER TABLE form_field ADD COLUMN label_bold INTEGER NOT NULL DEFAULT 1")
+            if "label_font_size" not in cols:
+                conn.execute("ALTER TABLE form_field ADD COLUMN label_font_size VARCHAR(10) DEFAULT NULL")
         conn.commit()
     finally:
         conn.close()
@@ -158,13 +202,9 @@ def _validate_schema(ext_session: Session) -> None:
             effective_required_columns.discard("db_type")
         missing_columns = effective_required_columns - existing_columns
         if missing_columns:
-            incompatible.append(
-                f"{table_name} 缺少列: {', '.join(sorted(missing_columns))}"
-            )
+            incompatible.append(f"{table_name} 缺少列: {', '.join(sorted(missing_columns))}")
     if incompatible:
-        raise ValueError(
-            "数据库 schema 不兼容: " + "; ".join(incompatible)
-        )
+        raise ValueError("数据库 schema 不兼容: " + "; ".join(incompatible))
 
 
 def _load_project_graph_from_session(ext_session: Session, project: Project) -> ProjectGraph:
@@ -172,13 +212,10 @@ def _load_project_graph_from_session(ext_session: Session, project: Project) -> 
     return ProjectGraphLoader.load(project.id, ext_session)
 
 
-
 def _validate_host_schema(session: Session) -> None:
     """校验当前宿主库关键表结构，避免导入在 flush 阶段才暴露 DDL 漂移。"""
     if not _is_form_field_rowid_pk_compatible(session.get_bind()):
-        raise ValueError(
-            "当前数据库 form_field 主键结构不兼容，请重启应用完成迁移后再导入。"
-        )
+        raise ValueError("当前数据库 form_field 主键结构不兼容，请重启应用完成迁移后再导入。")
 
 
 def _resolve_import_name(original_name: str, session: Session, owner_id: int) -> str:
@@ -213,6 +250,7 @@ def _resolve_import_name(original_name: str, session: Session, owner_id: int) ->
 @dataclass
 class ImportResult:
     """单项目导入结果。"""
+
     project_id: int
     project_name: str
 
@@ -220,6 +258,7 @@ class ImportResult:
 @dataclass
 class MergeReport:
     """整库合并报告。"""
+
     imported: List[ImportResult] = field(default_factory=list)
     renamed: List[dict] = field(default_factory=list)  # [{"original": str, "new": str}]
 
@@ -236,31 +275,19 @@ class ProjectDbImportService:
         _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
-            with perf_span("schema_validate"):
-                _validate_schema(ext_session)
-            with perf_span("host_schema_validate"):
-                _validate_host_schema(session)
+            _validate_schema(ext_session)
+            _validate_host_schema(session)
 
-            with perf_span("external_graph_load"):
-                projects = list(ext_session.scalars(select(Project)).all())
+            projects = list(ext_session.scalars(select(Project)).all())
             if len(projects) != 1:
-                raise ValueError(
-                    f"导入文件必须恰好包含 1 个项目，当前包含 {len(projects)} 个"
-                )
+                raise ValueError(f"导入文件必须恰好包含 1 个项目，当前包含 {len(projects)} 个")
 
-            with perf_span("external_graph_load"):
-                graph = _load_project_graph_from_session(ext_session, projects[0])
-                graph.project = _build_import_project_snapshot(projects[0])
-            final_name = _resolve_import_name(
-                projects[0].name, session, current_user_id
-            )
+            graph = _load_project_graph_from_session(ext_session, projects[0])
+            graph.project = _build_import_project_snapshot(projects[0])
+            final_name = _resolve_import_name(projects[0].name, session, current_user_id)
 
-            with perf_span("clone_entities"):
-                cloned = ProjectCloneService.clone_from_graph(
-                    graph, current_user_id, session, name_override=final_name
-                )
-            with perf_span("flush"):
-                session.flush()
+            cloned = ProjectCloneService.clone_from_graph(graph, current_user_id, session, name_override=final_name)
+            session.flush()
 
             return ImportResult(project_id=cloned.id, project_name=cloned.name)
         finally:
@@ -281,38 +308,24 @@ class DatabaseMergeService:
         _patch_legacy_project_schema(file_path)
         ext_session = _open_readonly_sqlite(file_path)
         try:
-            with perf_span("schema_validate"):
-                _validate_schema(ext_session)
-            with perf_span("host_schema_validate"):
-                _validate_host_schema(session)
+            _validate_schema(ext_session)
+            _validate_host_schema(session)
 
-            with perf_span("external_graph_load"):
-                projects = list(
-                    ext_session.scalars(
-                        select(Project)
-                        .where(Project.deleted_at.is_(None))
-                        .order_by(Project.id)
-                    ).all()
-                )
+            projects = list(
+                ext_session.scalars(select(Project).where(Project.deleted_at.is_(None)).order_by(Project.id)).all()
+            )
             if not projects:
                 raise ValueError("导入文件中没有项目")
 
             report = MergeReport()
 
             for project in projects:
-                with perf_span("external_graph_load"):
-                    graph = _load_project_graph_from_session(ext_session, project)
-                    graph.project = _build_import_project_snapshot(project)
-                final_name = _resolve_import_name(
-                    project.name, session, current_user_id
-                )
+                graph = _load_project_graph_from_session(ext_session, project)
+                graph.project = _build_import_project_snapshot(project)
+                final_name = _resolve_import_name(project.name, session, current_user_id)
 
-                with perf_span("clone_entities"):
-                    cloned = ProjectCloneService.clone_from_graph(
-                        graph, current_user_id, session, name_override=final_name
-                    )
-                with perf_span("flush"):
-                    session.flush()
+                cloned = ProjectCloneService.clone_from_graph(graph, current_user_id, session, name_override=final_name)
+                session.flush()
 
                 result = ImportResult(
                     project_id=cloned.id,
@@ -321,10 +334,12 @@ class DatabaseMergeService:
                 report.imported.append(result)
 
                 if final_name != project.name:
-                    report.renamed.append({
-                        "original": project.name,
-                        "new": final_name,
-                    })
+                    report.renamed.append(
+                        {
+                            "original": project.name,
+                            "new": final_name,
+                        }
+                    )
 
             return report
         finally:

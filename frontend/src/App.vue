@@ -39,7 +39,6 @@ import {
 import { getDownloadFilename } from './composables/exportDownloadState';
 import { createLazyTabState } from './composables/useLazyTabs';
 import { collectColumnWidthOverrides } from './composables/useColumnResize';
-import { clearPerfEvents, markPerfEnd, markPerfStart, recordPerfEvent } from './composables/usePerfBaseline';
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
@@ -72,7 +71,6 @@ function rememberUsername(username = currentUser.value.username) {
 
 function resetSessionState() {
   api.clearAllCache();
-  clearPerfEvents();
   localStorage.removeItem('crf_token');
   isLoggedIn.value = false;
   isCheckingAuth.value = false;
@@ -145,9 +143,7 @@ async function loadProjects() {
     selectedProject.value = null;
     return;
   }
-  markPerfStart('app_project_load');
   projects.value = await api.get('/api/projects');
-  markPerfEnd('app_project_load', { project_count: projects.value.length });
 }
 
 async function restoreSession() {
@@ -239,15 +235,7 @@ async function onMainTabBeforeLeave(activeName, oldActiveName) {
 }
 
 function onMainTabChange(name) {
-  const firstActivation = !isTabActivated(name);
   activateTab(name);
-  if (firstActivation) {
-    recordPerfEvent({
-      type: 'instant',
-      name: `tab_${name}_first_activate`,
-      project_id: selectedProject.value?.id ?? null,
-    });
-  }
 }
 
 function onProjectUpdated(p) {

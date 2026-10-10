@@ -70,9 +70,17 @@ def _find_project_definition_by_oid(session: Session, project_id: int, variable_
 
 def _apply_definition_payload(fd: FieldDefinition, payload) -> None:
     for key in (
-        "variable_name", "label", "field_type", "checkbox_label",
-        "integer_digits", "decimal_digits", "date_format",
-        "codelist_id", "unit_id", "is_multi_record", "table_type",
+        "variable_name",
+        "label",
+        "field_type",
+        "checkbox_label",
+        "integer_digits",
+        "decimal_digits",
+        "date_format",
+        "codelist_id",
+        "unit_id",
+        "is_multi_record",
+        "table_type",
     ):
         setattr(fd, key, getattr(payload, key))
 
@@ -156,7 +164,7 @@ def _apply_instance_upsert(ff: FormField, upsert_payload, final_definition: Opti
         for key, value in payload.model_dump(exclude_unset=True).items():
             setattr(ff, key, value)
 
-    final_type = (final_definition or ff.field_definition or None)
+    final_type = final_definition or ff.field_definition or None
     field_type = final_type.field_type if final_type is not None else None
     if field_type is None:
         return
@@ -178,9 +186,7 @@ def _cleanup_previous_definition(
     if cleanup_id == final_definition_id:
         return None
 
-    remaining = session.scalar(
-        select(FormField.id).where(FormField.field_definition_id == cleanup_id).limit(1)
-    )
+    remaining = session.scalar(select(FormField.id).where(FormField.field_definition_id == cleanup_id).limit(1))
     if remaining is not None:
         return {"deleted": False, "retained_in_use": True}
 
@@ -222,7 +228,13 @@ def create_field_profile(
         raise HTTPException(400, "新增字段需要创建定义或绑定既有定义")
 
     target_definition = _resolve_binding(
-        session, project, current_user, command, form.id, final_definition, None,
+        session,
+        project,
+        current_user,
+        command,
+        form.id,
+        final_definition,
+        None,
     )
     final_definition_id = target_definition.id if target_definition is not None else None
 
@@ -273,7 +285,13 @@ def update_binding_profile(
 
     final_definition, created, restored = _resolve_definition_operation(session, project, current_user, command)
     target_definition = _resolve_binding(
-        session, project, current_user, command, ff.form_id, final_definition, ff,
+        session,
+        project,
+        current_user,
+        command,
+        ff.form_id,
+        final_definition,
+        ff,
     )
     final_definition_id = target_definition.id if target_definition is not None else None
 
@@ -284,7 +302,9 @@ def update_binding_profile(
         ff.field_definition_id = final_definition_id
         ff.field_definition = target_definition
 
-    _apply_instance_upsert(ff, command.instance.upsert if command.instance.mode == "upsert" else None, target_definition)
+    _apply_instance_upsert(
+        ff, command.instance.upsert if command.instance.mode == "upsert" else None, target_definition
+    )
     session.flush()
 
     cleanup = _cleanup_previous_definition(session, command, original_definition_id, final_definition_id)

@@ -43,14 +43,12 @@ def test_normalize_log_row_presentation_resets_only_log_rows(tmp_path: Path) -> 
     with engine.connect() as db:
         log_row = db.execute(
             text(
-                "SELECT label_override, bg_color, text_color, label_bold, label_font_size "
-                "FROM form_field WHERE id = 1"
+                "SELECT label_override, bg_color, text_color, label_bold, label_font_size FROM form_field WHERE id = 1"
             )
         ).one()
         normal_row = db.execute(
             text(
-                "SELECT label_override, bg_color, text_color, label_bold, label_font_size "
-                "FROM form_field WHERE id = 2"
+                "SELECT label_override, bg_color, text_color, label_bold, label_font_size FROM form_field WHERE id = 2"
             )
         ).one()
 

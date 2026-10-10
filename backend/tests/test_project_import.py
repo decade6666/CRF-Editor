@@ -1,4 +1,5 @@
 """项目导入集成测试（task 4.7）"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -55,7 +56,9 @@ def _create_export_db(
 
             names = project_names or [f"项目{i + 1}" for i in range(project_count)]
             for i, name in enumerate(names):
-                project = Project(name=name, version="1.0", owner_id=user.id, screening_number_format=f"SCR-{i + 1:03d}")
+                project = Project(
+                    name=name, version="1.0", owner_id=user.id, screening_number_format=f"SCR-{i + 1:03d}"
+                )
                 session.add(project)
                 session.flush()
 
@@ -125,11 +128,7 @@ def _create_export_db(
                     session.add(visit)
                     session.flush()
 
-                    session.add(
-                        VisitForm(
-                            visit_id=visit.id, form_id=form.id, sequence=1
-                        )
-                    )
+                    session.add(VisitForm(visit_id=visit.id, form_id=form.id, sequence=1))
                     session.flush()
 
     engine.dispose()
@@ -179,9 +178,7 @@ def test_import_project_db_preserves_form_annotation_positions(client, engine, t
     assert resp.status_code == 200, resp.text
 
     with Session(engine) as session:
-        imported_form = session.scalar(
-            select(Form).where(Form.project_id == resp.json()["project_id"])
-        )
+        imported_form = session.scalar(select(Form).where(Form.project_id == resp.json()["project_id"]))
         assert imported_form is not None
         from src.schemas.form import serialize_annotation_positions as _ser_ap
     assert imported_form.annotation_positions == _ser_ap(annotation_positions)
@@ -219,9 +216,7 @@ def test_import_project_db_preserves_checkbox_definition_and_source_file(
 
     with Session(engine) as session:
         imported = session.scalar(
-            select(FieldDefinition).where(
-                FieldDefinition.project_id == response.json()["project_id"]
-            )
+            select(FieldDefinition).where(FieldDefinition.project_id == response.json()["project_id"])
         )
     assert imported is not None
     assert imported.field_type == "复选"
@@ -278,9 +273,7 @@ def test_validate_schema_rejects_incomplete_db(tmp_path):
     engine.dispose()
 
 
-def test_import_rejects_incompatible_schema_via_endpoint(
-    client, engine, tmp_path
-):
+def test_import_rejects_incompatible_schema_via_endpoint(client, engine, tmp_path):
     """表名齐全但关键列缺失的 .db 应返回 400，包含 detail + code（Task 4.4）。"""
     token = login_as(client, "admin")
     db_path = tmp_path / "incompatible.db"
@@ -337,20 +330,14 @@ def test_import_single_project_owner_rebind(client, engine, tmp_path):
     assert data["project_name"] == "导入测试"
 
     with Session(engine) as session:
-        admin_user = session.scalar(
-            select(User).where(User.username == "admin")
-        )
+        admin_user = session.scalar(select(User).where(User.username == "admin"))
         imported = session.get(Project, data["project_id"])
         assert imported is not None
         assert imported.owner_id == admin_user.id
         assert imported.screening_number_format == "SCR-001"
 
         # 子资源完整性
-        fds = session.scalars(
-            select(FieldDefinition).where(
-                FieldDefinition.project_id == imported.id
-            )
-        ).all()
+        fds = session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == imported.id)).all()
         assert len(fds) >= 1
 
 
@@ -379,9 +366,7 @@ def test_import_single_project_name_conflict(client, engine, tmp_path):
     # 先在本库创建同名项目
     with Session(engine) as session:
         with session.begin():
-            admin_user = session.scalar(
-                select(User).where(User.username == "admin")
-            )
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
             session.add(Project(name="冲突项目", version="1.0", owner_id=admin_user.id))
 
     db_path = _create_export_db(
@@ -402,9 +387,7 @@ def test_import_single_project_name_conflict_increment(client, engine, tmp_path)
     # 先在本库创建两个同名项目（原始 + _导入）
     with Session(engine) as session:
         with session.begin():
-            admin_user = session.scalar(
-                select(User).where(User.username == "admin")
-            )
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
             session.add(Project(name="递增项目", version="1.0", owner_id=admin_user.id))
             session.add(Project(name="递增项目_导入", version="1.0", owner_id=admin_user.id))
 
@@ -428,9 +411,7 @@ def test_import_single_project_ignores_deleted(client, engine, tmp_path):
     # 创建项目并软删除
     with Session(engine) as session:
         with session.begin():
-            admin_user = session.scalar(
-                select(User).where(User.username == "admin")
-            )
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
             project = Project(name="回收站项目", version="1.0", owner_id=admin_user.id)
             session.add(project)
             session.flush()
@@ -470,9 +451,7 @@ def test_merge_imports_all_projects(client, engine, tmp_path):
     assert imported_names == {"项目A", "项目B", "项目C"}
 
     with Session(engine) as session:
-        admin_user = session.scalar(
-            select(User).where(User.username == "admin")
-        )
+        admin_user = session.scalar(select(User).where(User.username == "admin"))
         imported_projects = []
         for item in data["imported"]:
             p = session.get(Project, item["id"])
@@ -488,9 +467,7 @@ def test_merge_rename_on_conflict(client, engine, tmp_path):
 
     with Session(engine) as session:
         with session.begin():
-            admin_user = session.scalar(
-                select(User).where(User.username == "admin")
-            )
+            admin_user = session.scalar(select(User).where(User.username == "admin"))
             session.add(Project(name="项目X", version="1.0", owner_id=admin_user.id))
 
     db_path = _create_export_db(
@@ -565,18 +542,14 @@ def test_import_retry_idempotent(client, engine, tmp_path):
     assert after_fail_count == before_count
 
     # 第二次：正常导入（重试）
-    with patch.object(
-        ProjectCloneService, "clone_from_graph", _original
-    ):
+    with patch.object(ProjectCloneService, "clone_from_graph", _original):
         resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
         assert resp.status_code == 200
 
     # 验证成功导入且无重复
     with Session(engine) as session:
         final_count = len(session.scalars(select(Project)).all())
-        imported = session.scalar(
-            select(Project).where(Project.name == "幂等测试")
-        )
+        imported = session.scalar(select(Project).where(Project.name == "幂等测试"))
     assert final_count == before_count + 1
     assert imported is not None
 
@@ -775,9 +748,7 @@ def test_merge_atomicity_on_failure(client, engine, tmp_path):
         "src.services.project_import_service.ProjectCloneService.clone_from_graph",
         side_effect=_fail_on_second,
     ):
-        resp = _upload_db(
-            client, "/api/projects/import/database-merge", db_path, token
-        )
+        resp = _upload_db(client, "/api/projects/import/database-merge", db_path, token)
 
     assert resp.status_code == 500
 
@@ -895,6 +866,7 @@ def test_rowid_pk_detection_variants(tmp_path: Path, id_ddl: str, expected: bool
 
     db_path = tmp_path / "variant.db"
     import sqlite3
+
     conn = sqlite3.connect(str(db_path))
     conn.execute(f"""
         CREATE TABLE form_field (
@@ -918,6 +890,7 @@ def test_rowid_pk_detection_table_level_pk(tmp_path: Path) -> None:
 
     db_path = tmp_path / "table_pk.db"
     import sqlite3
+
     conn = sqlite3.connect(str(db_path))
     conn.execute("""
         CREATE TABLE form_field (
@@ -942,6 +915,7 @@ def test_rowid_pk_detection_without_rowid(tmp_path: Path) -> None:
 
     db_path = tmp_path / "without_rowid.db"
     import sqlite3
+
     conn = sqlite3.connect(str(db_path))
     conn.execute("""
         CREATE TABLE form_field (
@@ -976,7 +950,8 @@ def test_import_rejects_host_form_field_non_rowid_pk(client, engine, tmp_path: P
 
     with engine.begin() as conn:
         conn.execute(text("PRAGMA foreign_keys = OFF"))
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE form_field_broken (
                 id BIGINT PRIMARY KEY,
                 form_id INTEGER NOT NULL REFERENCES form(id) ON DELETE CASCADE,
@@ -993,19 +968,21 @@ def test_import_rejects_host_form_field_non_rowid_pk(client, engine, tmp_path: P
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
-        """))
-        conn.execute(text(
-            "INSERT INTO form_field_broken "
-            "SELECT id, form_id, field_definition_id, is_log_row, order_index, required, "
-            "label_override, help_text, default_value, inline_mark, bg_color, text_color, "
-            "created_at, updated_at FROM form_field"
-        ))
+        """)
+        )
+        conn.execute(
+            text(
+                "INSERT INTO form_field_broken "
+                "SELECT id, form_id, field_definition_id, is_log_row, order_index, required, "
+                "label_override, help_text, default_value, inline_mark, bg_color, text_color, "
+                "created_at, updated_at FROM form_field"
+            )
+        )
         conn.execute(text("DROP TABLE form_field"))
         conn.execute(text("ALTER TABLE form_field_broken RENAME TO form_field"))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_form_field "
-            "ON form_field(form_id, field_definition_id)"
-        ))
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_form_field ON form_field(form_id, field_definition_id)")
+        )
         conn.execute(text("PRAGMA foreign_keys = ON"))
 
     resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
@@ -1013,7 +990,6 @@ def test_import_rejects_host_form_field_non_rowid_pk(client, engine, tmp_path: P
     body = resp.json()
     assert body["code"] == "IMPORT_SCHEMA_INCOMPATIBLE"
     assert "form_field 主键结构不兼容" in body["detail"]
-
 
 
 def test_import_rejects_db_missing_project_orm_columns(client, engine, tmp_path):
@@ -1127,7 +1103,6 @@ def test_import_rejects_db_missing_project_orm_columns(client, engine, tmp_path)
     assert "order_index" in body["detail"]
 
 
-
 def test_project_order_index_migration_is_idempotent(engine):
     """已有项目排序不应在重复执行迁移时被重置。"""
     with Session(engine) as session:
@@ -1135,20 +1110,19 @@ def test_project_order_index_migration_is_idempotent(engine):
             user = User(username="sort_owner")
             session.add(user)
             session.flush()
-            session.add_all([
-                Project(name="项目A", version="1.0", owner_id=user.id, order_index=20),
-                Project(name="项目B", version="1.0", owner_id=user.id, order_index=10),
-            ])
+            session.add_all(
+                [
+                    Project(name="项目A", version="1.0", owner_id=user.id, order_index=20),
+                    Project(name="项目B", version="1.0", owner_id=user.id, order_index=10),
+                ]
+            )
 
     _migrate_project_soft_delete_and_ordering(engine)
 
     with Session(engine) as session:
-        projects = session.scalars(
-            select(Project).where(Project.owner_id.is_not(None)).order_by(Project.id)
-        ).all()
+        projects = session.scalars(select(Project).where(Project.owner_id.is_not(None)).order_by(Project.id)).all()
 
     assert [project.order_index for project in projects] == [20, 10]
-
 
 
 def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path) -> None:
@@ -1167,6 +1141,7 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
 
     # 1. 用 init_db 创建正常库
     import src.database as db_mod
+
     old_engine = db_mod._engine
     db_mod._engine = None
     try:
@@ -1177,7 +1152,8 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
             # 2. 破坏 form_field 主键
             with eng.begin() as conn:
                 conn.execute(text("PRAGMA foreign_keys = OFF"))
-                conn.execute(text("""
+                conn.execute(
+                    text("""
                     CREATE TABLE form_field_broken (
                         id BIGINT PRIMARY KEY,
                         form_id INTEGER NOT NULL,
@@ -1196,11 +1172,9 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
-                conn.execute(text(
-                    "INSERT INTO form_field_broken "
-                    "SELECT * FROM form_field"
-                ))
+                """)
+                )
+                conn.execute(text("INSERT INTO form_field_broken SELECT * FROM form_field"))
                 conn.execute(text("DROP TABLE form_field"))
                 conn.execute(text("ALTER TABLE form_field_broken RENAME TO form_field"))
                 conn.execute(text("PRAGMA foreign_keys = ON"))
@@ -1244,10 +1218,9 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
         db_mod._engine = old_engine
 
 
-
 def test_export_import_roundtrip_no_null_identity_key(client, engine, tmp_path: Path) -> None:
     """Task 4.2: 新导出项目 `.db` 可再导入，不再触发 FormField NULL identity key"""
-    from src.services.export_service import export_project_database
+    from src.services.database_export_service import export_project_database
 
     # 1. 在宿主数据库中创建项目（包含 form_field）
     token = login_as(client, "admin")
@@ -1332,14 +1305,10 @@ def test_export_import_roundtrip_no_null_identity_key(client, engine, tmp_path: 
 
     # 4. 验证导入成功且数据完整
     with Session(engine) as session:
-        imported_project = session.scalar(
-            select(Project).where(Project.name.startswith("回环测试项目"))
-        )
+        imported_project = session.scalar(select(Project).where(Project.name.startswith("回环测试项目")))
         assert imported_project is not None, "导入的项目应存在"
 
-        imported_forms = session.scalars(
-            select(Form).where(Form.project_id == imported_project.id)
-        ).all()
+        imported_forms = session.scalars(select(Form).where(Form.project_id == imported_project.id)).all()
         assert len(imported_forms) == 1, "导入的表单应存在"
 
         imported_fds = session.scalars(
@@ -1347,9 +1316,7 @@ def test_export_import_roundtrip_no_null_identity_key(client, engine, tmp_path: 
         ).all()
         assert len(imported_fds) == 1, "导入的字段定义应存在"
 
-        imported_ffs = session.scalars(
-            select(FormField).where(FormField.form_id == imported_forms[0].id)
-        ).all()
+        imported_ffs = session.scalars(select(FormField).where(FormField.form_id == imported_forms[0].id)).all()
         assert len(imported_ffs) == 1, "导入的 form_field 应存在"
 
         # 关键验证：order_index 存在且有效（非 NULL）
