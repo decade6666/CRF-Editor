@@ -494,3 +494,40 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 
 - 波次 D 仅剩 backend-dedup：基于当前 main 开新 worktree；若提取批删 helper 必须保持先按项目取 own_ids 再做引用预检（防跨租户探测），由 test_batch_delete_isolation.py 守护
 - ELC worktree 与分支删除需用户单独确认
+
+
+## Session 16: 导出层整理终检跟进与清理确认
+<!-- trellis-session: v=2 fp=a0226a0666a55b77 -->
+
+**Date**: 2026-10-10
+**Task**: 导出层整理终检跟进与清理确认
+**Branch**: `main`
+
+### Summary
+
+用户确认后完成 ELC 收尾：修正两处遗留 unified 测试注释与跨栈契约中无宽度回退表述（评审收尾发现），补记归档验证记录；删除 refactor/export-layer-cleanup 工作树并删除已合入分支（本地，未推送）。
+
+### Main Changes
+
+- 3ca5771: test_export_service.py / test_export_column_width_override.py 遗留 unified 注释改为历史键表述
+- aeb5047: cross-stack §5 无宽度填写线回退限定为 helper 直调（生产导出均传显式宽度）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d298c8f` | docs(task): 补记导出层整理终检记录 |
+| `aeb5047` | docs(spec): 收窄无宽度填写线回退表述 |
+| `3ca5771` | docs(test): 更正遗留 unified 注释 |
+
+### Testing
+
+- [OK] 后端 test_export_service.py + test_export_column_width_override.py 52 passed；ruff format --check 通过；git diff --check 干净
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 波次 D 仅剩 backend-dedup（基于当前 main 开新 worktree）；其余 5 个旧 worktree 分支均已合入但归其他波次/会话，清理需逐个确认

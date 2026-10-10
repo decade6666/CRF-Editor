@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
+- **Total Sessions**: 16
 - **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~496 | Active |
+| `journal-1.md` | ~533 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-10-10 | 导出层整理终检跟进与清理确认 | `d298c8f`, `aeb5047`, `3ca5771` | `main` |
 | 15 | 2026-10-10 | 导出层整理合入本地 main 并归档 | `18e6699`, `509ac90`, `d0aa4ae`, `76d8b54`, `09c784c` | `main` |
 | 14 | 2026-10-10 | 引用删除审查跟进合入本地 main 并归档 | `6e6a8cb`, `ab703ad`, `f3fc979`, `bb419f2`, `5bcb961` | `main` |
 | 13 | 2026-10-09 | legacy-cleanup 本地合入、浏览器补验与归档 | `f56a92d`, `24cc83e` | `main` |
