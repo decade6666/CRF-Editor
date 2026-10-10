@@ -16,13 +16,12 @@ from src.database import get_read_session
 from src.dependencies import get_current_user, require_admin, verify_project_owner
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
-from src.services.export_service import (
-    ExportService,
-    ExportError,
+from src.services.database_export_service import (
     export_full_database,
     export_project_database,
     export_user_projects_database,
 )
+from src.services.export_service import ExportService, ExportError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])

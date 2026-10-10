@@ -529,8 +529,8 @@ def test_export_service_reads_same_field_order_after_reorder(
                 select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index, FormField.id)
             ).all()
         )
-        segments = ExportService(session)._build_unified_segments(ordered_fields)
-        exported_ids = [field.id for segment in segments for field in segment.fields]
+        groups = ExportService(session)._group_form_fields(ordered_fields)
+        exported_ids = [field.id for group in groups for field in group]
         assert exported_ids == reordered_ids
 
 
@@ -845,8 +845,8 @@ def test_import_then_reorder_then_export_consistent_order(
         )
         assert [field.id for field in ordered_fields] == reorder_ids
         assert [field.order_index for field in ordered_fields] == [1, 2, 3]
-        segments = ExportService(session)._build_unified_segments(ordered_fields)
-        exported_ids = [field.id for segment in segments for field in segment.fields]
+        groups = ExportService(session)._group_form_fields(ordered_fields)
+        exported_ids = [field.id for group in groups for field in group]
         assert exported_ids == reorder_ids
 
 
@@ -1008,12 +1008,10 @@ def test_quick_edit_updates_list_readback_and_export_consistently(
         assert target_field.bg_color == "FFEEDD"
         assert target_field.text_color == "112233"
 
-        segments = ExportService(session)._build_unified_segments(ordered_fields)
-        target_segment = next(
-            segment for segment in segments if any(field.id == target_field_id for field in segment.fields)
-        )
-        exported_field = next(field for field in target_segment.fields if field.id == target_field_id)
-        assert target_segment.type == "inline_block"
+        groups = ExportService(session)._group_form_fields(ordered_fields)
+        target_group = next(group for group in groups if any(field.id == target_field_id for field in group))
+        exported_field = next(field for field in target_group if field.id == target_field_id)
+        assert all(field.inline_mark == 1 for field in target_group)
         assert exported_field.label_override == "快捷编辑标签"
         assert exported_field.inline_mark == 1
         assert exported_field.bg_color == "FFEEDD"

@@ -1220,7 +1220,7 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
 
 def test_export_import_roundtrip_no_null_identity_key(client, engine, tmp_path: Path) -> None:
     """Task 4.2: 新导出项目 `.db` 可再导入，不再触发 FormField NULL identity key"""
-    from src.services.export_service import export_project_database
+    from src.services.database_export_service import export_project_database
 
     # 1. 在宿主数据库中创建项目（包含 form_field）
     token = login_as(client, "admin")

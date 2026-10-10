@@ -2,18 +2,19 @@
 import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, DocumentCopy, EditPen, Plus } from '@element-plus/icons-vue'
-import { api, genFieldVarName, truncRefs } from '../composables/useApi'
+import { api, genFieldVarName } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
 import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibility'
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
-import { confirmDelete } from '../composables/projectDeleteConfirmation'
+import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
 import { OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
 import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js'
+import CodelistQuickEditDialog from './CodelistQuickEditDialog.vue'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
 const refreshKey = inject('refreshKey', ref(0))
@@ -40,11 +41,18 @@ watch(() => editProp.field_type, (newType) => {
 })
 
 async function load() {
-  [fields.value, codelists.value, units.value] = await Promise.all([
-    api.cachedGet(`/api/projects/${props.projectId}/field-definitions`),
-    api.cachedGet(`/api/projects/${props.projectId}/codelists`),
-    api.cachedGet(`/api/projects/${props.projectId}/units`),
+  // 项目身份门：共享弹窗 afterChange / 项目切换都会触发本函数，
+  // 迟到的批量加载不得把旧项目数据写进已切换项目的列表状态。
+  const pid = props.projectId
+  const [nextFields, nextCodelists, nextUnits] = await Promise.all([
+    api.cachedGet(`/api/projects/${pid}/field-definitions`),
+    api.cachedGet(`/api/projects/${pid}/codelists`),
+    api.cachedGet(`/api/projects/${pid}/units`),
   ])
+  if (props.projectId !== pid) return
+  fields.value = nextFields
+  codelists.value = nextCodelists
+  units.value = nextUnits
 }
 async function reloadFields() {
   api.invalidateCache(`/api/projects/${props.projectId}/field-definitions`)
@@ -129,12 +137,11 @@ async function save() {
 async function del(f) {
   try {
     const refs = await api.get(`/api/field-definitions/${f.id}/references`)
-    if (countDistinctForms(refs) > 1) {
-      const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' })
-      await ElMessageBox.confirm(`删除字段 "${f.label}" 将同时删除以下表单中的该字段：\n${msg}\n确认删除？`, '确认', { type: 'warning' })
-    } else {
-      await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
+    if (refs.length) {
+      const msg = formatFieldImpactMessage(refs, { max: 5, sep: '\n' })
+      return await showReferenceBlockedAlert(ElMessageBox, `该字段被以下表单引用，需先从相关表单中移除该字段：\n${msg}`)
     }
+    await ElMessageBox.confirm(`删除字段 "${f.label}"？`, '确认', { type: 'warning' })
     await api.del(`/api/field-definitions/${f.id}`)
     if (selectedFieldId.value === f.id) clearSelection()
     reloadFields()
@@ -146,18 +153,22 @@ async function batchDelFields() {
   try {
     const ids = selFields.value.map(f => f.id)
     if (!ids.length) return ElMessage.warning('请先选择要删除的字段')
+    const items = [...selFields.value]
     const refsMap = await api.post(`/api/projects/${props.projectId}/field-definitions/batch-references`, { ids })
-    const allRefs = []
-    for (const f of selFields.value) {
-      const refs = refsMap[f.id] || []
-      if (countDistinctForms(refs) > 1) allRefs.push(`【${f.label}】：` + formatFieldImpactMessage(refs, { max: 3, sep: '、' }))
-    }
-    const msg = allRefs.length
-      ? `以下字段将同时从相关表单中删除：\n${allRefs.join('\n')}\n确认删除？`
-      : `确认删除选中的 ${selFields.value.length} 个字段？`
-    await ElMessageBox.confirm(msg, '批量删除', { type: 'warning' })
-    await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids })
-    selFields.value = []; clearSelection(); reloadFields()
+    const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, {
+      items,
+      refsMap,
+      noun: '字段',
+      nameOf: (f) => f.label,
+      describeRefs: (refs) => formatFieldImpactMessage(refs, { max: 3, sep: '、' }),
+    })
+    if (!toDelete.length) return
+    const deleteIds = toDelete.map((x) => x.id)
+    const { deleted } = await api.post(`/api/projects/${props.projectId}/field-definitions/batch-delete`, { ids: deleteIds })
+    selFields.value = []
+    if (deleteIds.includes(selectedFieldId.value)) clearSelection()
+    reloadFields()
+    if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字段', deleted, items.length - toDelete.length))
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
 }
 
@@ -192,182 +203,32 @@ const {
   renderList: visibleFields,
 })
 
-// 选项字典内联快速增/改：字典写操作后失效字典与字段定义缓存并联动刷新
-async function reloadAfterCodelistChange() {
-  api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
-  api.invalidateCache(`/api/projects/${props.projectId}/field-definitions`)
-  await load()
-  refreshKey.value++
-}
-
-function normalizeQuickOptions(rows) {
-  return rows.map((opt) => ({
-    ...opt,
-    code: String(opt.code ?? '').trim(),
-    decode: String(opt.decode ?? '').trim(),
-  }))
-}
-
-// 新增字典
+// 选项字典快捷增/改：共享弹窗 CodelistQuickEditDialog 承载表单状态、校验、引用确认与
+// 缓存失效（codelists + field-definitions）；宿主只保留开关、编辑目标与保存后的
+// 刷新/绑定（afterChange）。
 const showQuickAddCodelist = ref(false)
-const quickCodelistName = ref('')
-const quickCodelistDescription = ref('')
-const quickCodelistOpts = ref([])
-const quickOptCode = ref('')
-const quickOptDecode = ref('')
-const quickAddCodelistSaving = ref(false)
-
-function openQuickAddCodelist() {
-  quickCodelistName.value = ''
-  quickCodelistDescription.value = ''
-  quickCodelistOpts.value = []
-  quickOptCode.value = 'C.1'
-  quickOptDecode.value = ''
-  quickAddCodelistSaving.value = false
-  showQuickAddCodelist.value = true
-}
-function quickAddOptRow() {
-  if (!quickOptDecode.value.trim()) return ElMessage.warning('请输入标签')
-  const n = quickCodelistOpts.value.length
-  quickCodelistOpts.value.push({
-    id: null,
-    code: quickOptCode.value.trim() || `C.${n + 1}`,
-    decode: quickOptDecode.value.trim(),
-  })
-  quickOptCode.value = `C.${n + 2}`
-  quickOptDecode.value = ''
-}
-async function quickDelOptRow(idx) {
-  try {
-    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickCodelistOpts.value[idx]?.decode || idx + 1}"` })
-    quickCodelistOpts.value.splice(idx, 1)
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
-}
-function closeQuickAddCodelist() {
-  showQuickAddCodelist.value = false
-  quickCodelistName.value = ''
-  quickCodelistDescription.value = ''
-  quickCodelistOpts.value = []
-  quickOptCode.value = ''
-  quickOptDecode.value = ''
-  quickAddCodelistSaving.value = false
-}
-async function quickAddCodelist() {
-  if (quickAddCodelistSaving.value) return
-  const savedName = quickCodelistName.value.trim()
-  if (!savedName) return ElMessage.warning('请输入字典名称')
-  const normalizedOptions = normalizeQuickOptions(quickCodelistOpts.value)
-  const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
-  if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
-
-  quickAddCodelistSaving.value = true
-  try {
-    const created = await api.post(`/api/projects/${props.projectId}/codelists`, {
-      name: savedName,
-      description: quickCodelistDescription.value,
-      options: normalizedOptions.map((opt, index) => ({
-        code: opt.code,
-        decode: opt.decode,
-        order_index: index + 1,
-      })),
-    })
-    await reloadAfterCodelistChange()
-    editProp.codelist_id = created.id
-    closeQuickAddCodelist()
-    ElMessage.success('新增成功')
-  } catch (e) {
-    ElMessage.error(e.message)
-  } finally {
-    quickAddCodelistSaving.value = false
-  }
-}
-
-// 编辑已引用字典
 const showQuickEditCodelist = ref(false)
 const quickEditCodelistId = ref(null)
-const quickEditCodelistName = ref('')
-const quickEditCodelistDescription = ref('')
-const quickEditCodelistOpts = ref([])
-const quickEditOptCode = ref('')
-const quickEditOptDecode = ref('')
-const quickEditCodelistSaving = ref(false)
+
+function openQuickAddCodelist() {
+  showQuickAddCodelist.value = true
+}
 
 function openQuickEditCodelist() {
   if (!editProp.codelist_id) return
-  const cl = codelists.value.find((c) => c.id === editProp.codelist_id)
-  if (!cl) return
-  quickEditCodelistId.value = cl.id
-  quickEditCodelistName.value = cl.name
-  quickEditCodelistDescription.value = cl.description || ''
-  quickEditCodelistOpts.value = (cl.options || []).map((o) => ({
-    id: o.id,
-    code: o.code,
-    decode: o.decode,
-  }))
-  quickEditOptCode.value = `C.${(cl.options || []).length + 1}`
-  quickEditOptDecode.value = ''
+  if (!codelists.value.some((c) => c.id === editProp.codelist_id)) return
+  quickEditCodelistId.value = editProp.codelist_id
   showQuickEditCodelist.value = true
 }
-function quickEditAddOptRow() {
-  if (!quickEditOptDecode.value.trim()) return ElMessage.warning('请输入标签')
-  const n = quickEditCodelistOpts.value.length
-  quickEditCodelistOpts.value.push({
-    id: null,
-    code: quickEditOptCode.value.trim() || `C.${n + 1}`,
-    decode: quickEditOptDecode.value.trim(),
-  })
-  quickEditOptCode.value = `C.${n + 2}`
-  quickEditOptDecode.value = ''
-}
-async function quickEditDelOptRow(idx) {
-  try {
-    await confirmDelete(ElMessageBox.confirm, { targetText: `选项 "${quickEditCodelistOpts.value[idx]?.decode || idx + 1}"` })
-    quickEditCodelistOpts.value.splice(idx, 1)
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }
-}
-function closeQuickEditCodelist() {
-  showQuickEditCodelist.value = false
-  quickEditCodelistId.value = null
-  quickEditCodelistName.value = ''
-  quickEditCodelistDescription.value = ''
-  quickEditCodelistOpts.value = []
-  quickEditOptCode.value = ''
-  quickEditOptDecode.value = ''
-}
-async function quickSaveCodelist() {
-  if (quickEditCodelistSaving.value) return
-  const savedName = quickEditCodelistName.value.trim()
-  if (!savedName) return ElMessage.warning('请输入字典名称')
-  const normalizedOptions = normalizeQuickOptions(quickEditCodelistOpts.value)
-  const invalidIdx = normalizedOptions.findIndex((opt) => !opt.code || !opt.decode)
-  if (invalidIdx !== -1) return ElMessage.warning(`请完整填写第 ${invalidIdx + 1} 行的编码和值标签`)
 
-  quickEditCodelistSaving.value = true
-  try {
-    const refs = await api.get(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/references`)
-    if (refs.length) {
-      const msg = truncRefs(refs.map((r) => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`))
-      await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' })
-    }
-    await api.put(`/api/projects/${props.projectId}/codelists/${quickEditCodelistId.value}/snapshot`, {
-      name: savedName,
-      description: quickEditCodelistDescription.value,
-      options: normalizedOptions.map((opt) => ({
-        id: opt.id,
-        code: opt.code,
-        decode: opt.decode,
-      })),
-    })
-    await reloadAfterCodelistChange()
-    closeQuickEditCodelist()
-    ElMessage.success('保存成功')
-  } catch (e) {
-    if (e === 'cancel') return
-    await reloadAfterCodelistChange()
-    closeQuickEditCodelist()
-    ElMessage.error(`保存失败：${e.message}。已刷新为最新字典数据，请重新检查后再编辑。`)
-  } finally {
-    quickEditCodelistSaving.value = false
+// 保存成功/失败后宿主刷新：与历史 reloadAfterCodelistChange 相同的 load + refreshKey 序列
+// （缓存失效已前移到弹窗内）；add 另回绑新建字典，新增成功提示由弹窗经
+// add-success-message 在关闭后发出（保持原 close→toast 顺序），编辑成功由弹窗提示。
+async function afterCodelistDialogChange(kind, { codelist }) {
+  await load()
+  refreshKey.value++
+  if (kind === 'add') {
+    editProp.codelist_id = codelist.id
   }
 }
 </script>
@@ -498,60 +359,24 @@ async function quickSaveCodelist() {
       </div>
     </div>
 
-    <!-- 新增字典弹窗 -->
-    <el-dialog v-model="showQuickAddCodelist" title="新增选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="名称"><el-input v-model="quickCodelistName" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="quickCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
-      </el-form>
-      <el-table :data="quickCodelistOpts" size="small" border>
-        <el-table-column v-if="editMode" prop="code" label="编码" width="120">
-          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
-        </el-table-column>
-        <el-table-column prop="decode" label="标签">
-          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickDelOptRow($index)">删除</el-button></template>
-        </el-table-column>
-      </el-table>
-      <div style="margin-top:8px;display:flex;gap:6px">
-        <el-input v-if="editMode" v-model="quickOptCode" size="small" style="width:100px" placeholder="编码" />
-        <el-input v-model="quickOptDecode" size="small" style="flex:1" placeholder="标签" />
-        <el-button size="small" @click="quickAddOptRow">添加</el-button>
-      </div>
-      <template #footer>
-        <el-button :disabled="quickAddCodelistSaving" @click="closeQuickAddCodelist">取消</el-button>
-        <el-button type="primary" :loading="quickAddCodelistSaving" :disabled="quickAddCodelistSaving" @click="quickAddCodelist">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 编辑字典弹窗 -->
-    <el-dialog v-model="showQuickEditCodelist" title="编辑选项字典" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
-      <el-form label-width="80px" size="small">
-        <el-form-item label="名称"><el-input v-model="quickEditCodelistName" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="quickEditCodelistDescription" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" /></el-form-item>
-      </el-form>
-      <el-table :data="quickEditCodelistOpts" size="small" border>
-        <el-table-column v-if="editMode" prop="code" label="编码" width="120">
-          <template #default="{ row }"><el-input v-model="row.code" size="small" /></template>
-        </el-table-column>
-        <el-table-column prop="decode" label="标签">
-          <template #default="{ row }"><el-input v-model="row.decode" size="small" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ $index }"><el-button type="danger" size="small" link @click="quickEditDelOptRow($index)">删除</el-button></template>
-        </el-table-column>
-      </el-table>
-      <div style="margin-top:8px;display:flex;gap:6px">
-        <el-input v-if="editMode" v-model="quickEditOptCode" size="small" style="width:100px" placeholder="编码" />
-        <el-input v-model="quickEditOptDecode" size="small" style="flex:1" placeholder="标签" />
-        <el-button size="small" @click="quickEditAddOptRow">添加</el-button>
-      </div>
-      <template #footer>
-        <el-button :disabled="quickEditCodelistSaving" @click="closeQuickEditCodelist">取消</el-button>
-        <el-button type="primary" :loading="quickEditCodelistSaving" :disabled="quickEditCodelistSaving" @click="quickSaveCodelist">确定</el-button>
-      </template>
-    </el-dialog>
+    <!-- 字典快捷增/改共享弹窗（新增 + 编辑两个实例，模式互斥） -->
+    <CodelistQuickEditDialog
+      v-model="showQuickAddCodelist"
+      mode="add"
+      :project-id="projectId"
+      :codelists="codelists"
+      :show-code-column="editMode"
+      add-success-message="新增成功"
+      :after-change="afterCodelistDialogChange"
+    />
+    <CodelistQuickEditDialog
+      v-model="showQuickEditCodelist"
+      mode="edit"
+      :codelist-id="quickEditCodelistId"
+      :project-id="projectId"
+      :codelists="codelists"
+      :show-code-column="editMode"
+      :after-change="afterCodelistDialogChange"
+    />
   </div>
 </template>

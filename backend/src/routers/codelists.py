@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.database import get_session
 from src.dependencies import get_current_user, verify_project_owner
 from src.models.codelist import CodeList, CodeListOption
+from src.models.field_definition import FieldDefinition
 from src.models.user import User
 from src.repositories.base_repository import BaseRepository
 from src.schemas.codelist import (
@@ -20,6 +21,7 @@ from src.schemas.codelist import (
     CodeListOptionResponse,
 )
 from src.schemas import BatchDeleteRequest
+from src.services.field_definition_reference_service import collect_field_definition_references
 from src.services.order_service import OrderService
 
 router = APIRouter(tags=["codelists"])
@@ -222,25 +224,19 @@ def replace_codelist_snapshot(
 
 @router.get("/projects/{project_id}/codelists/{cl_id}/references")
 def get_codelist_references(
-    project_id: int, cl_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+    project_id: int,
+    cl_id: int,
+    include_unplaced: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    """查询字典被哪些表单的哪些字段引用"""
+    """查询字典被哪些表单的哪些字段引用；include_unplaced 时未放入表单的字段库字段也计入"""
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
 
-    from src.models.field_definition import FieldDefinition
-    from src.models.form_field import FormField
-    from src.models.form import Form
-
-    stmt = (
-        select(Form.name, Form.code, FieldDefinition.label, FieldDefinition.variable_name)
-        .join(FormField, FormField.form_id == Form.id)
-        .join(FieldDefinition, FieldDefinition.id == FormField.field_definition_id)
-        .where(FieldDefinition.codelist_id == cl_id)
-    )
-    return [
-        {"form_name": r[0], "form_code": r[1], "field_label": r[2], "field_var": r[3]}
-        for r in session.execute(stmt).all()
-    ]
+    return collect_field_definition_references(
+        session, FieldDefinition.codelist_id, [cl_id], include_unplaced=include_unplaced
+    ).get(cl_id, [])
 
 
 @router.delete("/projects/{project_id}/codelists/{cl_id}", status_code=204)
@@ -254,8 +250,6 @@ def delete_codelist(
         raise HTTPException(404, "编码字典不存在")
     if cl.project_id != project_id:
         raise HTTPException(403, "无权操作该字典")
-    from src.models.field_definition import FieldDefinition
-
     ref = session.scalar(select(FieldDefinition.id).where(FieldDefinition.codelist_id == cl_id).limit(1))
     if ref is not None:
         raise HTTPException(409, "该字典被字段引用，无法删除")
@@ -270,10 +264,13 @@ def batch_delete_codelists(
     current_user: User = Depends(get_current_user),
 ):
     verify_project_owner(project_id, current_user, session)
-    from src.models.field_definition import FieldDefinition
-
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(
+        session.scalars(select(CodeList.id).where(CodeList.project_id == project_id, CodeList.id.in_(data.ids))).all()
+    )
     ref_ids = set(
-        session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(data.ids))).all()
+        session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(own_ids))).all()
     )
     if ref_ids:
         raise HTTPException(409, "部分字典被字段引用，无法删除")
@@ -286,10 +283,11 @@ def batch_delete_codelists(
 def batch_codelist_references(
     project_id: int,
     data: BatchDeleteRequest,
+    include_unplaced: bool = False,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """批量查询字典引用"""
+    """批量查询字典引用；include_unplaced 时未放入表单的字段库字段也计入"""
     verify_project_owner(project_id, current_user, session)
     valid_cl_ids = set(
         session.scalars(
@@ -297,22 +295,9 @@ def batch_codelist_references(
         ).all()
     )
 
-    from src.models.field_definition import FieldDefinition
-    from src.models.form_field import FormField
-    from src.models.form import Form
-
-    stmt = (
-        select(FieldDefinition.codelist_id, Form.name, Form.code, FieldDefinition.label, FieldDefinition.variable_name)
-        .join(FormField, FormField.form_id == Form.id)
-        .join(FieldDefinition, FieldDefinition.id == FormField.field_definition_id)
-        .where(FieldDefinition.codelist_id.in_(valid_cl_ids))
+    return collect_field_definition_references(
+        session, FieldDefinition.codelist_id, valid_cl_ids, include_unplaced=include_unplaced
     )
-    result = {}
-    for r in session.execute(stmt).all():
-        result.setdefault(r[0], []).append(
-            {"form_name": r[1], "form_code": r[2], "field_label": r[3], "field_var": r[4]}
-        )
-    return result
 
 
 @router.post("/projects/{project_id}/codelists/{cl_id}/options", response_model=CodeListOptionResponse, status_code=201)
@@ -323,6 +308,7 @@ def add_option(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
 
     dump = data.model_dump(exclude={"order_index"})
@@ -347,14 +333,14 @@ def update_option(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    verify_project_owner(project_id, current_user, session)
+    _get_codelist_with_project_check(session, cl_id, project_id)
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
         raise HTTPException(404, "选项不存在")
     if opt.codelist_id != cl_id:
         raise HTTPException(404, "选项不属于该字典")
-
-    _get_codelist_with_project_check(session, cl_id, project_id)
 
     old_order = opt.order_index
 
@@ -378,6 +364,8 @@ def delete_option(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    verify_project_owner(project_id, current_user, session)
+    _get_codelist_with_project_check(session, cl_id, project_id)
     repo = BaseRepository(session, CodeListOption)
     opt = repo.get_by_id(opt_id)
     if not opt:
@@ -385,7 +373,6 @@ def delete_option(
     if opt.codelist_id != cl_id:
         raise HTTPException(404, "选项不属于该字典")
 
-    _get_codelist_with_project_check(session, cl_id, project_id)
     OrderService.delete_and_compact(session, CodeListOption, CodeListOption.codelist_id == opt.codelist_id, opt)
 
 
@@ -397,6 +384,7 @@ def batch_delete_options(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
 
     opts_to_delete = session.scalars(
@@ -420,6 +408,7 @@ def reorder_options(
     current_user: User = Depends(get_current_user),
 ):
     """批量重排序号（拖拽场景）"""
+    verify_project_owner(project_id, current_user, session)
     _get_codelist_with_project_check(session, cl_id, project_id)
     OrderService.reorder_batch(session, CodeListOption, CodeListOption.codelist_id == cl_id, id_list)
     return {"message": "Reordered"}

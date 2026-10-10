@@ -11,10 +11,6 @@ import math
 
 import os
 
-import sqlite3
-
-import tempfile
-
 from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,59 +41,6 @@ _EXPORT_ERROR_CODES = {
 }
 
 
-def _validate_form_field_schema(db_path: str) -> None:
-    """验证 form_field 表结构兼容性。
-
-    检查：
-    1. form_field 表是否存在
-    2. 是否有 legacy sort_order 列（说明迁移未完成）
-    3. order_index 列是否存在
-    4. field_definition_id 是否有 NULL 值（历史坏数据）
-
-    若不兼容则抛出 ExportError。
-    """
-    conn = sqlite3.connect(db_path)
-    try:
-        # 检查 form_field 表是否存在
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='form_field'")
-        if not cursor.fetchone():
-            # 表不存在，无需验证（可能是空项目）
-            return
-
-        # 获取列信息
-        cursor = conn.execute("PRAGMA table_info(form_field)")
-        columns = {row[1]: row for row in cursor.fetchall()}
-
-        # 检查 legacy sort_order 列存在（说明迁移未完成）
-        if "sort_order" in columns:
-            raise ExportError(
-                "数据库 form_field 表存在 legacy 'sort_order' 列，未完成迁移。请运行最新版本完成迁移后再导出。",
-                _EXPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"],
-            )
-
-        # 检查 order_index 列不存在（不兼容）
-        if "order_index" not in columns:
-            raise ExportError(
-                "数据库 form_field 表缺少 'order_index' 列，结构不兼容。",
-                _EXPORT_ERROR_CODES["SCHEMA_INCOMPATIBLE"],
-            )
-
-        # 检查 field_definition_id 有 NULL 值（历史坏数据）
-        # 排除 is_log_row=1 的记录（日志行允许 field_definition_id 为 NULL）
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM form_field WHERE field_definition_id IS NULL AND (is_log_row IS NULL OR is_log_row = 0)"
-        )
-        null_count = cursor.fetchone()[0]
-        if null_count > 0:
-            raise ExportError(
-                f"数据库 form_field 表有 {null_count} 条记录的 field_definition_id 为 NULL，数据不兼容。",
-                _EXPORT_ERROR_CODES["DATA_INCOMPATIBLE"],
-            )
-
-    finally:
-        conn.close()
-
-
 from docx import Document
 
 from docx.shared import Pt, RGBColor, Inches, Cm
@@ -122,7 +65,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from sqlalchemy.orm import Session
 
 
-from src.models import Project
+from src.models import Form, Project
 
 from src.repositories.project_repository import ProjectRepository
 
@@ -134,18 +77,16 @@ from src.schemas.form import (
 from src.schemas.project import normalize_screening_number_format
 
 from src.services.field_rendering import (
-    build_field_control_weight,
     build_inline_column_demands,
     build_inline_table_model,
     extract_default_lines,
+    get_option_labels,
     render_date_time_placeholder,
     resolve_checkbox_label,
 )
 
 from src.services.width_planning import (
-    compute_text_weight,
     plan_inline_table_width,
-    plan_unified_table_width,
     plan_normal_table_width,
     compute_fill_line_char_count,
 )
@@ -182,26 +123,11 @@ def resolve_label_bold(form_field) -> bool:
 class LayoutDecision:
     """表单布局决策（内部数据结构，不持久化）。"""
 
-    mode: str  # "legacy" | "mixed_landscape" | "unified_landscape"
-
-    column_count: int  # N 列数（仅 unified 有意义）
-
-    label_span: int  # label 区合并列数
-
-    value_span: int  # value 区合并列数
+    mode: str  # "legacy" | "mixed_landscape"
 
     force_landscape: bool = False  # paper_orientation='landscape' 强制覆写：legacy 模式下切横向
 
     force_portrait: bool = False  # paper_orientation='portrait' 强制覆写：legacy 模式下抑制 inline 宽表自动切横向
-
-
-@dataclass(frozen=True)
-class Segment:
-    """统一横向布局的字段片段（内部数据结构，不持久化）。"""
-
-    type: str  # "regular_field" | "full_row" | "inline_block"
-
-    fields: list
 
 
 class ExportService:
@@ -1509,8 +1435,8 @@ class ExportService:
                 for paragraph in cell.paragraphs:
                     paragraph.style = "VisitFlow"
 
-    def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False):
-        """添加表单内容（支持横向表格渲染与统一横向布局）。"""
+    def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False) -> None:
+        """添加表单内容（按表单版式分派：mixed_landscape 横排 / legacy 原路径）。"""
 
         if not project.forms:
             self._build_form_table(doc, [], form_id=None, annotated=annotated)
@@ -1524,11 +1450,7 @@ class ExportService:
 
         total_forms = len(sorted_forms)
 
-        sorted_visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
-        form_to_visits: Dict[int, List] = {}
-        for visit in sorted_visits:
-            for visit_form in visit.visit_forms:
-                form_to_visits.setdefault(visit_form.form_id, []).append(visit)
+        form_to_visits = self._build_form_to_visits(project)
 
         for idx, form in enumerate(sorted_forms, start=1):
             if annotated:
@@ -1547,181 +1469,188 @@ class ExportService:
             is_last_form = idx == total_forms
 
             if layout.mode == "mixed_landscape":
-                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                self._render_mixed_landscape_form(
+                    doc, form, form_fields, form_to_visits, idx, is_last_form, project, annotated=annotated
                 )
-
-                groups = self._group_form_fields(form_fields)
-
-                if groups == [[]]:
-                    groups = []
-
-                for group in groups:
-                    if not group:
-                        continue
-
-                    first_field = group[0]
-
-                    if first_field.inline_mark == 1:
-                        self._add_inline_table(
-                            doc,
-                            group,
-                            True,
-                            form_id=form.id,
-                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                            annotated=annotated,
-                        )
-
-                    else:
-                        self._build_form_table(
-                            doc,
-                            group,
-                            form_id=form.id,
-                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                            annotated=annotated,
-                        )
-
-                if not groups:
-                    self._build_form_table(
-                        doc,
-                        [],
-                        form_id=form.id,
-                        available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                        annotated=annotated,
-                    )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                if not is_last_form:
-                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-            elif layout.mode == "unified_landscape":
-                # 统一横向布局路径
-
-                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
-                )
-
-                segments = self._build_unified_segments(form_fields)
-
-                self._build_unified_table(
-                    doc,
-                    segments,
-                    layout,
-                    form_id=form.id,
-                    available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                    annotated=annotated,
-                )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                # 仅当后续还有表单时才切回 portrait，避免末尾空白页
-
-                if not is_last_form:
-                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
             else:
-                # legacy 路径（保持现有行为）
-
-                if layout.force_landscape:
-                    self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                self._render_legacy_form(
+                    doc, form, form_fields, layout, form_to_visits, idx, is_last_form, project, annotated=annotated
                 )
 
-                groups = self._group_form_fields(form_fields)
-
-                if groups == [[]]:
-                    groups = []
-
-                for group in groups:
-                    if not group:
-                        continue
-
-                    first_field = group[0]
-
-                    if first_field.inline_mark == 1:
-                        needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
-
-                        if needs_temporary_landscape and not layout.force_landscape:
-                            self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                        inline_available_cm = (
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape or needs_temporary_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        )
-                        self._add_inline_table(
-                            doc,
-                            group,
-                            needs_temporary_landscape,
-                            form_id=form.id,
-                            available_cm=inline_available_cm,
-                            annotated=annotated,
-                        )
-
-                        if needs_temporary_landscape and not layout.force_landscape:
-                            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-                        continue
-
-                    self._build_form_table(
-                        doc,
-                        group,
-                        form_id=form.id,
-                        available_cm=(
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        ),
-                        annotated=annotated,
-                    )
-
-                if not groups:
-                    self._build_form_table(
-                        doc,
-                        [],
-                        form_id=form.id,
-                        available_cm=(
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        ),
-                        annotated=annotated,
-                    )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
-
-                if not is_last_form:
-                    if layout.force_landscape:
-                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-                    else:
-                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
             self._current_annotation_offsets = {}
+
+    def _build_form_to_visits(self, project: Project) -> Dict[int, List]:
+        """按访视顺序构建 form_id -> visits 映射，供表单尾部的适用访视段使用。"""
+
+        sorted_visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
+
+        form_to_visits: Dict[int, List] = {}
+
+        for visit in sorted_visits:
+            for visit_form in visit.visit_forms:
+                form_to_visits.setdefault(visit_form.form_id, []).append(visit)
+
+        return form_to_visits
+
+    def _add_form_heading(self, doc: Document, idx: int, form: Form, *, annotated: bool = False) -> None:
+        """添加表单标题并注册 TOC 条目（mixed / legacy 两条版式共用同一实参）。"""
+
+        self._add_toc_heading(
+            doc,
+            f"{idx}. {form.name}",
+            level=1,
+            form_domain=form.domain,
+            annotated=annotated,
+            annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+        )
+
+    def _render_mixed_landscape_form(
+        self,
+        doc: Document,
+        form: Form,
+        form_fields: list,
+        form_to_visits: Dict[int, List],
+        idx: int,
+        is_last_form: bool,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """mixed_landscape 版式：整个表单横排，inline / normal 分组逐表渲染。"""
+
+        self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+        self._add_form_heading(doc, idx, form, annotated=annotated)
+
+        groups = self._group_form_fields(form_fields)
+
+        if groups == [[]]:
+            groups = []
+
+        for group in groups:
+            if not group:
+                continue
+
+            first_field = group[0]
+
+            if first_field.inline_mark == 1:
+                self._add_inline_table(
+                    doc, group, True, form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+                )
+
+            else:
+                self._build_form_table(
+                    doc, group, form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+                )
+
+        if not groups:
+            self._build_form_table(
+                doc, [], form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+            )
+
+        self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+        if not is_last_form:
+            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+    def _render_legacy_form(
+        self,
+        doc: Document,
+        form: Form,
+        form_fields: list,
+        layout: LayoutDecision,
+        form_to_visits: Dict[int, List],
+        idx: int,
+        is_last_form: bool,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """legacy 版式（保持现有行为）：inline 宽表按需临时切横向。"""
+
+        if layout.force_landscape:
+            self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+        self._add_form_heading(doc, idx, form, annotated=annotated)
+
+        groups = self._group_form_fields(form_fields)
+
+        if groups == [[]]:
+            groups = []
+
+        for group in groups:
+            if not group:
+                continue
+
+            self._render_legacy_group(doc, group, form, layout, project, annotated=annotated)
+
+        if not groups:
+            self._build_form_table(
+                doc,
+                [],
+                form_id=form.id,
+                available_cm=(
+                    self.LANDSCAPE_CONTENT_WIDTH_CM if layout.force_landscape else self.PORTRAIT_CONTENT_WIDTH_CM
+                ),
+                annotated=annotated,
+            )
+
+        self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+        # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
+
+        if not is_last_form:
+            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+    def _render_legacy_group(
+        self,
+        doc: Document,
+        group: list,
+        form: Form,
+        layout: LayoutDecision,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """渲染 legacy 版式的单个分组（inline 宽表临时横切，进入/退出成对）。"""
+
+        first_field = group[0]
+
+        if first_field.inline_mark == 1:
+            needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
+
+            if needs_temporary_landscape and not layout.force_landscape:
+                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+            inline_available_cm = (
+                self.LANDSCAPE_CONTENT_WIDTH_CM
+                if layout.force_landscape or needs_temporary_landscape
+                else self.PORTRAIT_CONTENT_WIDTH_CM
+            )
+            self._add_inline_table(
+                doc,
+                group,
+                needs_temporary_landscape,
+                form_id=form.id,
+                available_cm=inline_available_cm,
+                annotated=annotated,
+            )
+
+            if needs_temporary_landscape and not layout.force_landscape:
+                self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            return
+
+        self._build_form_table(
+            doc,
+            group,
+            form_id=form.id,
+            available_cm=(
+                self.LANDSCAPE_CONTENT_WIDTH_CM if layout.force_landscape else self.PORTRAIT_CONTENT_WIDTH_CM
+            ),
+            annotated=annotated,
+        )
 
     def _add_applicable_visits_paragraph(self, doc: Document, visits):
         """在表单末尾追加"适用访视：<name>、..."段落。"""
@@ -1804,7 +1733,7 @@ class ExportService:
         return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
     def _classify_form_layout(self, form_fields, paper_orientation: str = "auto") -> LayoutDecision:
-        """判断表单是否需要走统一横向布局（unified landscape）。
+        """分类表单为 legacy 或 mixed_landscape 布局（不生成整表统一横向布局）。
 
 
 
@@ -1817,7 +1746,7 @@ class ExportService:
         """
 
         if not form_fields:
-            decision = LayoutDecision("legacy", 0, 0, 0)
+            decision = LayoutDecision("legacy")
 
         else:
             sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
@@ -1844,80 +1773,18 @@ class ExportService:
             has_inline = max_block_width > 0
 
             if has_regular and has_inline and max_block_width > 4:
-                N = max_block_width
-
-                decision = LayoutDecision("mixed_landscape", N, 0, 0)
+                decision = LayoutDecision("mixed_landscape")
 
             else:
-                decision = LayoutDecision("legacy", 0, 0, 0)
+                decision = LayoutDecision("legacy")
 
         if paper_orientation == "portrait":
-            return LayoutDecision("legacy", 0, 0, 0, force_portrait=True)
+            return LayoutDecision("legacy", force_portrait=True)
 
         if paper_orientation == "landscape" and decision.mode == "legacy":
-            return LayoutDecision("legacy", 0, 0, 0, force_landscape=True)
+            return LayoutDecision("legacy", force_landscape=True)
 
         return decision
-
-    @staticmethod
-    def _compute_merge_spans(N: int, M: int) -> List[int]:
-        """将 N 列均分为 M 个 span，前面的 span 优先分配余数列。
-
-
-
-        前置条件：1 <= M <= N。若 M 超出范围，返回 [1] * N 作为安全回退。
-
-        """
-
-        if M <= 0 or M > N:
-            return [1] * N
-
-        base = N // M
-
-        extra = N % M
-
-        spans = []
-
-        for i in range(M):
-            spans.append(base + (1 if i < extra else 0))
-
-        return spans
-
-    def _build_unified_segments(self, form_fields) -> List[Segment]:
-        """按字段顺序构建 unified landscape 所需的渲染片段。"""
-
-        if not form_fields:
-            return []
-
-        sorted_fields = sorted(form_fields, key=lambda f: (f.order_index, f.id))
-
-        segments: List[Segment] = []
-
-        inline_buffer = []
-
-        for form_field in sorted_fields:
-            if form_field.inline_mark == 1:
-                inline_buffer.append(form_field)
-
-                continue
-
-            if inline_buffer:
-                segments.append(Segment("inline_block", list(inline_buffer)))
-
-                inline_buffer = []
-
-            field_def = form_field.field_definition
-
-            if form_field.is_log_row or (field_def and field_def.field_type in ("日志行", "标签")):
-                segments.append(Segment("full_row", [form_field]))
-
-            else:
-                segments.append(Segment("regular_field", [form_field]))
-
-        if inline_buffer:
-            segments.append(Segment("inline_block", list(inline_buffer)))
-
-        return segments
 
     def _switch_section(self, doc: Document, orientation, project: Project):
         """新建分节并切换页面方向，同时重设页眉页脚。"""
@@ -1941,418 +1808,6 @@ class ExportService:
         self._apply_footer_to_section(new_section)
 
         return new_section
-
-    def _build_unified_table(
-        self,
-        doc: Document,
-        segments,
-        layout: LayoutDecision,
-        form_id=None,
-        *,
-        available_cm: float = LANDSCAPE_CONTENT_WIDTH_CM,
-        annotated: bool = False,
-    ):
-        """创建 unified landscape 表格并按片段顺序渲染。
-
-        Args:
-            form_id: 表单 ID，用于获取列宽覆盖配置
-            available_cm: 当前分节可用宽度，需与表单纸张方向保持一致。
-        """
-        N = layout.column_count
-        table = doc.add_table(rows=1, cols=N)
-        table.autofit = False
-
-        # 收集 inline block 的内容用于宽度规划（使用语义需求）
-        segment_data = []
-        all_block_demands = []
-        regular_field_demands = []
-        # 收集所有字段用于构建 table_instance_id
-        all_fields = []
-        for segment in segments:
-            if segment.type == "inline_block" and segment.fields:
-                headers, row_values, _ = build_inline_table_model(segment.fields)
-                segment_data.append(("inline_block", headers, row_values))
-                # 使用包含 choice/fill-line/unit 语义的需求
-                all_block_demands.append(build_inline_column_demands(segment.fields))
-                all_fields.extend(segment.fields)
-            elif segment.type == "regular_field" and segment.fields:
-                form_field = segment.fields[0]
-                field_def = getattr(form_field, "field_definition", None)
-                label = (
-                    getattr(form_field, "label_override", None)
-                    or (getattr(field_def, "label", None) if field_def else None)
-                    or ""
-                )
-                regular_field_demands.append(
-                    {
-                        "label_weight": compute_text_weight(label),
-                        "control_weight": build_field_control_weight(form_field),
-                    }
-                )
-                all_fields.extend(segment.fields)
-
-        # 检查是否有列宽覆盖配置 - 使用 table_instance_id
-        table_instance_id = self._build_table_instance_id("unified", all_fields)
-        overrides = self._get_column_width_override_by_instance_id(
-            table_instance_id, N, form_id=form_id, table_kind="unified"
-        )
-        if overrides:
-            # 直接使用覆盖的 fraction 转换为 cm
-            col_widths = [overrides[i] * available_cm for i in range(N)]
-        else:
-            # 使用内容驱动的宽度规划（传入物理列数 N 确保 per-slot-max 聚合）
-            col_widths = (
-                plan_unified_table_width(
-                    segment_data,
-                    available_cm,
-                    column_count=N,
-                    block_demands=all_block_demands,
-                    regular_field_demands=regular_field_demands,
-                )
-                if segment_data or regular_field_demands
-                else None
-            )
-
-        if col_widths and len(col_widths) == N:
-            # 应用规划的列宽
-            final_col_widths = [Cm(col_widths[col_idx]) for col_idx in range(N)]
-        else:
-            # 回退到等宽分配
-            avail = Cm(available_cm)
-            col_w = int(avail / N)
-            final_col_widths = [col_w] * N
-
-        for col_idx, col in enumerate(table.columns):
-            col.width = final_col_widths[col_idx]
-
-        table._tbl.remove(table.rows[0]._tr)
-
-        for segment in segments:
-            if segment.type == "regular_field" and segment.fields:
-                self._add_unified_regular_row(table, segment.fields[0], layout, annotated=annotated)
-
-            elif segment.type == "full_row" and segment.fields:
-                self._add_unified_full_row(table, segment.fields[0], N, annotated=annotated)
-
-            elif segment.type == "inline_block" and segment.fields:
-                self._add_unified_inline_band(table, segment.fields, N, annotated=annotated)
-
-        # 行添加完成后，同步 cell 的 tcW，避免 python-docx 默认 1234 twips 覆盖 gridCol
-        # 让 Word 渲染时 col 与 cell 宽度对齐（与 _add_inline_table 同等契约）。
-        for col_idx, col in enumerate(table.columns):
-            if col_idx >= len(final_col_widths):
-                break
-            for cell in col.cells:
-                cell.width = final_col_widths[col_idx]
-
-        self._apply_grid_table_style(table)
-
-        return table
-
-    def _add_unified_regular_row(
-        self,
-        table,
-        form_field,
-        layout: LayoutDecision,
-        *,
-        annotated: bool = False,
-    ):
-        """在 unified table 中添加普通字段行。"""
-
-        field_def = form_field.field_definition
-
-        if not field_def:
-            return
-
-        N = layout.column_count
-
-        row = table.add_row()
-        self._apply_exact_row_height(row)
-
-        left_cell = row.cells[0]
-
-        if layout.label_span > 1:
-            left_cell = left_cell.merge(row.cells[layout.label_span - 1])
-
-        right_start = layout.label_span
-
-        right_cell = row.cells[right_start]
-
-        if layout.value_span > 1:
-            right_cell = right_cell.merge(row.cells[N - 1])
-
-        label = form_field.label_override or field_def.label or ""
-
-        left_para = left_cell.paragraphs[0]
-
-        left_run = left_para.add_run(label)
-
-        self._set_run_font(
-            left_run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(left_para)
-
-        left_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        left_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        right_para = right_cell.paragraphs[0]
-
-        default_lines = extract_default_lines(form_field)
-
-        is_vertical_choice = not default_lines and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-
-        if default_lines:
-            for line_idx, line in enumerate(default_lines):
-                if line_idx > 0:
-                    right_para.add_run().add_break()
-
-                right_run = right_para.add_run(line)
-
-                self._set_run_font(right_run, size=Pt(10.5))
-
-        else:
-            if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-                self._render_vertical_choices(right_cell, field_def)
-
-            elif field_def.field_type in ["单选", "多选"]:
-                self._render_choice_field(right_para, field_def)
-
-            else:
-                right_run = right_para.add_run(self._render_field_control(field_def))
-
-                self._set_run_font(right_run, size=Pt(10.5))
-
-        self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
-
-        right_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        self._apply_cell_paragraph_metrics(
-            right_cell.paragraphs[-1], space_before=False, space_after=not is_vertical_choice
-        )
-
-        right_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        annotation_text = self._field_annotation_text(field_def)
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                right_cell.paragraphs[-1],
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
-
-        if form_field.bg_color:
-            self._apply_cell_shading(left_cell, form_field.bg_color)
-
-            self._apply_cell_shading(right_cell, form_field.bg_color)
-
-        if form_field.text_color:
-            text_color = RGBColor.from_string(form_field.text_color)
-
-            self._set_run_font(left_run, color=text_color)
-
-            for paragraph in right_cell.paragraphs:
-                for run in paragraph.runs:
-                    self._set_run_font(run, color=text_color)
-
-    def _add_unified_full_row(self, table, form_field, N: int, *, annotated: bool = False):
-        """在 unified table 中添加全宽行。"""
-
-        row = table.add_row()
-        self._apply_exact_row_height(row)
-
-        merged_cell = row.cells[0]
-
-        if N > 1:
-            merged_cell = merged_cell.merge(row.cells[N - 1])
-
-        para = merged_cell.paragraphs[0]
-
-        field_def = form_field.field_definition
-
-        is_log_row = form_field.is_log_row or (field_def and field_def.field_type == "日志行")
-
-        if is_log_row:
-            label = form_field.label_override or "以下为log行"
-
-            run = para.add_run(label)
-
-            self._set_run_font(
-                run,
-                size=Pt(resolve_label_font_pt(form_field)),
-                bold=resolve_label_bold(form_field),
-            )
-
-            self._apply_cell_paragraph_metrics(para)
-
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-            merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
-
-            if form_field.text_color:
-                self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-            annotation_text = self._field_annotation_text(field_def) if field_def else ""
-            if annotated and annotation_text:
-                self._add_oid_annotation_box(
-                    para,
-                    annotation_text,
-                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-                )
-
-            return
-
-        para.style = "FormLabel"
-
-        label = form_field.label_override or (field_def.label if field_def else "")
-
-        run = para.add_run(label)
-
-        self._set_run_font(
-            run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(para)
-
-        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        if form_field.bg_color:
-            self._apply_cell_shading(merged_cell, form_field.bg_color)
-
-        if form_field.text_color:
-            self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-        annotation_text = self._field_annotation_text(field_def) if field_def else ""
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                para,
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
-
-    def _add_unified_inline_band(self, table, block_fields, N: int, *, annotated: bool = False):
-        """在 unified table 中添加 inline block 的表头和数据行。"""
-
-        if not block_fields:
-            return
-
-        headers, row_values, field_defs = build_inline_table_model(block_fields)
-
-        M = len(block_fields)
-
-        spans = self._compute_merge_spans(N, M) if M < N else [1] * M
-
-        header_row = table.add_row()
-        self._apply_exact_row_height(header_row)
-
-        start_col = 0
-
-        for col_idx, label in enumerate(headers):
-            span = spans[col_idx]
-            field_def = field_defs[col_idx]
-
-            cell = header_row.cells[start_col]
-
-            if span > 1:
-                cell = cell.merge(header_row.cells[start_col + span - 1])
-
-            para = cell.paragraphs[0]
-
-            run = para.add_run(label)
-
-            self._set_run_font(
-                run,
-                size=Pt(resolve_label_font_pt(block_fields[col_idx])),
-                bold=resolve_label_bold(block_fields[col_idx]),
-            )
-
-            self._apply_cell_paragraph_metrics(para)
-
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-            self._apply_cell_shading(cell, "D9D9D9")
-
-            annotation_text = self._field_annotation_text(field_def) if field_def else ""
-            if annotated and annotation_text:
-                self._add_oid_annotation_box(
-                    para,
-                    annotation_text,
-                    delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-                )
-
-            start_col += span
-
-        for row_values_item in row_values:
-            data_row = table.add_row()
-            self._apply_exact_row_height(data_row)
-
-            start_col = 0
-
-            for col_idx, cell_value in enumerate(row_values_item):
-                span = spans[col_idx]
-
-                cell = data_row.cells[start_col]
-
-                if span > 1:
-                    cell = cell.merge(data_row.cells[start_col + span - 1])
-
-                para = cell.paragraphs[0]
-
-                field_def = field_defs[col_idx]
-
-                is_vertical_choice = (
-                    cell_value is None and field_def and field_def.field_type in ["单选（纵向）", "多选（纵向）"]
-                )
-
-                if cell_value is not None:
-                    run = para.add_run(cell_value)
-
-                    self._set_run_font(run, size=Pt(10.5))
-
-                elif field_def:
-                    if is_vertical_choice:
-                        self._render_vertical_choices(cell, field_def)
-
-                    elif field_def.field_type in ["单选", "多选"]:
-                        self._render_choice_field(para, field_def)
-
-                    else:
-                        run = para.add_run(self._render_field_control(field_def))
-
-                        self._set_run_font(run, size=Pt(10.5))
-
-                self._apply_cell_paragraph_metrics(
-                    para, space_before=not is_vertical_choice, space_after=not is_vertical_choice
-                )
-
-                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-                marked_field = block_fields[col_idx]
-
-                if marked_field.bg_color:
-                    self._apply_cell_shading(cell, marked_field.bg_color)
-
-                if marked_field.text_color:
-                    text_color = RGBColor.from_string(marked_field.text_color)
-
-                    for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            self._set_run_font(run, color=text_color)
-
-                start_col += span
 
     def _group_form_fields(self, form_fields):
         """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""
@@ -2449,38 +1904,7 @@ class ExportService:
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
-        para = merged_cell.paragraphs[0]
-
-        label = form_field.label_override or "以下为log行"
-
-        run = para.add_run(label)
-
-        self._set_run_font(
-            run,
-            size=Pt(resolve_label_font_pt(form_field)),
-            bold=resolve_label_bold(form_field),
-        )
-
-        self._apply_cell_paragraph_metrics(para)
-
-        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-        self._apply_cell_shading(merged_cell, form_field.bg_color or "D9D9D9")
-
-        if form_field.text_color:
-            self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
-
-        field_def = form_field.field_definition
-
-        annotation_text = self._field_annotation_text(field_def) if field_def else ""
-        if annotated and annotation_text:
-            self._add_oid_annotation_box(
-                para,
-                annotation_text,
-                delta_y_01cm=self._annotation_delta_y_for_key(annotation_text),
-            )
+        self._fill_structure_row_cell(merged_cell, form_field, is_log=True, annotated=annotated)
 
     def _add_label_row(self, table, row_idx: int, form_field, *, annotated: bool = False):
         """添加标签字段行。"""
@@ -2490,13 +1914,24 @@ class ExportService:
 
         merged_cell = row.cells[0].merge(row.cells[1])
 
-        para = merged_cell.paragraphs[0]
+        self._fill_structure_row_cell(merged_cell, form_field, is_log=False, annotated=annotated)
 
-        para.style = "FormLabel"
+    def _fill_structure_row_cell(self, cell: Any, form_field: Any, *, is_log: bool, annotated: bool) -> None:
+        """填充日志行 / 标签行共享的结构行单元格。
+
+        底纹与文字色重染是日志行专属样式：标签行不写底纹、不重染（保持既有导出语义）。
+        """
+
+        para = cell.paragraphs[0]
 
         field_def = form_field.field_definition
 
-        label = form_field.label_override or (field_def.label if field_def else "")
+        if not is_log:
+            para.style = "FormLabel"
+
+        fallback = "以下为log行" if is_log else getattr(field_def, "label", "")
+
+        label = form_field.label_override or fallback
 
         run = para.add_run(label)
 
@@ -2508,11 +1943,23 @@ class ExportService:
 
         self._apply_cell_paragraph_metrics(para)
 
-        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT if is_log else WD_ALIGN_PARAGRAPH.JUSTIFY
 
-        merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+        if is_log:
+            self._apply_cell_shading(cell, form_field.bg_color or "D9D9D9")
+
+            if form_field.text_color:
+                self._set_run_font(run, color=RGBColor.from_string(form_field.text_color))
+
+        self._add_structure_row_annotation(para, field_def, annotated=annotated)
+
+    def _add_structure_row_annotation(self, para: Any, field_def: Any, *, annotated: bool) -> None:
+        """按需为结构行段落追加 aCRF OID 注记盒。"""
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
+
         if annotated and annotation_text:
             self._add_oid_annotation_box(
                 para,
@@ -2573,19 +2020,10 @@ class ExportService:
                 self._set_run_font(right_run, size=Pt(10.5))
 
         else:
-            if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
-                self._render_vertical_choices(right_cell, field_def)
-
-            elif field_def.field_type in ["单选", "多选"]:
-                self._render_choice_field(right_para, field_def)
-
-            else:
-                # 填写线下划线根数按 control 列实际宽度自适应（不换行），
-                # 与前端预览共享同一估算公式以保证逐字一致。
-                fill_chars = compute_fill_line_char_count(widths[1])
-                right_run = right_para.add_run(self._render_field_control(field_def, fill_line_chars=fill_chars))
-
-                self._set_run_font(right_run, size=Pt(10.5))
+            # 填写线下划线根数按 control 列实际宽度自适应（不换行），
+            # 与前端预览共享同一估算公式以保证逐字一致。
+            fill_chars = compute_fill_line_char_count(widths[1])
+            self._render_control_into_cell(right_cell, right_para, field_def, fill_chars)
 
         self._apply_cell_paragraph_metrics(right_para, space_before=not is_vertical_choice, space_after=False)
 
@@ -2755,21 +2193,12 @@ class ExportService:
                 else:
                     # 无默认值，显示控件占位符
 
-                    if is_vertical_choice:
-                        self._render_vertical_choices(cell, field_def)
-
-                    elif field_def.field_type in ["单选", "多选"]:
-                        self._render_choice_field(para, field_def)
-
-                    else:
-                        # inline 整格文本填写线：按该列实际宽度自适应（不换行），
-                        # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
-                        inline_fill_chars = (
-                            compute_fill_line_char_count(col_widths[col_idx]) if col_idx < len(col_widths) else None
-                        )
-                        run = para.add_run(self._render_field_control(field_def, fill_line_chars=inline_fill_chars))
-
-                        self._set_run_font(run, size=Pt(10.5))
+                    # inline 整格文本填写线：按该列实际宽度自适应（不换行），
+                    # 与前端 getInlineRows 共享 compute_fill_line_char_count 公式以逐字一致。
+                    inline_fill_chars = (
+                        compute_fill_line_char_count(col_widths[col_idx]) if col_idx < len(col_widths) else None
+                    )
+                    self._render_control_into_cell(cell, para, field_def, inline_fill_chars)
 
                 # 段落格式：单行 1cm 所需上下间距，固定 15.6pt 行距
 
@@ -2795,6 +2224,23 @@ class ExportService:
                         for para in cell.paragraphs:
                             for run in para.runs:
                                 self._set_run_font(run, color=text_color)
+
+    def _render_control_into_cell(self, cell: Any, para: Any, field_def: Any, fill_line_chars: int | None) -> None:
+        """无值 / 无默认值时的控件分派梯子（普通表与内联表两条路径共用）。
+
+        调用方保留各自的默认值渲染、fill_line_chars 取值、垂直对齐与段落间距策略。
+        """
+
+        if field_def.field_type in ["单选（纵向）", "多选（纵向）"]:
+            self._render_vertical_choices(cell, field_def)
+
+        elif field_def.field_type in ["单选", "多选"]:
+            self._render_choice_field(para, field_def)
+
+        else:
+            run = para.add_run(self._render_field_control(field_def, fill_line_chars=fill_line_chars))
+
+            self._set_run_font(run, size=Pt(10.5))
 
     def _render_field_control(self, field_def, fill_line_chars: int | None = None) -> str:
         """渲染字段控件文本。
@@ -2863,7 +2309,7 @@ class ExportService:
     def _render_single_choice(self, field_def) -> str:
         """渲染单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2873,7 +2319,7 @@ class ExportService:
     def _render_single_choice_vertical(self, field_def) -> str:
         """渲染纵向单选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2883,7 +2329,7 @@ class ExportService:
     def _render_multi_choice(self, field_def) -> str:
         """渲染多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2893,7 +2339,7 @@ class ExportService:
     def _render_multi_choice_vertical(self, field_def) -> str:
         """渲染纵向多选控件"""
 
-        options = self._get_option_labels(field_def)
+        options = get_option_labels(field_def)
 
         if not options:
             return "________________"
@@ -2915,7 +2361,7 @@ class ExportService:
 
         field_type = field_def.field_type
 
-        option_data = self._get_option_data(field_def)
+        option_data = get_option_labels(field_def)
 
         if not option_data:
             run = cell.paragraphs[0].add_run("________________")
@@ -3000,7 +2446,7 @@ class ExportService:
 
         field_type = field_def.field_type
 
-        option_data = self._get_option_data(field_def)
+        option_data = get_option_labels(field_def)
 
         # 没有选项时显示下划线占位符
 
@@ -3046,46 +2492,6 @@ class ExportService:
             opt_run = paragraph.add_run(label)
 
             self._set_run_font(opt_run, size=Pt(10.5))
-
-    def _get_option_labels(
-        self,
-        field_def,
-    ) -> list:
-        """获取选项标签列表。"""
-
-        return list(self._get_option_data(field_def))
-
-    def _get_option_data(self, field_def) -> List[str]:
-        """获取选项标签列表。
-
-
-
-        排序规则：order_index 为主，id 为稳定回退键。
-
-        """
-
-        if not hasattr(field_def, "codelist") or not field_def.codelist:
-            return []
-
-        if not hasattr(field_def.codelist, "options") or not field_def.codelist.options:
-            return []
-
-        # 按 order_index 排序，缺失时回退到 id
-
-        options = sorted(
-            field_def.codelist.options,
-            key=lambda o: (o.order_index if o.order_index is not None else float("inf"), o.id or 0),
-        )
-
-        result: List[str] = []
-
-        for opt in options:
-            if not opt.decode:
-                continue
-
-            result.append(opt.decode)
-
-        return result
 
     def _add_fill_line_run(self, paragraph, length: int = 6):
         """添加填写线 run（纯下划线字符，与文本字段填写线风格一致）"""
@@ -3502,101 +2908,3 @@ class ExportService:
         if "○" in run.text or "□" in run.text:
             rFonts.set(qn("w:ascii"), self.FONT_EAST_ASIA)
             rFonts.set(qn("w:hAnsi"), self.FONT_EAST_ASIA)
-
-
-def export_full_database(db_path: str) -> str:
-    """使用 sqlite3.backup() 安全复制运行中数据库到临时文件，返回临时文件路径。"""
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-
-    tmp_path = tmp.name
-
-    tmp.close()
-
-    src_conn = sqlite3.connect(db_path)
-
-    dst_conn = sqlite3.connect(tmp_path)
-
-    try:
-        src_conn.backup(dst_conn)
-
-    finally:
-        dst_conn.close()
-
-        src_conn.close()
-
-    return tmp_path
-
-
-def _vacuum_sqlite_file(db_path: str) -> None:
-    """对导出后的 SQLite 文件执行 VACUUM。"""
-    conn = sqlite3.connect(db_path, isolation_level=None)
-    try:
-        conn.execute("VACUUM")
-    finally:
-        conn.close()
-
-
-def export_project_database(db_path: str, project_id: int, project_name: str) -> str:
-    """导出单项目数据库：先验证兼容性，再 backup 完整快照，最后裁剪非目标数据。
-
-    Task 4.5: 在导出前验证 form_field 结构，不兼容则抛出 ExportError。
-    """
-    # 验证 form_field 结构兼容性
-    _validate_form_field_schema(db_path)
-
-    tmp_path = export_full_database(db_path)
-
-    conn = sqlite3.connect(tmp_path)
-    try:
-        conn.execute("PRAGMA foreign_keys = ON")
-        # 解除所有项目与 user 的外键关联
-        conn.execute("UPDATE project SET owner_id = NULL")
-        # 清除用户敏感数据
-        conn.execute("DELETE FROM user")
-        # 删除其他项目（级联删除关联数据）
-        conn.execute("DELETE FROM project WHERE id != ?", (project_id,))
-        conn.commit()
-    finally:
-        conn.close()
-
-    _vacuum_sqlite_file(tmp_path)
-    return tmp_path
-
-
-def export_user_projects_database(db_path: str, owner_id: int, export_name: str = "user_projects") -> str:
-    """导出当前用户全部项目数据库：先验证兼容性，再备份，最后保留该用户拥有的项目集合。
-
-    Task 4.5: 在导出前验证 form_field 结构，不兼容则抛出 ExportError。
-    """
-    # 验证 form_field 结构兼容性
-    _validate_form_field_schema(db_path)
-
-    tmp_path = export_full_database(db_path)
-
-    conn = sqlite3.connect(tmp_path)
-    try:
-        conn.execute("PRAGMA foreign_keys = ON")
-        project_ids = [
-            row[0]
-            for row in conn.execute(
-                "SELECT id FROM project WHERE owner_id = ? ORDER BY id",
-                (owner_id,),
-            ).fetchall()
-        ]
-        if not project_ids:
-            raise ValueError("当前用户没有可导出的项目")
-
-        placeholders = ",".join("?" for _ in project_ids)
-        conn.execute("UPDATE project SET owner_id = NULL")
-        conn.execute("DELETE FROM user")
-        conn.execute(
-            f"DELETE FROM project WHERE id NOT IN ({placeholders})",
-            tuple(project_ids),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    _vacuum_sqlite_file(tmp_path)
-    return tmp_path

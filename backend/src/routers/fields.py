@@ -209,8 +209,15 @@ def batch_delete_field_definitions(
 
     verify_project_owner(project_id, current_user, session)
 
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(
+        session.scalars(
+            select(FieldDefinition.id).where(FieldDefinition.project_id == project_id, FieldDefinition.id.in_(data.ids))
+        ).all()
+    )
     ref_ids = set(
-        session.scalars(select(FormField.field_definition_id).where(FormField.field_definition_id.in_(data.ids))).all()
+        session.scalars(select(FormField.field_definition_id).where(FormField.field_definition_id.in_(own_ids))).all()
     )
 
     if ref_ids:

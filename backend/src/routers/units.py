@@ -15,6 +15,8 @@ from src.dependencies import get_current_user, verify_project_owner, verify_proj
 
 from src.models.unit import Unit
 
+from src.models.field_definition import FieldDefinition
+
 from src.models.user import User
 
 from src.repositories.base_repository import BaseRepository
@@ -22,6 +24,8 @@ from src.repositories.base_repository import BaseRepository
 from src.schemas.unit import UnitCreate, UnitUpdate, UnitResponse
 
 from src.schemas import BatchDeleteRequest
+
+from src.services.field_definition_reference_service import collect_field_definition_references
 
 from src.services.order_service import OrderService
 
@@ -105,31 +109,20 @@ def update_unit(
 
 @router.get("/units/{unit_id}/references")
 def get_unit_references(
-    unit_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
+    unit_id: int,
+    include_unplaced: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    """查询单位被哪些表单的哪些字段引用"""
+    """查询单位被哪些表单的哪些字段引用；include_unplaced 时未放入表单的字段库字段也计入"""
     unit = session.get(Unit, unit_id)
     if not unit:
         raise HTTPException(404, "单位不存在")
     verify_project_owner(unit.project_id, current_user, session)
 
-    from src.models.field_definition import FieldDefinition
-
-    from src.models.form_field import FormField
-
-    from src.models.form import Form
-
-    stmt = (
-        select(Form.name, Form.code, FieldDefinition.label, FieldDefinition.variable_name)
-        .join(FormField, FormField.form_id == Form.id)
-        .join(FieldDefinition, FieldDefinition.id == FormField.field_definition_id)
-        .where(FieldDefinition.unit_id == unit_id)
-    )
-
-    return [
-        {"form_name": r[0], "form_code": r[1], "field_label": r[2], "field_var": r[3]}
-        for r in session.execute(stmt).all()
-    ]
+    return collect_field_definition_references(
+        session, FieldDefinition.unit_id, [unit_id], include_unplaced=include_unplaced
+    ).get(unit_id, [])
 
 
 @router.delete("/units/{unit_id}", status_code=204)
@@ -145,8 +138,6 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session), current_u
     verify_project_owner(unit.project_id, current_user, session)
 
     # 服务端引用检查：防止前端漏检导致静默删除
-
-    from src.models.field_definition import FieldDefinition
 
     ref_count = session.scalar(select(FieldDefinition.id).where(FieldDefinition.unit_id == unit_id).limit(1))
 
@@ -166,9 +157,11 @@ def batch_delete_units(
 
     verify_project_owner(project_id, current_user, session)
 
-    from src.models.field_definition import FieldDefinition
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(session.scalars(select(Unit.id).where(Unit.project_id == project_id, Unit.id.in_(data.ids))).all())
 
-    ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(data.ids))).all())
+    ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(own_ids))).all())
 
     if ref_ids:
         raise HTTPException(409, "部分单位被字段引用，无法删除")
@@ -184,37 +177,21 @@ def batch_delete_units(
 def batch_unit_references(
     project_id: int,
     data: BatchDeleteRequest,
+    include_unplaced: bool = False,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """批量查询单位引用"""
+    """批量查询单位引用；include_unplaced 时未放入表单的字段库字段也计入"""
 
     verify_project_owner(project_id, current_user, session)
-
-    from src.models.field_definition import FieldDefinition
-
-    from src.models.form_field import FormField
-
-    from src.models.form import Form
 
     valid_unit_ids = set(
         session.scalars(select(Unit.id).where(Unit.project_id == project_id, Unit.id.in_(data.ids))).all()
     )
-    stmt = (
-        select(FieldDefinition.unit_id, Form.name, Form.code, FieldDefinition.label, FieldDefinition.variable_name)
-        .join(FormField, FormField.form_id == Form.id)
-        .join(FieldDefinition, FieldDefinition.id == FormField.field_definition_id)
-        .where(FieldDefinition.unit_id.in_(valid_unit_ids))
+
+    return collect_field_definition_references(
+        session, FieldDefinition.unit_id, valid_unit_ids, include_unplaced=include_unplaced
     )
-
-    result = {}
-
-    for r in session.execute(stmt).all():
-        result.setdefault(r[0], []).append(
-            {"form_name": r[1], "form_code": r[2], "field_label": r[3], "field_var": r[4]}
-        )
-
-    return result
 
 
 @router.post("/projects/{project_id}/units/reorder")

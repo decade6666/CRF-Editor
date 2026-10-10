@@ -26,7 +26,7 @@ from src.models.project import Project
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.services import toc_pagination
-from src.services.export_service import ExportService, LayoutDecision, Segment
+from src.services.export_service import ExportService
 
 
 @pytest.fixture
@@ -312,7 +312,7 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
         field_type="文本",
     )
 
-    # 未传 fill_line_chars 的调用方（inline / unified / 空占位）保持旧行为
+    # 未传 fill_line_chars 的调用方（inline 越界回退 / 空占位）保持旧行为
     rendered = ExportService(session)._render_field_control(text_field)
 
     assert rendered == "________________"
@@ -1046,11 +1046,9 @@ def test_export_project_groups_adjacent_inline_fields_into_one_table(
     assert_table_rows_at_least_one_centimeter(inline_table)
 
 
-def test_build_unified_table_sets_all_rows_to_at_least_one_centimeter(
-    session: Session,
-) -> None:
+def test_export_live_mixed_layout_tables_keep_minimum_row_height(session: Session, tmp_path: Path) -> None:
     project = create_project(session)
-    form = create_form(session, project.id, name="统一横向表", order_index=1)
+    form = create_form(session, project.id, name="混合横向表", order_index=1)
     regular_def = create_field_definition(
         session,
         project.id,
@@ -1064,55 +1062,31 @@ def test_build_unified_table_sets_all_rows_to_at_least_one_centimeter(
         label="分区标签",
         field_type="标签",
     )
-    inline_a_def = create_field_definition(
-        session,
-        project.id,
-        variable_name="INLINE_A",
-        label="内联A",
-    )
-    inline_b_def = create_field_definition(
-        session,
-        project.id,
-        variable_name="INLINE_B",
-        label="内联B",
-    )
-    regular = create_form_field(session, form.id, regular_def.id, order_index=1)
-    full_row = create_form_field(session, form.id, label_def.id, order_index=2)
-    inline_a = create_form_field(
-        session,
-        form.id,
-        inline_a_def.id,
-        order_index=3,
-        default_value="第一行\n第二行",
-    )
-    inline_b = create_form_field(
-        session,
-        form.id,
-        inline_b_def.id,
-        order_index=4,
-        default_value="仅一行",
-    )
-    inline_a.inline_mark = 1
-    inline_b.inline_mark = 1
+    create_form_field(session, form.id, regular_def.id, order_index=1)
+    create_form_field(session, form.id, label_def.id, order_index=2)
+
+    for order_index in range(3, 8):
+        inline_def = create_field_definition(
+            session,
+            project.id,
+            variable_name=f"INLINE_{order_index}",
+            label=f"内联{order_index}",
+        )
+        create_form_field(
+            session,
+            form.id,
+            inline_def.id,
+            order_index=order_index,
+            default_value="第一行\n第二行" if order_index == 3 else "单行",
+        ).inline_mark = 1
     session.flush()
 
-    service = ExportService(session)
-    service._column_width_overrides = {}
-    doc = Document()
-    service._apply_document_style(doc)
-    table = service._build_unified_table(
-        doc,
-        [
-            Segment("regular_field", [regular]),
-            Segment("full_row", [full_row]),
-            Segment("inline_block", [inline_a, inline_b]),
-        ],
-        LayoutDecision("unified_landscape", 4, 1, 3),
-        form_id=form.id,
-    )
+    doc = export_document(session, project.id, tmp_path)
+    form_tables = doc.tables[2:]
 
-    assert len(table.rows) == 5
-    assert_table_rows_at_least_one_centimeter(table)
+    assert len(form_tables) == 2
+    assert_table_rows_at_least_one_centimeter(form_tables[0])
+    assert_table_rows_at_least_one_centimeter(form_tables[1])
 
 
 def test_export_project_renders_cover_table_with_three_rows_two_cols(

@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify delete gate/partition flows match the delete-confirmation scenario"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality gates (lint, tests, forbidden patterns)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test and quality gates"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Check both stacks honor the reference/guard parity contract"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "Worktree, commit, and tooling conventions"}
+{"file": ".context/prefs/workflow.md", "reason": "Verification rules (TDD, suites to run, coverage)"}
