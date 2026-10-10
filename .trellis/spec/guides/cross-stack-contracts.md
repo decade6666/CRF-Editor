@@ -467,6 +467,7 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 - [ ] Update `acrfAnnotationGeometry.js` constants, unit conversions, and `resolveAnnotationTopCm`
 - [ ] Keep `FormDesignerTab.vue` and `VisitsTab.vue` on the same `annotation_positions` storage shape and drag gate rules
 - [ ] Run `backend/tests/test_export_acrf.py`, `backend/tests/test_export_service.py`, `backend/tests/test_export_unified.py`, `backend/tests/test_word_table_parity.py`
+- [ ] Run `backend/tests/test_acrf_offset_consistency.py`: the frontend-exported `ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU` must equal the backend constant; changing either side alone must fail this test.
 - [ ] Run `frontend/tests/acrfAnnotationGeometry.test.js`, `frontend/tests/acrfAnnotationPersistence.test.js`, `frontend/tests/acrfViewToggle.test.js`
 
 ---
