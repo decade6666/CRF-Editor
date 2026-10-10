@@ -1436,7 +1436,7 @@ class ExportService:
                     paragraph.style = "VisitFlow"
 
     def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False):
-        """添加表单内容（支持横向表格渲染与统一横向布局）。"""
+        """添加表单内容（按表单版式分派：mixed_landscape 横排 / legacy 原路径）。"""
 
         if not project.forms:
             self._build_form_table(doc, [], form_id=None, annotated=annotated)
@@ -1450,11 +1450,7 @@ class ExportService:
 
         total_forms = len(sorted_forms)
 
-        sorted_visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
-        form_to_visits: Dict[int, List] = {}
-        for visit in sorted_visits:
-            for visit_form in visit.visit_forms:
-                form_to_visits.setdefault(visit_form.form_id, []).append(visit)
+        form_to_visits = self._build_form_to_visits(project)
 
         for idx, form in enumerate(sorted_forms, start=1):
             if annotated:
@@ -1473,149 +1469,188 @@ class ExportService:
             is_last_form = idx == total_forms
 
             if layout.mode == "mixed_landscape":
-                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                self._render_mixed_landscape_form(
+                    doc, form, form_fields, form_to_visits, idx, is_last_form, project, annotated=annotated
                 )
-
-                groups = self._group_form_fields(form_fields)
-
-                if groups == [[]]:
-                    groups = []
-
-                for group in groups:
-                    if not group:
-                        continue
-
-                    first_field = group[0]
-
-                    if first_field.inline_mark == 1:
-                        self._add_inline_table(
-                            doc,
-                            group,
-                            True,
-                            form_id=form.id,
-                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                            annotated=annotated,
-                        )
-
-                    else:
-                        self._build_form_table(
-                            doc,
-                            group,
-                            form_id=form.id,
-                            available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                            annotated=annotated,
-                        )
-
-                if not groups:
-                    self._build_form_table(
-                        doc,
-                        [],
-                        form_id=form.id,
-                        available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM,
-                        annotated=annotated,
-                    )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                if not is_last_form:
-                    self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
 
             else:
-                # legacy 路径（保持现有行为）
-
-                if layout.force_landscape:
-                    self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                self._add_toc_heading(
-                    doc,
-                    f"{idx}. {form.name}",
-                    level=1,
-                    form_domain=form.domain,
-                    annotated=annotated,
-                    annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+                self._render_legacy_form(
+                    doc, form, form_fields, layout, form_to_visits, idx, is_last_form, project, annotated=annotated
                 )
 
-                groups = self._group_form_fields(form_fields)
-
-                if groups == [[]]:
-                    groups = []
-
-                for group in groups:
-                    if not group:
-                        continue
-
-                    first_field = group[0]
-
-                    if first_field.inline_mark == 1:
-                        needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
-
-                        if needs_temporary_landscape and not layout.force_landscape:
-                            self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
-
-                        inline_available_cm = (
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape or needs_temporary_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        )
-                        self._add_inline_table(
-                            doc,
-                            group,
-                            needs_temporary_landscape,
-                            form_id=form.id,
-                            available_cm=inline_available_cm,
-                            annotated=annotated,
-                        )
-
-                        if needs_temporary_landscape and not layout.force_landscape:
-                            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-                        continue
-
-                    self._build_form_table(
-                        doc,
-                        group,
-                        form_id=form.id,
-                        available_cm=(
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        ),
-                        annotated=annotated,
-                    )
-
-                if not groups:
-                    self._build_form_table(
-                        doc,
-                        [],
-                        form_id=form.id,
-                        available_cm=(
-                            self.LANDSCAPE_CONTENT_WIDTH_CM
-                            if layout.force_landscape
-                            else self.PORTRAIT_CONTENT_WIDTH_CM
-                        ),
-                        annotated=annotated,
-                    )
-
-                self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
-
-                # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
-
-                if not is_last_form:
-                    if layout.force_landscape:
-                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
-                    else:
-                        self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
-
             self._current_annotation_offsets = {}
+
+    def _build_form_to_visits(self, project: Project) -> Dict[int, List]:
+        """按访视顺序构建 form_id -> visits 映射，供表单尾部的适用访视段使用。"""
+
+        sorted_visits = sorted(project.visits, key=lambda v: (v.sequence, v.id))
+
+        form_to_visits: Dict[int, List] = {}
+
+        for visit in sorted_visits:
+            for visit_form in visit.visit_forms:
+                form_to_visits.setdefault(visit_form.form_id, []).append(visit)
+
+        return form_to_visits
+
+    def _add_form_heading(self, doc: Document, idx: int, form: Form, *, annotated: bool = False) -> None:
+        """添加表单标题并注册 TOC 条目（mixed / legacy 两条版式共用同一实参）。"""
+
+        self._add_toc_heading(
+            doc,
+            f"{idx}. {form.name}",
+            level=1,
+            form_domain=form.domain,
+            annotated=annotated,
+            annotation_delta_y_01cm=self._annotation_delta_y_for_key(ANNOTATION_FORM_KEY),
+        )
+
+    def _render_mixed_landscape_form(
+        self,
+        doc: Document,
+        form: Form,
+        form_fields: list,
+        form_to_visits: Dict[int, List],
+        idx: int,
+        is_last_form: bool,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """mixed_landscape 版式：整个表单横排，inline / normal 分组逐表渲染。"""
+
+        self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+        self._add_form_heading(doc, idx, form, annotated=annotated)
+
+        groups = self._group_form_fields(form_fields)
+
+        if groups == [[]]:
+            groups = []
+
+        for group in groups:
+            if not group:
+                continue
+
+            first_field = group[0]
+
+            if first_field.inline_mark == 1:
+                self._add_inline_table(
+                    doc, group, True, form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+                )
+
+            else:
+                self._build_form_table(
+                    doc, group, form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+                )
+
+        if not groups:
+            self._build_form_table(
+                doc, [], form_id=form.id, available_cm=self.LANDSCAPE_CONTENT_WIDTH_CM, annotated=annotated
+            )
+
+        self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+        if not is_last_form:
+            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+    def _render_legacy_form(
+        self,
+        doc: Document,
+        form: Form,
+        form_fields: list,
+        layout: LayoutDecision,
+        form_to_visits: Dict[int, List],
+        idx: int,
+        is_last_form: bool,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """legacy 版式（保持现有行为）：inline 宽表按需临时切横向。"""
+
+        if layout.force_landscape:
+            self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+        self._add_form_heading(doc, idx, form, annotated=annotated)
+
+        groups = self._group_form_fields(form_fields)
+
+        if groups == [[]]:
+            groups = []
+
+        for group in groups:
+            if not group:
+                continue
+
+            self._render_legacy_group(doc, group, form, layout, project, annotated=annotated)
+
+        if not groups:
+            self._build_form_table(
+                doc,
+                [],
+                form_id=form.id,
+                available_cm=(
+                    self.LANDSCAPE_CONTENT_WIDTH_CM if layout.force_landscape else self.PORTRAIT_CONTENT_WIDTH_CM
+                ),
+                annotated=annotated,
+            )
+
+        self._add_applicable_visits_paragraph(doc, form_to_visits.get(form.id, []))
+
+        # 仅当后续还有表单时才分页/切回 portrait，避免末尾空白页
+
+        if not is_last_form:
+            self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+    def _render_legacy_group(
+        self,
+        doc: Document,
+        group: list,
+        form: Form,
+        layout: LayoutDecision,
+        project: Project,
+        *,
+        annotated: bool = False,
+    ) -> None:
+        """渲染 legacy 版式的单个分组（inline 宽表临时横切，进入/退出成对）。"""
+
+        first_field = group[0]
+
+        if first_field.inline_mark == 1:
+            needs_temporary_landscape = len(group) > 4 and not layout.force_portrait
+
+            if needs_temporary_landscape and not layout.force_landscape:
+                self._switch_section(doc, WD_ORIENT.LANDSCAPE, project)
+
+            inline_available_cm = (
+                self.LANDSCAPE_CONTENT_WIDTH_CM
+                if layout.force_landscape or needs_temporary_landscape
+                else self.PORTRAIT_CONTENT_WIDTH_CM
+            )
+            self._add_inline_table(
+                doc,
+                group,
+                needs_temporary_landscape,
+                form_id=form.id,
+                available_cm=inline_available_cm,
+                annotated=annotated,
+            )
+
+            if needs_temporary_landscape and not layout.force_landscape:
+                self._switch_section(doc, WD_ORIENT.PORTRAIT, project)
+
+            return
+
+        self._build_form_table(
+            doc,
+            group,
+            form_id=form.id,
+            available_cm=(
+                self.LANDSCAPE_CONTENT_WIDTH_CM if layout.force_landscape else self.PORTRAIT_CONTENT_WIDTH_CM
+            ),
+            annotated=annotated,
+        )
 
     def _add_applicable_visits_paragraph(self, doc: Document, visits):
         """在表单末尾追加"适用访视：<name>、..."段落。"""
