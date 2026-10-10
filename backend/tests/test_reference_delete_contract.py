@@ -440,6 +440,57 @@ def test_unit_partition_contract_with_flag(client: TestClient, engine, ref_graph
         assert session.get(Unit, g.u_unplaced_id) is not None
 
 
+# ── AC6 逐 id：409 拒绝对「已放置 / 未放置库」两种引用分别成立 ─────────────────
+
+
+def test_codelist_batch_delete_rejects_each_reference_kind_alone(client: TestClient, engine, ref_graph) -> None:
+    """批删只含已放置引用的 id → 409；只含未放置库引用的 id → 409；数据均不被删除。"""
+    g = ref_graph
+    headers = auth_headers(g.alice_token)
+
+    resp = client.post(
+        f"/api/projects/{g.project_id}/codelists/batch-delete",
+        json={"ids": [g.cl_placed_id]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+    resp = client.post(
+        f"/api/projects/{g.project_id}/codelists/batch-delete",
+        json={"ids": [g.cl_unplaced_id]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+    with Session(engine) as session:
+        assert session.get(CodeList, g.cl_placed_id) is not None
+        assert session.get(CodeList, g.cl_unplaced_id) is not None
+
+
+def test_unit_batch_delete_rejects_each_reference_kind_alone(client: TestClient, engine, ref_graph) -> None:
+    """批删只含已放置引用的 id → 409；只含未放置库引用的 id → 409；数据均不被删除。"""
+    g = ref_graph
+    headers = auth_headers(g.alice_token)
+
+    resp = client.post(
+        f"/api/projects/{g.project_id}/units/batch-delete",
+        json={"ids": [g.u_placed_id]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+    resp = client.post(
+        f"/api/projects/{g.project_id}/units/batch-delete",
+        json={"ids": [g.u_unplaced_id]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+    with Session(engine) as session:
+        assert session.get(Unit, g.u_placed_id) is not None
+        assert session.get(Unit, g.u_unplaced_id) is not None
+
+
 def test_field_definition_partition_contract(client: TestClient, engine, ref_graph) -> None:
     g = ref_graph
     headers = auth_headers(g.alice_token)
@@ -656,6 +707,22 @@ def test_codelist_references_reject_other_user_for_both_modes(
     # 响应不得泄露受害者字段数据（标签 / 变量名 / 表单名）
     for secret in ("Bob 已放置字段", "BOB_SEC_PLACED", "Bob 未放置字段", "BOB_SEC_UNPLACED", "Bob 表单"):
         assert secret not in resp.text, secret
+
+
+@pytest.mark.parametrize("include_unplaced", [False, True])
+def test_codelist_references_owner_check_precedes_existence(
+    client: TestClient, cross_user_graph, include_unplaced: bool
+) -> None:
+    """归属校验必须先于字典存在性校验：外人 + 他人项目 + 不存在的字典 id 仍是 403，不是 404。"""
+    g = cross_user_graph
+    flag = "true" if include_unplaced else "false"
+
+    resp = client.get(
+        f"/api/projects/{g.project_id}/codelists/999999/references?include_unplaced={flag}",
+        headers=auth_headers(g.alice_token),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "无权访问此项目"
 
 
 @pytest.mark.parametrize("include_unplaced", [False, True])

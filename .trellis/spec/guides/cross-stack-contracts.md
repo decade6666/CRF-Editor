@@ -843,7 +843,7 @@ Precision resolution (`resolve_time_precision`): `ss` (case-insensitive) → sec
 |--------|---------|----------|
 | **File** | `backend/src/services/field_definition_reference_service.py` (`collect_field_definition_references`), `backend/src/routers/codelists.py`, `backend/src/routers/units.py`, existing field/form reference + delete endpoints | `frontend/src/composables/referenceDeleteGuard.js` (pure, message box injected), `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue` (8 handlers), `styles/main.css` (`.reference-delete-box`) |
 | **Purpose** | Make the reference-query scope equal the delete-guard scope; opt-in `include_unplaced` mode | Gate single deletes on any reference; partition batches into blocked (notice only) + deletable (one grouped confirm) |
-| **Validation** | `backend/tests/test_reference_delete_contract.py` | `frontend/tests/referenceDeleteGuard.test.js`, `frontend/tests/referenceDeleteWiring.test.js` |
+| **Validation** | `backend/tests/test_reference_delete_contract.py`, `backend/tests/test_batch_delete_isolation.py` | `frontend/tests/referenceDeleteGuard.test.js`, `frontend/tests/referenceDeleteWiring.test.js` |
 
 **Shared invariant (locked by tests)**: for each of 字典 / 单位 / 字段 / 表单, `set(batch_references.keys()) == {ids the DELETE guard rejects}` for in-project ids, and a single `references` list is non-empty iff `DELETE` returns 409. Guard scope: codelist/unit = any `FieldDefinition.codelist_id/unit_id` (including library-only unplaced definitions), field = any `FormField`, form = any `VisitForm`.
 
@@ -853,9 +853,10 @@ Precision resolution (`resolve_time_precision`): `ss` (case-insensitive) → sec
 2. Row shape is unchanged in both modes: `{form_name, form_code, field_label, field_var}`; batch response stays `{<id>: [rows]}` (JSON keys are strings; unreferenced ids are absent); no `ORDER BY` is added.
 3. Frontend delete flows are the only `include_unplaced=true` callers. The frontend gate condition is `refs.length > 0`; unplaced-only references render as `字段库-字段名(变量名)` via `formatFieldReference`.
 4. Single delete: references → blocked alert (`无法删除` / `知道了`) with NO confirm and NO delete call when referenced; exactly one confirm then `api.del` when clear. Field/form blocked texts: `该字段被以下表单引用，需先从相关表单中移除该字段：` / `该表单被以下访视引用，需先从相关访视中移除该表单：`.
-5. Batch delete: snapshot selection → `batch-references` (codelist/unit with `?include_unplaced=true`) → `confirmReferenceAwareBatchDelete` (all-blocked → alert only, no request; none-blocked → original `确认删除选中的 N 个X？`; mixed → one two-section dialog, button `删除 N 个X`) → POST only the approved `deleteIds` to the unchanged all-or-nothing `batch-delete` endpoint (409 stays as the race net) → partial success toast `已删除 N 个X，M 个被引用的X未删除`; property card / designer canvas clears only when its id was actually deleted.
+5. Batch delete: snapshot selection → `batch-references` (codelist/unit with `?include_unplaced=true`) → `confirmReferenceAwareBatchDelete` (all-blocked → alert only, no request; none-blocked → original `确认删除选中的 N 个X？`; mixed → one two-section dialog, button `删除 N 个X`) → POST only the approved `deleteIds` to the unchanged all-or-nothing `batch-delete` endpoint (409 stays as the race net) → partial success toast `已删除 N 个X，M 个被引用的X未删除`, where N is the backend's `{deleted}` response count and M is the preflight blocked count (`items.length - toDelete.length`), never `items.length - deleted` (concurrently vanished ids were never referenced); property card / designer canvas clears only when its id was actually deleted.
 6. Authorization: every reference endpoint requires user→project ownership BEFORE the resource-membership query; a foreign project id is 403 and a missing own resource is 404 in both flag modes (`get_codelist_references` runs `verify_project_owner` before `_get_codelist_with_project_check`). Authenticated ≠ authorized — see `.trellis/spec/backend/auth-security.md` → "Ownership Before Resource Membership Queries".
 7. Unchanged on purpose: backend 409 guard texts, batch-delete all-or-nothing semantics, field/form reference endpoints, and every default-response edit-impact consumer.
+8. Batch-delete id isolation: the four batch-delete endpoints (codelist / unit / field / form) run the 409 reference pre-check only over ids already proven to belong to the path project; foreign-project or nonexistent ids are silently ignored — 200 with a smaller `deleted`, never 409 / 403 / 404. Letting foreign ids into the pre-check would make the 409-vs-200 difference a cross-tenant "is it referenced?" oracle. Locked by `backend/tests/test_batch_delete_isolation.py`: a foreign referenced id and a foreign unreferenced id return byte-identical 200 `{"deleted": 0}`; a mixed own + foreign request deletes only the own ids; the caller's own referenced ids still 409.
 
 **Synchronization Checklist**:
 - [ ] Changing a guard's reference scope → sync the matching reference query (`field_definition_reference_service.py` for codelist/unit) and the partition contract test
@@ -872,6 +873,7 @@ Precision resolution (`resolve_time_precision`): `ss` (case-insensitive) → sec
 | Guard or reference-scope change | `test_reference_delete_contract.py` (partition contract, flag semantics, default-mode historical shape, cross-project isolation) |
 | Helper message/dialog change | `referenceDeleteGuard.test.js` (all four dialog cases, truncation, dismissal semantics) |
 | Handler wiring change | `referenceDeleteWiring.test.js` + `projectDeleteConfirmation.test.js` + `fieldsTabMultirefThreshold.test.js` |
+| Batch-delete pre-check scope change | `test_batch_delete_isolation.py` (foreign referenced/unreferenced ids → identical 200 `{"deleted": 0}`; mixed own+foreign deletes only own; own referenced still 409) |
 | Default response shape change | Forbidden without migrating all edit-impact consumers; historical-shape test must stay green |
 
 ---
@@ -988,4 +990,4 @@ When modifying cross-stack contracts, run:
 | Auth Token | `tests/test_auth.py` | `tests/App.test.js` |
 | Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_export_service.py`, `tests/test_width_planning.py`, `tests/test_word_table_parity.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js` + strict comparator + manual A4 side-by-side when available |
 | Form Paper Orientation | `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_project_copy.py` | `tests/visitPreviewLandscape.test.js`, `tests/wordPageGeometry.test.js` |
-| Reference Delete Guard | `tests/test_reference_delete_contract.py` | `tests/referenceDeleteGuard.test.js`, `tests/referenceDeleteWiring.test.js` |
+| Reference Delete Guard | `tests/test_reference_delete_contract.py`, `tests/test_batch_delete_isolation.py` | `tests/referenceDeleteGuard.test.js`, `tests/referenceDeleteWiring.test.js` |

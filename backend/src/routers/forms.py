@@ -184,7 +184,10 @@ def batch_delete_forms(
 
     from src.models.visit_form import VisitForm
 
-    ref_ids = set(session.scalars(select(VisitForm.form_id).where(VisitForm.form_id.in_(data.ids))).all())
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(session.scalars(select(Form.id).where(Form.project_id == project_id, Form.id.in_(data.ids))).all())
+    ref_ids = set(session.scalars(select(VisitForm.form_id).where(VisitForm.form_id.in_(own_ids))).all())
     if ref_ids:
         raise HTTPException(409, "部分表单被访视引用，无法删除")
 

@@ -126,44 +126,39 @@ async def startup():
 ### Project Ownership Verification
 
 ```python
-# backend/src/dependencies.py
-async def verify_project_owner(
-    project_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-) -> Project:
-    project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.owner_id == current_user.id,
-        Project.deleted_at.is_(None)
-    ).first()
+# backend/src/dependencies.py — actual implementation
+def verify_project_owner(project_id: int, current_user: User, session: Session):
+    """校验项目存在且属于 current_user，返回 Project；失败抛 404/403。"""
+    from src.models.project import Project
 
+    project = session.get(Project, project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
-
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if project.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此项目")
     return project
 ```
 
+Contract: 404 `项目不存在` for a missing id, 403 `无权访问此项目` when the owner differs. The check is existence then ownership only — it does **not** filter `deleted_at`, so a soft-deleted project still resolves through this guard (list/visibility endpoints do their own `deleted_at` filtering).
+
 ### Resource Isolation Pattern
 
-All subresources (visits, forms, fields) must verify parent chain:
+Subresource ownership helpers resolve the resource by id (404 when missing) and then delegate to `verify_project_owner` with the resource's own `project_id`; nested resources chain through their parent helper:
 
 ```python
-async def verify_form_owner(
-    form_id: int,
-    project: Project = Depends(verify_project_owner),
-    db: Session = Depends(get_db)
-) -> Form:
-    form = db.query(Form).filter(
-        Form.id == form_id,
-        Form.project_id == project.id
-    ).first()
+# backend/src/dependencies.py — actual implementation
+def verify_form_owner(form_id: int, current_user: User, session: Session):
+    """校验表单存在且属于当前用户。"""
+    from src.models.form import Form
 
+    form = session.get(Form, form_id)
     if not form:
-        raise HTTPException(404, "Form not found")
-
+        raise HTTPException(status_code=404, detail="表单不存在")
+    verify_project_owner(form.project_id, current_user, session)
     return form
 ```
+
+The same shape covers `verify_field_definition_owner` (404 `字段定义不存在` → project check) and `verify_form_field_owner` (404 `表单字段不存在` → `verify_form_owner(form_field.form_id, ...)`).
 
 ### Scenario: Ownership Before Resource Membership Queries
 
@@ -178,9 +173,10 @@ async def verify_form_owner(
 |---|---|
 | Run user→project ownership (`verify_project_owner`) FIRST, before any resource-membership or business query | A membership helper answers "does this id belong to this project", not "may this user touch this project" — it can never substitute for the ownership check |
 | Codelist option mutations (`add_option`, `update_option`, `delete_option`, `batch_delete_options`, `reorder_options`) must run the project-owner guard before codelist membership checks and option-id lookup | Knowing a project id or option id is not authority; guard order prevents cross-project reads/writes and an option-existence oracle |
-| Authenticated ≠ authorized | `get_current_user` only proves identity; every project-scoped surface must additionally prove `project.owner_id == current_user.id` (soft-deleted projects excluded) |
+| Authenticated ≠ authorized | `get_current_user` only proves identity; every project-scoped surface must additionally prove `project.owner_id == current_user.id` via `verify_project_owner`, which checks existence then ownership only and does NOT filter `deleted_at` (soft-deleted projects still resolve; visibility filtering lives in the listing endpoints) |
 | Both query modes of one endpoint enforce the same guard | A query-parameter switch (e.g. `include_unplaced`) selects rows, never a weaker permission path |
 | 403 for a foreign project, 404 for a missing own resource | Follows the project-wide convention; assertions must cover both status codes and both flag modes |
+| A pre-check whose outcome changes the response (e.g. a batch-delete 409 reference guard) runs only over ids already proven to belong to the path project | Foreign or nonexistent ids must fall through to the project-filtered delete (200 with a smaller `deleted`) — letting them into the pre-check turns the 409-vs-200 difference into a cross-tenant "is it referenced?" oracle |
 
 #### 3. Wrong vs Correct
 
@@ -196,6 +192,37 @@ def get_codelist_references(project_id, cl_id, include_unplaced=False, session=N
     _get_codelist_with_project_check(session, cl_id, project_id)
     ...
 ```
+
+**Batch-delete pre-check scope (response-shaping pre-checks)**:
+
+```python
+# WRONG - the reference pre-check runs over the raw id list; a foreign id's
+# referenced-ness leaks through the 409-vs-200 difference
+ref_ids = set(
+    session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(data.ids))).all()
+)
+if ref_ids:
+    raise HTTPException(409, "部分字典被字段引用，无法删除")
+
+# CORRECT - scope the pre-check to ids already proven to belong to the path
+# project; foreign/nonexistent ids fall through to the project-filtered delete
+owned_ids = set(
+    session.scalars(
+        select(CodeList.id).where(CodeList.id.in_(data.ids), CodeList.project_id == project_id)
+    ).all()
+)
+ref_ids = set(
+    session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(owned_ids))).all()
+)
+if ref_ids:
+    raise HTTPException(409, "部分字典被字段引用，无法删除")
+count = BaseRepository(session, CodeList).batch_delete(data.ids, project_id=project_id)
+return {"deleted": count}
+```
+
+**Why wrong**: with the raw id list, `409` answers "someone's object with this id is referenced" for ids outside the path project — a cross-tenant oracle; the corrected shape answers `200 {"deleted": <own ids only>}` for any mix of foreign/nonexistent ids, byte-identically whether or not a foreign id is referenced (locked by `backend/tests/test_batch_delete_isolation.py`).
+
+**Accepted residual**: the oracle closure holds for the victim-project path only. Via the caller's OWN project path, single-resource membership checks keep their existence distinction — a foreign codelist id still yields 403 `无权操作该字典` while a nonexistent id yields 404 `编码字典不存在`. Narrowing that distinction would change long-standing owner-facing status codes and is not part of the fix.
 
 #### 4. Tests Required
 
@@ -282,7 +309,7 @@ return user
 form = db.query(Form).filter(Form.id == form_id).first()
 
 # CORRECT - Verify project ownership first
-project = await verify_project_owner(project_id, current_user, db)
+project = verify_project_owner(project_id, current_user, db)
 form = db.query(Form).filter(
     Form.id == form_id,
     Form.project_id == project.id
@@ -332,8 +359,9 @@ from fastapi_limiter.depends import RateLimiter
 |------|-----------|
 | `test_project_isolation` | User cannot access other's project |
 | `test_admin_required` | Non-admin gets 403 |
-| `test_soft_delete_isolation` | Deleted projects not accessible |
+| `test_user_admin.py::test_admin_can_list_active_projects_for_specific_user` | Project listings exclude soft-deleted projects (the `deleted_at.is_(None)` filter lives in `ProjectRepository`, not in `verify_project_owner`); soft-deleted projects surface only in the admin recycle-bin listing (`test_admin_project_ops.py::test_recycle_bin_returns_deleted_projects_with_owner_fields`) |
 | `test_reference_delete_contract.py::test_codelist_references_*` | Reference endpoints enforce ownership in both flag modes: foreign user 403, owner 200, missing own dictionary 404, foreign-project dictionary 403 |
+| `test_batch_delete_isolation.py` | Batch-delete 409 pre-check scoped to path-project ids: foreign referenced/unreferenced ids → identical 200 `{"deleted": 0}`; mixed own+foreign request deletes only own ids; own referenced ids still 409 |
 
 ### Rate Limit Tests
 

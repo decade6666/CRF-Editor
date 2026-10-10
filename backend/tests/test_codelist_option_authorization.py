@@ -32,12 +32,14 @@ def option_auth_graph(client: TestClient, engine) -> SimpleNamespace:
         session.flush()
 
         codelist = CodeList(project_id=bob_project.id, name="Bob 保密字典", code="BOB_OPTION_CL", order_index=1)
-        session.add(codelist)
+        other_codelist = CodeList(project_id=bob_project.id, name="Bob 另一字典", code="BOB_OTHER_CL", order_index=2)
+        session.add_all([codelist, other_codelist])
         session.flush()
 
         first = CodeListOption(codelist_id=codelist.id, code="1", decode="Bob 选项一", order_index=1)
         second = CodeListOption(codelist_id=codelist.id, code="2", decode="Bob 选项二", order_index=2)
-        session.add_all([first, second])
+        other_option = CodeListOption(codelist_id=other_codelist.id, code="9", decode="Bob 他典选项", order_index=1)
+        session.add_all([first, second, other_option])
         session.commit()
 
         return SimpleNamespace(
@@ -46,8 +48,10 @@ def option_auth_graph(client: TestClient, engine) -> SimpleNamespace:
             alice_project_id=alice_project.id,
             bob_project_id=bob_project.id,
             codelist_id=codelist.id,
+            other_codelist_id=other_codelist.id,
             first_option_id=first.id,
             second_option_id=second.id,
+            other_option_id=other_option.id,
         )
 
 
@@ -189,3 +193,45 @@ def test_option_mutation_missing_option_stays_404_for_owner(
     )
     assert response.status_code == 404, response.text
     assert response.json()["detail"] == "选项不存在"
+
+
+@pytest.mark.parametrize("operation", OPTION_MUTATION_OPERATIONS)
+def test_option_mutation_owner_check_precedes_codelist_existence(
+    client: TestClient, option_auth_graph: SimpleNamespace, operation: str
+) -> None:
+    """归属校验必须先于字典存在性校验：外人 + 他人项目 + 不存在的字典 id 仍是 403，不是 404。"""
+    graph = option_auth_graph
+    response = _request_mutation(
+        client,
+        operation,
+        graph.bob_project_id,
+        999999,
+        (999998, 999997),
+        auth_headers(graph.alice_token),
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "无权访问此项目"
+
+
+@pytest.mark.parametrize("operation", ["update", "delete"])
+def test_option_from_other_codelist_of_same_project_stays_rejected(
+    client: TestClient, engine, option_auth_graph: SimpleNamespace, operation: str
+) -> None:
+    """选项属于同项目另一字典时仍 404「选项不属于该字典」，且该选项保持不变。"""
+    graph = option_auth_graph
+    base = f"/api/projects/{graph.bob_project_id}/codelists/{graph.codelist_id}/options"
+    if operation == "update":
+        response = client.put(
+            f"{base}/{graph.other_option_id}", json={"decode": "越典修改"}, headers=auth_headers(graph.bob_token)
+        )
+    else:
+        response = client.delete(f"{base}/{graph.other_option_id}", headers=auth_headers(graph.bob_token))
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "选项不属于该字典"
+
+    with Session(engine) as session:
+        opt = session.get(CodeListOption, graph.other_option_id)
+        assert opt is not None
+        assert opt.codelist_id == graph.other_codelist_id
+        assert opt.decode == "Bob 他典选项"
