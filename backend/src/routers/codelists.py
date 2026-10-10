@@ -250,8 +250,6 @@ def delete_codelist(
         raise HTTPException(404, "编码字典不存在")
     if cl.project_id != project_id:
         raise HTTPException(403, "无权操作该字典")
-    from src.models.field_definition import FieldDefinition
-
     ref = session.scalar(select(FieldDefinition.id).where(FieldDefinition.codelist_id == cl_id).limit(1))
     if ref is not None:
         raise HTTPException(409, "该字典被字段引用，无法删除")
@@ -266,10 +264,13 @@ def batch_delete_codelists(
     current_user: User = Depends(get_current_user),
 ):
     verify_project_owner(project_id, current_user, session)
-    from src.models.field_definition import FieldDefinition
-
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(
+        session.scalars(select(CodeList.id).where(CodeList.project_id == project_id, CodeList.id.in_(data.ids))).all()
+    )
     ref_ids = set(
-        session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(data.ids))).all()
+        session.scalars(select(FieldDefinition.codelist_id).where(FieldDefinition.codelist_id.in_(own_ids))).all()
     )
     if ref_ids:
         raise HTTPException(409, "部分字典被字段引用，无法删除")
