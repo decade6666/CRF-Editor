@@ -796,7 +796,7 @@ const refsMap = await api.post(`<batch-references>`, { ids })
 const toDelete = await confirmReferenceAwareBatchDelete(ElMessageBox, { items, refsMap, noun, nameOf, describeRefs })
 if (!toDelete.length) return
 const deleteIds = toDelete.map((x) => x.id)
-await api.post(`<batch-delete>`, { ids: deleteIds })
+const { deleted } = await api.post(`<batch-delete>`, { ids: deleteIds })  // N = backend's actual removal count
 ```
 
 Dialog style (global `main.css` block, because message boxes teleport to `<body>`):
@@ -822,7 +822,7 @@ Contracts:
 - Reference parity: the frontend gate condition is `refs.length > 0` and must stay exactly as strict as the backend 409 delete guards — codelist/unit = any `FieldDefinition.codelist_id/unit_id` (including library-only unplaced definitions), field = any `FormField`, form = any `VisitForm`. Codelist/unit delete-check calls therefore append `?include_unplaced=true`; the default (placed-only) response is reserved for edit-impact notices.
 - Backend batch-delete endpoints stay all-or-nothing 409 as the concurrency net: a reference added between the check and the delete fails the whole batch with today's error toast and nothing is deleted.
 - Batch selection is snapshotted (`const items = [...selX.value]`) before any dialog await, so selection changes while the dialog is open cannot change what gets deleted.
-- After a batch: selection arrays reset to `[]`; the property card / designer canvas selection clears only when its id is actually in `deleteIds`. A partial batch shows one success toast via `buildPartialDeleteMessage` instead of the plain message.
+- After a batch: selection arrays reset to `[]`; the property card / designer canvas selection clears only when its id is actually in `deleteIds`. A partial batch shows one success toast via `buildPartialDeleteMessage` instead of the plain message. The toast's deleted count (N) is the backend's `{deleted}` response field — what was actually removed — not the requested count; the blocked count (M) stays the preflight `items.length - toDelete.length` and must never be computed as `items.length - deleted`, which would misreport concurrently vanished ids as referenced.
 - Cancellation semantics: alert dismissal (`'cancel'` / `'close'`) is a normal end and is swallowed inside `showReferenceBlockedAlert`; batch confirm `'cancel'` propagates so callers keep `catch (e) { if (e !== 'cancel') ElMessage.error(e.message) }`; unexpected errors from the blocked alert propagate (single callers write `return await showReferenceBlockedAlert(...)` inside the same try) and reach the error toast.
 - The four single callers keep `return await` on the blocked alert; only cancel/close is ignored — an unexpected alert failure must surface as an error toast, not silence.
 - Do not grow this helper's responsibilities: message-box injection keeps it unit-testable; per-entity nouns/names/ref-formatters stay at the call sites.
@@ -860,9 +860,10 @@ Contracts:
 
 | Test | Assertion |
 |------|-----------|
-| `referenceDeleteGuard.test.js` | Pure helper behavior: `formatFieldReference` (OID / no OID / unplaced), partition order + string keys + missing/empty/non-array refs + no input mutation, all four batch dialog cases (dialog shape, button text, customClass, return value), truncation at `REFERENCE_LIST_MAX`, alert dismissal swallowed vs real errors propagated, partial message text |
-| `referenceDeleteWiring.test.js` | Source-level wiring per component: single handlers fetch references (codelist/unit with `include_unplaced=true`) and call `showReferenceBlockedAlert` before confirm and `api.del`; batch handlers call `confirmReferenceAwareBatchDelete` before batch-delete and post `ids: deleteIds` (not the raw selection); edit-impact callers (`updateCl` / `updateOpt` / `saveUnit`) do NOT pass `include_unplaced`; selection clears only on actually-deleted ids; `main.css` carries the `.reference-delete-box` rules |
-| `referenceDeleteWiring.test.js` | Actual-function runtime: a failing blocked alert surfaces one error toast and no delete; cancel/close dismissal stays silent |
+| `referenceDeleteGuard.test.js` | Pure helper behavior: `formatFieldReference` (OID / no OID / unplaced), partition order + string keys + missing/empty/non-array refs + no input mutation, all four batch dialog cases (dialog shape, button text, customClass, return value), truncation at `REFERENCE_LIST_MAX`, alert dismissal swallowed vs real errors propagated, partial message text; runtime: mixed-path confirm dismissal (`'cancel'` / `'close'`) propagates unchanged and nothing is returned |
+| `referenceDeleteWiring.test.js` | Source-level wiring per component: single handlers fetch references (codelist/unit with `include_unplaced=true`) and call `showReferenceBlockedAlert` before confirm and `api.del`; batch handlers call `confirmReferenceAwareBatchDelete` before batch-delete and post `ids: deleteIds` (not the raw selection); edit-impact callers (`updateCl` / `updateOpt` / `saveUnit` / FieldsTab `quickSaveCodelist`) do NOT pass `include_unplaced`; selection clears only on actually-deleted ids; `main.css` carries the `.reference-delete-box` rules |
+| `referenceDeleteWiring.test.js` | Actual-function runtime: a failing blocked alert surfaces one error toast and no delete; cancel/close dismissal stays silent; an unreferenced single delete confirms once then deletes (cancel deletes nothing); a batch-delete 409 shows one error toast and keeps the selections; the surviving card/canvas selection is retained after a partial delete; no partial toast fires when nothing was blocked; the partial toast's deleted count is the backend `{deleted}` value; an all-blocked batch alerts once, shows no confirm, and posts only `batch-references` (no `batch-delete`, no toast, selections untouched); a cancelled mixed confirm posts only `batch-references` and stays silent with selections untouched |
+| `fieldsTabCodelistQuickEdit.test.js` | FieldsTab `quickSaveCodelist` keeps its edit-impact `references` call on the default response (no `include_unplaced`) |
 | `projectDeleteConfirmation.test.js` | Batch handlers' confirmation call is `confirmReferenceAwareBatchDelete` and precedes the batch-delete call; single handlers still confirm before `api.del` |
 | `fieldsTabMultirefThreshold.test.js` | `del` / `batchDelFields` follow the new gate contract; the `save` multi-form impact threshold stays byte-identical |
 
@@ -906,10 +907,28 @@ await api.post(`<batch-delete>`, { ids: selX.value.map(x => x.id) })  // full se
 ```javascript
 const deleteIds = toDelete.map((x) => x.id)
 if (!deleteIds.length) return
-await api.post(`<batch-delete>`, { ids: deleteIds })
+const { deleted } = await api.post(`<batch-delete>`, { ids: deleteIds })
 if (deleteIds.includes(selected.value?.id)) selected.value = null   // clear card only when actually deleted
+if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', deleted, items.length - toDelete.length))
+```
+
+#### Wrong: trust the requested count as the deleted count
+
+```javascript
+await api.post(`<batch-delete>`, { ids: deleteIds })
 if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', toDelete.length, items.length - toDelete.length))
 ```
+
+**Why wrong**: `toDelete.length` is what the frontend asked to delete, not what the backend removed — a concurrently vanished id makes the toast over-report (fixed in 729fc74). Deriving the blocked count from the response instead (`items.length - deleted`) fails the other way: concurrently vanished ids were never referenced yet would be announced as 被引用.
+
+#### Correct: deleted count from the backend, blocked count from the preflight partition
+
+```javascript
+const { deleted } = await api.post(`<batch-delete>`, { ids: deleteIds })
+if (toDelete.length < items.length) ElMessage.success(buildPartialDeleteMessage('字典', deleted, items.length - toDelete.length))
+```
+
+N comes from the backend `{deleted}` response; M stays the pre-dialog partition result `items.length - toDelete.length` — the only count that means "blocked as referenced".
 
 #### Wrong: teleported message box styled with the CSS variable only
 

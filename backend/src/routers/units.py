@@ -139,8 +139,6 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session), current_u
 
     # 服务端引用检查：防止前端漏检导致静默删除
 
-    from src.models.field_definition import FieldDefinition
-
     ref_count = session.scalar(select(FieldDefinition.id).where(FieldDefinition.unit_id == unit_id).limit(1))
 
     if ref_count is not None:
@@ -159,9 +157,11 @@ def batch_delete_units(
 
     verify_project_owner(project_id, current_user, session)
 
-    from src.models.field_definition import FieldDefinition
+    # 引用预检只看路径项目自己的 id：他人 / 不存在的 id 与 batch_delete 一样静默忽略，
+    # 避免用 409 / 200 的差别探测他人对象是否被引用。
+    own_ids = set(session.scalars(select(Unit.id).where(Unit.project_id == project_id, Unit.id.in_(data.ids))).all())
 
-    ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(data.ids))).all())
+    ref_ids = set(session.scalars(select(FieldDefinition.unit_id).where(FieldDefinition.unit_id.in_(own_ids))).all())
 
     if ref_ids:
         raise HTTPException(409, "部分单位被字段引用，无法删除")

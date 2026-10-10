@@ -264,6 +264,23 @@ test('confirmReferenceAwareBatchDelete propagates confirm cancellation', async (
   )
 })
 
+test('confirmReferenceAwareBatchDelete propagates mixed-path confirm dismissal without returning the deletable items', async () => {
+  for (const dismissal of ['cancel', 'close']) {
+    const box = createFakeMessageBox()
+    box.confirm = () => Promise.reject(dismissal)
+    await assert.rejects(
+      confirmReferenceAwareBatchDelete(box, {
+        items: [{ id: 1, name: '字典A' }, { id: 2, name: '字典B' }],
+        refsMap: { 1: [{ form_name: '筛选表', form_code: 'SCR', field_label: '体重', field_var: 'WT' }] },
+        noun: '字典',
+        nameOf: (x) => x.name,
+        describeRefs: describeRefsByFormat,
+      }),
+      (e) => e === dismissal,
+    )
+  }
+})
+
 test('confirmReferenceAwareBatchDelete truncates long blocked and deletable lists', async () => {
   const box = createFakeMessageBox()
   const items = []

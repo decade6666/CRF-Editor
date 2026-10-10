@@ -31,12 +31,14 @@ def collect_field_definition_references(
     空 target_ids 直接返回 {}。
 
     include_unplaced=False（默认）：保持历史内连接口径（Form → FormField →
-    FieldDefinition），只返回已放入表单的字段引用，行集与历史响应完全一致。
+    FieldDefinition），只返回已放入表单的字段引用，行集合（多重集）与历史响应一致；
+    行顺序未定义，与历史行为相同。
     include_unplaced=True：改为 FieldDefinition 左外连接 FormField / Form，
     每个已放置的字段定义每个 FormField 生成一行；未放入任何表单的字段定义
     生成一行 form_name / form_code 为 None 的引用行。
 
-    不加 ORDER BY：默认模式输出必须与历史行为逐行一致。
+    不加 ORDER BY：默认模式输出的行集合（多重集）与历史查询一致；行顺序未定义，
+    与历史行为相同（调用方需要稳定顺序时自行排序，测试均按排序后的行集比较）。
     """
     ids = list(target_ids)
     if not ids:
