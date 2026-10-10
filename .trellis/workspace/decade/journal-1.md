@@ -606,3 +606,66 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Next Steps
 
 - 2e1fb91 已推送 origin/main；生产多用户环境部署由用户自行执行
+
+## Session 18: 波次 D backend-dedup 合入 main 并归档
+<!-- trellis-session: v=2 fp=backend-dedup-2026-10-10 -->
+
+**Date**: 2026-10-10
+**Task**: 波次 D — 后端路由 / 迁移 / 排序去重（backend-dedup）
+**Branch**: `refactor/backend-dedup` → `main`
+
+### Summary
+
+波次 D 最后一项 `backend-dedup` 完成：R1–R6 去重，唯一行为变化为 R1（项目批量删除空列表 / >500 → 422）。R4b 保留管理员自愈移入新服务、R4a 排序回填抽通用助手、R2 复制改名梯子收敛、R3 模板导入错误映射收敛、R5 OrderService order/sequence 共用实现、R6 内联模型迁入 schemas/；独立代码审查 + 安全审查通过，同步 main、合并、归档、清理 worktree 与分支。
+
+### Main Changes
+
+- `0f0789c`: 保留管理员自愈逐字移入 `services/admin_bootstrap_service.py::heal_reserved_admin_account(engine)`，`init_db()` 同位置调用；12 条特征测试锁定全部分支
+- `cddb2e5`: `_migrate_add_order_index` 六段同构回填抽为 `_backfill_null_order` + `_ORDER_BACKFILL_TARGETS`（标识符仅取自该元组，成员断言拒绝未登记目标），cx 29→7
+- `cda2bb3`: 新增 `services/unique_name.py::first_free_name`，收敛 11 处复制 / 导入改名梯子；后缀 / 编号位置 / 起始编号留在调用方
+- `073abf4`: `import_template.py` 三处错误映射收敛为 `_template_import_error_response`（404 / 普通 400 / 结构化 400）
+- `6c0c546`: `OrderService` order / sequence 平行方法共用按列参数化的私有实现，保留自愈与位移方向不对称
+- `127c06f`: 共享 `schemas/project.py::ProjectBatchDeleteRequest`（`project_ids` 1..500），两个项目批删端点共用；空列表 / >500 → 422（唯一行为变化）
+- `51d103e`: 25 个内联 Pydantic 模型逐字迁入 `schemas/`（新增 `admin.py` / `template_import.py`）；OpenAPI 组件数 102→102
+- `f9bb2f1` / `34a63b4`: 规格与模块文档同步
+- `32bdb66`: `test_project_import.py` 补打桩 `admin_bootstrap_service.get_config`（审查跟进）
+- `b215e51`: 合入 main（两处文档变更日志冲突，均保留）；`b490e1f`: main 合并 `refactor/backend-dedup`
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f0789c` | refactor(backend): 保留管理员账号修复逻辑移出迁移代码 |
+| `cddb2e5` | refactor(database): 排序列回填迁移抽取通用助手 |
+| `cda2bb3` | refactor(backend): 复制改名梯子收敛为通用助手 |
+| `073abf4` | refactor(import): 模板导入错误映射收敛为一个函数 |
+| `6c0c546` | refactor(order): sequence 排序方法与 order_index 方法共用实现 |
+| `127c06f` | fix(api): 项目批量删除共用请求模型并限制 1-500 条 |
+| `51d103e` | refactor(schemas): 触碰路由的内联模型迁入 schemas |
+| `f9bb2f1` | docs(spec): 后端去重后同步数据库规格与改名梯子说明 |
+| `34a63b4` | docs: 同步后端去重后的模块文档与变更日志 |
+| `32bdb66` | test(import): 补打桩 admin_bootstrap_service 配置命名空间 |
+| `b215e51` | Merge branch 'main' into refactor/backend-dedup |
+| `b490e1f` | Merge branch 'refactor/backend-dedup' |
+
+### Testing
+
+- [OK] 后端全量（合并树）1210 passed / 0 xfailed；`ruff format --check .` 167 files clean；`git diff --check` clean
+- [OK] `class BatchDeleteRequest` grep 唯一命中 `schemas/__init__.py:9`；`heal_reserved_admin_account` 仅新模块定义 + `database.py` 导入 / 调用
+- [OK] 前端 diff 相对 main 为空（无需 Haiku 前端审查）
+- [OK] 独立代码审查（Sonnet 只读）：仅两处发现——设计明确排除的两处梯子（保持不动，非缺陷）+ `test_project_import.py` 打桩命名空间（已修 `32bdb66`）
+- [OK] 独立安全审查（Sonnet 只读，R1/R4b）：CLEAN，无 Critical/High/Medium
+
+### Decisions
+
+- R2 保持 `docx_import_service` 表单名梯子与 `project_import_service._resolve_import_name`（先试原名）不动：design.md R2 显式排除，形状不同
+- 批删 409 预检的 project 端点不加入跨栈契约 §14（该节只描述四个子资源端点）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未推送（用户仅授权本地提交与合并）；生产部署由用户自行执行
+- 波次 D 四项（legacy-cleanup / backend-format / export-layer-cleanup / backend-dedup）全部合入 main

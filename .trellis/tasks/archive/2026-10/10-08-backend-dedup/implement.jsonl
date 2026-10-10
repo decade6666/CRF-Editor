@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "routers/schemas/services layering rules for moving models and helpers"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "migration idempotence and probe-based evolution constraints for the backfill refactor"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "shared import-error-to-HTTP mapping must keep HTTPException semantics"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "ordering contract with frontend useOrderableList/useSortableTable must stay intact"}
+{"file": ".context/prefs/coding-style.md", "reason": "function size and complexity limits the extracted helpers must meet"}
+{"file": ".trellis/tasks/10-08-backend-dedup/research/current-state.md", "reason": "verified inventory: BatchDeleteRequest users and frontend callers, copy-name ladder algorithms, import error mappings, migration blocks, order_service pairs, inline models (cited at a4431b0, pre-format)"}

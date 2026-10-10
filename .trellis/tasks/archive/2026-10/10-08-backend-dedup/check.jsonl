@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "reviewer verifies behavior-preservation evidence and complexity targets"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "reviewer checks migration idempotence and probe-based rules untouched"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "reviewer verifies ordering and batch-delete API contracts with frontend"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "reviewer checks error mapping outputs unchanged"}
