@@ -1170,9 +1170,13 @@ const FormDesigner = defineAsyncComponent(() =>
 ### 1. Scope / Trigger
 
 - Trigger: changing the OID / 字段标签 `el-autocomplete` pair in
-  `frontend/src/components/FormDesignerTab.vue` or
-  `buildAutocompleteCandidates` in
-  `frontend/src/composables/fieldDefinitionAutocomplete.js`.
+  `frontend/src/components/FormDesignerTab.vue`,
+  `buildAutocompleteCandidates` / `hydrateEditorFromCandidate` in
+  `frontend/src/composables/fieldDefinitionAutocomplete.js`, or the
+  binding-profile builders (`buildBindingProfileCommand`,
+  `resolveSharedWriteTarget`, `buildFieldPropReplayCommand`,
+  `normalizeDefinitionPayload`) in
+  `frontend/src/composables/formDesignerPropertyEditor.js`.
 - Both inputs share one candidate list; Element Plus writes
   `item[valueKey]` (default `value`) back into `v-model` and emits `input`
   before it emits `select`, so the item shape decides what a pick does to the
@@ -1187,15 +1191,37 @@ const FormDesigner = defineAsyncComponent(() =>
 | Every `CANDIDATE_STATE_*` identifier referenced in `FormDesignerTab.vue` is imported from `fieldDefinitionAutocomplete` | An unimported constant makes the 「当前字段」/「已添加」 badge silently not render (Vue only logs a render warning) |
 | 「已添加」 candidates keep `selectable: false` and `selectAutocompleteCandidate` returns early for them | The definition is already on this form; the pick must leave input text and editor state untouched |
 | Selectable candidates rehydrate the editor (`hydrateEditorFromCandidate`), overwriting the echoed text | Picking a definition means binding it, not keeping what was typed |
+| `hydrateEditorFromCandidate` replaces only the 9 editable definition keys; `bg_color` / `text_color` / `label_bold` / `label_font_size` flow through from the active editor (including the `'default'` sentinel) and are never overridden by the persisted instance | A pick must not discard unsaved presentation edits, and a stored default font size (`null`) must not clear the 「默认」 radio (DEC1) |
+| `selectAutocompleteCandidate` derives pending inline mark / default value from `editProp` (not the persisted field) and type-normalizes `editProp` right after hydration, but never assigns `labelOidSession` or `fieldPropBaseline` | Normalization keeps the type watcher idempotent; leaving the baseline untouched keeps 「取消」 able to fully restore the original binding and properties |
+| Persisted saves build the confirm target and the PUT command from the same `buildSelectedFieldCommandArgs(ff, editorState)` (`resolveSharedWriteTarget` is derived from `buildBindingProfileCommand`) | The 「影响提醒」 decision and the actual write can never disagree (DEC3) |
+| `buildBindingProfileCommand` emits `definition_operation: none` only when a normalized snapshot (`normalizeDefinitionPayload`) is passed and matches the editor on the 9 editable keys; omitted snapshots keep the legacy always-`update_shared` behavior | Pure references and presentation-only saves must not rewrite the shared definition or warn; `null` snapshot must never compare as "equal" (DEC2) |
+| Candidate-target impact confirmation uses `confirmFieldReferenceImpact(target, { includesCurrentForm: false })` (threshold ≥1 other form); current-definition targets keep the default ≥2-distinct-forms threshold; fork targets confirm nothing | A genuine shared edit of a candidate used by exactly one other form must still be confirmed (R5) |
+| History entries set `isRebind = command.binding.mode === 'existing'` and pass `definitionUpdated = command.definition_operation.operation === 'update_shared'` to both `buildFieldPropReplayCommand` calls; `snapshotFieldPropState.fd` carries `is_multi_record` / `table_type` | Undo/redo replays exactly what the forward save did — a pure rebind replays binding + instance only — and shared-write replays keep the structural keys (DEC4) |
+| `saveDraftField` compares against `comparableDefinitionPayload(candidateBeforeDefinition)` (normalized) but restores the definition from the raw `candidateBeforeDefinition` | Type normalization (e.g. a 日期 candidate with `date_format: null`) must not create a phantom shared update, while undo restores the content as it was on disk |
+| `saveSelectedFieldProp` freezes `const commandArgs = buildSelectedFieldCommandArgs(ff, snapshot)` and `candidateBeforePayload` before `confirmFieldReferenceImpact`, and `saveFieldProp` rebuilds the command from `{ ...commandArgs, editorState }` | The confirm dialog and the PUT can never disagree about the write target, even if shared candidate refs change while the dialog is open (DEC3) |
+| While a property save or draft save is in flight, the property form is disabled (`designerHistory.busy \|\| savingDraft \|\| isSavingFieldProp`), native color swatches bind `propEditorBusy`, and candidate pick / same-row re-click / delete / batch delete / copy / quick edit / inline toggle / reorder (drag + keyboard) / add-log-row / form switch / designer leave all short-circuit | Native `<button>` ignores el-form `:disabled`; every editor-mutating entry must be locked while a request can still rewrite the list |
+| Definition payloads take `is_multi_record` / `table_type` from the target snapshot (`buildDefinitionPayloadFromTarget`), `DRAFT_DEFINITION_DIFF_KEYS` is derived from the payload keys, and history snapshots carry `help_text` plus the structural keys; fork-redo remaps the definition id via `remapId` | Structural keys must survive shared updates, OID forks, draft forks and their redo; a fork-redo that recreates under a new id must not leave the undo stack pointing at a stale definition |
+| A cleared date-format select is normalized to the type default by a `watch(() => editProp.date_format)` immediately, and `buildFieldPropReplayCommand` defaults `definitionUpdated` to `false` (fail-closed) | An editor snapshot must never carry `undefined` into the 9-key diff (phantom `update_shared`), and an omitted flag must never authorize a shared write |
+| After a committed save, the editor is unconditionally rebuilt from the persisted row (`selectField(fresh, { fromSave: true })`); if the post-PUT list reload fails or is skipped, the row is replaced in place from the endpoint's `form_field` | A rebind must not leave `labelOidSession` on the original definition (later label switches would fork instead of updating in place), and a committed write must not vanish from the UI because a GET failed |
 | Empty and whitespace-only keywords return `[]` | No candidates on empty input (matching uses the trimmed query, the echo uses the raw keyword) |
 
 ### 3. Validation
 
 - `frontend/tests/fieldDefinitionAutocomplete.test.js` locks the `value` echo
   across the current / added / plain states, the empty and whitespace-only
-  keyword behavior, and (source guard) that every `CANDIDATE_STATE_*`
-  referenced in `FormDesignerTab.vue` is imported from the composable and that
-  neither designer `el-autocomplete` sets `value-key`.
+  keyword behavior, editor-wins presentation hydration (pending `large`,
+  colors, bold, and the `'default'` sentinel survive a pick), and (source
+  guard) that every `CANDIDATE_STATE_*` referenced in `FormDesignerTab.vue` is
+  imported from the composable, that neither designer `el-autocomplete` sets
+  `value-key`, and that `selectAutocompleteCandidate` reads pending
+  inline/default from `editProp` and never assigns `labelOidSession` /
+  `fieldPropBaseline`.
+- `frontend/tests/fieldProfileCommands.test.js` locks `normalizeDefinitionPayload`,
+  the `none` vs `update_shared` snapshot diff (pure rebind / presentation-only /
+  genuine rebind + keep / fork precedence), the derived
+  `resolveSharedWriteTarget`, the normalized-日期 pure draft binding, and the
+  replay builder across `shared` / `rebind-undo` / `rebind-redo` / fork types
+  with and without `definitionUpdated`.
 
 ## Scenario: Non-Modal Penetrable Dialog (`TemplateFieldSearchDialog`)
 
