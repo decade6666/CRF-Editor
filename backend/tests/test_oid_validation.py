@@ -6,6 +6,7 @@
 - 码表选项 code 为自由文本（与标签一致）：不做字符集校验，仅去空白并归一空值为 None。
 - 仅在写入边界（Create/Update schema）拦截，不做存量迁移。
 """
+
 from __future__ import annotations
 
 import pytest
@@ -32,6 +33,7 @@ INVALID_OIDS = ["AE 01", "中文", "a/b", "a@b", "a#b", "a:b", "a+b", "AE*"]
 
 # --------- 字段定义 variable_name（必填）---------
 
+
 @pytest.mark.parametrize("oid", VALID_OIDS)
 def test_field_create_accepts_valid_variable_name(oid: str) -> None:
     model = FieldDefinitionCreate(variable_name=oid, label="标签", field_type="文本")
@@ -57,6 +59,7 @@ def test_field_create_strips_surrounding_whitespace() -> None:
 
 # --------- 字段定义 variable_name（Update，可选）---------
 
+
 def test_field_update_optional_empty_becomes_none() -> None:
     for bad in (None, "", "   "):
         model = FieldDefinitionUpdate(variable_name=bad)
@@ -75,6 +78,7 @@ def test_field_update_accepts_valid_variable_name(oid: str) -> None:
 
 
 # --------- 表单 code（可选）---------
+
 
 @pytest.mark.parametrize("model_cls", [FormCreate, FormUpdate])
 def test_form_code_optional_empty_becomes_none(model_cls) -> None:
@@ -97,6 +101,7 @@ def test_form_code_accepts_valid() -> None:
 
 
 # --------- 码表 / 选项 code（可选）---------
+
 
 @pytest.mark.parametrize(
     "model_cls,required",
@@ -170,6 +175,7 @@ def test_codelist_snapshot_accepts_free_option_code() -> None:
 
 
 # --------- 路由层 422（代表性端点）---------
+
 
 @pytest.fixture
 def auth_token(client: TestClient) -> str:

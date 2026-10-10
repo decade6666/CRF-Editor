@@ -1,4 +1,5 @@
 """模板字段索引服务 - 只读读取模板库全量可用字段（供 label↔OID 查询）"""
+
 from __future__ import annotations
 
 import logging
@@ -40,9 +41,7 @@ def _load_template_data(session: Session) -> dict:
     return {
         "projects": _load_active_projects(session, columns["project_deleted_at"]),
         "forms_by_project": _group_forms(_load_forms(session, columns["form_code"])),
-        "fields_by_form": _group_form_fields(
-            _load_form_fields(session, columns["form_field_label_override"])
-        ),
+        "fields_by_form": _group_form_fields(_load_form_fields(session, columns["form_field_label_override"])),
         "definitions_by_project": _group_definitions(
             _load_definitions(session, columns["field_definition_checkbox_label"])
         ),
@@ -64,10 +63,7 @@ def _load_active_projects(session: Session, has_deleted_at: bool) -> List[dict]:
 def _load_forms(session: Session, has_code: bool) -> List[dict]:
     code_column = "code" if has_code else "NULL"
     rows = session.execute(
-        text(
-            f"SELECT id, project_id, name, {code_column} "
-            "FROM form ORDER BY project_id, order_index, id"
-        )
+        text(f"SELECT id, project_id, name, {code_column} FROM form ORDER BY project_id, order_index, id")
     ).all()
     return [{"id": row[0], "project_id": row[1], "name": row[2], "code": row[3]} for row in rows]
 
@@ -150,10 +146,7 @@ def _load_codelist_names(session: Session) -> Dict[int, str]:
 
 def _load_codelist_options(session: Session) -> Dict[int, List[dict]]:
     rows = session.execute(
-        text(
-            "SELECT codelist_id, code, decode FROM codelist_option "
-            "ORDER BY codelist_id, order_index, id"
-        )
+        text("SELECT codelist_id, code, decode FROM codelist_option ORDER BY codelist_id, order_index, id")
     ).all()
     grouped: Dict[int, List[dict]] = {}
     for row in rows:
@@ -191,9 +184,7 @@ def _collect_form_entries(data: dict, entries: List[dict], index_by_key: Dict[tu
                     "project_version": project["version"],
                     "form_name": form["name"],
                     "form_code": _clean_optional(form["code"]),
-                    "display_label": _display_label(
-                        form_field["label_override"], definition["label"]
-                    ),
+                    "display_label": _display_label(form_field["label_override"], definition["label"]),
                 }
                 _append_entry(entries, index_by_key, data, definition, source)
         referenced[project_id] = used

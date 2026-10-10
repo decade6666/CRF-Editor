@@ -1,4 +1,5 @@
 """机构预设模型：建表幂等、NOCASE 唯一约束、空单位共存。"""
+
 import pytest
 from sqlalchemy import create_engine, event, inspect, select
 from sqlalchemy.exc import IntegrityError

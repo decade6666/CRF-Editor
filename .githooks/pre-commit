@@ -80,8 +80,17 @@ while IFS= read -r f; do
         if ! python3 -m py_compile -- "$f"; then
             fail "Python 语法检查失败：$f"
         fi
-        if [ "$have_ruff" -eq 1 ] && ! ruff format --check "$f"; then
-            fail "ruff format --check 未通过：$f（请运行 ruff format 修正后重新暂存提交）"
+        if [ "$have_ruff" -eq 1 ]; then
+            # 退出码语义（ruff 0.16.10 实测）：1 = 存在待格式化内容；其他非零 = 运行出错
+            # （文件缺失、语法错误、配置非法等），两类问题分开报错。`--` 防止文件名被当作选项。
+            ruff format --check -- "$f"
+            ruff_status=$?
+            if [ "$ruff_status" -eq 1 ]; then
+                fail "ruff format --check 未通过：$f（请运行 ruff format 修正后重新暂存提交）"
+            fi
+            if [ "$ruff_status" -ne 0 ]; then
+                fail "ruff format --check 运行出错（状态码 $ruff_status，详情见上方输出）：$f"
+            fi
         fi
         ;;
     esac

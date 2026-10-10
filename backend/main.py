@@ -18,19 +18,24 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
 
 
-
 from src.config import get_config, is_production_env
 
 from src.database import init_db
-from src.perf import (
-    begin_request_metrics,
-    finish_request_metrics,
-    is_perf_baseline_enabled,
-    sanitize_route_path,
-    set_route_template,
-)
 
-from src.routers import projects, visits, forms, fields, codelists, units, export, settings, import_template, import_docx, organization_presets, template_fields
+from src.routers import (
+    projects,
+    visits,
+    forms,
+    fields,
+    codelists,
+    units,
+    export,
+    settings,
+    import_template,
+    import_docx,
+    organization_presets,
+    template_fields,
+)
 
 from src.routers.auth import router as auth_router
 
@@ -39,7 +44,6 @@ from src.routers.admin import router as admin_router
 from src.services.docx_screenshot_service import DocxScreenshotService
 
 from src.utils import is_safe_path
-
 
 
 _SECURITY_HEADERS = {
@@ -84,6 +88,7 @@ def _install_access_log_filter() -> None:
 
 # 放在 startup 事件中，确保在 uvicorn dictConfig 之后执行
 
+
 def _setup_app_logging():
 
     app_logger = logging.getLogger("src")
@@ -91,19 +96,13 @@ def _setup_app_logging():
     app_logger.setLevel(logging.INFO)
 
     if not app_logger.handlers:
-
         h = logging.StreamHandler()
 
-        h.setFormatter(logging.Formatter(
-
-            "%(levelname)-8s %(name)s - %(message)s"
-
-        ))
+        h.setFormatter(logging.Formatter("%(levelname)-8s %(name)s - %(message)s"))
 
         app_logger.addHandler(h)
 
     _install_access_log_filter()
-
 
 
 def _validate_app_config() -> None:
@@ -115,7 +114,6 @@ def _validate_app_config() -> None:
         return
     if not config.auth.secret_key:
         raise RuntimeError("config.yaml 缺少 auth.secret_key")
-
 
 
 def _build_fastapi_kwargs() -> dict:
@@ -150,11 +148,9 @@ async def lifespan(app: FastAPI):
     start_background_jobs(app)
 
     try:
-
         yield
 
     finally:
-
         # 先停止后台任务，再清理截图缓存，避免 shutdown 期间启动新的清理循环
         try:
             await stop_background_jobs(app)
@@ -164,25 +160,20 @@ async def lifespan(app: FastAPI):
         logger = logging.getLogger("src.main")
 
         try:
-
             result = DocxScreenshotService.cleanup_old_caches(days=0)
 
             logger.info(
-
                 "应用关闭，已清理截图缓存：删除 %d 个目录，释放 %.2f MB",
-
-                result["deleted_count"], result["freed_bytes"] / 1024 / 1024
-
+                result["deleted_count"],
+                result["freed_bytes"] / 1024 / 1024,
             )
 
         except Exception as e:
-
             logger.warning("清理截图缓存失败: %s", e)
 
 
 _validate_app_config()
 app = FastAPI(title="CRF编辑器", lifespan=lifespan, **_build_fastapi_kwargs())
-
 
 
 app.include_router(auth_router, prefix="/api")
@@ -213,7 +204,6 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(organization_presets.router, prefix="/api")
 
 
-
 # 打包后由 app_launcher.py 注入 CRF_STATIC_DIR，开发时用前端构建产物目录
 
 _static_dir = os.environ.get("CRF_STATIC_DIR", str(Path(__file__).resolve().parent.parent / "frontend" / "dist"))
@@ -224,7 +214,6 @@ _WINDOWS_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
 
 
 def _iter_asset_path_variants(filepath: str):
-
     """遍历原始路径及其有限次 URL 解码结果，用于拒绝危险输入。"""
 
     current = filepath
@@ -232,9 +221,7 @@ def _iter_asset_path_variants(filepath: str):
     seen = set()
 
     for _ in range(3):
-
         if current in seen:
-
             break
 
         seen.add(current)
@@ -244,50 +231,37 @@ def _iter_asset_path_variants(filepath: str):
         decoded = unquote(current)
 
         if decoded == current:
-
             break
 
         current = decoded
 
 
 def _validate_asset_raw_path(filepath: str):
-
     """在拼接到 assets 根目录前，先拒绝绝对路径、点段、反斜杠和编码绕过。"""
 
     if not filepath:
-
         return False, "资源路径不能为空"
 
     for candidate in _iter_asset_path_variants(filepath):
-
         if candidate.startswith(("/", "\\")):
-
             return False, "资源路径不合法"
 
         if "\\" in candidate:
-
             return False, "资源路径不合法"
 
         if _WINDOWS_DRIVE_PREFIX_RE.match(candidate):
-
             return False, "资源路径不合法"
 
         parts = candidate.split("/")
 
         if any(part in ("", ".", "..") for part in parts):
-
             return False, "资源路径不合法"
 
     return True, ""
 
 
-
-
-
 @app.get("/assets/{filepath:path}", include_in_schema=False)
-
 async def serve_asset(filepath: str):
-
     """提供静态资源，添加 no-cache 头确保浏览器每次验证资源是否最新
 
     （Vite hash命名策略：内容不变则hash不变，没有 no-cache 时浏览器可能用启发式缓存复用旧文件）
@@ -303,25 +277,15 @@ async def serve_asset(filepath: str):
     safe, err = is_safe_path(str(asset_path), allowed_dirs=[str(_assets_dir)])
 
     if not safe:
-
         return Response(status_code=400, content=err)
 
     if not asset_path.is_file():
-
         return Response(status_code=404)
 
     return FileResponse(
-
         str(asset_path),
-
         headers={"Cache-Control": "no-cache, must-revalidate"},
-
     )
-
-
-
-
-
 
 
 def _apply_security_headers(response: Response) -> Response:
@@ -338,51 +302,13 @@ async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)
     except Exception:
         # 只记方法与路径，不记请求体 / 请求头（见 logging-guidelines）
-        logging.getLogger("src.main").exception(
-            "未处理异常 %s %s", request.method, request.url.path
-        )
+        logging.getLogger("src.main").exception("未处理异常 %s %s", request.method, request.url.path)
         response = JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
     return _apply_security_headers(response)
 
 
-@app.middleware("http")
-async def performance_baseline_middleware(request: Request, call_next):
-    if not is_perf_baseline_enabled():
-        return await call_next(request)
-
-    route_template = None
-    route = request.scope.get("route")
-    if route is not None:
-        route_template = getattr(route, "path", None)
-    request_id = begin_request_metrics(
-        request.method,
-        route_template or sanitize_route_path(request.url.path),
-    )
-    status_code = 500
-    error_type = None
-    try:
-        response = await call_next(request)
-        resolved_route = request.scope.get("route")
-        if resolved_route is not None:
-            set_route_template(getattr(resolved_route, "path", None))
-        status_code = response.status_code
-        return response
-    except Exception as exc:
-        error_type = exc.__class__.__name__
-        raise
-    finally:
-        summary = finish_request_metrics(status_code, error_type)
-        if summary:
-            logging.getLogger("src.perf").info(
-                "perf.request %s",
-                summary,
-            )
-
-
 @app.exception_handler(RequestValidationError)
-
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-
     """将 Pydantic 422 验证错误转换为可读的中文字符串"""
 
     errors = exc.errors()
@@ -390,7 +316,6 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     messages = []
 
     for e in errors:
-
         loc = " → ".join(str(x) for x in e.get("loc", []))
 
         msg = e.get("msg", "参数错误")
@@ -402,67 +327,46 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     return JSONResponse(status_code=422, content={"detail": detail})
 
 
-
-
-
 @app.exception_handler(IntegrityError)
-
 async def integrity_error_handler(request: Request, exc: IntegrityError):
-
     """将数据库唯一约束冲突转换为可读的 409 错误"""
 
     msg = str(exc.orig).lower() if exc.orig else str(exc).lower()
 
     if "variable_name" in msg or "uq_project_field" in msg:
-
         detail = "变量名已存在，请使用其他变量名"
 
     elif "form" in msg and "name" in msg:
-
         detail = "表单名称已存在，请使用其他名称"
 
     elif "visit" in msg and "name" in msg:
-
         detail = "访视名称已存在，请使用其他名称"
 
     elif "visit" in msg and "sequence" in msg:
-
         detail = "访视序号已存在，请使用其他序号"
 
     elif "codelist" in msg and "name" in msg:
-
         detail = "字典名称已存在，请使用其他名称"
 
     elif "uq_form_field" in msg:
-
         detail = "该字段已在表单中"
 
     elif "not null" in msg:
-
         detail = "数据库结构不兼容，请重启应用执行迁移"
 
         return JSONResponse(status_code=500, content={"detail": detail})
 
     else:
-
         detail = "数据已存在，请检查是否重复"
 
     return JSONResponse(status_code=409, content={"detail": detail})
 
 
-
-
-
 @app.exception_handler(ValueError)
-
 async def value_error_handler(request: Request, exc: ValueError):
-
     """将业务参数错误转换为 400 响应。"""
 
     return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-
-
 
 
 # Task 4.4: 项目导入错误转换为稳定 JSON（detail + code）
@@ -491,19 +395,13 @@ async def export_error_handler(request: Request, exc: ExportError):
     )
 
 
-
 @app.get("/favicon.ico", include_in_schema=False)
-
 def favicon():
 
     return Response(status_code=204)
 
 
-
-
-
 @app.get("/")
-
 def index():
 
     static_dir = os.environ.get("CRF_STATIC_DIR", str(Path(__file__).resolve().parent.parent / "frontend" / "dist"))
@@ -511,33 +409,17 @@ def index():
     index_file = Path(static_dir) / "index.html"
 
     if index_file.exists():
-
         # 禁用缓存，确保每次都返回最新的index.html
 
         return FileResponse(
-
             str(index_file),
-
-            headers={
-
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-
-                "Pragma": "no-cache",
-
-                "Expires": "0"
-
-            }
-
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
         )
 
     return Response(content="Frontend not built. Run 'npm run build' in frontend/", status_code=404)
 
 
-
-
-
 if __name__ == "__main__":
-
     import uvicorn
 
     # 确保从 backend/ 目录启动，避免 reload 模式下子进程日志丢失
@@ -553,101 +435,54 @@ if __name__ == "__main__":
     # 让 src.* 的应用日志也能输出到控制台
 
     log_config = {
-
         "version": 1,
-
         "disable_existing_loggers": False,
-
         "formatters": {
-
             "default": {
-
                 "()": "uvicorn.logging.DefaultFormatter",
-
                 "fmt": "%(levelprefix)s %(message)s",
-
                 "use_colors": True,
-
             },
-
             "access": {
-
                 "()": "uvicorn.logging.AccessFormatter",
-
                 "fmt": '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
-
             },
-
             "app": {
-
                 "format": "%(levelname)-8s %(name)s - %(message)s",
-
             },
-
         },
-
         "handlers": {
-
             "default": {
-
                 "formatter": "default",
-
                 "class": "logging.StreamHandler",
-
                 "stream": "ext://sys.stderr",
-
             },
-
             "access": {
-
                 "formatter": "access",
-
                 "class": "logging.StreamHandler",
-
                 "stream": "ext://sys.stdout",
-
             },
-
             "app": {
-
                 "formatter": "app",
-
                 "class": "logging.StreamHandler",
-
                 "stream": "ext://sys.stderr",
-
             },
-
         },
-
         "loggers": {
-
             "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-
             "uvicorn.error": {"level": "INFO"},
-
             "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
-
             "src": {"handlers": ["app"], "level": "INFO", "propagate": False},
-
         },
-
     }
 
     _reload = should_enable_reload()
 
     uvicorn.run(
-
         "main:app",
-
         host=config.server.host,
-
         port=config.server.port,
-
         reload=_reload,
-
         reload_dirs=[_backend_dir] if _reload else None,
-
         log_config=log_config,
-
     )

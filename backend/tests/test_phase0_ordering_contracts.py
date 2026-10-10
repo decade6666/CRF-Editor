@@ -1,4 +1,5 @@
 """Phase 0 排序真值与模板导入契约测试。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -63,12 +64,14 @@ def client(engine):
                 yield session
 
     app.dependency_overrides[get_session] = _override
-    with patch("main.get_config", return_value=_TEST_CONFIG), \
-         patch("src.database.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
-         patch("main.init_db"):
+    with (
+        patch("main.get_config", return_value=_TEST_CONFIG),
+        patch("src.database.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.routers.admin.get_config", return_value=_TEST_CONFIG),
+        patch("main.init_db"),
+    ):
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
     app.dependency_overrides.clear()
@@ -310,9 +313,7 @@ def test_field_level_import_preserves_source_relative_order(
 
     with Session(engine) as session:
         imported_form = session.scalar(
-            select(Form)
-            .where(Form.project_id == target_project_id)
-            .order_by(Form.id.desc())
+            select(Form).where(Form.project_id == target_project_id).order_by(Form.id.desc())
         )
         assert imported_form is not None
 
@@ -325,9 +326,7 @@ def test_field_level_import_preserves_source_relative_order(
         )
         assert [field.order_index for field in imported_fields] == [1, 2]
 
-        imported_definitions = [
-            session.get(FieldDefinition, field.field_definition_id) for field in imported_fields
-        ]
+        imported_definitions = [session.get(FieldDefinition, field.field_definition_id) for field in imported_fields]
         assert [definition.label for definition in imported_definitions] == ["字段1", "字段3"]
 
 
@@ -405,6 +404,48 @@ def test_reorder_codelists_persists_dense_order_in_readback(
     assert [item["order_index"] for item in payload] == [1, 2]
 
 
+def test_reorder_forms_persists_dense_order_in_readback(
+    client: TestClient,
+    target_project_id: int,
+    auth_token: str,
+) -> None:
+    first = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单A", "code": "FORM_A"},
+        headers=auth_headers(auth_token),
+    )
+    second = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单B", "code": "FORM_B"},
+        headers=auth_headers(auth_token),
+    )
+    third = client.post(
+        f"/api/projects/{target_project_id}/forms",
+        json={"name": "表单C", "code": "FORM_C"},
+        headers=auth_headers(auth_token),
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert third.status_code == 201, third.text
+
+    reordered_ids = [third.json()["id"], first.json()["id"], second.json()["id"]]
+    resp = client.post(
+        f"/api/projects/{target_project_id}/forms/reorder",
+        json=reordered_ids,
+        headers=auth_headers(auth_token),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"message": "Reordered"}
+
+    readback = client.get(
+        f"/api/projects/{target_project_id}/forms",
+        headers=auth_headers(auth_token),
+    )
+    assert readback.status_code == 200, readback.text
+    payload = readback.json()
+    assert [item["id"] for item in payload] == reordered_ids
+    assert [item["order_index"] for item in payload] == [1, 2, 3]
+
 
 def test_reorder_visit_forms_persists_dense_sequence_in_readback(
     client: TestClient,
@@ -433,14 +474,11 @@ def test_reorder_visit_forms_persists_dense_sequence_in_readback(
     with Session(engine) as session:
         visit_forms = list(
             session.scalars(
-                select(VisitForm)
-                .where(VisitForm.visit_id == visit_id)
-                .order_by(VisitForm.sequence, VisitForm.id)
+                select(VisitForm).where(VisitForm.visit_id == visit_id).order_by(VisitForm.sequence, VisitForm.id)
             ).all()
         )
         assert [item.form_id for item in visit_forms] == reordered_form_ids
         assert [item.sequence for item in visit_forms] == [1, 2, 3]
-
 
 
 def test_reorder_form_fields_persists_dense_order_in_readback(
@@ -488,9 +526,7 @@ def test_export_service_reads_same_field_order_after_reorder(
     with Session(engine) as session:
         ordered_fields = list(
             session.scalars(
-                select(FormField)
-                .where(FormField.form_id == form_id)
-                .order_by(FormField.order_index, FormField.id)
+                select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index, FormField.id)
             ).all()
         )
         segments = ExportService(session)._build_unified_segments(ordered_fields)
@@ -530,7 +566,9 @@ def test_add_form_field_with_explicit_order_compacts_existing_rows(
     assert payload[1]["field_definition_id"] == new_fd_id
 
 
-def test_delete_form_field_compacts_remaining_order(client: TestClient, engine, target_project_id: int, auth_token: str) -> None:
+def test_delete_form_field_compacts_remaining_order(
+    client: TestClient, engine, target_project_id: int, auth_token: str
+) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
 
     delete_resp = client.delete(
@@ -580,7 +618,6 @@ def test_field_level_import_rejects_duplicate_field_ids(
     )
     assert resp.status_code == 400, resp.text
     assert "重复" in resp.json()["detail"]
-
 
 
 def test_field_level_import_rejects_out_of_scope_field_ids(
@@ -665,7 +702,9 @@ def test_field_level_import_includes_dependency_closure(
 
         imported_codelists = list(
             session.scalars(
-                select(CodeList).where(CodeList.project_id == target_project_id).order_by(CodeList.order_index, CodeList.id)
+                select(CodeList)
+                .where(CodeList.project_id == target_project_id)
+                .order_by(CodeList.order_index, CodeList.id)
             ).all()
         )
         imported_units = list(
@@ -690,7 +729,6 @@ def test_field_level_import_includes_dependency_closure(
         )
         assert option_decodes == ["男", "女"]
         assert imported_units[0].symbol == "kg"
-
 
 
 def test_field_level_import_no_orphan_references(
@@ -729,9 +767,7 @@ def test_field_level_import_no_orphan_references(
         valid_codelist_ids = set(
             session.scalars(select(CodeList.id).where(CodeList.project_id == target_project_id)).all()
         )
-        valid_unit_ids = set(
-            session.scalars(select(Unit.id).where(Unit.project_id == target_project_id)).all()
-        )
+        valid_unit_ids = set(session.scalars(select(Unit.id).where(Unit.project_id == target_project_id)).all())
         imported_defs = list(
             session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == target_project_id)).all()
         )
@@ -742,7 +778,6 @@ def test_field_level_import_no_orphan_references(
                 assert definition.codelist_id in valid_codelist_ids
             if definition.unit_id is not None:
                 assert definition.unit_id in valid_unit_ids
-
 
 
 def test_import_then_reorder_then_export_consistent_order(
@@ -815,7 +850,6 @@ def test_import_then_reorder_then_export_consistent_order(
         assert exported_ids == reorder_ids
 
 
-
 def test_project_copy_preserves_order_index(
     client: TestClient,
     engine,
@@ -840,8 +874,9 @@ def test_project_copy_preserves_order_index(
         storage=StorageConfig(upload_path="."),
     )
 
-    with patch("src.services.project_clone_service.get_config", return_value=test_config), patch(
-        "src.services.logo_storage_service.get_config", return_value=test_config
+    with (
+        patch("src.services.project_clone_service.get_config", return_value=test_config),
+        patch("src.services.logo_storage_service.get_config", return_value=test_config),
     ):
         copy_resp = client.post(
             f"/api/projects/{target_project_id}/copy",
@@ -851,12 +886,8 @@ def test_project_copy_preserves_order_index(
     copied_project_id = copy_resp.json()["id"]
 
     with Session(engine) as session:
-        source_form = session.scalar(
-            select(Form).where(Form.project_id == target_project_id).order_by(Form.id.asc())
-        )
-        copied_form = session.scalar(
-            select(Form).where(Form.project_id == copied_project_id).order_by(Form.id.asc())
-        )
+        source_form = session.scalar(select(Form).where(Form.project_id == target_project_id).order_by(Form.id.asc()))
+        copied_form = session.scalar(select(Form).where(Form.project_id == copied_project_id).order_by(Form.id.asc()))
         assert source_form is not None
         assert copied_form is not None
 
@@ -878,9 +909,10 @@ def test_project_copy_preserves_order_index(
 
         source_defs = [session.get(FieldDefinition, field.field_definition_id) for field in source_fields]
         copied_defs = [session.get(FieldDefinition, field.field_definition_id) for field in copied_fields]
-        assert [definition.variable_name for definition in copied_defs] == [definition.variable_name for definition in source_defs]
+        assert [definition.variable_name for definition in copied_defs] == [
+            definition.variable_name for definition in source_defs
+        ]
         assert [definition.id for definition in copied_defs] != [definition.id for definition in source_defs]
-
 
 
 def test_update_settings_requires_admin(client: TestClient) -> None:
@@ -920,9 +952,7 @@ def test_reorder_form_fields_returns_400_when_ordered_ids_are_incomplete(
     with Session(engine) as session:
         persisted_fields = list(
             session.scalars(
-                select(FormField)
-                .where(FormField.form_id == form_id)
-                .order_by(FormField.order_index, FormField.id)
+                select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index, FormField.id)
             ).all()
         )
         assert [field.id for field in persisted_fields] == field_ids
@@ -969,9 +999,7 @@ def test_quick_edit_updates_list_readback_and_export_consistently(
     with Session(engine) as session:
         ordered_fields = list(
             session.scalars(
-                select(FormField)
-                .where(FormField.form_id == form_id)
-                .order_by(FormField.order_index, FormField.id)
+                select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index, FormField.id)
             ).all()
         )
         target_field = next(field for field in ordered_fields if field.id == target_field_id)
@@ -981,7 +1009,9 @@ def test_quick_edit_updates_list_readback_and_export_consistently(
         assert target_field.text_color == "112233"
 
         segments = ExportService(session)._build_unified_segments(ordered_fields)
-        target_segment = next(segment for segment in segments if any(field.id == target_field_id for field in segment.fields))
+        target_segment = next(
+            segment for segment in segments if any(field.id == target_field_id for field in segment.fields)
+        )
         exported_field = next(field for field in target_segment.fields if field.id == target_field_id)
         assert target_segment.type == "inline_block"
         assert exported_field.label_override == "快捷编辑标签"
@@ -1035,9 +1065,7 @@ def test_consecutive_reorder_keeps_dense_order(
     with Session(engine) as session:
         db_fields = list(
             session.scalars(
-                select(FormField)
-                .where(FormField.form_id == form_id)
-                .order_by(FormField.order_index, FormField.id)
+                select(FormField).where(FormField.form_id == form_id).order_by(FormField.order_index, FormField.id)
             ).all()
         )
         assert [field.order_index for field in db_fields] == [1, 2, 3]

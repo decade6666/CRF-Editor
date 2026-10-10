@@ -5,9 +5,7 @@ from __future__ import annotations
 DB_TYPE_SAIMEISI = "赛美斯"
 DB_TYPE_OTHER = "其他"
 MULTISELECT_FIELD_TYPES = frozenset({"多选", "多选（纵向）"})
-MULTISELECT_REJECT_MSG = (
-    "当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型"
-)
+MULTISELECT_REJECT_MSG = "当前项目数据库类型为「其他」，不支持「多选」/「多选（纵向）」字段类型"
 
 
 def allows_multiselect(db_type: str | None) -> bool:

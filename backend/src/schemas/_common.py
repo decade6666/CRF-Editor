@@ -7,6 +7,7 @@ OID 契约：只允许字母、数字、`.`、`_`、`-`（正则 `^[A-Za-z0-9._-
 
 仅在写入边界（Create/Update schema）拦截；不做存量迁移。前后端共用同一字符集。
 """
+
 from __future__ import annotations
 
 import re

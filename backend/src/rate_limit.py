@@ -1,4 +1,5 @@
 """单机内存限流。"""
+
 from __future__ import annotations
 
 import threading

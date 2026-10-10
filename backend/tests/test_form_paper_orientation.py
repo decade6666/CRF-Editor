@@ -7,6 +7,7 @@
 - 数据库轻量迁移：旧库无列也可启动
 - 模板导入兼容性：缺列模板只做兼容判断，不修改源库
 """
+
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
@@ -58,12 +59,14 @@ def client(engine):
                 yield session
 
     app.dependency_overrides[get_session] = _override
-    with patch("main.get_config", return_value=_TEST_CONFIG), \
-         patch("src.database.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG), \
-         patch("src.routers.admin.get_config", return_value=_TEST_CONFIG), \
-         patch("main.init_db"):
+    with (
+        patch("main.get_config", return_value=_TEST_CONFIG),
+        patch("src.database.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.auth_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.services.user_admin_service.get_config", return_value=_TEST_CONFIG),
+        patch("src.routers.admin.get_config", return_value=_TEST_CONFIG),
+        patch("main.init_db"),
+    ):
         with TestClient(app, raise_server_exceptions=False) as c:
             token = login_as(c, "alice")
             c.headers.update(auth_headers(token))
@@ -177,9 +180,7 @@ def test_template_legacy_paper_orientation_compatibility_is_read_only(tmp_path: 
     """旧模板缺 paper_orientation 列时，只做兼容判断，不允许修改源模板。"""
     db_path = tmp_path / "tpl.db"
     conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, name VARCHAR(255) NOT NULL)"
-    )
+    conn.execute("CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, name VARCHAR(255) NOT NULL)")
     conn.execute("INSERT INTO form (id, project_id, name) VALUES (1, 1, 'OldForm')")
     conn.commit()
     conn.close()

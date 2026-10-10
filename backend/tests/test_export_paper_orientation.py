@@ -263,7 +263,6 @@ def test_export_landscape_uses_23_36cm_for_normal_table(tmp_path: Path) -> None:
         assert captured_avail_cm == [23.36]
 
 
-
 def test_export_landscape_uses_23_36cm_for_narrow_inline_budget(tmp_path: Path) -> None:
     with _build_session() as session:
         project = _create_project(session)
@@ -285,7 +284,6 @@ def test_export_landscape_uses_23_36cm_for_narrow_inline_budget(tmp_path: Path) 
 
         assert ok is True
         assert captured_avail_cm == [23.36]
-
 
 
 def test_export_mixed_landscape_uses_23_36cm_for_normal_and_inline(tmp_path: Path) -> None:
@@ -311,17 +309,19 @@ def test_export_mixed_landscape_uses_23_36cm_for_normal_and_inline(tmp_path: Pat
             inline_avail_cm.append(avail_cm)
             return original_inline_planner(headers, row_values, avail_cm, semantic_demands=semantic_demands)
 
-        with patch.object(export_service_mod, "plan_normal_table_width", _normal_planner_spy), patch.object(
-            export_service_mod,
-            "plan_inline_table_width",
-            _inline_planner_spy,
+        with (
+            patch.object(export_service_mod, "plan_normal_table_width", _normal_planner_spy),
+            patch.object(
+                export_service_mod,
+                "plan_inline_table_width",
+                _inline_planner_spy,
+            ),
         ):
             ok = ExportService(session).export_project_to_word(project.id, str(output_path))
 
         assert ok is True
         assert normal_avail_cm == [23.36]
         assert inline_avail_cm == [23.36]
-
 
 
 def test_export_portrait_uses_14_66cm_inline_budget(tmp_path: Path) -> None:
@@ -385,8 +385,7 @@ def test_export_portrait_does_not_emit_landscape_section(tmp_path: Path) -> None
         )
         landscape_switch_count = sum(1 for o in switch_calls if o == WD_ORIENT.LANDSCAPE)
         assert landscape_switch_count <= 1, (
-            "portrait override must not add extra LANDSCAPE switches beyond the visit-flow diagram, "
-            f"got {switch_calls}"
+            f"portrait override must not add extra LANDSCAPE switches beyond the visit-flow diagram, got {switch_calls}"
         )
 
 

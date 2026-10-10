@@ -1,4 +1,5 @@
 """项目复制集成测试"""
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -121,8 +122,10 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         storage=StorageConfig(upload_path=str(tmp_path)),
     )
 
-    with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.services.logo_storage_service.get_config", return_value=test_config):
+    with (
+        patch("src.services.project_clone_service.get_config", return_value=test_config),
+        patch("src.services.logo_storage_service.get_config", return_value=test_config),
+    ):
         resp = client.post("/api/projects/1/copy", headers=auth_headers(token))
 
     assert resp.status_code == 201, resp.text
@@ -152,13 +155,25 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         assert len(source_codelists) == len(cloned_codelists) == 1
         assert cloned_codelists[0].id != source_codelists[0].id
 
-        source_options = session.scalars(select(CodeListOption).where(CodeListOption.codelist_id == source_codelists[0].id)).all()
-        cloned_options = session.scalars(select(CodeListOption).where(CodeListOption.codelist_id == cloned_codelists[0].id)).all()
+        source_options = session.scalars(
+            select(CodeListOption).where(CodeListOption.codelist_id == source_codelists[0].id)
+        ).all()
+        cloned_options = session.scalars(
+            select(CodeListOption).where(CodeListOption.codelist_id == cloned_codelists[0].id)
+        ).all()
         assert len(source_options) == len(cloned_options) == 2
         assert {o.decode for o in cloned_options} == {"男", "女"}
 
-        source_defs = session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == source_project.id).order_by(FieldDefinition.order_index)).all()
-        cloned_defs = session.scalars(select(FieldDefinition).where(FieldDefinition.project_id == cloned_project.id).order_by(FieldDefinition.order_index)).all()
+        source_defs = session.scalars(
+            select(FieldDefinition)
+            .where(FieldDefinition.project_id == source_project.id)
+            .order_by(FieldDefinition.order_index)
+        ).all()
+        cloned_defs = session.scalars(
+            select(FieldDefinition)
+            .where(FieldDefinition.project_id == cloned_project.id)
+            .order_by(FieldDefinition.order_index)
+        ).all()
         assert len(source_defs) == len(cloned_defs) == 3
         assert all(a.id != b.id for a, b in zip(source_defs, cloned_defs))
         assert cloned_defs[0].unit_id == cloned_units[0].id
@@ -174,10 +189,13 @@ def test_copy_project_clones_full_graph(client, engine, tmp_path: Path):
         assert cloned_forms[0].id != source_forms[0].id
         assert cloned_forms[0].domain == "DM"
         from src.schemas.form import serialize_annotation_positions as _ser_ap
+
         assert cloned_forms[0].annotation_positions == _ser_ap(source_forms[0].annotation_positions)
         assert cloned_forms[0].paper_orientation == "portrait"
 
-        cloned_form_fields = session.scalars(select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.order_index)).all()
+        cloned_form_fields = session.scalars(
+            select(FormField).where(FormField.form_id == cloned_forms[0].id).order_by(FormField.order_index)
+        ).all()
         assert len(cloned_form_fields) == 2
         assert cloned_form_fields[0].field_definition_id == cloned_defs[0].id
         assert cloned_form_fields[1].field_definition_id == cloned_defs[1].id
@@ -203,9 +221,7 @@ def test_copy_project_discards_stale_checkbox_codelist(client, engine, tmp_path:
             user = session.scalar(select(User).where(User.username == "alice"))
             assert user is not None
             project = _create_full_project_graph(session, user.id)
-            codelist_id = session.scalar(
-                select(CodeList.id).where(CodeList.project_id == project.id)
-            )
+            codelist_id = session.scalar(select(CodeList.id).where(CodeList.project_id == project.id))
             assert codelist_id is not None
             session.execute(
                 text(
@@ -221,8 +237,10 @@ def test_copy_project_discards_stale_checkbox_codelist(client, engine, tmp_path:
         auth=AuthConfig(secret_key="test-secret-key-for-testing"),
         storage=StorageConfig(upload_path=str(tmp_path)),
     )
-    with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.services.logo_storage_service.get_config", return_value=test_config):
+    with (
+        patch("src.services.project_clone_service.get_config", return_value=test_config),
+        patch("src.services.logo_storage_service.get_config", return_value=test_config),
+    ):
         response = client.post("/api/projects/1/copy", headers=auth_headers(token))
 
     assert response.status_code == 201, response.text
@@ -244,7 +262,6 @@ def test_copy_project_discards_stale_checkbox_codelist(client, engine, tmp_path:
         assert clone_checkbox is not None
         assert source_checkbox.codelist_id is not None
         assert clone_checkbox.codelist_id is None
-
 
 
 def test_copy_project_forbidden_for_other_user(client, engine):
@@ -280,9 +297,11 @@ def test_copy_project_rolls_back_when_logo_copy_fails(client, engine, tmp_path: 
         storage=StorageConfig(upload_path=str(tmp_path)),
     )
 
-    with patch("src.services.project_clone_service.get_config", return_value=test_config), \
-         patch("src.services.logo_storage_service.get_config", return_value=test_config), \
-         patch("src.services.project_clone_service.shutil.copy2", side_effect=OSError("copy failed")):
+    with (
+        patch("src.services.project_clone_service.get_config", return_value=test_config),
+        patch("src.services.logo_storage_service.get_config", return_value=test_config),
+        patch("src.services.project_clone_service.shutil.copy2", side_effect=OSError("copy failed")),
+    ):
         resp = client.post("/api/projects/1/copy", headers=auth_headers(token))
 
     assert resp.status_code == 500

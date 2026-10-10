@@ -1,4 +1,5 @@
 """认证测试辅助。"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -96,9 +97,7 @@ def auth_headers(token: str) -> Dict[str, str]:
 
 
 @contextmanager
-def commit_probe(
-    engine: Engine, project_id: int, logo_path: Path
-) -> Iterator[list[tuple[bool, bool]]]:
+def commit_probe(engine: Engine, project_id: int, logo_path: Path) -> Iterator[list[tuple[bool, bool]]]:
     """监听 after_commit，记录每次提交时「项目行是否已消失、Logo 文件是否仍在」。
 
     用于锁定「先提交数据库、后删文件」的清理顺序；退出时（含异常）移除监听器。
@@ -109,9 +108,7 @@ def commit_probe(
 
     def _record(_session: Session) -> None:
         with Session(engine) as probe:
-            observations.append(
-                (probe.get(Project, project_id) is None, logo_path.exists())
-            )
+            observations.append((probe.get(Project, project_id) is None, logo_path.exists()))
 
     event.listen(Session, "after_commit", _record)
     try:

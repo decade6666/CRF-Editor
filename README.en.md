@@ -460,8 +460,8 @@ The two suites are disjoint and can run independently:
 - `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions; includes a Vue-warning gate — any Vue warning during a test, including during unmount, fails that test, implemented in `tests/component/vueWarnGate.js`)
 
 In the current repository:
-- `backend/tests/` currently contains 69 Python test files (67 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
-- `frontend/tests/` currently contains 76 frontend test files (69 node:test `.test.js` files plus `testProperty.js`, plus 6 vitest component-mount test files under `tests/component/` — 4 `.spec.js` files, a shared `setup.js`, and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
+- `backend/tests/` currently contains 63 Python test files (61 `test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `frontend/tests/` currently contains 75 frontend test files (68 node:test `.test.js` files plus `testProperty.js`, plus 6 vitest component-mount test files under `tests/component/` — 4 `.spec.js` files, a shared `setup.js`, and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 
 ### Pre-commit Gate
@@ -484,6 +484,26 @@ Notes:
 - The setting is stored in `.git/config` and is **shared by all worktrees** of this repository — enabling it in one worktree routes commits in every other worktree through the hook as well.
 - gitleaks must be installed first: download the single binary for your platform from the [gitleaks GitHub releases](https://github.com/gitleaks/gitleaks/releases) and place it at `~/.local/bin/gitleaks` (make sure `~/.local/bin` is on PATH).
 - `git commit --no-verify` can bypass the hook in an emergency, but must not be used routinely; for gitleaks false positives, follow the allowlist process in `.gitleaks.toml`.
+
+### Backend Code Formatting (ruff format)
+
+The backend uses the [ruff](https://docs.astral.sh/ruff/) formatter to keep code style uniform (format only; no lint rules are enabled):
+
+- The version is pinned in `backend/requirements-dev.txt` (`ruff==0.16.10`); configuration lives in `backend/ruff.toml` (line length 120, double quotes).
+- Format and check:
+
+```bash
+cd backend && python -m ruff format .          # format
+cd backend && python -m ruff format --check .  # check only (exit code 1 = files need formatting; other non-zero = runtime/config error)
+```
+
+- On 2026-10-09 a single format-only commit (no semantic changes) unified every Python file under `backend/` (134 files, 17 of which also had legacy CRCRLF line endings normalized); that commit is registered in the repo-root `.git-blame-ignore-revs`, and after running the command below `git blame` skips it automatically, keeping line-level history readable:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+- The pre-commit hook's 4th check requires `ruff` on PATH: it is skipped with a one-line notice when absent and enabled automatically once installed; "would be reformatted" (exit code 1) and runtime errors (any other non-zero) are reported separately.
 
 ## Contributing
 

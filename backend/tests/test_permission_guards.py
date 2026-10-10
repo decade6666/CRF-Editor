@@ -1,4 +1,5 @@
 """关键路由权限门禁测试。"""
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -136,7 +137,9 @@ def test_settings_endpoints_require_login(client: TestClient) -> None:
     assert client.post("/api/settings/ai/test", json={}).status_code == 401
 
 
-def test_authenticated_admin_can_read_settings(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authenticated_admin_can_read_settings(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     token = login_as(client, "admin")
     from src.routers import settings as settings_router
 
@@ -182,8 +185,9 @@ def test_non_admin_cannot_access_global_settings_or_full_export(client: TestClie
     assert client.get("/api/export/database", headers=auth_headers(token)).status_code == 403
 
 
-
-def test_admin_update_settings_rejects_template_path_outside_allowlist(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_admin_update_settings_rejects_template_path_outside_allowlist(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     token = login_as(client, "admin")
     from src.routers import settings as settings_router
 
@@ -226,8 +230,9 @@ def test_admin_update_settings_rejects_template_path_outside_allowlist(client: T
     assert "允许的目录内" in resp.json()["detail"]
 
 
-
-def test_admin_update_settings_accepts_db_file_inside_db_parent(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_admin_update_settings_accepts_db_file_inside_db_parent(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     token = login_as(client, "admin")
     from src.routers import settings as settings_router
 
@@ -251,10 +256,14 @@ def test_admin_update_settings_accepts_db_file_inside_db_parent(client: TestClie
         ),
     )
     monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
-    monkeypatch.setattr(settings_router, "update_config", lambda updates: SimpleNamespace(
-        template_path=updates["template"]["template_path"],
-        ai_config=fake_config.ai_config,
-    ))
+    monkeypatch.setattr(
+        settings_router,
+        "update_config",
+        lambda updates: SimpleNamespace(
+            template_path=updates["template"]["template_path"],
+            ai_config=fake_config.ai_config,
+        ),
+    )
 
     resp = client.put(
         "/api/settings",
@@ -270,7 +279,6 @@ def test_admin_update_settings_accepts_db_file_inside_db_parent(client: TestClie
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["template_path"] == str(template_path)
-
 
 
 def test_copy_visit_duplicates_associated_forms(client: TestClient, engine) -> None:
@@ -291,9 +299,7 @@ def test_copy_visit_duplicates_associated_forms(client: TestClient, engine) -> N
         assert copied_visit is not None
         copied_visit_forms = list(
             session.scalars(
-                select(VisitForm)
-                .where(VisitForm.visit_id == copied_visit_id)
-                .order_by(VisitForm.sequence)
+                select(VisitForm).where(VisitForm.visit_id == copied_visit_id).order_by(VisitForm.sequence)
             ).all()
         )
         assert [visit_form.form_id for visit_form in copied_visit_forms] == source_form_ids
@@ -326,13 +332,15 @@ def test_authenticated_user_can_export_owned_projects_database(
 
     Base.metadata.create_all(file_engine)
     with Session(file_engine) as session:
-        session.add_all([
-            User(id=alice.id, username="alice"),
-            User(id=bob.id, username="bob"),
-            Project(name="Alice 导出项目A", version="1.0", owner_id=alice.id, order_index=1),
-            Project(name="Alice 导出项目B", version="1.0", owner_id=alice.id, order_index=2),
-            Project(name="Bob 导出项目", version="1.0", owner_id=bob.id, order_index=1),
-        ])
+        session.add_all(
+            [
+                User(id=alice.id, username="alice"),
+                User(id=bob.id, username="bob"),
+                Project(name="Alice 导出项目A", version="1.0", owner_id=alice.id, order_index=1),
+                Project(name="Alice 导出项目B", version="1.0", owner_id=alice.id, order_index=2),
+                Project(name="Bob 导出项目", version="1.0", owner_id=bob.id, order_index=1),
+            ]
+        )
         session.commit()
     file_engine.dispose()
 
@@ -356,10 +364,22 @@ def test_authenticated_user_can_export_owned_projects_database(
         ("post", "/api/forms/{form_id}/copy", {}),
         ("get", "/api/forms/{form_id}/fields", None),
         ("post", "/api/forms/{form_id}/fields", {"field_definition_id": "{field_definition_id}"}),
-        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"label_override": "Hijacked"}}}),
+        (
+            "put",
+            "/api/form-fields/{form_field_id}/binding-profile",
+            {"instance": {"mode": "upsert", "upsert": {"label_override": "Hijacked"}}},
+        ),
         ("delete", "/api/form-fields/{form_field_id}", None),
-        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}}),
-        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"bg_color": "FFFFFF"}}}),
+        (
+            "put",
+            "/api/form-fields/{form_field_id}/binding-profile",
+            {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}},
+        ),
+        (
+            "put",
+            "/api/form-fields/{form_field_id}/binding-profile",
+            {"instance": {"mode": "upsert", "upsert": {"bg_color": "FFFFFF"}}},
+        ),
         ("post", "/api/forms/{form_id}/fields/reorder", {"ordered_ids": ["{form_field_id}"]}),
         ("post", "/api/forms/{form_id}/fields/batch-delete", {"ids": ["{form_field_id}"]}),
         ("get", "/api/field-definitions/{field_definition_id}/references", None),
@@ -421,7 +441,11 @@ def test_other_user_cannot_access_form_and_field_routes(
         ("get", "/api/forms/{form_id}/references", None),
         ("patch", "/api/forms/{form_id}", {"name": "No Login"}),
         ("get", "/api/forms/{form_id}/fields", None),
-        ("put", "/api/form-fields/{form_field_id}/binding-profile", {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}}),
+        (
+            "put",
+            "/api/form-fields/{form_field_id}/binding-profile",
+            {"instance": {"mode": "upsert", "upsert": {"inline_mark": 1}}},
+        ),
     ],
 )
 def test_sensitive_form_and_field_routes_require_login(
@@ -467,7 +491,9 @@ def test_add_form_field_rejects_cross_project_field_definition(client: TestClien
     assert resp.status_code == 403, resp.text
 
 
-def test_update_field_definition_rejects_cross_project_codelist_and_unit(client: TestClient, engine, owned_form_graph) -> None:
+def test_update_field_definition_rejects_cross_project_codelist_and_unit(
+    client: TestClient, engine, owned_form_graph
+) -> None:
     with Session(engine) as session:
         bob = session.scalar(select(User).where(User.username == "bob"))
         assert bob is not None
@@ -536,7 +562,9 @@ def test_admin_cleanup_screenshots_requires_admin(client: TestClient) -> None:
     assert client.post("/api/admin/cleanup-screenshots", headers=auth_headers(user_token)).status_code == 403
 
 
-def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upload_logo_route_exists_and_updates_project(
+    client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
@@ -544,6 +572,7 @@ def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine
 
     png_bytes = b"\x89PNG\r\n\x1a\nrest-of-png"
     import json as _json
+
     resp = client.put(
         f"/api/projects/{owned_form_graph.project_id}/profile",
         data={
@@ -558,8 +587,9 @@ def test_upload_logo_route_exists_and_updates_project(client: TestClient, engine
     assert payload["company_logo_path"].endswith(".png")
 
 
-
-def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upload_logo_rejects_svg_even_when_extension_is_png(
+    client: TestClient, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
@@ -567,6 +597,7 @@ def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, 
 
     svg_bytes = b"<svg xmlns='http://www.w3.org/2000/svg'></svg>"
     import json as _json
+
     resp = client.put(
         f"/api/projects/{owned_form_graph.project_id}/profile",
         data={
@@ -580,8 +611,9 @@ def test_upload_logo_rejects_svg_even_when_extension_is_png(client: TestClient, 
     assert "SVG/XML" in resp.json()["detail"]
 
 
-
-def test_get_logo_rejects_historical_svg_file(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_logo_rejects_historical_svg_file(
+    client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
@@ -605,8 +637,9 @@ def test_get_logo_rejects_historical_svg_file(client: TestClient, engine, owned_
     assert "重新上传位图" in resp.json()["detail"]
 
 
-
-def test_get_logo_rejects_non_bitmap_content_under_safe_extension(client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_logo_rejects_non_bitmap_content_under_safe_extension(
+    client: TestClient, engine, owned_form_graph, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from src.services import logo_storage_service as storage
 
     fake_config = SimpleNamespace(upload_path=str(tmp_path))
@@ -717,9 +750,11 @@ def test_remove_visit_form_compacts_sequence(client: TestClient, engine, owned_f
     assert resp.status_code == 204, resp.text
 
     with Session(engine) as session:
-        remaining = list(session.scalars(
-            select(VisitForm).where(VisitForm.visit_id == owned_form_graph.visit_id).order_by(VisitForm.sequence)
-        ).all())
+        remaining = list(
+            session.scalars(
+                select(VisitForm).where(VisitForm.visit_id == owned_form_graph.visit_id).order_by(VisitForm.sequence)
+            ).all()
+        )
         assert len(remaining) == 1
         assert remaining[0].form_id == second_form_id
         assert remaining[0].sequence == 1

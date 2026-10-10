@@ -1,4 +1,5 @@
 """配置加载模块"""
+
 from __future__ import annotations
 
 import logging
@@ -62,7 +63,6 @@ def _set_nested_value(target: dict, path: tuple, value) -> None:
     current[path[-1]] = value
 
 
-
 def _coerce_env_value(name: str, raw: str):
     if name in {"CRF_SERVER_PORT", "CRF_AUTH_ACCESS_TOKEN_EXPIRE_MINUTES"}:
         try:
@@ -70,7 +70,6 @@ def _coerce_env_value(name: str, raw: str):
         except ValueError as exc:
             raise ValueError(f"环境变量 {name} 必须是整数") from exc
     return raw
-
 
 
 def _build_env_overrides() -> dict:
@@ -83,11 +82,9 @@ def _build_env_overrides() -> dict:
     return overrides
 
 
-
 def get_runtime_env() -> str:
     raw = os.environ.get("CRF_ENV", "").strip().lower()
     return raw or _ENV_DEFAULT
-
 
 
 def is_production_env() -> bool:
@@ -313,9 +310,7 @@ def update_config(updates: dict, path: Path | None = None) -> AppConfig:
         merged = _deep_merge(raw, updates)
         content = yaml.safe_dump(merged, allow_unicode=True, sort_keys=False)
         # 写到同目录临时文件，再 os.replace 原子替换，避免写到一半崩溃导致配置损坏
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=config_file.parent, suffix=".tmp", prefix=".config_"
-        )
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=config_file.parent, suffix=".tmp", prefix=".config_")
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 f.write(content)

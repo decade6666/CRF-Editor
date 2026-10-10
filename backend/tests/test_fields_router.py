@@ -4,6 +4,7 @@
 - 清空单位时显式提交 unit_id: null 能持久化为空
 - 相关列表接口返回精简后的选项结构，支持导入后预览语义
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -107,10 +108,12 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         codelist = CodeList(project_id=project.id, name="性别", code="CL_TEMPLATE")
         session.add(codelist)
         session.flush()
-        session.add_all([
-            CodeListOption(codelist_id=codelist.id, code="1", decode="男", order_index=1),
-            CodeListOption(codelist_id=codelist.id, code="2", decode="女", order_index=2),
-        ])
+        session.add_all(
+            [
+                CodeListOption(codelist_id=codelist.id, code="1", decode="男", order_index=1),
+                CodeListOption(codelist_id=codelist.id, code="2", decode="女", order_index=2),
+            ]
+        )
         session.flush()
         field_definition = FieldDefinition(
             project_id=project.id,
@@ -121,11 +124,13 @@ def template_db_path(tmp_path: Path) -> SimpleNamespace:
         )
         session.add(field_definition)
         session.flush()
-        session.add(FormField(
-            form_id=form.id,
-            field_definition_id=field_definition.id,
-            order_index=1,
-        ))
+        session.add(
+            FormField(
+                form_id=form.id,
+                field_definition_id=field_definition.id,
+                order_index=1,
+            )
+        )
         session.commit()
 
     engine.dispose()
@@ -277,18 +282,17 @@ def test_checkbox_label_migration_is_idempotent(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy_fields.db"
     migration_engine = create_engine(f"sqlite+pysqlite:///{db_path.as_posix()}")
     with migration_engine.begin() as conn:
-        conn.execute(text(
-            "CREATE TABLE field_definition ("
-            "id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, label VARCHAR(255) NOT NULL)"
-        ))
+        conn.execute(
+            text(
+                "CREATE TABLE field_definition ("
+                "id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, label VARCHAR(255) NOT NULL)"
+            )
+        )
 
     _migrate_add_field_definition_checkbox_label(migration_engine)
     _migrate_add_field_definition_checkbox_label(migration_engine)
 
-    columns = {
-        column["name"]: column
-        for column in inspect(migration_engine).get_columns("field_definition")
-    }
+    columns = {column["name"]: column for column in inspect(migration_engine).get_columns("field_definition")}
     assert columns["checkbox_label"]["nullable"] is True
     migration_engine.dispose()
 
@@ -377,6 +381,7 @@ def test_checkbox_field_definition_persists_without_codelist(
     assert definition["checkbox_label"] is None
     assert definition["codelist_id"] is None
 
+
 def test_copy_checkbox_field_definition_preserves_custom_text(
     client: TestClient,
     project_id: int,
@@ -424,7 +429,6 @@ def test_checkbox_field_definition_rejects_label_over_255_characters(
     )
 
     assert response.status_code == 422
-
 
 
 def put_binding_profile(client: TestClient, ff_id: int, auth_token: str, upsert: dict) -> dict:
@@ -487,14 +491,20 @@ def test_binding_profile_can_clear_bg_and_set_text_black(
     form_field = add_resp.json()
 
     status, seeded = put_binding_profile(
-        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"bg_color": "FFEEDD", "text_color": "112233"},
     )
     assert status == 200, seeded
     assert seeded["form_field"]["bg_color"] == "FFEEDD"
     assert seeded["form_field"]["text_color"] == "112233"
 
     status, patched = put_binding_profile(
-        client, form_field["id"], auth_token, {"bg_color": None, "text_color": "000000"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"bg_color": None, "text_color": "000000"},
     )
     assert status == 200, patched
     assert patched["form_field"]["bg_color"] is None
@@ -544,7 +554,10 @@ def test_binding_profile_keeps_omitted_field_unchanged(
     form_field = add_resp.json()
 
     status, seeded = put_binding_profile(
-        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"bg_color": "FFEEDD", "text_color": "112233"},
     )
     assert status == 200, seeded
 
@@ -582,7 +595,10 @@ def test_binding_profile_color_validation_and_null_semantics(
     form_field = add_resp.json()
 
     status, seeded = put_binding_profile(
-        client, form_field["id"], auth_token, {"bg_color": "FFEEDD", "text_color": "112233"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"bg_color": "FFEEDD", "text_color": "112233"},
     )
     assert status == 200, seeded
 
@@ -615,14 +631,20 @@ def test_binding_profile_label_style_defaults_and_updates(
 
     # 设计器属性保存与快编两条路径都走 binding-profile 实例更新
     status, updated = put_binding_profile(
-        client, form_field["id"], auth_token, {"label_bold": 0, "label_font_size": "large"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"label_bold": 0, "label_font_size": "large"},
     )
     assert status == 200, updated
     assert updated["form_field"]["label_bold"] == 0
     assert updated["form_field"]["label_font_size"] == "large"
 
     status, updated = put_binding_profile(
-        client, form_field["id"], auth_token, {"label_bold": 1, "label_font_size": "small"},
+        client,
+        form_field["id"],
+        auth_token,
+        {"label_bold": 1, "label_font_size": "small"},
     )
     assert status == 200, updated
     assert updated["form_field"]["label_bold"] == 1
@@ -731,7 +753,6 @@ def test_legacy_form_field_write_routes_are_removed(
     assert patch_inline.status_code in (404, 405), patch_inline.text
 
 
-
 def test_delete_label_form_field_removes_orphan_field_definition(
     client: TestClient,
     project_id: int,
@@ -768,7 +789,6 @@ def test_delete_label_form_field_removes_orphan_field_definition(
     assert all(item["id"] != form_field["id"] for item in get_resp.json())
 
 
-
 def test_delete_normal_form_field_keeps_field_definition(
     client: TestClient,
     project_id: int,
@@ -791,7 +811,6 @@ def test_delete_normal_form_field_keeps_field_definition(
     assert list_resp.status_code == 200, list_resp.text
     matched = [item for item in list_resp.json() if item["id"] == field_definition_id]
     assert len(matched) == 1
-
 
 
 def test_delete_shared_label_form_field_keeps_definition_until_last_reference_removed(
@@ -839,7 +858,6 @@ def test_delete_shared_label_form_field_keeps_definition_until_last_reference_re
     assert all(item["id"] != field_definition_id for item in list_after_second.json())
 
 
-
 def test_batch_delete_label_form_fields_removes_orphan_definitions(
     client: TestClient,
     project_id: int,
@@ -854,13 +872,18 @@ def test_batch_delete_label_form_fields_removes_orphan_definitions(
         label="批量标题",
     )
     label_field = add_form_field(client, form_id, field_definition_id, auth_token)
-    normal_field = add_form_field(client, form_id, create_label_field_definition(
+    normal_field = add_form_field(
         client,
-        project_id,
+        form_id,
+        create_label_field_definition(
+            client,
+            project_id,
+            auth_token,
+            variable_name="LABEL_BATCH_2",
+            label="批量标题二",
+        ),
         auth_token,
-        variable_name="LABEL_BATCH_2",
-        label="批量标题二",
-    ), auth_token)
+    )
 
     delete_resp = client.post(
         f"/api/forms/{form_id}/fields/batch-delete",
@@ -877,7 +900,6 @@ def test_batch_delete_label_form_fields_removes_orphan_definitions(
     assert list_resp.status_code == 200, list_resp.text
     ids = {item["id"] for item in list_resp.json()}
     assert field_definition_id not in ids
-
 
 
 def test_delete_label_field_compacts_field_definition_order(

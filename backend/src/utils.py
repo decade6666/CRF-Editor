@@ -1,4 +1,5 @@
 """公共工具函数"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -82,6 +83,7 @@ def is_safe_path(path: str, allowed_dirs: list[str] = None) -> tuple[bool, str]:
         real_path = Path(path).resolve()
         if allowed_dirs:
             import os
+
             for allowed_dir in allowed_dirs:
                 allowed_real = Path(allowed_dir).resolve()
                 try:

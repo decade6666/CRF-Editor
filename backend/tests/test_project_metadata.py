@@ -12,156 +12,169 @@ from src.schemas.project import normalize_screening_number_format
 
 def _project_payload(name: str, version: str, **overrides):
     payload = {
-        'name': name,
-        'version': version,
+        "name": name,
+        "version": version,
     }
     payload.update(overrides)
     return payload
 
+
 def _update_profile(client, token, project_id, payload):
     import json
+
     return client.put(
-        f'/api/projects/{project_id}/profile',
-        data={'metadata': json.dumps(payload), 'logo_action': 'keep'},
+        f"/api/projects/{project_id}/profile",
+        data={"metadata": json.dumps(payload), "logo_action": "keep"},
         headers=auth_headers(token),
     )
 
+
 def test_project_create_persists_screening_number_format(client, engine):
-    token = login_as(client, 'alice')
+    token = login_as(client, "alice")
     create_resp = client.post(
-        '/api/projects',
-        json=_project_payload('元数据项目', '1.0', screening_number_format='SCR-XYZ'),
+        "/api/projects",
+        json=_project_payload("元数据项目", "1.0", screening_number_format="SCR-XYZ"),
         headers=auth_headers(token),
     )
     assert create_resp.status_code == 201, create_resp.text
-    assert create_resp.json()['screening_number_format'] == 'SCR-XYZ'
+    assert create_resp.json()["screening_number_format"] == "SCR-XYZ"
 
 
 def test_project_update_persists_screening_number_format(client, engine):
-    token = login_as(client, 'alice')
-    create_resp = client.post('/api/projects', json=_project_payload('元数据项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    create_resp = client.post("/api/projects", json=_project_payload("元数据项目", "1.0"), headers=auth_headers(token))
     assert create_resp.status_code == 201, create_resp.text
-    project_id = create_resp.json()['id']
+    project_id = create_resp.json()["id"]
 
-    update_resp = _update_profile(client, token, project_id, _project_payload('元数据项目', '1.0', screening_number_format='SCR-XYZ'))
+    update_resp = _update_profile(
+        client, token, project_id, _project_payload("元数据项目", "1.0", screening_number_format="SCR-XYZ")
+    )
     assert update_resp.status_code == 200, update_resp.text
-    assert update_resp.json()['screening_number_format'] == 'SCR-XYZ'
+    assert update_resp.json()["screening_number_format"] == "SCR-XYZ"
 
-    get_resp = client.get(f'/api/projects/{project_id}', headers=auth_headers(token))
+    get_resp = client.get(f"/api/projects/{project_id}", headers=auth_headers(token))
     assert get_resp.status_code == 200, get_resp.text
-    assert get_resp.json()['screening_number_format'] == 'SCR-XYZ'
+    assert get_resp.json()["screening_number_format"] == "SCR-XYZ"
 
 
 def test_project_update_normalizes_blank_screening_number_format_to_null(client, engine):
-    token = login_as(client, 'alice')
-    create_resp = client.post('/api/projects', json=_project_payload('空白项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    create_resp = client.post("/api/projects", json=_project_payload("空白项目", "1.0"), headers=auth_headers(token))
     assert create_resp.status_code == 201, create_resp.text
-    project_id = create_resp.json()['id']
+    project_id = create_resp.json()["id"]
 
-    update_resp = _update_profile(client, token, project_id, _project_payload('空白项目', '1.0', screening_number_format='   '))
+    update_resp = _update_profile(
+        client, token, project_id, _project_payload("空白项目", "1.0", screening_number_format="   ")
+    )
     assert update_resp.status_code == 200, update_resp.text
-    assert update_resp.json()['screening_number_format'] is None
+    assert update_resp.json()["screening_number_format"] is None
 
 
 def test_project_update_rejects_invalid_screening_number_format(client, engine):
-    token = login_as(client, 'alice')
-    create_resp = client.post('/api/projects', json=_project_payload('非法项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    create_resp = client.post("/api/projects", json=_project_payload("非法项目", "1.0"), headers=auth_headers(token))
     assert create_resp.status_code == 201, create_resp.text
-    project_id = create_resp.json()['id']
+    project_id = create_resp.json()["id"]
 
-    long_resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format='A' * 101))
+    long_resp = _update_profile(
+        client, token, project_id, _project_payload("非法项目", "1.0", screening_number_format="A" * 101)
+    )
     assert long_resp.status_code == 422, long_resp.text
-    assert '筛选号格式长度不能超过100个字符' in long_resp.json()['detail']
+    assert "筛选号格式长度不能超过100个字符" in long_resp.json()["detail"]
 
-    newline_resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format='A\nB'))
+    newline_resp = _update_profile(
+        client, token, project_id, _project_payload("非法项目", "1.0", screening_number_format="A\nB")
+    )
     assert newline_resp.status_code == 422, newline_resp.text
-    assert '筛选号格式不能包含换行或控制字符' in newline_resp.json()['detail']
+    assert "筛选号格式不能包含换行或控制字符" in newline_resp.json()["detail"]
 
     # 回归：首尾换行/Tab 不能被 strip() 静默吞掉
-    for sample in ('A\n', '\nA', 'A\t', '\tA', 'A\rB'):
-        resp = _update_profile(client, token, project_id, _project_payload('非法项目', '1.0', screening_number_format=sample))
+    for sample in ("A\n", "\nA", "A\t", "\tA", "A\rB"):
+        resp = _update_profile(
+            client, token, project_id, _project_payload("非法项目", "1.0", screening_number_format=sample)
+        )
         assert resp.status_code == 422, (sample, resp.text)
-        assert '筛选号格式不能包含换行或控制字符' in resp.json()['detail']
+        assert "筛选号格式不能包含换行或控制字符" in resp.json()["detail"]
 
 
 def test_project_update_still_requires_name_and_version(client, engine):
-    token = login_as(client, 'alice')
-    create_resp = client.post('/api/projects', json=_project_payload('必填项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    create_resp = client.post("/api/projects", json=_project_payload("必填项目", "1.0"), headers=auth_headers(token))
     assert create_resp.status_code == 201, create_resp.text
-    project_id = create_resp.json()['id']
+    project_id = create_resp.json()["id"]
 
-    update_resp = _update_profile(client, token, project_id, {'screening_number_format': 'SCR-ONLY'})
+    update_resp = _update_profile(client, token, project_id, {"screening_number_format": "SCR-ONLY"})
     assert update_resp.status_code == 422, update_resp.text
-    detail = update_resp.json()['detail']
-    assert 'name' in detail and 'version' in detail
+    detail = update_resp.json()["detail"]
+    assert "name" in detail and "version" in detail
 
 
 def test_project_screening_number_format_migration_adds_column(tmp_path: Path):
-    db_path = tmp_path / 'project_migration.db'
+    db_path = tmp_path / "project_migration.db"
     conn = sqlite3.connect(db_path)
-    conn.execute('CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)')
+    conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)")
     conn.commit()
     conn.close()
 
-    engine = create_engine(f'sqlite:///{db_path}')
+    engine = create_engine(f"sqlite:///{db_path}")
     inspector = inspect(engine)
-    cols_before = {col['name'] for col in inspector.get_columns('project')}
-    assert 'screening_number_format' not in cols_before
+    cols_before = {col["name"] for col in inspector.get_columns("project")}
+    assert "screening_number_format" not in cols_before
 
     _migrate_add_project_screening_number_format(engine)
     _migrate_add_project_screening_number_format(engine)
 
     inspector_after = inspect(engine)
-    cols_after = {col['name'] for col in inspector_after.get_columns('project')}
-    assert 'screening_number_format' in cols_after
+    cols_after = {col["name"] for col in inspector_after.get_columns("project")}
+    assert "screening_number_format" in cols_after
     engine.dispose()
 
 
 def test_project_response_exposes_null_screening_number_format_by_default(client, engine):
-    token = login_as(client, 'alice')
-    create_resp = client.post('/api/projects', json=_project_payload('默认项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    create_resp = client.post("/api/projects", json=_project_payload("默认项目", "1.0"), headers=auth_headers(token))
     assert create_resp.status_code == 201, create_resp.text
-    assert create_resp.json()['screening_number_format'] is None
+    assert create_resp.json()["screening_number_format"] is None
 
 
 def test_forms_list_returns_controlled_error_for_invalid_annotation_positions(client, engine):
-    token = login_as(client, 'alice')
-    project_resp = client.post('/api/projects', json=_project_payload('坏标注项目', '1.0'), headers=auth_headers(token))
+    token = login_as(client, "alice")
+    project_resp = client.post("/api/projects", json=_project_payload("坏标注项目", "1.0"), headers=auth_headers(token))
     assert project_resp.status_code == 201, project_resp.text
-    project_id = project_resp.json()['id']
+    project_id = project_resp.json()["id"]
 
     form_resp = client.post(
-        f'/api/projects/{project_id}/forms',
-        json={'name': '表单1', 'code': 'FORM1'},
+        f"/api/projects/{project_id}/forms",
+        json={"name": "表单1", "code": "FORM1"},
         headers=auth_headers(token),
     )
     assert form_resp.status_code == 201, form_resp.text
-    form_id = form_resp.json()['id']
+    form_id = form_resp.json()["id"]
 
     with engine.begin() as connection:
         connection.execute(
             text("UPDATE form SET annotation_positions = :value WHERE id = :form_id"),
-            {'value': '{"_bad":{"y":1}}', 'form_id': form_id},
+            {"value": '{"_bad":{"y":1}}', "form_id": form_id},
         )
 
-    list_resp = client.get(f'/api/projects/{project_id}/forms', headers=auth_headers(token))
+    list_resp = client.get(f"/api/projects/{project_id}/forms", headers=auth_headers(token))
     assert list_resp.status_code == 409, list_resp.text
-    assert 'annotation_positions 数据非法' in list_resp.json()['detail']
+    assert "annotation_positions 数据非法" in list_resp.json()["detail"]
 
 
 def test_normalize_screening_number_format_rejects_invalid_utf8_bytes():
     try:
-        normalize_screening_number_format(b'\xff')
+        normalize_screening_number_format(b"\xff")
     except ValueError as exc:
-        assert 'UTF-8' in str(exc)
+        assert "UTF-8" in str(exc)
     else:
-        raise AssertionError('expected ValueError for invalid utf-8 bytes')
+        raise AssertionError("expected ValueError for invalid utf-8 bytes")
 
 
 def test_legacy_project_db_without_screening_number_format_column_is_patched(tmp_path: Path):
-    db_path = tmp_path / 'legacy_project.db'
+    db_path = tmp_path / "legacy_project.db"
     conn = sqlite3.connect(db_path)
-    conn.execute('CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)')
+    conn.execute("CREATE TABLE project (id INTEGER PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL)")
     conn.execute("INSERT INTO project (id, name, version) VALUES (1, '旧项目', '1.0')")
     conn.commit()
     conn.close()
@@ -170,19 +183,19 @@ def test_legacy_project_db_without_screening_number_format_column_is_patched(tmp
 
     _patch_legacy_project_schema(str(db_path))
 
-    engine = create_engine(f'sqlite:///{db_path}')
+    engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as connection:
-        cols = {row[1] for row in connection.execute(text('PRAGMA table_info(project)')).fetchall()}
-    assert 'screening_number_format' in cols
+        cols = {row[1] for row in connection.execute(text("PRAGMA table_info(project)")).fetchall()}
+    assert "screening_number_format" in cols
     engine.dispose()
 
 
 def test_legacy_project_db_without_form_annotation_positions_column_is_patched(tmp_path: Path):
-    db_path = tmp_path / 'legacy_form_annotations.db'
+    db_path = tmp_path / "legacy_form_annotations.db"
     conn = sqlite3.connect(db_path)
     conn.execute(
-        'CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, '
-        'name TEXT NOT NULL, code TEXT, domain TEXT, order_index INTEGER, design_notes TEXT, '
+        "CREATE TABLE form (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, "
+        "name TEXT NOT NULL, code TEXT, domain TEXT, order_index INTEGER, design_notes TEXT, "
         "paper_orientation VARCHAR(16) NOT NULL DEFAULT 'auto')"
     )
     conn.execute("INSERT INTO form (id, project_id, name) VALUES (1, 1, '旧表单')")
@@ -193,13 +206,11 @@ def test_legacy_project_db_without_form_annotation_positions_column_is_patched(t
 
     _patch_legacy_project_schema(str(db_path))
 
-    engine = create_engine(f'sqlite:///{db_path}')
+    engine = create_engine(f"sqlite:///{db_path}")
     with engine.connect() as connection:
-        cols = {row[1] for row in connection.execute(text('PRAGMA table_info(form)')).fetchall()}
-        value = connection.execute(
-            text('SELECT annotation_positions FROM form WHERE id = 1')
-        ).scalar()
-    assert 'annotation_positions' in cols
+        cols = {row[1] for row in connection.execute(text("PRAGMA table_info(form)")).fetchall()}
+        value = connection.execute(text("SELECT annotation_positions FROM form WHERE id = 1")).scalar()
+    assert "annotation_positions" in cols
     assert value is None
     engine.dispose()
 
@@ -209,8 +220,8 @@ def test_legacy_imported_screening_number_format_is_normalized_via_endpoint(
     engine,
     tmp_path: Path,
 ):
-    token = login_as(client, 'admin')
-    db_path = tmp_path / 'legacy_import.db'
+    token = login_as(client, "admin")
+    db_path = tmp_path / "legacy_import.db"
     conn = sqlite3.connect(db_path)
     conn.executescript(
         """
@@ -254,25 +265,18 @@ def test_legacy_imported_screening_number_format_is_normalized_via_endpoint(
 
     from tests.test_project_import import _upload_db
 
-    resp = _upload_db(client, '/api/projects/import/project-db', db_path, token)
+    resp = _upload_db(client, "/api/projects/import/project-db", db_path, token)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     project_resp = client.get(f"/api/projects/{body['project_id']}", headers=auth_headers(token))
     assert project_resp.status_code == 200, project_resp.text
-    assert project_resp.json()['screening_number_format'] is None
+    assert project_resp.json()["screening_number_format"] is None
 
     with sqlite3.connect(db_path) as source_conn:
-        source_columns = {
-            row[1]
-            for row in source_conn.execute('PRAGMA table_info(field_definition)')
-        }
-    assert 'checkbox_label' not in source_columns
+        source_columns = {row[1] for row in source_conn.execute("PRAGMA table_info(field_definition)")}
+    assert "checkbox_label" not in source_columns
 
     with Session(engine) as session:
-        imported_field = session.scalar(
-            select(FieldDefinition).where(
-                FieldDefinition.project_id == body['project_id']
-            )
-        )
+        imported_field = session.scalar(select(FieldDefinition).where(FieldDefinition.project_id == body["project_id"]))
     assert imported_field is not None
     assert imported_field.checkbox_label is None

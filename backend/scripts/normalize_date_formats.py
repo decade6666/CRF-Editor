@@ -11,6 +11,7 @@
 说明：运行库由后端启动时的 _migrate_normalize_date_formats 自动迁移，本脚本只用于
 database/ 下那些不经过后端启动流程的离线模板库。原文件保持不变，输出到新文件。
 """
+
 import argparse
 import shutil
 import sqlite3
@@ -36,9 +37,7 @@ def _collect_changes(conn):
     for row_id, field_type, date_format in rows:
         canonical = _DATE_FORMAT_CANONICALS.get(field_type, {}).get(date_format.lower())
         if canonical is not None and canonical != date_format:
-            changed_ids.append(
-                {"id": row_id, "field_type": field_type, "from": date_format, "to": canonical}
-            )
+            changed_ids.append({"id": row_id, "field_type": field_type, "from": date_format, "to": canonical})
     return changed_ids
 
 

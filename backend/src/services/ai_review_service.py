@@ -1,4 +1,5 @@
 """AI复核服务 - 调用LLM API对规则引擎解析结果进行复核"""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,13 +33,18 @@ _ai_tasks: Dict[str, AIReviewTask] = {}
 
 # 支持的字段类型列表
 VALID_FIELD_TYPES = [
-    "文本", "数值", "日期", "时间", "单选", "多选",
-    "单选（纵向）", "多选（纵向）", "标签",
+    "文本",
+    "数值",
+    "日期",
+    "时间",
+    "单选",
+    "多选",
+    "单选（纵向）",
+    "多选（纵向）",
+    "标签",
 ]
 
-VALID_FIELD_TYPES_NO_MULTISELECT = [
-    t for t in VALID_FIELD_TYPES if t not in ("多选", "多选（纵向）")
-]
+VALID_FIELD_TYPES_NO_MULTISELECT = [t for t in VALID_FIELD_TYPES if t not in ("多选", "多选（纵向）")]
 
 SYSTEM_PROMPT_NO_MULTISELECT_SUFFIX = """
 【本次复核附加约束】
@@ -197,7 +203,7 @@ def _build_user_prompt(form_name: str, fields: List[dict]) -> str:
             extra += f"，小数位={f['decimal_digits']}"
         if f.get("date_format"):
             extra += f"，格式={f['date_format']}"
-        lines.append(f"  {i}. 标签=\"{label}\"，类型=\"{ft}\"{extra}")
+        lines.append(f'  {i}. 标签="{label}"，类型="{ft}"{extra}')
     return "\n".join(lines)
 
 
@@ -444,9 +450,7 @@ async def _review_form_in_background(
             )
         if not text:
             return form_index, []
-        return form_index, _extract_valid_diffs(
-            real_fields, _parse_ai_response(text), allowed_types=allowed_types
-        )
+        return form_index, _extract_valid_diffs(real_fields, _parse_ai_response(text), allowed_types=allowed_types)
     except Exception as exc:
         logger.warning(
             "AI复核表单失败 form_index=%d form_name=%s error=%s",
@@ -475,9 +479,7 @@ async def _run_ai_review_task(
         async with httpx.AsyncClient(timeout=cfg.timeout, follow_redirects=True) as client:
             review_tasks = [
                 asyncio.create_task(
-                    _review_form_in_background(
-                        form_index, form, cfg, api_format, sem, client, allow_multiselect
-                    )
+                    _review_form_in_background(form_index, form, cfg, api_format, sem, client, allow_multiselect)
                 )
                 for form_index, form in enumerate(forms)
             ]
@@ -504,8 +506,7 @@ def remove_ai_task(temp_id: str) -> None:
 def cleanup_old_ai_tasks(max_age: int = 3600) -> int:
     cutoff = time.time() - max_age
     expired_ids = [
-        temp_id for temp_id, task in _ai_tasks.items()
-        if task.created_at < cutoff and task.status in {"done", "failed"}
+        temp_id for temp_id, task in _ai_tasks.items() if task.created_at < cutoff and task.status in {"done", "failed"}
     ]
     for temp_id in expired_ids:
         remove_ai_task(temp_id)
@@ -549,8 +550,12 @@ async def review_forms(
     cfg = get_config().ai_config
     logger.info(
         "AI复核配置: enabled=%s url=%s model=%s key=%s timeout=%s format=%s",
-        cfg.enabled, _safe_api_host(cfg.api_url), cfg.model,
-        _mask_api_key(cfg.api_key), cfg.timeout, cfg.api_format,
+        cfg.enabled,
+        _safe_api_host(cfg.api_url),
+        cfg.model,
+        _mask_api_key(cfg.api_key),
+        cfg.timeout,
+        cfg.api_format,
     )
     if not cfg.enabled or not cfg.api_url or not cfg.api_key or not cfg.model:
         logger.info("AI复核未启用或配置不完整，跳过")
@@ -578,8 +583,13 @@ async def review_forms(
             prompt = _build_user_prompt(form["name"], real_fields)
             async with sem:
                 text = await _call_llm(
-                    cfg.api_url, cfg.api_key, cfg.model, prompt, cfg.timeout,
-                    api_format=fmt, client=client,
+                    cfg.api_url,
+                    cfg.api_key,
+                    cfg.model,
+                    prompt,
+                    cfg.timeout,
+                    api_format=fmt,
+                    client=client,
                 )
             if not text:
                 return None
@@ -591,16 +601,16 @@ async def review_forms(
         except Exception as e:
             logger.warning(
                 "AI复核表单失败 form_index=%d form_name=%s error=%s",
-                fi, form.get("name", "未知"), str(e), exc_info=True
+                fi,
+                form.get("name", "未知"),
+                str(e),
+                exc_info=True,
             )
             return None
 
     # 创建共享的AsyncClient并并发执行
     async with httpx.AsyncClient(timeout=cfg.timeout, follow_redirects=True) as client:
-        tasks = [
-            asyncio.create_task(_review_one(fi, form))
-            for fi, form in enumerate(forms)
-        ]
+        tasks = [asyncio.create_task(_review_one(fi, form)) for fi, form in enumerate(forms)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # 处理结果，跳过异常
@@ -628,13 +638,18 @@ async def test_ai_connection(
     """
     logger.info(
         "AI测试连接: url=%s model=%s key=%s",
-        _safe_api_host(api_url), model, _mask_api_key(api_key),
+        _safe_api_host(api_url),
+        model,
+        _mask_api_key(api_key),
     )
     # 先试 OpenAI 格式
     start = time.monotonic()
     text = await _call_llm_openai(
-        api_url=api_url, api_key=api_key, model=model,
-        user_prompt="请仅回复: ok", timeout=timeout,
+        api_url=api_url,
+        api_key=api_key,
+        model=model,
+        user_prompt="请仅回复: ok",
+        timeout=timeout,
     )
     latency_ms = int((time.monotonic() - start) * 1000)
     if text:
@@ -645,8 +660,11 @@ async def test_ai_connection(
     logger.info("OpenAI格式失败，尝试Anthropic格式...")
     start = time.monotonic()
     text = await _call_llm_anthropic(
-        api_url=api_url, api_key=api_key, model=model,
-        user_prompt="请仅回复: ok", timeout=timeout,
+        api_url=api_url,
+        api_key=api_key,
+        model=model,
+        user_prompt="请仅回复: ok",
+        timeout=timeout,
     )
     latency_ms = int((time.monotonic() - start) * 1000)
     if text:

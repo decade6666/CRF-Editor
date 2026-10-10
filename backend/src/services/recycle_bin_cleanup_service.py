@@ -10,6 +10,7 @@
 - 容量规则受 min_retain_hours 保护：删除时间不足该时长的项目不参与容量清理。
 - 每个项目一个事务，删前重查 deleted_at is not None（关掉计划后恢复的竞态）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,7 +30,7 @@ from src.services.project_size_service import estimate_project_sizes, format_byt
 logger = logging.getLogger(__name__)
 
 _AGE_FACTORS = {"day": 1, "month": DAYS_PER_MONTH, "year": DAYS_PER_YEAR}
-_SIZE_FACTORS = {"MB": 1024 ** 2, "GB": 1024 ** 3}
+_SIZE_FACTORS = {"MB": 1024**2, "GB": 1024**3}
 
 
 @dataclass(frozen=True)
@@ -156,8 +157,7 @@ def build_cleanup_plan(
 
     if blocked_by_retain and limit is not None and total > limit:
         logger.info(
-            "回收站容量规则因 min_retain_hours=%s 未能降到阈值 %s 以下，"
-            "剩余约 %s；保留较新项目",
+            "回收站容量规则因 min_retain_hours=%s 未能降到阈值 %s 以下，剩余约 %s；保留较新项目",
             policy.min_retain_hours,
             format_bytes(limit),
             format_bytes(total_after),

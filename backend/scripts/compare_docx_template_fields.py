@@ -209,10 +209,7 @@ def build_report(docx_path: str, template_db_path: str) -> dict[str, Any]:
     extra_docx_names = [form["name"] for form in parsed_forms if form["name"] not in template_by_name]
     missing_docx_names = [form["name"] for form in template_forms if form["name"] not in parsed_by_name]
 
-    compared_forms = [
-        _compare_form(parsed_by_name[name], template_by_name[name])
-        for name in shared_names
-    ]
+    compared_forms = [_compare_form(parsed_by_name[name], template_by_name[name]) for name in shared_names]
 
     total_common_fields = sum(item["common_field_count"] for item in compared_forms)
     total_type_matches = sum(item["type_matches"] for item in compared_forms)
@@ -233,22 +230,16 @@ def build_report(docx_path: str, template_db_path: str) -> dict[str, Any]:
             "total_common_fields": total_common_fields,
             "type_matches": total_type_matches,
             "type_mismatches": total_common_fields - total_type_matches,
-            "type_match_rate": (
-                total_type_matches / total_common_fields if total_common_fields else None
-            ),
+            "type_match_rate": (total_type_matches / total_common_fields if total_common_fields else None),
             "option_compared": total_option_compared,
             "option_matches": total_option_matches,
             "option_mismatches": total_option_compared - total_option_matches,
-            "option_match_rate": (
-                total_option_matches / total_option_compared if total_option_compared else None
-            ),
+            "option_match_rate": (total_option_matches / total_option_compared if total_option_compared else None),
             "trailing_compared": total_trailing_compared,
             "trailing_matches": total_trailing_matches,
             "trailing_mismatches": total_trailing_compared - total_trailing_matches,
             "trailing_match_rate": (
-                total_trailing_matches / total_trailing_compared
-                if total_trailing_compared
-                else None
+                total_trailing_matches / total_trailing_compared if total_trailing_compared else None
             ),
         },
         "forms": compared_forms,
