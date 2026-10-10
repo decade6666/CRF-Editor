@@ -11,17 +11,13 @@ from src.services import export_service
 def _read_frontend_acrf_default_vertical_offset_emu() -> str:
     """从前端 acrfAnnotationGeometry.js 解析 ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU 常量。"""
     repo_root = Path(__file__).resolve().parents[2]
-    source_path = (
-        repo_root / "frontend" / "src" / "composables" / "acrfAnnotationGeometry.js"
-    )
+    source_path = repo_root / "frontend" / "src" / "composables" / "acrfAnnotationGeometry.js"
     source = source_path.read_text(encoding="utf-8")
     match = re.search(
         r"export\s+const\s+ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU\s*=\s*(-?\s*\d+)",
         source,
     )
-    assert match is not None, (
-        "acrfAnnotationGeometry.js 缺少 ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU 常量导出"
-    )
+    assert match is not None, "acrfAnnotationGeometry.js 缺少 ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU 常量导出"
     return match.group(1).replace(" ", "")
 
 
