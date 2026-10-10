@@ -447,7 +447,7 @@ function renderChoiceHtml(fieldType, rawOptions) {
   const vertical = isVerticalChoice(fieldType)
   const maxLabelLength = Math.max(...options.map(option => option.text.length), 0)
   const groupClass = vertical ? 'choice-group choice-group--vertical' : 'choice-group'
-  const separator = vertical ? '' : ' '
+  const separator = vertical ? '' : '  '
 
   return `<span class="${groupClass}">${options.map(option => {
     const labelHtml = escapeHtml(option.text)
@@ -507,9 +507,13 @@ export function renderCtrlHtml(field, fillLineChars = null) {
  * 直连 toHtml 的用户默认值路径不传该选项，手输下划线保持原样。
  */
 export function renderCtrlTextHtml(field, fillLineChars = null) {
-  return toHtml(renderCtrl(field, fillLineChars), {
+  const html = toHtml(renderCtrl(field, fillLineChars), {
     fillLineMaxWidthEm: GENERATED_FILL_LINE_MAX_WIDTH_EM,
   })
+  if (field && isChoiceField(field.field_type) && !isVerticalChoice(field.field_type)) {
+    return `<span class="choice-text">${html}</span>`
+  }
+  return html
 }
 
 /**
