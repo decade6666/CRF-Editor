@@ -73,6 +73,12 @@ class ProjectUpdate(ProjectCreate):
     pass
 
 
+class ProjectProfileMetadata(ProjectUpdate):
+    """项目 profile 的 metadata JSON：拒绝一切未声明字段（含 company_logo_path）。"""
+
+    model_config = {"extra": "forbid"}
+
+
 class ProjectBatchDeleteRequest(BaseModel):
     """项目批量软删除请求（管理员端点与本人端点共用，限 1-500 条）。"""
 

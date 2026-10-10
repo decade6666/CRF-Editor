@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VisitCreate(BaseModel):
@@ -31,3 +31,7 @@ class VisitResponse(BaseModel):
     sequence: int
 
     model_config = {"from_attributes": True}
+
+
+class VisitFormSequenceUpdate(BaseModel):
+    sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")

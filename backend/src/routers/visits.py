@@ -4,8 +4,6 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from pydantic import BaseModel, Field
-
 from sqlalchemy.orm import Session, selectinload
 
 
@@ -19,7 +17,7 @@ from src.models.visit import Visit
 
 from src.repositories.base_repository import BaseRepository
 
-from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse
+from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, VisitFormSequenceUpdate
 
 from src.schemas import BatchDeleteRequest
 
@@ -30,10 +28,6 @@ from src.models.visit_form import VisitForm
 
 
 router = APIRouter(tags=["visits"])
-
-
-class VisitFormSequenceUpdate(BaseModel):
-    sequence: int = Field(..., ge=1, description="目标序号（从 1 开始）")
 
 
 @router.get("/projects/{project_id}/visits", response_model=List[VisitResponse])

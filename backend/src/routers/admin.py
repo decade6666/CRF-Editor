@@ -5,10 +5,9 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,15 +23,30 @@ from src.services.project_import_service import (
 from src.services.project_size_service import estimate_recycled_project_sizes
 from src.services.recycle_bin_cleanup_service import build_cleanup_plan
 from src.services.user_admin_service import UserAdminService
+from src.repositories.project_repository import ProjectRepository
+from src.schemas.admin import (
+    BatchCopyRequest,
+    BatchMoveRequest,
+    CleanupPolicyResponse,
+    CleanupPolicyUpdateRequest,
+    CleanupPreviewItem,
+    CleanupRuleAge,
+    CleanupRuleSize,
+    MeResponse,
+    UserCreateRequest,
+    UserListItem,
+    UserPasswordResetRequest,
+    UserRenameRequest,
+    UserResponse,
+)
+from src.schemas.project import ProjectBatchDeleteRequest, ProjectResponse
+from src.services.order_service import OrderService
+from src.services.project_clone_service import ProjectCloneService
+from src.services.unique_name import first_free_name
 
 router = APIRouter(tags=["admin"])
 
 _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
-
-
-class MeResponse(BaseModel):
-    username: str
-    is_admin: bool
 
 
 @router.get("/auth/me", response_model=MeResponse)
@@ -42,13 +56,6 @@ def get_me(current_user: User = Depends(get_current_user)):
         username=current_user.username,
         is_admin=current_user.is_admin,
     )
-
-
-from src.repositories.project_repository import ProjectRepository
-from src.schemas.project import ProjectBatchDeleteRequest, ProjectResponse
-from src.services.order_service import OrderService
-from src.services.project_clone_service import ProjectCloneService
-from src.services.unique_name import first_free_name
 
 
 class RecycleBinProjectResponse(ProjectResponse):
@@ -184,11 +191,6 @@ def hard_delete_project(
         delete_file(PROJECT_NAMESPACE, logo_rel)
 
 
-class BatchCopyRequest(BaseModel):
-    project_ids: List[int]
-    target_user_id: int
-
-
 @router.post("/admin/projects/batch-copy")
 def batch_copy_projects(
     data: BatchCopyRequest,
@@ -210,11 +212,6 @@ def batch_copy_projects(
         except Exception as e:
             results.append({"original_id": pid, "status": "failed", "error": str(e)})
     return results
-
-
-class BatchMoveRequest(BaseModel):
-    project_ids: List[int]
-    target_user_id: int
 
 
 @router.post("/admin/projects/batch-move")
@@ -253,39 +250,6 @@ def batch_move_projects(
 
 
 # ── 回收站清理策略 ─────────────────────────────────────────
-
-
-class CleanupRuleAge(BaseModel):
-    enabled: bool = False
-    value: int = Field(ge=1)
-    unit: Literal["day", "month", "year"] = "day"
-
-
-class CleanupRuleSize(BaseModel):
-    enabled: bool = False
-    value: int = Field(ge=1)
-    unit: Literal["MB", "GB"] = "MB"
-
-
-class CleanupPolicyUpdateRequest(BaseModel):
-    interval_minutes: int = Field(ge=1, le=1440)
-    min_retain_hours: int = Field(ge=0)
-    age: CleanupRuleAge
-    size: CleanupRuleSize
-
-
-class CleanupPolicyResponse(CleanupPolicyUpdateRequest):
-    total_estimated_size_bytes: int = 0
-    recycled_project_count: int = 0
-
-
-class CleanupPreviewItem(BaseModel):
-    id: int
-    name: str
-    owner_username: Optional[str] = None
-    deleted_at: datetime
-    estimated_size_bytes: int
-    matched_rules: List[str]
 
 
 def _stats_response(session: Session, policy_values: dict) -> CleanupPolicyResponse:
@@ -379,34 +343,6 @@ def preview_cleanup(
             )
         )
     return result
-
-
-class UserCreateRequest(BaseModel):
-    username: str
-    password: str
-
-
-class UserRenameRequest(BaseModel):
-    username: str
-
-
-class UserPasswordResetRequest(BaseModel):
-    password: str
-
-
-class UserResponse(BaseModel):
-    id: int
-    username: str
-
-    model_config = {"from_attributes": True}
-
-
-class UserListItem(BaseModel):
-    id: int
-    username: str
-    project_count: int
-    has_password: bool
-    is_admin: bool
 
 
 @router.get("/admin/users", response_model=List[UserListItem])

@@ -16,7 +16,12 @@ from src.rate_limit import limit_import_action
 from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
-from src.schemas.project import ProjectBatchDeleteRequest, ProjectCreate, ProjectUpdate, ProjectResponse
+from src.schemas.project import (
+    ProjectBatchDeleteRequest,
+    ProjectCreate,
+    ProjectProfileMetadata,
+    ProjectResponse,
+)
 from src.services.await_drain import await_with_drain
 from src.services.docx_import_service import DocxImportService
 from src.services.upload_streaming import stream_upload_to_file
@@ -34,12 +39,6 @@ _MAX_IMPORT_SIZE = 200 * 1024 * 1024  # 200 MB
 # SQLite 魔数 15 字节（规范头 16 字节含结尾 NUL；原 content[:16].startswith 从未要求 NUL，保持兼容）。
 _MAGIC = b"SQLite format 3"
 _PROFILE_LOGO_ACTIONS = {"keep", "preset", "upload", "clear"}
-
-
-class ProjectProfileMetadata(ProjectUpdate):
-    """项目 profile 的 metadata JSON：拒绝一切未声明字段（含 company_logo_path）。"""
-
-    model_config = {"extra": "forbid"}
 
 
 def _parse_profile_metadata(metadata_raw: str) -> ProjectProfileMetadata:

@@ -8,8 +8,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from sqlalchemy import select
 
-from pydantic import BaseModel, field_validator
-
 
 from src.database import get_session
 
@@ -49,6 +47,7 @@ from src.schemas.field import (
     FieldDefinitionResponse,
     FormFieldCreate,
     FormFieldResponse,
+    ReorderRequest,
 )
 
 from src.schemas import BatchDeleteRequest
@@ -386,10 +385,6 @@ def delete_form_field(
     ff = verify_form_field_owner(ff_id, current_user, session)
 
     delete_form_field_and_cleanup_label_definition(session, ff)
-
-
-class ReorderRequest(BaseModel):
-    ordered_ids: List[int]
 
 
 @router.post("/forms/{form_id}/fields/reorder", status_code=204)

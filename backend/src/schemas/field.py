@@ -154,3 +154,7 @@ class FormFieldResponse(BaseModel):
     field_definition: Optional[FieldDefinitionResponse] = None
 
     model_config = {"from_attributes": True}
+
+
+class ReorderRequest(BaseModel):
+    ordered_ids: List[int]
