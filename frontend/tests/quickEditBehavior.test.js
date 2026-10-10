@@ -103,7 +103,7 @@ test('choice codelist row exposes icon actions with disable guard', () => {
 test('property editor restores type-specific controls', () => {
   assert.match(
     formDesignerSource,
-    /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"[\s\S]*<el-form-item label="字段标签"[\s\S]*v-model="editProp\.label"/,
+    /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value \|\| savingDraft \|\| isSavingFieldProp"[\s\S]*<el-form-item label="字段标签"[\s\S]*v-model="editProp\.label"/,
   )
   assert.match(formDesignerSource, /<el-form-item v-if="isChoiceField\(editProp\.field_type\)" label="字段选项">/)
   // 标签类型仍为 textarea（无字段库候选）；其他类型为自动完成输入
@@ -185,10 +185,11 @@ test('selectField keeps regular fields editable and resets log rows to readonly 
     formDesignerSource,
     /field_type: fd\.field_type \|\| '文本',[\s\S]*integer_digits: fd\.integer_digits \?\? null,[\s\S]*decimal_digits: fd\.decimal_digits \?\? null,[\s\S]*date_format: fd\.date_format \?\? null,[\s\S]*codelist_id: fd\.codelist_id \?\? null,[\s\S]*unit_id: fd\.unit_id \?\? null,[\s\S]*default_value: ff\.default_value \|\| '',[\s\S]*inline_mark: ff\.inline_mark \|\| 0,[\s\S]*bg_color: ff\.bg_color \|\| null,[\s\S]*text_color: ff\.text_color \|\| null/,
   )
-  // 属性保存收敛为一次 binding-profile 原子请求（不再逐次 PUT 定义 / PUT 实例 / PATCH 颜色）
+  // 属性保存收敛为一次 binding-profile 原子请求（不再逐次 PUT 定义 / PUT 实例 / PATCH 颜色）；
+  // 命令参数经 buildSelectedFieldCommandArgs 与影响确认共用（DEC3）
   assert.match(
     formDesignerSource,
-    /const command = buildBindingProfileCommand\(\{[\s\S]*currentDefinitionId: originalDefinitionId,[\s\S]*currentDefinitionOid: originalDefinitionOid,[\s\S]*editorState,[\s\S]*selectedDefinitionId: selectedDefinitionId\.value,[\s\S]*candidateOid: candidateOid\.value,[\s\S]*\}\)/,
+    /const command = buildBindingProfileCommand\(\{[\s\S]*?\.\.\.commandArgs,[\s\S]*?editorState,[\s\S]*?\}\)/,
   )
   assert.match(
     formDesignerSource,
@@ -327,14 +328,16 @@ test('property editor hydrates baseline before switching fields', () => {
 test('property editor save uses shared multi-form impact warning and context guards', () => {
   assert.match(formDesignerSource, /async function saveSelectedFieldProp\(\) \{/)
   assert.match(formDesignerSource, /isSavingFieldProp\.value = true/)
-  // 影响确认只针对真正被 update_shared 写入的目标定义（换绑=候选；分叉=无共享影响）
-  assert.match(formDesignerSource, /const sharedWriteTarget = resolveSharedWriteTarget\(\{/)
-  assert.match(formDesignerSource, /await confirmFieldReferenceImpact\(sharedWriteTarget\)/)
-  assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId\)/)
-  assert.match(formDesignerSource, /if \(selectedFieldId\.value === snapshot\.fieldId\) syncFieldPropBaselineFromEditor\(\)/)
-  assert.match(formDesignerSource, /async function confirmFieldReferenceImpact\(definitionId\) \{/)
+  // 影响确认只针对真正被 update_shared 写入的目标定义（纯绑定/纯实例更新/分叉=无共享影响）
+  assert.match(formDesignerSource, /const commandArgs = buildSelectedFieldCommandArgs\(ff, snapshot\)/)
+  assert.match(formDesignerSource, /const candidateBeforePayload = candidateBeforeDefinition \? \{ \.\.\.candidateBeforeDefinition \} : null/)
+  assert.match(formDesignerSource, /await confirmFieldReferenceImpact\(sharedWriteTarget, \{/)
+  assert.match(formDesignerSource, /await saveFieldProp\(snapshot, sessionId, commandArgs, candidateBeforePayload\)/)
+  // 保存成功且编辑器仍与提交快照一致时才同步基线；请求期间编辑器被锁定，不会误标已保存
+  assert.match(formDesignerSource, /if\s*\(\s*selectedFieldId\.value === snapshot\.fieldId\s*&&\s*sameFieldPropState\(buildFieldPropSnapshot\(\), snapshot\)\s*\)\s*\{\s*syncFieldPropBaselineFromEditor\(\)/)
+  assert.match(formDesignerSource, /async function confirmFieldReferenceImpact\(definitionId, \{ includesCurrentForm = true \} = \{\}\) \{/)
   assert.match(formDesignerSource, /const refs = await api\.get\(`\/api\/field-definitions\/\$\{definitionId\}\/references`\)/)
-  assert.match(formDesignerSource, /if \(countDistinctForms\(refs\) <= 1\) return true/)
+  assert.match(formDesignerSource, /if \(countDistinctForms\(refs\) <= \(includesCurrentForm \? 1 : 0\)\) return true/)
   assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
   assert.match(formDesignerSource, /if \(sessionId !== fieldPropSaveSession\) throw new Error\('字段属性保存上下文已变更'\)/)
   assert.match(
@@ -382,7 +385,7 @@ test('missing codelist validation blocks explicit property save', () => {
 test('app blocks project switch until form designer can leave', () => {
   assert.match(
     formDesignerSource,
-    /async function resolveDesignerLeave\(\{ actionText \}\) \{[\s\S]*if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return false;[\s\S]*formSelectionAttempt \+= 1;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText \}\)[\s\S]*return resolveFormPropLeave\(\{ actionText \}\)/,
+    /async function resolveDesignerLeave\(\{ actionText \}\) \{[\s\S]*if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value \|\| isSavingFieldProp\.value\) return false;[\s\S]*formSelectionAttempt \+= 1;[\s\S]*if \(hasDraft\.value\) \{[\s\S]*confirmDiscardDraft\(\)[\s\S]*resolveFieldPropLeave\(\{ resetOptions: \{ preserveEditor: true \}, actionText \}\)[\s\S]*return resolveFormPropLeave\(\{ actionText \}\)/,
   )
   assert.match(
     formDesignerSource,

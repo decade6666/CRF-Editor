@@ -120,10 +120,18 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
     assert.equal(result.length, 30)
   })
 
-  test('hydrates editor from candidate definition and keeps instance overrides', async () => {
+  test('candidate pick replaces definition keys but keeps the active editor presentation', async () => {
     const { hydrateEditorFromCandidate } = await loadModule()
     const hydrated = hydrateEditorFromCandidate({
-      editor: { field_type: '文本', label: '旧', variable_name: 'OLD' },
+      editor: {
+        field_type: '文本',
+        label: '旧',
+        variable_name: 'OLD',
+        bg_color: 'FF0000',
+        text_color: '00FF00',
+        label_bold: 0,
+        label_font_size: 'large',
+      },
       definition: {
         variable_name: 'NEW_DEF',
         label: '新字段',
@@ -135,21 +143,67 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
         codelist_id: null,
         unit_id: null,
       },
-      instance: { required: 1, bg_color: 'FFEEDD', label_bold: 0, label_font_size: 'large' },
+      instance: {
+        required: 1,
+        bg_color: 'FFEEDD',
+        text_color: '0000FF',
+        label_bold: 1,
+        label_font_size: null,
+      },
       normalizedDefaultValue: '5',
-      normalizedInlineMark: 0,
+      normalizedInlineMark: 1,
     })
     assert.equal(hydrated.variable_name, 'NEW_DEF')
     assert.equal(hydrated.label, '新字段')
     assert.equal(hydrated.field_type, '数值')
     assert.equal(hydrated.integer_digits, 3)
     assert.equal(hydrated.default_value, '5')
-    assert.equal(hydrated.inline_mark, 0)
+    assert.equal(hydrated.inline_mark, 1)
     assert.equal(hydrated.required, 1)
-    assert.equal(hydrated.bg_color, 'FFEEDD')
+    // DEC1：未保存的展示属性以编辑器为准，不被已保存实例覆盖
+    assert.equal(hydrated.bg_color, 'FF0000')
+    assert.equal(hydrated.text_color, '00FF00')
     assert.equal(hydrated.label_bold, 0)
     assert.equal(hydrated.label_font_size, 'large')
     assert.equal(hydrated.label_override, null)
+  })
+
+  test('keeps the default font-size sentinel from the active editor', async () => {
+    const { hydrateEditorFromCandidate } = await loadModule()
+    const hydrated = hydrateEditorFromCandidate({
+      editor: { field_type: '文本', label_font_size: 'default' },
+      definition: { variable_name: 'D', label: '字段', field_type: '文本' },
+      instance: { label_font_size: null },
+      normalizedDefaultValue: null,
+      normalizedInlineMark: 0,
+    })
+    assert.equal(hydrated.label_font_size, 'default')
+  })
+
+  test('candidate pick derives pending inline/default from the editor and normalizes after hydration', () => {
+    const body = /function selectAutocompleteCandidate\(item\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
+    assert.ok(body, 'should locate selectAutocompleteCandidate body')
+    // DEC1：内嵌标记与默认值取编辑器当前（可能未保存）值，而非已保存实例
+    assert.match(body, /if \(isSavingFieldProp\.value \|\|/)
+    assert.match(body, /const currentInlineMark = editProp\.inline_mark \? 1 : 0/)
+    assert.match(body, /normalizeDefaultValue\(editProp\.default_value \|\| '', !normalizedInlineMark\)/)
+    // 水合后按候选类型归一（与 selectField 同规则），类型 watcher 幂等
+    assert.match(
+      body,
+      /syncFieldTypeSpecificProps\(editProp, editProp\.field_type, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS\)/,
+    )
+    // 基线与标签 OID 会话不被候选选择改写：取消仍可完整恢复，标签 OID 保持系统托管
+    assert.doesNotMatch(body, /labelOidSession\s*=/)
+    assert.doesNotMatch(body, /fieldPropBaseline\.value\s*=/)
+  })
+
+  test('candidateDisplayText exposes oid, label, and field type with empty fallbacks', async () => {
+    const { candidateDisplayText } = await loadModule()
+    assert.deepEqual(
+      candidateDisplayText({ variable_name: 'AGE', label: '年龄', field_type: '数值' }),
+      { oid: 'AGE', label: '年龄', fieldType: '数值' },
+    )
+    assert.deepEqual(candidateDisplayText(null), { oid: '', label: '', fieldType: '' })
   })
 
   test('findOidConflict flags handwritten oid hitting another definition', async () => {

@@ -94,11 +94,14 @@ test('选项字段保存前要求选择字典', () => {
 
 test('链接候选且改了定义级属性时：命令携带候选快照、保存前确认影响范围', () => {
   const body = fnBody('saveDraftField')
-  // 候选点击时捕获的快照传入命令构造器，9 键差异决定是否随保存共享更新候选定义
-  assert.match(body, /candidateDefinitionPayload: candidateBeforeDefinition/)
+  // 比较用归一化候选快照（日期默认格式等不产生幻影差异）；恢复仍用原始快照
+  assert.match(body, /candidateDefinitionPayload: comparableDefinitionPayload\(candidateBeforeDefinition\)/)
   assert.match(body, /const definitionChanged = command\.definition_operation\?\.operation === 'update_shared'/)
-  // 有差异才需要多表单影响确认；取消确认不弹错误、不落库
-  assert.match(body, /if \(definitionChanged\) \{[\s\S]*?await confirmFieldReferenceImpact\(selectedDefinitionId\.value\)/)
+  // 有差异才需要影响确认；候选目标按 R5 只数其他表单（includesCurrentForm: false）
+  assert.match(
+    body,
+    /if \(definitionChanged\) \{[\s\S]*?await confirmFieldReferenceImpact\(selectedDefinitionId\.value, \{ includesCurrentForm: false \}\)/,
+  )
   assert.match(body, /if \(e === 'cancel' \|\| e === 'close'\) return false/)
 })
 
@@ -120,6 +123,14 @@ test('链接候选修改定义的保存：redo 原样重放捕获命令（existi
   assert.match(
     body,
     /const redoCommand = command\.binding\?\.mode === 'existing'\s*\?\s*command\s*:\s*\{[\s\S]*?definition_operation: \{[\s\S]*?operation: 'create_or_restore'/,
+  )
+})
+
+test('draft OID-fork redo reuses the captured definition payload with structural keys', () => {
+  const body = fnBody('saveDraftField')
+  assert.match(
+    body,
+    /definition: command\.definition_operation\.create_or_restore\.definition/,
   )
 })
 
@@ -212,17 +223,23 @@ test('模板：草稿字段在属性面板固定底部动作栏显示保存和�
 })
 
 test('组件边界 guard：快编/inline/拖入/log 均对草稿短路', () => {
-  // openQuickEdit 草稿早退，避免预览双击触发 PUT /form-fields/__draft__
-  assert.match(source, /function openQuickEdit\(ff\) \{\s*if \(isDraftField\(ff\)\) return;/)
-  // toggleInline 草稿早退（纵深防御，按钮虽已隐藏）
-  assert.match(source, /async function toggleInline\(ff\) \{\s*if \(isDraftField\(ff\)\) return;/)
+  // 快编在草稿/保存中禁止进入（无真实 id 或会竞争实例写入），inline 草稿不切换写入实例。
+  assert.match(source, /function openQuickEdit\(ff\) \{\s*if \(isSavingFieldProp\.value \|\| savingDraft\.value\) return;\s*if \(isDraftField\(ff\)\) return;/)
+  assert.match(source, /async function toggleInline\(ff\) \{\s*if \(isSavingFieldProp\.value \|\| savingDraft\.value \|\| isDraftField\(ff\)\) return;/)
   // newField / addLogRow 落库前先确认草稿，避免 loadFormFields 覆盖丢失
   assert.match(fnBody('newField'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
   assert.match(fnBody('addLogRow'), /if \(hasDraft\.value\) \{[\s\S]*?confirmDiscardDraft\(\)/)
 })
 
-test('saveDraftField 有 savingDraft 重入保护', () => {
-  assert.match(fnBody('saveDraftField'), /if \(savingDraft\.value\) return false/)
+test('draft save blocks edits, candidate selection, cancellation, and field switching while pending', () => {
+  const saveBody = fnBody('saveDraftField')
+  const pickerBody = fnBody('selectAutocompleteCandidate')
+  assert.match(saveBody, /savingDraft\.value = true/)
+  assert.match(pickerBody, /if \(isSavingFieldProp\.value \|\| savingDraft\.value \|\|/)
+  assert.match(fnBody('removeDraftFromState'), /if \(savingDraft\.value \|\| isSavingFieldProp\.value\) return/)
+  assert.match(fnBody('onSelectFieldClick'), /if \(isSavingFieldProp\.value \|\| savingDraft\.value\) return/)
+  assert.match(source, /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value \|\| savingDraft \|\| isSavingFieldProp"/)
+  assert.match(source, /data-test="designer-draft-cancel"[\s\S]*?:disabled="savingDraft"/)
 })
 
 test('newField 草稿对象形状正确', () => {

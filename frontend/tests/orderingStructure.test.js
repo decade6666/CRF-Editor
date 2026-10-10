@@ -175,7 +175,7 @@ test('FormDesignerTab form selection uses attempt supersession and only commits 
   assert.match(selectBody, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return;/);
   assert.match(
     selectBody,
-    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;/,
+    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value \|\| isSavingFieldProp\.value\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;/,
   );
   assert.match(selectBody, /invalidateFormSelectionSession\(\);[\s\S]*?selectedForm\.value = nextForm \|\| null;/);
   assert.doesNotMatch(selectBody, /\+\+formSelectionSession/);
@@ -203,7 +203,7 @@ test('FormDesignerTab field reorder dragover advertises a move drop target for t
   assert.match(onDragOverBody, /e\.dataTransfer\.dropEffect = 'move'/);
   assert.match(formsSource, /@dragover\.prevent="onDragOver\(\$event, idx\)"/);
   assert.match(formsSource, /function onDragStart\(ff, e\)/);
-  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) \{/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) \{/);
   assert.match(formsSource, /e\.dataTransfer\.effectAllowed = 'move'/);
   assert.match(formsSource, /<el-checkbox[\s\S]*?draggable="false"[\s\S]*?@click\.stop/);
   assert.match(formsSource, /data-test="designer-copy-field"[\s\S]*?draggable="false"[\s\S]*?@click\.stop="copyFormField\(ff\)"/);
@@ -228,7 +228,7 @@ test('FormDesignerTab field reorder keeps optimistic order on success and reload
   assert.match(formsSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/);
   assert.match(formsSource, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*?formFields\.value = previousFields[\s\S]*?loadFormFields\(formId\)/);
   assert.match(formsSource, /finally \{[\s\S]*?isReordering\.value = false/);
-  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) return/);
+  assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return/);
   assert.match(formsSource, /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\)\) return/);
   assert.match(formsSource, /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/);
   assert.match(mainCssSource, /\.ff-item \{[^}]*user-select: none;[^}]*-webkit-user-select: none;/);

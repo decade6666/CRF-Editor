@@ -83,15 +83,16 @@ import {
   applyLabelOidTransition,
   buildBindingProfileCommand,
   buildDefinitionPayload,
-  buildEditorStateFromSnapshot,
+  DEFINITION_PAYLOAD_KEYS,
   buildFieldProfileCommand,
+  buildFieldPropReplayCommand,
   buildDeleteProfileCommand,
   buildFormPropState,
   buildInstanceOnlyProfileCommand,
-  buildInstanceUpsert,
   buildLabelOidSession,
   ensureLabelVariableName,
   normalizeDateFormat,
+  normalizeDefinitionPayload,
   normalizeHexColorInput,
   resolveLabelOidSeedDefinition,
   resolveSharedWriteTarget,
@@ -689,7 +690,7 @@ async function onSwitchFormFromDropdown(formId) {
 // designer-shell / 弹窗标题栏（onDesignerBlankClick）共用同一守卫链。
 async function returnToFormProperties() {
   if (!selectedFieldId.value) return;
-  if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFieldProp.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
   const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '回到表单属性' });
@@ -841,26 +842,19 @@ async function recreateFieldFromSnapshot(formId, snapshot) {
 function snapshotFieldPropState(ff) {
   if (!ff) return null;
   const fd = ff.field_definition || {};
+  // fd 键集由 DEFINITION_PAYLOAD_KEYS 派生（含结构键）：新增定义键自动进入
+  // 历史快照，回放共享更新时不会再被默认值静默重置
   return {
     required: ff.required ?? 0,
     label_override: ff.label_override ?? null,
+    help_text: ff.help_text ?? null,
     default_value: ff.default_value || null,
     inline_mark: ff.inline_mark ?? 0,
     bg_color: ff.bg_color ?? null,
     text_color: ff.text_color ?? null,
     label_bold: ff.label_bold ?? 1,
     label_font_size: ff.label_font_size ?? null,
-    fd: {
-      label: fd.label ?? null,
-      variable_name: fd.variable_name ?? null,
-      field_type: fd.field_type ?? null,
-      integer_digits: fd.integer_digits ?? null,
-      decimal_digits: fd.decimal_digits ?? null,
-      date_format: fd.date_format ?? null,
-      checkbox_label: fd.checkbox_label ?? null,
-      codelist_id: fd.codelist_id ?? null,
-      unit_id: fd.unit_id ?? null,
-    },
+    fd: Object.fromEntries(DEFINITION_PAYLOAD_KEYS.map((key) => [key, fd[key] ?? null])),
   };
 }
 
@@ -883,73 +877,11 @@ async function reloadAfterReplay(formId, { defs = false, focusFieldId = null } =
 }
 
 // 原子回放：一次 binding-profile 请求完成定义/绑定/实例/清理，undo / redo 共用。
+// 重载失败必须向上抛：runHistory 依赖失败保持历史条目可重试，吞掉会造成二次撤销。
 async function replayBindingProfile(historyContext, ffId, command, { focusFieldId = ffId } = {}) {
   const result = await api.put(`/api/form-fields/${ffId}/binding-profile`, command);
   await reloadAfterReplay(historyContext?.formId, { defs: true, focusFieldId });
   return result;
-}
-
-// 撤销/重做属性编辑：共享更新 / 候选换绑 / OID 分叉三类命令按需重建。
-// - shared：update_shared 同一目标定义（before/after 快照）
-// - rebind：换绑候选定义；undo 同时恢复候选共享快照并绑回原定义
-// - fork：redo 复用 preferred 定义（OID 冲突时后端 409，回放失败保栈）；undo 绑回原定义并清理分叉定义
-function buildFieldPropReplayCommand({
-  entryType,
-  writtenDefinitionId,
-  originalDefinitionId = null,
-  originalDefinitionOid = null,
-  candidateBeforePayload = null,
-  snapshot,
-}) {
-  const editorState = buildEditorStateFromSnapshot(snapshot);
-  if (entryType === 'shared') {
-    return buildBindingProfileCommand({
-      currentDefinitionId: writtenDefinitionId,
-      currentDefinitionOid: snapshot.fd.variable_name,
-      editorState,
-    });
-  }
-  if (entryType === 'rebind-undo') {
-    // 恢复候选共享快照 + 绑回原定义（候选快照 OID 与现状一致时后端才接受）
-    return {
-      definition_operation: {
-        operation: 'update_shared',
-        update_shared: { target_definition_id: writtenDefinitionId, definition: candidateBeforePayload },
-      },
-      binding: { mode: 'existing', target_field_definition_id: originalDefinitionId },
-      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
-    };
-  }
-  if (entryType === 'rebind-redo') {
-    return {
-      definition_operation: {
-        operation: 'update_shared',
-        update_shared: {
-          target_definition_id: writtenDefinitionId,
-          definition: buildDefinitionPayload(snapshot.fd),
-        },
-      },
-      binding: { mode: 'existing', target_field_definition_id: writtenDefinitionId },
-      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
-    };
-  }
-  if (entryType === 'fork-undo') {
-    return {
-      definition_operation: { operation: 'none' },
-      binding: { mode: 'existing', target_field_definition_id: originalDefinitionId },
-      instance: { mode: 'upsert', upsert: buildInstanceUpsert(editorState) },
-      cleanup_definition_id: writtenDefinitionId,
-    };
-  }
-  if (entryType === 'fork-redo') {
-    return buildBindingProfileCommand({
-      currentDefinitionId: originalDefinitionId,
-      currentDefinitionOid: originalDefinitionOid,
-      editorState,
-      preferredDefinitionId: writtenDefinitionId,
-    });
-  }
-  throw new Error('未知的属性回放类型');
 }
 
 // 记录一次排序命令（拖拽与键盘排序共用）。
@@ -971,7 +903,12 @@ function recordReorderHistory(historyContext, previousOrder, nextOrder) {
 
 // 统一执行撤销 / 恢复：失败时提示并保持栈状态，不静默吞错。
 async function runHistory(direction) {
-  if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
+  if (
+    designerHistory.busy.value ||
+    isReordering.value ||
+    savingDraft.value ||
+    isSavingFieldProp.value
+  ) return;
   const historyContext = captureDesignerHistoryContext();
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
@@ -994,7 +931,7 @@ function handleRedo() {
 
 async function copyFormField(ff) {
   if (isDraftField(ff)) return;
-  if (designerHistory.busy.value || isReordering.value) return;
+  if (designerHistory.busy.value || isReordering.value || isSavingFieldProp.value || savingDraft.value) return;
   if (copyingFieldIds.value.has(ff.id)) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
@@ -1076,6 +1013,7 @@ async function copyFormField(ff) {
 }
 
 async function removeField(ff) {
+  if (isSavingFieldProp.value || savingDraft.value) return;
   if (isDraftField(ff)) {
     try {
       await confirmDelete(ElMessageBox.confirm, { targetText: `草稿字段 "${getFormFieldDisplayLabel(ff)}"` });
@@ -1134,7 +1072,7 @@ async function removeField(ff) {
 }
 
 async function batchDelete() {
-  if (designerHistory.busy.value || isReordering.value) return;
+  if (isSavingFieldProp.value || savingDraft.value || designerHistory.busy.value || isReordering.value) return;
   if (!selectedIds.value.length) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
@@ -1185,7 +1123,7 @@ async function batchDelete() {
 
 // 拖拽排序
 function onDragStart(ff, e) {
-  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy()) {
+  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy() || isSavingFieldProp.value || savingDraft.value) {
     e?.preventDefault();
     return;
   }
@@ -1233,7 +1171,7 @@ async function onDrop(e, targetIdx) {
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = null;
-  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy()) return;
+  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy() || isSavingFieldProp.value || savingDraft.value) return;
   const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
   if (srcIdx === -1 || srcIdx === targetIdx) return;
   if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
@@ -1270,7 +1208,7 @@ async function handleFieldKeydown(event, field, index) {
   }
   if (ctrlKey && (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy())) return;
   const move = async (from, to) => {
-    if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy()) return;
+    if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy() || isSavingFieldProp.value || savingDraft.value) return;
     if (to < 0 || to >= formFields.value.length) return;
     if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
     const historyContext = captureDesignerHistoryContext();
@@ -1306,6 +1244,25 @@ const candidateOid = ref(null);
 // 点击候选时的候选定义快照（撤销候选换绑时需要恢复其共享内容）。
 let candidateBeforeDefinition = null;
 
+// DEC2：定义级比较与写入共用同一套类型归一基线（日期默认格式、类型无关键清理）。
+function comparableDefinitionPayload(definition) {
+  return normalizeDefinitionPayload(definition, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS);
+}
+
+// DEC3 单一决策源：影响确认（saveSelectedFieldProp）与保存命令（saveFieldProp）
+// 用同一组参数构造，保证「是否弹窗」与「是否写共享定义」永远一致。
+function buildSelectedFieldCommandArgs(ff, editorState) {
+  return {
+    currentDefinitionId: ff.field_definition_id,
+    currentDefinitionOid: ff.field_definition?.variable_name ?? null,
+    currentDefinitionPayload: comparableDefinitionPayload(ff.field_definition),
+    editorState,
+    selectedDefinitionId: selectedDefinitionId.value,
+    candidateOid: candidateOid.value,
+    candidateDefinitionPayload: comparableDefinitionPayload(candidateBeforeDefinition),
+  };
+}
+
 function buildOidCandidates(keyword) {
   const ff = getSelectedFormField();
   return buildAutocompleteCandidates({
@@ -1322,20 +1279,22 @@ function fetchFieldDefSuggestions(queryString, callback) {
   callback(buildOidCandidates(queryString));
 }
 
-// 明确点击候选：丢弃当前未保存属性编辑，用候选定义重建编辑态（实例覆盖保留）。
+// 明确点击候选（DEC1）：只替换候选定义级内容；编辑器中未保存的展示属性
+//（颜色/加粗/字号，含 'default' 哨兵）原样保留，default_value / inline_mark
+// 按候选类型以编辑器当前值归一。基线不回写：「取消」仍可完整恢复原绑定与属性。
 function selectAutocompleteCandidate(item) {
-  if (!item || item.state === CANDIDATE_STATE_ADDED) return;
+  if (isSavingFieldProp.value || savingDraft.value || !item || item.state === CANDIDATE_STATE_ADDED) return;
   const ff = getSelectedFormField();
   const definition = item.definition;
   selectedDefinitionId.value = definition.id;
   candidateOid.value = definition.variable_name;
   candidateBeforeDefinition = buildDefinitionPayload(definition);
-  const currentInlineMark = ff?.inline_mark ? 1 : 0;
+  const currentInlineMark = editProp.inline_mark ? 1 : 0;
   const inlineAllowed = canToggleInline({ ...ff, field_definition: definition });
   const normalizedInlineMark = inlineAllowed ? currentInlineMark : 0;
   const supportsDefaultValue = isDefaultValueSupported(definition.field_type, Boolean(normalizedInlineMark));
   const normalizedDefaultValue = supportsDefaultValue
-    ? normalizeDefaultValue(ff?.default_value || '', !normalizedInlineMark)
+    ? normalizeDefaultValue(editProp.default_value || '', !normalizedInlineMark)
     : null;
   Object.assign(
     editProp,
@@ -1347,8 +1306,9 @@ function selectAutocompleteCandidate(item) {
       normalizedInlineMark,
     }),
   );
+  // 与 selectField 一致：水合后立即按候选类型归一，类型 watcher 变成幂等空操作
+  Object.assign(editProp, syncFieldTypeSpecificProps(editProp, editProp.field_type, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
   if (isDraftField(ff)) applyEditorToDraft();
-  // 基线不回写：保存基线仍是原字段状态，「取消」可完整恢复原绑定与属性。
 }
 
 // 渲染逻辑
@@ -1854,7 +1814,7 @@ async function selectForm(nextForm) {
     formSelectionAttempt += 1;
     return;
   }
-  if (designerHistory.busy.value || isReordering.value || savingDraft.value) {
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFieldProp.value) {
     formSelectionAttempt += 1;
     formsTableRef.value?.setCurrentRow(currentForm);
     return;
@@ -1913,6 +1873,7 @@ const quickEditProp = reactive({
   label_font_size: 'default',
 });
 function openQuickEdit(ff) {
+  if (isSavingFieldProp.value || savingDraft.value) return;
   if (isDraftField(ff)) return; // 草稿无真实实例 id，禁止快编（saveQuickEdit 会 PUT /form-fields/__draft__）
   if (ff?.is_log_row || ff?.field_definition?.field_type === '日志行') return;
   quickEditField.value = ff;
@@ -1929,7 +1890,7 @@ function openQuickEdit(ff) {
   showQuickEdit.value = true;
 }
 async function saveQuickEdit() {
-  if (!quickEditField.value) return;
+  if (isSavingFieldProp.value || !quickEditField.value) return;
   if (isReordering.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
@@ -1985,7 +1946,7 @@ async function saveQuickEdit() {
 }
 
 async function toggleInline(ff) {
-  if (isDraftField(ff)) return; // 草稿走属性编辑器写本地，不经真实实例 PATCH
+  if (isSavingFieldProp.value || savingDraft.value || isDraftField(ff)) return; // 草稿走属性编辑器写本地，不经真实实例 PATCH
   if (isReordering.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext || !canToggleInline(ff)) return;
@@ -2039,6 +2000,8 @@ const editProp = reactive({
 });
 const fieldPropBaseline = ref(null);
 const isSavingFieldProp = ref(false);
+// 属性编辑器整体锁定：原生色块 <button> 不受 el-form :disabled 约束，需单独绑定
+const propEditorBusy = computed(() => designerHistory.busy.value || savingDraft.value || isSavingFieldProp.value);
 let isHydratingFieldProp = false;
 let labelOidSession = buildLabelOidSession();
 let fieldPropSaveSession = 0;
@@ -2082,6 +2045,17 @@ watch(
   () => editProp.field_type,
   (newType) => {
     Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS));
+  },
+);
+
+// 日期类型下清空格式选择（Element Plus 清除 emits undefined）立即归一为类型默认值，
+// 避免快照/草稿携带 undefined 与候选快照比较时产生幻影共享更新（DEC2 基线一致）。
+watch(
+  () => editProp.date_format,
+  (value) => {
+    if (!DATE_FORMAT_OPTIONS[editProp.field_type]) return;
+    const normalized = normalizeDateFormat(editProp.field_type, value, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS);
+    if (normalized !== value) editProp.date_format = normalized;
   },
 );
 
@@ -2240,10 +2214,13 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   }
 }
 
-async function confirmFieldReferenceImpact(definitionId) {
+// R5：目标为当前定义时按「除本表单外还有其他表单」确认（阈值 1，行为不变）；
+// 目标为候选定义时只要被其他任一表单引用即确认（阈值 0）。
+// （数据库唯一索引 uq_form_field 保证同表单不会双绑定同一定义，行数=去重表单数）
+async function confirmFieldReferenceImpact(definitionId, { includesCurrentForm = true } = {}) {
   if (!definitionId) return true;
   const refs = await api.get(`/api/field-definitions/${definitionId}/references`);
-  if (countDistinctForms(refs) <= 1) return true;
+  if (countDistinctForms(refs) <= (includesCurrentForm ? 1 : 0)) return true;
   const msg = formatFieldImpactMessage(refs, { max: 5, sep: '、' });
   await ElMessageBox.confirm(`修改将影响以下表单：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
   return true;
@@ -2290,19 +2267,22 @@ async function saveSelectedFieldProp() {
       ElMessage.warning('该OID已在字段库中存在，请从候选中选择或修改OID');
       return false;
     }
-    // 影响确认只针对真正被 update_shared 写入的目标定义（换绑=候选；分叉=无需确认）
-    const sharedWriteTarget = resolveSharedWriteTarget({
-      currentDefinitionId: ff.field_definition_id,
-      currentDefinitionOid: ff.field_definition?.variable_name ?? null,
-      editorState: snapshot,
-      selectedDefinitionId: selectedDefinitionId.value,
-      candidateOid: candidateOid.value,
+    // 影响确认与保存共用冻结的定义决策参数，弹窗期间重选不能改变实际写入目标。
+    const commandArgs = buildSelectedFieldCommandArgs(ff, snapshot);
+    const candidateBeforePayload = candidateBeforeDefinition ? { ...candidateBeforeDefinition } : null;
+    const sharedWriteTarget = resolveSharedWriteTarget(commandArgs);
+    await confirmFieldReferenceImpact(sharedWriteTarget, {
+      includesCurrentForm: sharedWriteTarget === ff.field_definition_id,
     });
-    await confirmFieldReferenceImpact(sharedWriteTarget);
     fieldPropSaveSession += 1;
     sessionId = fieldPropSaveSession;
-    await saveFieldProp(snapshot, sessionId);
-    if (selectedFieldId.value === snapshot.fieldId) syncFieldPropBaselineFromEditor();
+    await saveFieldProp(snapshot, sessionId, commandArgs, candidateBeforePayload);
+    if (
+      selectedFieldId.value === snapshot.fieldId &&
+      sameFieldPropState(buildFieldPropSnapshot(), snapshot)
+    ) {
+      syncFieldPropBaselineFromEditor();
+    }
     ElMessage.success('已保存');
     return true;
   } catch (e) {
@@ -2315,12 +2295,13 @@ async function saveSelectedFieldProp() {
 }
 
 function cancelSelectedFieldProp() {
-  if (!selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID) return;
+  if (isSavingFieldProp.value || !selectedFieldId.value || selectedFieldId.value === DRAFT_FIELD_ID) return;
   const ff = getSelectedFormField();
   if (ff) selectField(ff);
 }
 
 async function resolveFieldPropLeave({ resetOptions = {}, actionText = '关闭' } = {}) {
+  if (isSavingFieldProp.value) return false;
   if (!isFieldPropDirty.value) return true;
   try {
     await ElMessageBox.confirm(`字段属性修改尚未保存，保存或取消后将继续${actionText}。`, '字段属性未保存', {
@@ -2350,7 +2331,8 @@ watch(currentFieldPropDraftKey, (draftKey) => {
   }
 });
 
-function selectField(ff) {
+function selectField(ff, { fromSave = false } = {}) {
+  if (isSavingFieldProp.value && !fromSave) return;
   labelOidSession = buildLabelOidSession(resolveLabelOidSeedDefinition(ff));
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
@@ -2417,26 +2399,14 @@ function selectField(ff) {
   isHydratingFieldProp = false;
 }
 
-async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fieldPropSaveSession) {
-  if (designerHistory.busy.value) return false;
-  if (!snapshot?.fieldId) return;
-  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
-  const historyContext = captureDesignerHistoryContext();
-  const ff = formFields.value.find((f) => f.id === snapshot.fieldId);
-  const formId = historyContext?.formId;
-  const projectId = snapshot.projectId;
-  if (!ff || !formId || projectId !== fieldPropProjectId.value) throw new Error('字段属性保存上下文已变更');
-  if (isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
-    throw new Error('单选/多选字段必须选择选项字典');
-  const propEditFieldId = ff.id;
-  const originalDefinitionId = ff.field_definition_id;
-  const originalDefinitionOid = ff.field_definition?.variable_name ?? null;
-  const beforePropState = snapshotFieldPropState(ff);
+// 组装 binding-profile 请求的编辑态：9 个可编辑键 + 结构键来自快照，
+// required / label_override / help_text 取请求发起时的实例值，默认值按类型归一。
+function buildFieldSaveEditorState(snapshot, ff) {
   const supportsDefaultValue = isDefaultValueSupported(snapshot.field_type, Boolean(snapshot.inline_mark));
   const normalizedDefaultValue = supportsDefaultValue
     ? normalizeDefaultValue(snapshot.default_value, !snapshot.inline_mark)
     : null;
-  const editorState = {
+  return {
     variable_name: snapshot.variable_name,
     label: snapshot.label,
     field_type: snapshot.field_type,
@@ -2456,66 +2426,142 @@ async function saveFieldProp(snapshot = buildFieldPropSnapshot(), sessionId = fi
     label_bold: snapshot.label_bold,
     label_font_size: snapshot.label_font_size,
   };
-  // 一次原子请求：共享更新 / 候选换绑 / OID 分叉 + 实例更新
-  const command = buildBindingProfileCommand({
-    currentDefinitionId: originalDefinitionId,
-    currentDefinitionOid: originalDefinitionOid,
-    editorState,
-    selectedDefinitionId: selectedDefinitionId.value,
-    candidateOid: candidateOid.value,
+}
+
+// 记录属性保存的撤销/重做条目：回放命令按正向保存实际写过的部分重建
+//（fork / 换绑含纯引用 / 共享更新），fork-redo 的分叉 id 变化回写历史栈。
+function recordFieldPropSaveHistory(historyContext, replay) {
+  const {
+    propEditFieldId,
+    originalDefinitionId,
+    originalDefinitionOid,
+    candidateBeforePayload,
+    beforePropState,
+    afterPropState,
+    command,
+    writtenDefinitionId,
+  } = replay;
+  if (!afterPropState || !beforePropState || sameFieldPropState(beforePropState, afterPropState)) return;
+  const isFork = command.definition_operation.operation === 'create_or_restore';
+  // 换绑按绑定模式判定：纯引用（none + existing）也记录为「换绑字段」，
+  // 回放时按 definitionUpdated 只恢复绑定 + 实例，不再无条件重写共享定义
+  const isRebind = command.binding.mode === 'existing';
+  const definitionUpdated = command.definition_operation.operation === 'update_shared';
+  recordDesignerHistory(historyContext, {
+    label: isFork ? 'OID 分叉' : isRebind ? '换绑字段' : '编辑属性',
+    ids: { ffId: propEditFieldId, fdId: writtenDefinitionId, origFdId: originalDefinitionId },
+    undo: async (ids) => {
+      const undoCommand = buildFieldPropReplayCommand({
+        entryType: isFork ? 'fork-undo' : isRebind ? 'rebind-undo' : 'shared',
+        writtenDefinitionId: ids.fdId,
+        originalDefinitionId: ids.origFdId,
+        originalDefinitionOid,
+        candidateBeforePayload,
+        definitionUpdated,
+        snapshot: beforePropState,
+      });
+      const replayResult = await replayBindingProfile(historyContext, ids.ffId, undoCommand);
+      if (replayResult?.cleanup?.retained_in_use) {
+        ElMessage.warning('字段定义已被其他表单引用，已保留定义');
+      }
+    },
+    redo: async (ids, { remapId }) => {
+      const redoCommand = buildFieldPropReplayCommand({
+        entryType: isFork ? 'fork-redo' : isRebind ? 'rebind-redo' : 'shared',
+        writtenDefinitionId: ids.fdId,
+        originalDefinitionId: ids.origFdId,
+        originalDefinitionOid,
+        definitionUpdated,
+        snapshot: afterPropState,
+      });
+      const replayResult = await replayBindingProfile(historyContext, ids.ffId, redoCommand);
+      if (isFork && replayResult?.final_definition_id != null) {
+        remapId(ids.fdId, replayResult.final_definition_id);
+      }
+    },
   });
-  const result = await api.put(`/api/form-fields/${propEditFieldId}/binding-profile`, command);
-  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
+}
+
+// 保存落库后的本地收敛：失效缓存、重载列表（失败/跳过时用接口返回原位替换）、
+// 仍选中且编辑器与提交快照一致时清候选状态并按落库行重建编辑器与标签 OID 会话。
+// 返回 false 表示设计器上下文已变更，调用方不得再记录历史。
+async function reconcileAfterFieldPropSave({ formId, projectId, propEditFieldId, historyContext, ff, result, snapshot }) {
   api.invalidateCache(`/api/forms/${formId}/fields`);
   api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
   refreshKey.value++;
+  let reloaded = false;
   if (!isReordering.value) {
-    await loadFormFields();
+    try {
+      reloaded = await loadFormFields();
+    } catch {
+      ElMessage.warning('字段已保存，但列表刷新失败，请稍后刷新查看');
+    }
   }
-  if (!isCurrentDesignerHistoryContext(historyContext)) return;
-  const candidateBeforePayload = candidateBeforeDefinition;
-  selectedDefinitionId.value = null;
-  candidateOid.value = null;
-  candidateBeforeDefinition = null;
-  if (selectedFieldId.value === propEditFieldId) {
+  if (!reloaded && isCurrentDesignerHistoryContext(historyContext) && result.form_field) {
+    const savedField = { ...ff, ...result.form_field };
+    formFields.value = formFields.value.map((field) => (field.id === propEditFieldId ? savedField : field));
+  }
+  if (!isCurrentDesignerHistoryContext(historyContext)) return false;
+  if (
+    selectedFieldId.value === propEditFieldId &&
+    sameFieldPropState(buildFieldPropSnapshot(), snapshot)
+  ) {
+    selectedDefinitionId.value = null;
+    candidateOid.value = null;
+    candidateBeforeDefinition = null;
+    // 无条件按落库结果重建编辑器与标签 OID 会话：保存期间编辑器已锁定（与快照一致），
+    // 跳过重建会让换绑后的 labelOidSession 停留在原定义，后续类型切换会误分叉
     const fresh = formFields.value.find((f) => f.id === propEditFieldId);
-    if (fresh && !isFieldPropDirty.value) selectField(fresh);
+    if (fresh) selectField(fresh, { fromSave: true });
   }
-  const afterField = formFields.value.find((f) => f.id === propEditFieldId);
-  const afterPropState = snapshotFieldPropState(afterField);
-  if (afterPropState && beforePropState && !sameFieldPropState(beforePropState, afterPropState)) {
-    const isFork = command.definition_operation.operation === 'create_or_restore';
-    const isRebind = command.binding.mode === 'existing' && command.definition_operation.operation === 'update_shared';
-    const writtenDefinitionId = result.final_definition_id ?? originalDefinitionId;
-    recordDesignerHistory(historyContext, {
-      label: isFork ? 'OID 分叉' : isRebind ? '换绑字段' : '编辑属性',
-      ids: { ffId: propEditFieldId, fdId: writtenDefinitionId, origFdId: originalDefinitionId },
-      undo: async (ids) => {
-        const undoCommand = buildFieldPropReplayCommand({
-          entryType: isFork ? 'fork-undo' : isRebind ? 'rebind-undo' : 'shared',
-          writtenDefinitionId: ids.fdId,
-          originalDefinitionId: ids.origFdId,
-          originalDefinitionOid,
-          candidateBeforePayload,
-          snapshot: beforePropState,
-        });
-        const replayResult = await replayBindingProfile(historyContext, ids.ffId, undoCommand);
-        if (replayResult?.cleanup?.retained_in_use) {
-          ElMessage.warning('字段定义已被其他表单引用，已保留定义');
-        }
-      },
-      redo: async (ids) => {
-        const redoCommand = buildFieldPropReplayCommand({
-          entryType: isFork ? 'fork-redo' : isRebind ? 'rebind-redo' : 'shared',
-          writtenDefinitionId: ids.fdId,
-          originalDefinitionId: ids.origFdId,
-          originalDefinitionOid,
-          snapshot: afterPropState,
-        });
-        await replayBindingProfile(historyContext, ids.ffId, redoCommand);
-      },
-    });
-  }
+  return true;
+}
+
+async function saveFieldProp(snapshot, sessionId, commandArgs, candidateBeforePayload) {
+  if (designerHistory.busy.value) return false;
+  if (!snapshot?.fieldId) return;
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
+  const historyContext = captureDesignerHistoryContext();
+  const ff = formFields.value.find((f) => f.id === snapshot.fieldId);
+  const formId = historyContext?.formId;
+  const projectId = snapshot.projectId;
+  if (!ff || !formId || projectId !== fieldPropProjectId.value) throw new Error('字段属性保存上下文已变更');
+  if (isChoiceField(snapshot.field_type) && !snapshot.codelist_id)
+    throw new Error('单选/多选字段必须选择选项字典');
+  const propEditFieldId = ff.id;
+  const originalDefinitionId = ff.field_definition_id;
+  const originalDefinitionOid = ff.field_definition?.variable_name ?? null;
+  const beforePropState = snapshotFieldPropState(ff);
+  const editorState = buildFieldSaveEditorState(snapshot, ff);
+  // 一次原子请求：共享更新（仅当定义真的变了）/ 纯绑定 / OID 分叉 + 实例更新；
+  // 与 saveSelectedFieldProp 的影响确认用同一组参数（DEC3），中间无 await、候选状态一致
+  const command = buildBindingProfileCommand({
+    ...commandArgs,
+    editorState,
+  });
+  const result = await api.put(`/api/form-fields/${propEditFieldId}/binding-profile`, command);
+  if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
+  const settled = await reconcileAfterFieldPropSave({
+    formId,
+    projectId,
+    propEditFieldId,
+    historyContext,
+    ff,
+    result,
+    snapshot,
+  });
+  if (!settled) return;
+  const afterPropState = snapshotFieldPropState(formFields.value.find((f) => f.id === propEditFieldId));
+  recordFieldPropSaveHistory(historyContext, {
+    propEditFieldId,
+    originalDefinitionId,
+    originalDefinitionOid,
+    candidateBeforePayload,
+    beforePropState,
+    afterPropState,
+    command,
+    writtenDefinitionId: result.final_definition_id ?? originalDefinitionId,
+  });
 }
 
 // 把当前属性编辑器的值不可变地写回本地草稿对象（含 field_definition 与实例属性）。
@@ -2548,6 +2594,7 @@ function applyEditorToDraft() {
 
 // 仅移除本地草稿，不发任何请求；若草稿正被选中则清空编辑器。
 function removeDraftFromState() {
+  if (savingDraft.value || isSavingFieldProp.value) return;
   formFields.value = formFields.value.filter((f) => !isDraftField(f));
   if (selectedFieldId.value === DRAFT_FIELD_ID) resetFieldPropAutoSaveState();
 }
@@ -2576,7 +2623,7 @@ async function confirmDiscardDraft() {
 }
 
 async function newField() {
-  if (designerHistory.busy.value || isReordering.value) return;
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value) return;
   if (!selectedForm.value) return;
   const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '新建字段' });
   if (!canLeaveFieldProp) return;
@@ -2687,10 +2734,12 @@ async function saveDraftField() {
     editorState,
     selectedDefinitionId: selectedDefinitionId.value,
     candidateOid: candidateOid.value,
-    candidateDefinitionPayload: candidateBeforeDefinition,
+    // 比较用归一化快照（DEC2）：日期默认格式等不再产生幻影差异；
+    // 恢复仍用原始快照（candidateBeforeDefinition），还原点击候选时的真实内容
+    candidateDefinitionPayload: comparableDefinitionPayload(candidateBeforeDefinition),
   });
   if (Number.isInteger(draft.__draftOrderIndex)) command.order_index = draft.__draftOrderIndex;
-  // 草稿内改了定义级属性 → 随保存共享更新候选定义；多表单引用时先确认影响范围
+  // 草稿内改了定义级属性 → 随保存共享更新候选定义；候选被其他表单引用时先确认（R5）
   const definitionChanged = command.definition_operation?.operation === 'update_shared';
   // 确认弹窗 await 期间用户可能经 onSelectFieldClick→丢弃草稿 清空 candidateBeforeDefinition：
   // 恢复快照必须在首个 await 前捕获，否则 undo 静默丢失定义内容恢复
@@ -2699,7 +2748,7 @@ async function saveDraftField() {
   beginFieldMembershipMutation();
   try {
     if (definitionChanged) {
-      await confirmFieldReferenceImpact(selectedDefinitionId.value);
+      await confirmFieldReferenceImpact(selectedDefinitionId.value, { includesCurrentForm: false });
       // 确认弹窗期间草稿可能被丢弃：不再物化已丢弃字段
       if (!hasDraft.value) return false;
     }
@@ -2766,7 +2815,7 @@ async function saveDraftField() {
               definition_operation: {
                 operation: 'create_or_restore',
                 create_or_restore: {
-                  definition: buildDefinitionPayload(editorState),
+                  definition: command.definition_operation.create_or_restore.definition,
                   preferred_definition_id: ids.fdId,
                 },
               },
@@ -2791,11 +2840,14 @@ async function saveDraftField() {
 
 // 字段行点击选中入口：存在草稿且点击非草稿字段时先确认保存/丢弃。
 async function onSelectFieldClick(ff) {
+  if (isSavingFieldProp.value || savingDraft.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
   const currentField = formFields.value.find((field) => field.id === ff.id);
   if (!currentField) return;
   if (isDraftField(ff) || selectedFieldId.value === ff.id) {
+    // 同行重按 = 放弃未保存修改（含误选候选）：从已落库行重建编辑器；
+    // 保存进行中已在函数入口被 isSavingFieldProp/savingDraft 拦下，此处无竞态
     selectField(currentField);
     return;
   }
@@ -2818,7 +2870,7 @@ async function onSelectFieldClick(ff) {
 }
 
 async function addLogRow() {
-  if (designerHistory.busy.value || isReordering.value) return;
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFieldProp.value) return;
   if (!selectedForm.value) return;
   const historyContext = captureDesignerHistoryContext();
   if (hasDraft.value) {
@@ -3201,7 +3253,7 @@ watch(
 );
 
 async function resolveDesignerLeave({ actionText }) {
-  if (designerHistory.busy.value || isReordering.value || savingDraft.value) return false;
+  if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFieldProp.value) return false;
   formSelectionAttempt += 1;
   if (hasDraft.value) {
     const proceed = await confirmDiscardDraft();
@@ -4959,7 +5011,7 @@ function openAddForm() {
                 label-width="88px"
                 size="small"
                 data-test="designer-field-property-form"
-                :disabled="designerHistory.busy.value"
+                :disabled="designerHistory.busy.value || savingDraft || isSavingFieldProp"
               >
                 <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID">
                   <el-autocomplete
@@ -5153,6 +5205,7 @@ function openAddForm() {
                       type="button"
                       class="color-option color-option-default"
                       :class="{ 'color-selected': !editProp.bg_color && !customBgColorInput }"
+                      :disabled="propEditorBusy"
                       @click="
                         editProp.bg_color = null;
                         customBgColorInput = '';
@@ -5169,6 +5222,7 @@ function openAddForm() {
                       :style="{ background: '#' + opt.value }"
                       :aria-label="`选择底纹颜色：${opt.label}`"
                       :title="opt.label"
+                      :disabled="propEditorBusy"
                       @click="
                         editProp.bg_color = opt.value;
                         customBgColorInput = '';
@@ -5193,6 +5247,7 @@ function openAddForm() {
                       type="button"
                       class="color-option color-option-default"
                       :class="{ 'color-selected': !editProp.text_color && !customTextColorInput }"
+                      :disabled="propEditorBusy"
                       @click="
                         editProp.text_color = null;
                         customTextColorInput = '';
@@ -5209,6 +5264,7 @@ function openAddForm() {
                       :style="{ background: '#' + opt.value }"
                       :aria-label="`选择文字颜色：${opt.label}`"
                       :title="opt.label"
+                      :disabled="propEditorBusy"
                       @click="
                         editProp.text_color = opt.value;
                         customTextColorInput = '';
@@ -5272,7 +5328,7 @@ function openAddForm() {
               </template>
               <template v-else-if="selectedFieldId === DRAFT_FIELD_ID">
                 <span class="designer-editor-actions-spacer"></span>
-                <el-button size="small" data-test="designer-draft-cancel" @click="removeDraftFromState">
+                <el-button size="small" data-test="designer-draft-cancel" :disabled="savingDraft" @click="removeDraftFromState">
                   取消
                 </el-button>
                 <el-button

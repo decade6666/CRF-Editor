@@ -495,7 +495,7 @@ test('form selection uses attempt supersession without invalidating the committe
   assert.match(body, /if \(!isFormSelectionAttemptCurrent\(selectionAttempt, selectionSession, projectId\)\) return;/)
   assert.match(
     body,
-    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;/,
+    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value \|\| isSavingFieldProp\.value\) \{[\s\S]*?formsTableRef\.value\?\.setCurrentRow\(currentForm\);[\s\S]*?return;/,
   )
   assert.match(body, /invalidateFormSelectionSession\(\);[\s\S]*?selectedForm\.value = nextForm \|\| null;/)
   assert.doesNotMatch(body, /\+\+formSelectionSession/)
@@ -520,10 +520,10 @@ test('history-producing command functions reject new work while replay is busy',
     assert.match(functionBody(name), /designerHistory\.busy\.value/, `${name} should guard replay busy state`)
   }
   assert.match(functionBody('removeField'), /if \(designerHistory\.busy\.value && !isDraftField\(ff\)\) return;/)
-  assert.match(functionBody('onDragStart'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) \{[\s\S]*return;/)
-  assert.match(functionBody('onDrop'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) return;/)
+  assert.match(functionBody('onDragStart'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) \{[\s\S]*return;/)
+  assert.match(functionBody('onDrop'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
   assert.match(functionBody('handleFieldKeydown'), /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\)\) return;/)
-  assert.match(functionBody('handleFieldKeydown'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\) return;/)
+  assert.match(functionBody('handleFieldKeydown'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
 })
 
 test('history-producing designer controls and property forms are disabled during replay', () => {
@@ -537,6 +537,31 @@ test('history-producing designer controls and property forms are disabled during
   assert.match(designerSource, /data-test="designer-log-property-readonly"/)
   assert.match(designerSource, /data-test="designer-field-property-form"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
   assert.match(designerSource, /data-test="designer-draft-save"[\s\S]*?:disabled="designerHistory\.busy\.value"/)
+})
+
+test('field property save blocks conflicting mutations until the request settles', () => {
+  for (const name of [
+    'removeField',
+    'batchDelete',
+    'cancelSelectedFieldProp',
+    'openQuickEdit',
+    'saveQuickEdit',
+    'toggleInline',
+    'copyFormField',
+    'addLogRow',
+    'onDragStart',
+    'onDrop',
+  ]) {
+    assert.match(
+      functionBody(name),
+      /isSavingFieldProp\.value[\s\S]*?return/,
+      `${name} should reject while field properties are saving`,
+    )
+  }
+  assert.match(
+    functionBody('reconcileAfterFieldPropSave'),
+    /if \(!isReordering\.value\) \{[\s\S]*?await loadFormFields\(\);[\s\S]*?\}/,
+  )
 })
 
 test('membership-changing actions, history replay, and leave guards all block reorder/draft-sensitive flows', () => {
@@ -562,12 +587,15 @@ test('membership-changing actions, history replay, and leave guards all block re
     designerSource,
     /:draggable="!designerHistory\.busy\.value && !isReordering && !isFieldMembershipBusy\(\)"/,
   )
-  assert.match(functionBody('runHistory'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return;/)
+  assert.match(
+    functionBody('runHistory'),
+    /if\s*\(\s*designerHistory\.busy\.value\s*\|\|\s*isReordering\.value\s*\|\|\s*savingDraft\.value\s*\|\|\s*isSavingFieldProp\.value\s*\)\s*return/,
+  )
   assert.match(
     functionBody('runHistory'),
     /historyContext = captureDesignerHistoryContext\(\)[\s\S]*?await confirmDiscardDraft\(\);[\s\S]*?if \(historyContext && !isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?if \(!proceed\) return;/,
   )
-  assert.match(functionBody('saveFieldProp'), /if \(!isReordering\.value\) \{[\s\S]*?await loadFormFields\(\);[\s\S]*?\}/)
+  assert.match(functionBody('saveFieldProp'), /const settled = await reconcileAfterFieldPropSave\(\{[\s\S]*?if \(!settled\) return;/)
   assert.match(
     functionBody('saveQuickEdit'),
     /historyContext = captureDesignerHistoryContext\(\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
@@ -586,7 +614,7 @@ test('membership-changing actions, history replay, and leave guards all block re
   )
   assert.match(
     functionBody('resolveDesignerLeave'),
-    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value\) return false;/,
+    /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| savingDraft\.value \|\| isSavingFieldProp\.value\) return false;/,
   )
   assert.match(functionBody('canLeaveProject'), /return resolveDesignerLeave\(\{ actionText: '切换项目' \}\)/)
   assert.match(

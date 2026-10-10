@@ -257,13 +257,25 @@ test('property editor save validates, warns on multi-form references, and update
   assert.match(body, /isSavingFieldProp\.value = true/)
   assert.match(body, /isChoiceField\(snapshot\.field_type\) && !snapshot\.codelist_id/)
   assert.match(body, /ElMessage\.warning\('单选\/多选字段必须选择选项字典'\)/)
-  assert.match(body, /await confirmFieldReferenceImpact\(sharedWriteTarget\)/)
+  // DEC3：确认目标派生自与保存命令同一组参数；候选目标按 R5 阈值（仅其他表单）确认
+  assert.match(body, /const commandArgs = buildSelectedFieldCommandArgs\(ff, snapshot\)/)
+  const targetDeclaration = body.indexOf('const sharedWriteTarget = resolveSharedWriteTarget(commandArgs)')
+  const confirmation = body.indexOf('await confirmFieldReferenceImpact(')
+  assert.ok(targetDeclaration >= 0 && confirmation > targetDeclaration)
+  assert.match(
+    body,
+    /await confirmFieldReferenceImpact\(sharedWriteTarget, \{\s*includesCurrentForm: sharedWriteTarget === ff\.field_definition_id,\s*\}\)/,
+  )
   assert.match(formDesignerSource, /import \{ countDistinctForms, formatFieldImpactMessage \} from '..\/composables\/fieldReferenceImpact'/)
-  assert.match(formDesignerSource, /countDistinctForms\(refs\) <= 1/)
+  // 唯一索引 uq_form_field 保证同表单不双绑定：references 行数=去重表单数，按去重表单数计阈值
+  assert.match(formDesignerSource, /countDistinctForms\(refs\) <= \(includesCurrentForm \? 1 : 0\)/)
   assert.match(formDesignerSource, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
   assert.match(formDesignerSource, /修改将影响以下表单：\\n\$\{msg\}\\n确认修改？/)
-  assert.match(body, /await saveFieldProp\(snapshot, sessionId\)/)
-  assert.match(body, /if \(selectedFieldId\.value === snapshot\.fieldId\) syncFieldPropBaselineFromEditor\(\)/)
+  assert.match(body, /await saveFieldProp\(snapshot, sessionId, commandArgs, candidateBeforePayload\)/)
+  assert.match(
+    body,
+    /if\s*\(\s*selectedFieldId\.value === snapshot\.fieldId\s*&&\s*sameFieldPropState\(buildFieldPropSnapshot\(\), snapshot\)\s*\)\s*\{\s*syncFieldPropBaselineFromEditor\(\)/,
+  )
   assert.match(body, /if \(sessionId == null \|\| sessionId === fieldPropSaveSession\) isSavingFieldProp\.value = false/)
   assert.match(body, /return true/)
 })
@@ -275,19 +287,96 @@ test('property editor cancel restores selected field from baseline without reque
   assert.match(body, /if \(ff\) selectField\(ff\)/)
 })
 
+test('property editor cannot leave while its persistence request is in flight', () => {
+  const body = functionBody('resolveFieldPropLeave')
+  assert.match(body, /if \(isSavingFieldProp\.value\) return false/)
+})
+
+test('selectField cannot reset candidate state while a save is in flight', () => {
+  const selectBody = functionBody('selectField')
+  const reconcileBody = functionBody('reconcileAfterFieldPropSave')
+  assert.match(selectBody, /if \(isSavingFieldProp\.value && !fromSave\) return/)
+  assert.match(reconcileBody, /selectField\(fresh, \{ fromSave: true \}\)/)
+})
+
+test('post-save reconciliation reloads, falls back to the endpoint row, and rebuilds the editor', () => {
+  const body = functionBody('reconcileAfterFieldPropSave')
+  assert.match(body, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
+  assert.match(body, /api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\)/)
+  assert.match(body, /refreshKey\.value\+\+/)
+  assert.match(body, /if \(!isReordering\.value\) \{[\s\S]*?await loadFormFields\(\);[\s\S]*?\}/)
+  assert.match(body, /const savedField = \{ \.\.\.ff, \.\.\.result\.form_field \}/)
+  assert.match(body, /candidateBeforeDefinition = null;/)
+})
+
+test('impact preflight and request share frozen command args and undo snapshot', () => {
+  const saveSelectedBody = functionBody('saveSelectedFieldProp')
+  const saveBody = functionBody('saveFieldProp')
+  const capturedCandidate = saveSelectedBody.indexOf('const candidateBeforePayload = candidateBeforeDefinition')
+  const confirmation = saveSelectedBody.indexOf('await confirmFieldReferenceImpact(')
+  assert.ok(capturedCandidate >= 0 && capturedCandidate < confirmation)
+  assert.match(saveSelectedBody, /const commandArgs = buildSelectedFieldCommandArgs\(ff, snapshot\)/)
+  assert.match(saveSelectedBody, /resolveSharedWriteTarget\(commandArgs\)/)
+  assert.match(
+    saveSelectedBody,
+    /await saveFieldProp\(snapshot, sessionId, commandArgs, candidateBeforePayload\)/,
+  )
+  assert.match(saveBody, /buildBindingProfileCommand\(\{\s*\.\.\.commandArgs,\s*editorState,\s*\}\)/)
+  // 保存函数内不得再读共享 candidate 决策状态；唯一允许的残余是成功后的清空赋值
+  const residualReads = saveBody.split('candidateBeforeDefinition = null;').join('')
+  assert.doesNotMatch(residualReads, /candidateBeforeDefinition/)
+})
+
 test('saveFieldProp saves one atomic binding-profile command and refreshes the field library', () => {
   const body = functionBody('saveFieldProp')
 
   assert.doesNotMatch(body, /if \(ff\.is_log_row\)/)
-  assert.match(body, /const command = buildBindingProfileCommand\(\{/)
+  // DEC3：与 saveSelectedFieldProp 的影响确认共用同一组命令参数
+  assert.match(body, /const command = buildBindingProfileCommand\(\{\s*\.\.\.commandArgs,\s*editorState,\s*\}\)/)
   assert.match(body, /const result = await api\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command\)/)
   assert.doesNotMatch(body, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions/)
   assert.doesNotMatch(body, /api\.patch\(`\/api\/form-fields/)
-  assert.match(body, /api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\)/)
-  assert.match(body, /refreshKey\.value\+\+/)
-  // 历史条目按操作类型记录：共享更新 / 换绑 / OID 分叉
-  assert.match(body, /buildFieldPropReplayCommand\(\{[\s\S]*entryType: isFork \? 'fork-undo' : isRebind \? 'rebind-undo' : 'shared'/)
-  assert.match(body, /buildFieldPropReplayCommand\(\{[\s\S]*entryType: isFork \? 'fork-redo' : isRebind \? 'rebind-redo' : 'shared'/)
+  assert.match(body, /const settled = await reconcileAfterFieldPropSave\(\{[\s\S]*?result,[\s\S]*?snapshot,[\s\S]*?\}\)/)
+  assert.match(body, /if \(!settled\) return;/)
+  // 历史条目按操作类型记录：共享更新 / 换绑（含纯引用）/ OID 分叉；
+  // definitionUpdated 标记让回放只重建正向保存实际写过的部分（收口在 recordFieldPropSaveHistory）
+  const historyBody = functionBody('recordFieldPropSaveHistory')
+  assert.match(body, /recordFieldPropSaveHistory\(historyContext, \{[\s\S]*?writtenDefinitionId: result\.final_definition_id \?\? originalDefinitionId,/)
+  assert.match(historyBody, /const isRebind = command\.binding\.mode === 'existing'/)
+  assert.match(historyBody, /const definitionUpdated = command\.definition_operation\.operation === 'update_shared'/)
+  assert.match(historyBody, /buildFieldPropReplayCommand\(\{[\s\S]*?entryType: isFork \? 'fork-undo' : isRebind \? 'rebind-undo' : 'shared',[^\u0000]*?definitionUpdated,/)
+  assert.match(historyBody, /buildFieldPropReplayCommand\(\{[\s\S]*?entryType: isFork \? 'fork-redo' : isRebind \? 'rebind-redo' : 'shared',[^\u0000]*?definitionUpdated,/)
+  // 回放构造器已收口到 composable（行为可单测），组件不再本地定义
+  assert.doesNotMatch(formDesignerSource, /function buildFieldPropReplayCommand\(/)
+  assert.match(formDesignerSource, /import \{[\s\S]*?buildFieldPropReplayCommand,[\s\S]*?\} from '\.\.\/composables\/formDesignerPropertyEditor'/)
+})
+
+test('field prop history snapshot preserves instance and structural keys for replay', () => {
+  const body = functionBody('snapshotFieldPropState')
+  assert.match(body, /help_text: ff\.help_text \?\? null/)
+  // fd 键集由 DEFINITION_PAYLOAD_KEYS 派生：新增定义键自动进快照，不再被回放默认值重置
+  assert.match(body, /fd: Object\.fromEntries\(DEFINITION_PAYLOAD_KEYS\.map\(\(key\) => \[key, fd\[key\] \?\? null\]\)\)/)
+  assert.match(formDesignerSource, /import \{[\s\S]*?DEFINITION_PAYLOAD_KEYS,[\s\S]*?\} from '\.\.\/composables\/formDesignerPropertyEditor'/)
+})
+
+test('history replay is blocked while property save confirmation is pending', () => {
+  const body = functionBody('runHistory')
+  assert.match(
+    body,
+    /if\s*\(\s*designerHistory\.busy\.value\s*\|\|\s*isReordering\.value\s*\|\|\s*savingDraft\.value\s*\|\|\s*isSavingFieldProp\.value\s*\)\s*return/,
+  )
+})
+
+test('cleared date format normalizes immediately and native swatches follow the save lock', () => {
+  // 清空日期格式（Element Plus clearable 发 undefined）必须立即归一为类型默认，
+  // 否则快照携带 undefined 与归一化候选快照比较会产生幻影 update_shared（DEC2）
+  assert.match(
+    formDesignerSource,
+    /watch\(\s*\(\) => editProp\.date_format,[\s\S]*?normalizeDateFormat\(editProp\.field_type, value, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS\)[\s\S]*?editProp\.date_format = normalized;/,
+  )
+  // 原生色块 <button> 不受 el-form :disabled 约束，保存/草稿请求期间必须单独禁用
+  const swatchCount = (formDesignerSource.match(/:disabled="propEditorBusy"/g) || []).length
+  assert.equal(swatchCount, 4, `property-form swatch groups must bind propEditorBusy, found ${swatchCount}`)
 })
 
 
