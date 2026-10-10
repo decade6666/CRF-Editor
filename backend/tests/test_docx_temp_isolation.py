@@ -8,9 +8,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,12 +50,16 @@ def _create_project(client: TestClient, token: str, name: str) -> int:
 
 
 def _upload_for(user_id: int, project_id: int, content: bytes = b"PK\x03\x04 placeholder docx") -> tuple[str, Path]:
-    temp_id, file_path = DocxImportService.save_temp_file(content, "样本.docx", user_id=user_id, project_id=project_id)
-    return temp_id, Path(file_path)
+    temp_id, name = DocxImportService.build_owned_filename("样本.docx", user_id=user_id, project_id=project_id)
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    path = temp_dir / name
+    path.write_bytes(content)
+    return temp_id, path
 
 
 def _seed_upload(user_id: int, project_id: int, temp_id: str | None = None) -> tuple[str, Path]:
-    """直接按「编号_归属_文件名」的目标格式落盘，供 API 测试播种，不依赖 save_temp_file 签名。"""
+    """直接按「编号_归属_文件名」的目标格式落盘，供 API 测试播种，不走服务端上传接口。"""
     temp_id = temp_id or uuid.uuid4().hex
     temp_dir = Path(DocxImportService.TEMP_DIR)
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -79,7 +85,10 @@ def test_should_mint_32_hex_temp_id_bound_to_owner_and_project():
     assert stored_name.startswith(f"{temp_id}_u7_p9_")
     assert stored_name.endswith("_样本.docx")
     # 大写扩展名上传：扩展名统一转小写存储，归属查找与清扫才能命中
-    upper_id, upper_path = DocxImportService.save_temp_file(b"PK\x03\x04 upper", "SAMPLE.DOCX", user_id=7, project_id=9)
+    upper_id, upper_name = DocxImportService.build_owned_filename("SAMPLE.DOCX", user_id=7, project_id=9)
+    upper_path = Path(DocxImportService.TEMP_DIR) / upper_name
+    upper_path.parent.mkdir(parents=True, exist_ok=True)
+    upper_path.write_bytes(b"PK\x03\x04 upper")
     assert Path(upper_path).suffix == ".docx"
     assert DocxImportService.get_owned_temp_path(upper_id, user_id=7, project_id=9) == str(upper_path)
 
@@ -296,6 +305,157 @@ def test_should_purge_expired_uploads_with_their_artifacts(monkeypatch):
 
 def test_should_purge_nothing_when_temp_dir_missing():
     assert DocxImportService.purge_expired_uploads() == 0
+
+
+# ── 过期清扫：.db 导入临时文件纳入同一入口（design.md D5）──
+
+
+def _seed_db_upload(user_id: int, project_id: int, temp_id: str | None = None) -> tuple[str, Path]:
+    """按 .db 上传的目标命名落盘：{temp_id}_u{uid}_p{pid}_upload.db（固定词干 upload）。"""
+    temp_id = temp_id or uuid.uuid4().hex
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    path = temp_dir / f"{temp_id}_u{user_id}_p{project_id}_upload.db"
+    path.write_bytes(b"SQLite format 3\x00stub")
+    return temp_id, path
+
+
+def test_should_purge_expired_db_upload_together_with_same_id_artifacts(monkeypatch):
+    old_id, old_db = _seed_db_upload(1, 0, temp_id="a" * 32)
+    artifact = Path(DocxImportService.TEMP_DIR) / f"{'a' * 32}_extra.docx"
+    artifact.write_bytes(b"PK\x03\x04 placeholder")
+    _, fresh_db = _seed_db_upload(1, 0, temp_id="b" * 32)
+    _age_file(old_db, hours=25)
+    # 同编号衍生文件保持新鲜：清扫按编号整体丢弃，而不是逐个文件比对 mtime
+    screenshot_calls: list[str] = []
+    monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid)))
+    ars = ai_review_service
+    monkeypatch.setattr(ars, "_ai_tasks", {old_id: object()}, raising=False)
+
+    purged = DocxImportService.purge_expired_uploads(max_age_hours=24)
+
+    assert purged >= 1
+    assert not old_db.exists(), "过期的 .db 导入临时文件必须被清扫（RED：后缀过滤只认 .docx）"
+    assert not artifact.exists(), "同编号衍生文件必须随编号一起丢弃"
+    assert fresh_db.exists(), "未过期的 .db 必须保留"
+    assert screenshot_calls == [old_id], "新格式过期上传必须连带清理截图缓存"
+    assert old_id not in ars._ai_tasks, "新格式过期上传必须连带清理 AI 复核任务"
+
+
+def test_should_purge_expired_legacy_db_file_only():
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    legacy_db = temp_dir / f"{'c' * 12}_legacy.db"
+    legacy_db.write_bytes(b"SQLite format 3\x00stub")
+    _age_file(legacy_db, hours=25)
+
+    purged = DocxImportService.purge_expired_uploads(max_age_hours=24)
+
+    assert purged >= 1
+    assert not legacy_db.exists(), "过期的旧格式（无归属编号）.db 文件必须按文件清扫（RED：后缀过滤只认 .docx）"
+
+
+def test_should_purge_expired_owned_db_upload_with_sidecar_files(monkeypatch):
+    """复审 #3：进程硬杀后 SQLite 边车（-wal/-shm）必须随编号一起被清扫，不能无限期残留。"""
+    old_id, old_db = _seed_db_upload(1, 0, temp_id="a" * 32)
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    wal = temp_dir / f"{'a' * 32}_u1_p0_upload.db-wal"
+    shm = temp_dir / f"{'a' * 32}_u1_p0_upload.db-shm"
+    wal.write_bytes(b"wal-bytes")
+    shm.write_bytes(b"shm-bytes")
+    # 只有 .db 本体过期：边车保持新鲜，清扫必须按编号整体丢弃而不是逐文件比对 mtime
+    _age_file(old_db, hours=25)
+    _, fresh_db = _seed_db_upload(2, 0, temp_id="b" * 32)
+    fresh_wal = temp_dir / f"{'b' * 32}_u2_p0_upload.db-wal"
+    fresh_wal.write_bytes(b"wal-bytes")
+
+    screenshot_calls: list[str] = []
+    monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid)))
+
+    DocxImportService.purge_expired_uploads(max_age_hours=24)
+
+    assert not old_db.exists()
+    assert not wal.exists(), "同编号 .db-wal 边车必须随编号一起被清扫（RED：cleanup_temp glob 与清扫后缀都不含边车）"
+    assert not shm.exists(), "同编号 .db-shm 边车必须随编号一起被清扫"
+    assert fresh_db.exists(), "未过期的 .db 必须保留"
+    assert fresh_wal.exists(), "未过期的边车必须保留"
+    assert screenshot_calls == [old_id], "新格式过期上传必须连带清理截图缓存"
+
+
+def test_should_purge_expired_legacy_db_sidecar_file_only():
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    legacy_journal = temp_dir / f"{'c' * 12}_legacy.db-journal"
+    legacy_journal.write_bytes(b"journal-bytes")
+    _age_file(legacy_journal, hours=25)
+
+    purged = DocxImportService.purge_expired_uploads(max_age_hours=24)
+
+    assert purged >= 1
+    assert not legacy_journal.exists(), "旧格式（无归属编号）.db-journal 边车必须按文件清扫（RED：后缀过滤不含边车）"
+
+
+def test_should_not_log_untrusted_upload_filename_when_temp_cleanup_fails(monkeypatch, caplog):
+    temp_id, stored_name = DocxImportService.build_owned_filename(
+        "subject-123\\nFORGED LOG ENTRY.docx", user_id=1, project_id=1
+    )
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    path = temp_dir / stored_name
+    path.write_bytes(b"placeholder")
+
+    def _fail_remove(failed_path):
+        raise OSError(13, "permission denied", str(failed_path))
+
+    monkeypatch.setattr(dis, "os", SimpleNamespace(remove=_fail_remove))
+
+    with caplog.at_level(logging.WARNING):
+        DocxImportService.cleanup_temp(temp_id)
+
+    cleanup_logs = [record.getMessage() for record in caplog.records if "清理临时文件失败" in record.getMessage()]
+    assert cleanup_logs, "清理失败应有日志记录"
+    assert all(stored_name not in message for message in cleanup_logs), cleanup_logs
+    assert all("FORGED LOG ENTRY" not in message and "\\n" not in message for message in cleanup_logs), cleanup_logs
+    assert cleanup_logs[0] == f"清理临时文件失败: temp_id={temp_id}, error_type=PermissionError"
+
+
+def test_should_not_log_untrusted_upload_filename_when_expired_cleanup_fails(monkeypatch, caplog):
+    temp_id, stored_name = DocxImportService.build_owned_filename(
+        "subject-123\nFORGED LOG ENTRY.docx", user_id=1, project_id=1
+    )
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    path = temp_dir / stored_name
+    path.write_bytes(b"PK\\x03\\x04 placeholder")
+    _age_file(path, hours=25)
+
+    def _fail_screenshot_cleanup(cls, _temp_id):
+        raise OSError(5, "simulated cleanup failure")
+
+    monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(_fail_screenshot_cleanup))
+
+    with caplog.at_level(logging.WARNING):
+        DocxImportService.purge_expired_uploads(max_age_hours=24)
+
+    cleanup_logs = [
+        record.getMessage() for record in caplog.records if "清扫 Word 导入临时文件失败" in record.getMessage()
+    ]
+    assert cleanup_logs, "故障应由过期清扫记录"
+    assert all(stored_name not in message for message in cleanup_logs), cleanup_logs
+    assert all("FORGED LOG ENTRY" not in message and "\n" not in message for message in cleanup_logs), cleanup_logs
+    assert temp_id not in cleanup_logs[0], "日志无需记录任务 id 或文件名"
+
+
+def test_should_cleanup_temp_cover_db_files():
+    temp_id = "d" * 32
+    temp_dir = Path(DocxImportService.TEMP_DIR)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    db_file = temp_dir / f"{temp_id}_u1_p0_upload.db"
+    db_file.write_bytes(b"SQLite format 3\\x00stub")
+
+    DocxImportService.cleanup_temp(temp_id)
+
+    assert not db_file.exists(), "cleanup_temp 的编号 glob 必须覆盖 {temp_id}_*.db（RED：只清 *.docx）"
 
 
 def test_should_start_docx_temp_sweep_only_when_background_jobs_enabled(monkeypatch):

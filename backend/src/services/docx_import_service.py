@@ -40,6 +40,7 @@ from src.models.unit import Unit
 from src.utils import generate_code
 from src.services.order_service import OrderService
 from src.services.field_type_policy import allows_multiselect, is_multiselect_field_type
+from src.services import temp_paths
 from src.models.project import Project
 
 
@@ -999,7 +1000,9 @@ def _cleanup_field_config(field_info: dict, new_type: str) -> None:
 class DocxImportService:
     """Word文档导入服务"""
 
-    TEMP_DIR = "uploads/docx_temp"
+    # 与 DocxScreenshotService.BASE_DIR 同源（temp_paths 单一常量，绝对路径、
+    # 与工作目录无关）；所有运行时读取都走本类属性，测试重定向才不会失效。
+    TEMP_DIR = temp_paths.DOCX_TEMP_DIR
 
     def __init__(self, session: Session):
 
@@ -1010,29 +1013,31 @@ class DocxImportService:
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
     @staticmethod
-    def save_temp_file(content: bytes, filename: str, *, user_id: int, project_id: int) -> Tuple[str, str]:
-        """保存上传的文件到临时目录，返回 (temp_id, file_path)。
+    def build_owned_filename(filename: str, *, user_id: int, project_id: int) -> Tuple[str, str]:
+        """铸造 docx 上传的归属存储名，返回 (temp_id, 存储名)。
 
-        对文件名做安全处理，防止路径遍历攻击。
-        文件名内嵌上传归属（{temp_id}_u{user_id}_p{project_id}_原名），
+        文件名做安全处理（只取 basename 部分、过滤路径分隔符、去 ".."、扩展名
+        统一小写），形状为 {temp_id}_u{user_id}_p{project_id}_{basename}，
         后续所有按编号的查找都要求同一用户在同一项目内。
         """
-        if len(content) > DocxImportService.MAX_FILE_SIZE:
-            raise ValueError(f"文件大小超过限制（最大 {DocxImportService.MAX_FILE_SIZE // 1024 // 1024}MB）")
-        temp_dir = Path(DocxImportService.TEMP_DIR)
-        temp_dir.mkdir(parents=True, exist_ok=True)
         temp_id = uuid.uuid4().hex
-        # 安全处理：只取文件名部分，过滤路径分隔符；扩展名统一转小写，
-        # 保证按 *.docx 的查找与清扫能覆盖 .DOCX 等大写扩展名上传
         basename = os.path.basename(filename).replace("..", "")
         stem, ext = os.path.splitext(basename)
         if ext:
             basename = stem + ext.lower()
-        safe_name = f"{temp_id}_u{user_id}_p{project_id}_{basename}"
-        file_path = str(temp_dir / safe_name)
-        with open(file_path, "wb") as f:
-            f.write(content)
-        return temp_id, file_path
+        return temp_id, f"{temp_id}_u{user_id}_p{project_id}_{basename}"
+
+    @staticmethod
+    def build_owned_db_filename(*, user_id: int) -> Tuple[str, str]:
+        """铸造 .db 导入的归属存储名，返回 (temp_id, 存储名)。
+
+        无 filename 参数：存储名不携带任何用户可控成分（与原 mkstemp 路径一致，
+        超长 / 奇怪的选手文件名不会进入路径）。p0 为哨兵——三个 .db 导入接口
+        在上传时目标项目尚不存在，且 .db 流程没有按编号查找的 API，哨兵不会被
+        解释；强制 .db 后缀保证过期清扫的后缀过滤能覆盖。
+        """
+        temp_id = uuid.uuid4().hex
+        return temp_id, f"{temp_id}_u{user_id}_p0_upload.db"
 
     @staticmethod
     def get_owned_temp_path(temp_id: str, *, user_id: int, project_id: int) -> Optional[str]:
@@ -1055,11 +1060,21 @@ class DocxImportService:
         try:
             if not _TEMP_ID_RE.fullmatch(temp_id):
                 return
-            for path in Path(DocxImportService.TEMP_DIR).glob(f"{temp_id}_*.docx"):
-                if path.is_file():
-                    os.remove(path)
-        except Exception as e:
-            logger.warning("清理临时文件失败: temp_id=%s, 错误: %s", temp_id, str(e))
+            temp_dir = Path(DocxImportService.TEMP_DIR)
+            # .db 边车（-wal/-shm/-journal）一并覆盖：进程硬杀后这些残留同样
+            # 不能逃逸编号清理（复审 #3）。
+            for pattern in (
+                f"{temp_id}_*.docx",
+                f"{temp_id}_*.db",
+                f"{temp_id}_*.db-wal",
+                f"{temp_id}_*.db-shm",
+                f"{temp_id}_*.db-journal",
+            ):
+                for path in temp_dir.glob(pattern):
+                    if path.is_file():
+                        os.remove(path)
+        except Exception as exc:
+            logger.warning("清理临时文件失败: temp_id=%s, error_type=%s", temp_id, type(exc).__name__)
 
     @staticmethod
     def discard_upload(temp_id: str) -> None:
@@ -1090,9 +1105,13 @@ class DocxImportService:
         cutoff = (now if now is not None else time.time()) - max_age_hours * 3600
         purged = 0
         # 后缀不区分大小写：路由按 lower().endswith(".docx") 放行上传，
-        # 大写扩展名的历史文件（.DOCX）同样要被清扫，不能只用 *.docx glob。
-        docx_files = sorted(p for p in temp_dir.iterdir() if p.suffix.lower() == ".docx")
-        for path in docx_files:
+        # 大写扩展名的历史文件（.DOCX）同样要被清扫，不能只用 *.docx glob；
+        # .db 导入临时文件纳入同一入口，进程崩溃残留的半成品才有清扫兜底；
+        # SQLite 边车（-wal/-shm/-journal）一并覆盖，进程硬杀后的残留不逃逸。
+        upload_files = sorted(
+            p for p in temp_dir.iterdir() if p.suffix.lower() in (".docx", ".db", ".db-wal", ".db-shm", ".db-journal")
+        )
+        for path in upload_files:
             try:
                 if path.stat().st_mtime >= cutoff:
                     continue
@@ -1106,8 +1125,8 @@ class DocxImportService:
                     removed = True
                 if removed:
                     purged += 1
-            except OSError:
-                logger.warning("清扫 Word 导入临时文件失败: path=%s", path)
+            except OSError as exc:
+                logger.warning("清扫 Word 导入临时文件失败: suffix=%s errno=%s", path.suffix.lower(), exc.errno)
         return purged
 
     # ── 解析预览 ──

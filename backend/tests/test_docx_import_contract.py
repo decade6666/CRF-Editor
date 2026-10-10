@@ -191,10 +191,16 @@ def test_execute_docx_import_rejects_checkbox_override(engine, monkeypatch) -> N
 def test_preview_docx_import_response_contains_ai_task_id(engine, monkeypatch) -> None:
     """import-docx/preview 返回的响应必须包含可选 ai_task_id 字段。"""
     user_id, project_id = _create_owned_project(engine)
+    # 归属名铸造处固定 temp_id，落盘经流式接缝打桩：断言保持不变。
     monkeypatch.setattr(
-        "src.routers.import_docx.DocxImportService.save_temp_file",
-        lambda _content, _filename, **_kw: (PREVIEW_TEMP_ID, Path("/tmp/fake.docx")),
+        "src.routers.import_docx.DocxImportService.build_owned_filename",
+        lambda _filename, **_kw: (PREVIEW_TEMP_ID, f"{PREVIEW_TEMP_ID}_u{user_id}_p{project_id}_test.docx"),
     )
+
+    async def _fake_stream_upload(_reader, _dest, **_kwargs):
+        return 0
+
+    monkeypatch.setattr("src.routers.import_docx.stream_upload_to_file", _fake_stream_upload)
     monkeypatch.setattr(
         "src.routers.import_docx.DocxImportService.parse_full",
         lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
