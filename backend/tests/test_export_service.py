@@ -312,7 +312,7 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
         field_type="文本",
     )
 
-    # 未传 fill_line_chars 的调用方（inline / unified / 空占位）保持旧行为
+    # 未传 fill_line_chars 的调用方（inline 越界回退 / 空占位）保持旧行为
     rendered = ExportService(session)._render_field_control(text_field)
 
     assert rendered == "________________"

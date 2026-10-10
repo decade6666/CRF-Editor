@@ -177,7 +177,7 @@ def test_export_word_accepts_column_width_overrides(session: Session, tmp_path: 
 
     # 准备列宽覆盖参数
     # 格式：{ form_id: { table_kind: [fraction, ...] } }
-    # table_kind: "normal" | "inline" | "unified"
+    # table_kind: "normal" | "inline"（历史键 "unified" 已无对应表格）
     # fraction: 0.0 ~ 1.0，表示该列占总宽度的比例
     column_width_overrides = {
         str(form.id): {
