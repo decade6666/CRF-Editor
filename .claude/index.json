@@ -42,6 +42,7 @@
         "backend/src/services/docx_import_service.py",
         "backend/src/services/docx_screenshot_service.py",
         "backend/src/services/export_service.py",
+        "backend/src/services/database_export_service.py",
         "backend/src/services/field_cleanup_service.py",
         "backend/src/services/field_definition_reference_service.py",
         "backend/src/services/field_normalization.py",
