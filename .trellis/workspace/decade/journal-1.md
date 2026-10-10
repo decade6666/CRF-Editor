@@ -564,3 +564,45 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Status
 
 [OK] **Completed**（两项任务已合入 main 并推送；worktree/分支已清理；任务已归档）
+
+
+## Session 17: 设计器引用保留修复合入 main 并归档
+<!-- trellis-session: v=2 fp=f670c829213af920 -->
+
+**Date**: 2026-10-10
+**Task**: 设计器引用保留修复合入 main 并归档
+**Branch**: `main`
+
+### Summary
+
+表单设计器引用字段库字段保留实例样式，仅在共享定义 9 键真实变化时写入并确认；合入 main、归档任务、清理 worktree 与分支并推送。
+
+### Main Changes
+
+- 90f45e1: 候选水合只替换 9 个定义级键，未保存展示属性不再被覆盖；normalizeDefinitionPayload 归一后一致即 definition_operation none；影响确认与 PUT 共用冻结参数；候选目标阈值降为其他 ≥1 表单；撤销/重做按正向实际写入回放并保留结构键；保存期互斥锁定全部冲突入口
+- 8c6493c: 根/前端模块 CLAUDE.md 变更日志与 component-guidelines 契约表 +11 行同步
+- 2023d3b: 任务工件归档（prd/design/implement/verification/research）
+- c40cb09: 合入 main 前端规则收拢与临时资源生命周期（frontend/.claude/CLAUDE.md 唯一冲突：VisitsTab/FieldsTab 描述取主线弹窗化版本，FormDesignerTab 描述保留本任务语义）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `90f45e1` | fix(designer): 引用字段库字段时保留实例样式并仅在共享定义实际变化时确认 |
+| `8c6493c` | docs(spec): 同步设计器引用保留文档与前端规格 |
+| `2023d3b` | chore(task): 归档设计器引用保留任务 |
+| `c40cb09` | chore(merge): 合入前端规则收拢与临时资源生命周期 |
+
+### Testing
+
+- [OK] 前端 node:test 944 passed / vitest 26 passed（5 文件）/ lint 0 errors / build OK；覆盖率 100.00 与 98.09（基线 95.20/97.40）
+- [OK] 后端全量 1144 passed（合入树复核，后端零改动）
+- [OK] 浏览器（临时库 :8906，最终树）：保留大字号/默认、纯换绑零弹窗零共享写入、真实共享改名确认并传播、撤销重做不重写字段库
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 2e1fb91 已推送 origin/main；生产多用户环境部署由用户自行执行
