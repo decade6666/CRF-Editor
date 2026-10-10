@@ -65,7 +65,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from sqlalchemy.orm import Session
 
 
-from src.models import Project
+from src.models import Form, Project
 
 from src.repositories.project_repository import ProjectRepository
 
@@ -1435,7 +1435,7 @@ class ExportService:
                 for paragraph in cell.paragraphs:
                     paragraph.style = "VisitFlow"
 
-    def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False):
+    def _add_forms_content(self, doc: Document, project: Project, *, annotated: bool = False) -> None:
         """添加表单内容（按表单版式分派：mixed_landscape 横排 / legacy 原路径）。"""
 
         if not project.forms:
@@ -1733,7 +1733,7 @@ class ExportService:
         return f"{table_kind}:fieldIds={','.join(field_ids)}"
 
     def _classify_form_layout(self, form_fields, paper_orientation: str = "auto") -> LayoutDecision:
-        """判断表单是否需要走统一横向布局（unified landscape）。
+        """分类表单为 legacy 或 mixed_landscape 布局（不生成整表统一横向布局）。
 
 
 
@@ -1916,7 +1916,7 @@ class ExportService:
 
         self._fill_structure_row_cell(merged_cell, form_field, is_log=False, annotated=annotated)
 
-    def _fill_structure_row_cell(self, cell, form_field, *, is_log: bool, annotated: bool) -> None:
+    def _fill_structure_row_cell(self, cell: Any, form_field: Any, *, is_log: bool, annotated: bool) -> None:
         """填充日志行 / 标签行共享的结构行单元格。
 
         底纹与文字色重染是日志行专属样式：标签行不写底纹、不重染（保持既有导出语义）。
@@ -1955,7 +1955,7 @@ class ExportService:
 
         self._add_structure_row_annotation(para, field_def, annotated=annotated)
 
-    def _add_structure_row_annotation(self, para, field_def, *, annotated: bool) -> None:
+    def _add_structure_row_annotation(self, para: Any, field_def: Any, *, annotated: bool) -> None:
         """按需为结构行段落追加 aCRF OID 注记盒。"""
 
         annotation_text = self._field_annotation_text(field_def) if field_def else ""
@@ -2225,7 +2225,7 @@ class ExportService:
                             for run in para.runs:
                                 self._set_run_font(run, color=text_color)
 
-    def _render_control_into_cell(self, cell, para, field_def, fill_line_chars: int | None) -> None:
+    def _render_control_into_cell(self, cell: Any, para: Any, field_def: Any, fill_line_chars: int | None) -> None:
         """无值 / 无默认值时的控件分派梯子（普通表与内联表两条路径共用）。
 
         调用方保留各自的默认值渲染、fill_line_chars 取值、垂直对齐与段落间距策略。

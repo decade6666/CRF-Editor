@@ -3,7 +3,7 @@
 提供预览端和导出端共用的字段渲染逻辑，确保一致性。
 """
 
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import html
 import re
 
@@ -222,7 +222,7 @@ def build_inline_column_demands(
     return demands
 
 
-def get_option_labels(field_def) -> List[str]:
+def get_option_labels(field_def: Any) -> List[str]:
     """获取选项标签列表（按 order_index 排序，id 为稳定回退键；仅导出 decode 非空项）。"""
     if not hasattr(field_def, "codelist") or not field_def.codelist:
         return []
