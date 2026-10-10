@@ -6,7 +6,6 @@ from typing import List, Optional
 logger = logging.getLogger("src.projects")
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -17,7 +16,7 @@ from src.rate_limit import limit_import_action
 from src.models.project import Project
 from src.models.user import User
 from src.repositories.project_repository import ProjectRepository
-from src.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
+from src.schemas.project import ProjectBatchDeleteRequest, ProjectCreate, ProjectUpdate, ProjectResponse
 from src.services.await_drain import await_with_drain
 from src.services.docx_import_service import DocxImportService
 from src.services.upload_streaming import stream_upload_to_file
@@ -352,21 +351,15 @@ def get_logo(
     return FR(str(safe_resolve(PROJECT_NAMESPACE, project.company_logo_path)))
 
 
-class BatchDeleteRequest(BaseModel):
-    project_ids: List[int]
-
-
 @router.post("/batch-delete", status_code=204)
 def batch_delete_projects(
-    data: BatchDeleteRequest,
+    data: ProjectBatchDeleteRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """当前用户批量软删除自己的项目。"""
     from datetime import datetime
 
-    if not data.project_ids:
-        return
     # 单条带 owner 过滤的批量软删除：仅命中本人项目，他人/不存在 id 被 WHERE 静默排除，
     # 行为与原逐条「get_by_id + owner 校验 + 重写 deleted_at」等价；deleted_at 绑定
     # datetime 对象（ORM 序列化，非 isoformat 字符串），不加 deleted_at IS NULL 过滤以保持等价。

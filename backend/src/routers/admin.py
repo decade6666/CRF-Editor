@@ -45,7 +45,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 from src.repositories.project_repository import ProjectRepository
-from src.schemas.project import ProjectResponse
+from src.schemas.project import ProjectBatchDeleteRequest, ProjectResponse
 from src.services.order_service import OrderService
 from src.services.project_clone_service import ProjectCloneService
 from src.services.unique_name import first_free_name
@@ -84,13 +84,9 @@ def list_recycle_bin(
     ]
 
 
-class BatchDeleteRequest(BaseModel):
-    project_ids: List[int]
-
-
 @router.post("/admin/projects/batch-delete", status_code=204)
 def batch_delete_projects(
-    data: BatchDeleteRequest,
+    data: ProjectBatchDeleteRequest,
     session: Session = Depends(get_session),
     _: User = Depends(require_admin),
 ):

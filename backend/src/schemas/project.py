@@ -1,8 +1,8 @@
 from datetime import datetime, date
 import re
-from typing import Optional
+from typing import List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 _CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
@@ -71,6 +71,12 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(ProjectCreate):
     pass
+
+
+class ProjectBatchDeleteRequest(BaseModel):
+    """项目批量软删除请求（管理员端点与本人端点共用，限 1-500 条）。"""
+
+    project_ids: List[int] = Field(..., min_length=1, max_length=500)
 
 
 class ProjectResponse(ProjectCreate):

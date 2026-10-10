@@ -70,15 +70,62 @@ def test_batch_delete_only_removes_own_projects(client: TestClient, setup):
     assert pid_b in _project_ids(client, token_b)
 
 
-def test_batch_delete_empty_list_is_noop(client: TestClient, setup):
+def test_batch_delete_empty_list_is_rejected(client: TestClient, setup):
+    """空列表被共享模型的 min_length=1 拒绝（422），且不改动任何项目。"""
     token_a, _, pid_a, _ = setup
     r = client.post(
         "/api/projects/batch-delete",
         json={"project_ids": []},
         headers=auth_headers(token_a),
     )
-    assert r.status_code == 204, r.text
+    assert r.status_code == 422, r.text
     assert pid_a in _project_ids(client, token_a)
+
+
+def test_batch_delete_rejects_more_than_500_ids(client: TestClient, setup):
+    """超过 500 条被 max_length 拒绝（422），且不改动任何项目。"""
+    token_a, _, pid_a, _ = setup
+    r = client.post(
+        "/api/projects/batch-delete",
+        json={"project_ids": list(range(1, 502))},
+        headers=auth_headers(token_a),
+    )
+    assert r.status_code == 422, r.text
+    assert pid_a in _project_ids(client, token_a)
+
+
+def _admin_project_deleted_at(engine) -> dict[int, object]:
+    with Session(engine) as session:
+        return {p.id: p.deleted_at for p in session.scalars(select(Project).order_by(Project.id)).all()}
+
+
+def test_admin_batch_delete_rejects_empty_list(client: TestClient, engine):
+    """管理员批删空列表 → 422，且零改动。"""
+    admin_token = login_as(client, "admin")
+    login_as(client, "alice")  # 造一个可删项目
+    before = _admin_project_deleted_at(engine)
+
+    r = client.post(
+        "/api/admin/projects/batch-delete",
+        json={"project_ids": []},
+        headers=auth_headers(admin_token),
+    )
+    assert r.status_code == 422, r.text
+    assert _admin_project_deleted_at(engine) == before
+
+
+def test_admin_batch_delete_rejects_more_than_500_ids(client: TestClient, engine):
+    """管理员批删 501 条 → 422，且零改动。"""
+    admin_token = login_as(client, "admin")
+    before = _admin_project_deleted_at(engine)
+
+    r = client.post(
+        "/api/admin/projects/batch-delete",
+        json={"project_ids": list(range(1, 502))},
+        headers=auth_headers(admin_token),
+    )
+    assert r.status_code == 422, r.text
+    assert _admin_project_deleted_at(engine) == before
 
 
 # ── R7：batch-delete 的 409 引用预检必须限定路径项目 ──────────────────────────
