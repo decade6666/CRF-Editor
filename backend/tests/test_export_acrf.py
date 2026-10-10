@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from zipfile import ZipFile
 
-from docx import Document
 from lxml import etree
 import pytest
 from sqlalchemy import create_engine, event
@@ -24,8 +23,6 @@ from src.services.export_service import (
     ACRF_ANNOTATION_EMU_PER_01CM,
     ExportError,
     ExportService,
-    LayoutDecision,
-    Segment,
 )
 from src.services.word_table_parity import extract_docx_form_table_fields
 
@@ -312,104 +309,6 @@ def _build_legacy_fixture(session: Session) -> Project:
     return project
 
 
-def _build_unified_fixture(session: Session) -> tuple[Form, list[Segment], LayoutDecision]:
-    project = _create_project(session, name="Unified Annotations")
-    form = _create_form(
-        session,
-        project.id,
-        name="Unified Form",
-        code="FORM_UNIFIED",
-        order_index=1,
-        domain="QS",
-    )
-
-    regular = _create_field_definition(
-        session,
-        project.id,
-        variable_name="UNI_REGULAR",
-        label="Unified Regular",
-    )
-    label = _create_field_definition(
-        session,
-        project.id,
-        variable_name="UNI_LABEL",
-        label="Unified Label",
-        field_type="标签",
-    )
-
-    regular_field = _add_form_field(session, form, order_index=1, field_definition=regular)
-    label_field = _add_form_field(session, form, order_index=2, field_definition=label)
-    log_field = _add_form_field(
-        session,
-        form,
-        order_index=3,
-        field_definition=None,
-        is_log_row=1,
-        label_override="Unified log row",
-    )
-
-    inline_fields: list[FormField] = []
-    for order_index, variable_name in enumerate(
-        ("UNI_INLINE_1", "UNI_INLINE_2", "UNI_INLINE_3", "UNI_INLINE_4", "UNI_INLINE_5"),
-        start=10,
-    ):
-        inline_definition = _create_field_definition(
-            session,
-            project.id,
-            variable_name=variable_name,
-            label=variable_name.replace("_", " ").title(),
-        )
-        inline_fields.append(
-            _add_form_field(
-                session,
-                form,
-                order_index=order_index,
-                field_definition=inline_definition,
-                inline_mark=1,
-            )
-        )
-
-    session.commit()
-    segments = [
-        Segment("regular_field", [regular_field]),
-        Segment("full_row", [label_field]),
-        Segment("full_row", [log_field]),
-        Segment("inline_block", inline_fields),
-    ]
-    layout = LayoutDecision("unified_landscape", column_count=5, label_span=2, value_span=3)
-    return form, segments, layout
-
-
-def _save_unified_doc(
-    session: Session,
-    tmp_path: Path,
-    *,
-    annotated: bool,
-) -> Path:
-    form, segments, layout = _build_unified_fixture(session)
-    document = Document()
-    export_service = ExportService(session)
-    export_service._apply_document_style(document)
-    export_service._add_toc_heading(
-        document,
-        "1. Unified Form",
-        level=1,
-        form_domain=form.domain,
-        annotated=annotated,
-    )
-    export_service._build_unified_table(
-        document,
-        segments,
-        layout,
-        form_id=form.id,
-        available_cm=export_service.LANDSCAPE_CONTENT_WIDTH_CM,
-        annotated=annotated,
-    )
-    output_path = tmp_path / ("unified-annotated.docx" if annotated else "unified-plain.docx")
-    document.save(output_path)
-    return output_path
-
-
 def _assert_unique_docpr_ids(docx_path: Path) -> None:
     docpr_ids = _annotation_docpr_ids(docx_path)
     assert docpr_ids
@@ -483,14 +382,72 @@ def test_acrf_export_adds_expected_annotation_boxes_and_preserves_form_tables(tm
         engine.dispose()
 
 
-def test_unified_annotation_helpers_only_emit_boxes_for_annotated_output(tmp_path: Path) -> None:
+def _build_mixed_annotation_fixture(session: Session) -> Project:
+    project = _create_project(session, name="Mixed Landscape Annotations")
+    visit = _create_visit(session, project.id)
+    form = _create_form(
+        session,
+        project.id,
+        name="Mixed Form",
+        code="FORM_MIXED",
+        order_index=1,
+        domain="QS",
+    )
+    _attach_form_to_visit(session, visit, form, sequence=1)
+
+    regular = _create_field_definition(
+        session,
+        project.id,
+        variable_name="UNI_REGULAR",
+        label="Regular Field",
+    )
+    label = _create_field_definition(
+        session,
+        project.id,
+        variable_name="UNI_LABEL",
+        label="Section Label",
+        field_type="标签",
+    )
+    _add_form_field(session, form, order_index=1, field_definition=regular)
+    _add_form_field(session, form, order_index=2, field_definition=label)
+    _add_form_field(
+        session,
+        form,
+        order_index=3,
+        field_definition=None,
+        is_log_row=1,
+        label_override="Unified log row",
+    )
+
+    for order_index, variable_name in enumerate(
+        ("UNI_INLINE_1", "UNI_INLINE_2", "UNI_INLINE_3", "UNI_INLINE_4", "UNI_INLINE_5"),
+        start=10,
+    ):
+        inline_definition = _create_field_definition(
+            session,
+            project.id,
+            variable_name=variable_name,
+            label=variable_name.replace("_", " ").title(),
+        )
+        _add_form_field(
+            session,
+            form,
+            order_index=order_index,
+            field_definition=inline_definition,
+            inline_mark=1,
+        )
+
+    session.commit()
+    return project
+
+
+def test_mixed_landscape_annotations_only_emit_boxes_for_annotated_output(tmp_path: Path) -> None:
     engine = _make_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     try:
         with session_factory() as session:
-            plain_path = _save_unified_doc(session, tmp_path, annotated=False)
-        with session_factory() as session:
-            annotated_path = _save_unified_doc(session, tmp_path, annotated=True)
+            project = _build_mixed_annotation_fixture(session)
+            plain_path, annotated_path = _export_project_pair(session, project.id, tmp_path)
 
         _assert_no_annotation_nodes(plain_path)
         annotated_texts = _annotation_texts(annotated_path)
@@ -507,6 +464,7 @@ def test_unified_annotation_helpers_only_emit_boxes_for_annotated_output(tmp_pat
         assert _annotation_anchor_count(annotated_path) == len(expected_texts)
         assert _annotation_shape_count(annotated_path) == len(expected_texts)
         _assert_unique_docpr_ids(annotated_path)
+        assert extract_docx_form_table_fields(annotated_path) == extract_docx_form_table_fields(plain_path)
     finally:
         engine.dispose()
 

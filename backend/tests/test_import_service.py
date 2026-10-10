@@ -20,7 +20,7 @@ from src.models.codelist import CodeList, CodeListOption
 from src.repositories.form_field_repository import FormFieldRepository
 from src.services.docx_import_service import DocxImportService
 from src.services.export_service import ExportService
-from src.services.field_rendering import build_inline_table_model, extract_default_lines
+from src.services.field_rendering import build_inline_table_model, extract_default_lines, get_option_labels
 from src.services.import_service import ImportService
 
 
@@ -709,7 +709,7 @@ def test_imported_choice_options_match_export_semantics(tmp_path: Path, session:
         )
         .one()
     )
-    exported_labels = ExportService(session)._get_option_labels(imported_field_definition)
+    exported_labels = get_option_labels(imported_field_definition)
 
     assert exported_labels == ["男", "女"]
 
@@ -773,7 +773,7 @@ def test_import_forms_reuses_same_named_codelist_when_option_signature_matches(
 
     assert imported_field_definition.codelist_id == existing_codelist.id
     assert [option.decode for option in reused_options] == ["男", "女"]
-    assert ExportService(session)._get_option_labels(imported_field_definition) == ["男", "女"]
+    assert get_option_labels(imported_field_definition) == ["男", "女"]
 
 
 @pytest.mark.parametrize(
@@ -961,7 +961,7 @@ def test_docx_imported_literal_option_text_matches_export_semantics(session: Ses
         existing_vars=set(),
     )
     assert field_definition is not None
-    exported_labels = ExportService(session)._get_option_labels(field_definition)
+    exported_labels = get_option_labels(field_definition)
     assert exported_labels == ["男_", "女"]
 
 
@@ -1050,7 +1050,7 @@ def test_export_service_preserves_literal_option_text(session: Session) -> None:
     )
     field_definition.codelist = codelist
 
-    assert ExportService(session)._get_option_labels(field_definition) == ["男_"]
+    assert get_option_labels(field_definition) == ["男_"]
 
 
 def test_template_import_preview_contract_includes_default_inline_and_option_semantics(

@@ -12,12 +12,12 @@ from src.models import Base
 from src.models.project import Project
 from src.models.user import User
 from src.routers.export import export_word as export_word_route
-from src.services.export_service import (
-    ExportService,
+from src.services.database_export_service import (
     export_full_database,
     export_project_database,
     export_user_projects_database,
 )
+from src.services.export_service import ExportService
 
 
 @pytest.fixture
