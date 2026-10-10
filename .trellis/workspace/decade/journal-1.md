@@ -424,3 +424,29 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 ### Next Steps
 
 - 继续 export-layer-cleanup；backend-dedup 等待 codelists.py 文件租约释放。
+
+
+## Session 14: 引用删除审查跟进合入本地 main 并归档
+<!-- trellis-session: v=2 fp=4c70497426a41de1 -->
+
+**Date**: 2026-10-10
+**Task**: 引用删除审查跟进合入本地 main 并归档
+**Branch**: `main`
+
+### Summary
+
+完成引用删除复审跟进：修复四类批量删除接口的跨租户引用状态探测，补足后端 27 条与前端 29 条经变异验证的回归测试，校正文档与规格；后端 1098 passed / 4 xfailed、覆盖率 85%、ruff 通过，前端 node:test 893、vitest 11、lint 0 errors、build 通过。以 4 个分组提交和合并提交 5bcb961 合入本地 main（未推送、未部署），合入后冒烟测试后端 73、前端 82；归档 Trellis 任务为 ecc4ca9。浏览器未重跑，生产部署由用户执行。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6e6a8cb` | fix(security): 批量删除引用预检限定本项目 id |
+| `ab703ad` | test(reference-delete): 补强引用删除回归测试 |
+| `f3fc979` | docs(reference-delete): 同步审查跟进文档与索引 |
+| `bb419f2` | docs(spec): 更正引用删除与权限规格 |
+| `5bcb961` | chore(merge): 合入引用删除审查跟进与批删隔离修复 |
+
+### Status
+
+[OK] **Completed**
