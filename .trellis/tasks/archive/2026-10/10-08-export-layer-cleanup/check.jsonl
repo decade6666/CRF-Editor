@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "reviewer verifies parity evidence and full test run"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "reviewer checks all four cross-stack contracts unchanged"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "reviewer traces export text flow across service/router layers"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "reviewer checks moved database-export functions keep VACUUM/session semantics"}
