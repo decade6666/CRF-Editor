@@ -15,6 +15,12 @@ const formDesignerSource = readFileSync(
   path.resolve(currentDir, '../src/components/FormDesignerTab.vue'),
   'utf8',
 )
+// designer-split Step 2：两套 word-page 预览模板合并为 DesignerWordPreview.vue（父组件渲染两次），
+// 模板内的 gv / seg 读取改读该组件。
+const wordPreviewSource = readFileSync(
+  path.resolve(currentDir, '../src/components/DesignerWordPreview.vue'),
+  'utf8',
+)
 const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
   'utf8',
@@ -203,7 +209,7 @@ test('buildPreviewGroupViewModels preserves group order and one-to-one mapping',
 //    （renderGroups / designerRenderGroups 仍保留，由 quickEditBehavior / formFieldPresentation 测试守护）
 // ---------------------------------------------------------------------------
 test('form designer derives preview view models and stops calling pure fns in templates', () => {
-  // 新增派生 computed
+  // 新增派生 computed（仍留在父组件，供两处实例以 prop 传入）
   assert.match(
     formDesignerSource,
     /const renderGroupsView = computed\(\(\) => buildPreviewGroupViewModels\(renderGroups\.value, previewModelHelpers\)\)/,
@@ -212,22 +218,24 @@ test('form designer derives preview view models and stops calling pure fns in te
     formDesignerSource,
     /const designerRenderGroupsView = computed\(\([\s\S]*buildPreviewGroupViewModels\(designerRenderGroups\.value, previewModelHelpers\)/,
   )
-  // 模板遍历视图模型
-  assert.match(formDesignerSource, /v-for="\(gv, gi\) in renderGroupsView"/)
-  assert.match(formDesignerSource, /v-for="\(gv, gi\) in designerRenderGroupsView"/)
+  // 父组件把两个视图模型分别传给同一子组件（渲染两次）
+  assert.match(formDesignerSource, /:groups-view="renderGroupsView"/)
+  assert.match(formDesignerSource, /:groups-view="designerRenderGroupsView"/)
+  // 合并后的模板遍历视图模型（单一 v-for 源为 groupsView prop）
+  assert.match(wordPreviewSource, /v-for="\(gv, gi\) in groupsView"/)
   // 模板读取预派生属性
-  assert.match(formDesignerSource, /v-for="seg in gv\.segments"/)
-  assert.match(formDesignerSource, /:colspan="seg\.mergeSpans\[idx\]"/)
-  assert.match(formDesignerSource, /:colspan="seg\.mergeSpans\[ci\]"/)
-  assert.match(formDesignerSource, /:colspan="gv\.labelValueSpans\.labelSpan"/)
-  assert.match(formDesignerSource, /:colspan="gv\.labelValueSpans\.valueSpan"/)
-  assert.match(formDesignerSource, /v-for="\(row, ri\) in seg\.inlineRows"/)
-  assert.match(formDesignerSource, /v-for="\(row, ri\) in gv\.inlineRows"/)
+  assert.match(wordPreviewSource, /v-for="seg in gv\.segments"/)
+  assert.match(wordPreviewSource, /:colspan="seg\.mergeSpans\[idx\]"/)
+  assert.match(wordPreviewSource, /:colspan="seg\.mergeSpans\[ci\]"/)
+  assert.match(wordPreviewSource, /:colspan="gv\.labelValueSpans\.labelSpan"/)
+  assert.match(wordPreviewSource, /:colspan="gv\.labelValueSpans\.valueSpan"/)
+  assert.match(wordPreviewSource, /v-for="\(row, ri\) in seg\.inlineRows"/)
+  assert.match(wordPreviewSource, /v-for="\(row, ri\) in gv\.inlineRows"/)
   // 模板表达式不再调用纯函数重建数组
-  assert.doesNotMatch(formDesignerSource, /v-for="seg in buildFormDesignerUnifiedSegments\(g\.fields\)"/)
-  assert.doesNotMatch(formDesignerSource, /computeMergeSpans\(g\.colCount, seg\.fields\.length\)\[/)
-  assert.doesNotMatch(formDesignerSource, /computeLabelValueSpans\(g\.colCount\)/)
-  assert.doesNotMatch(formDesignerSource, /v-for="\(row, ri\) in getInlineRows\(/)
+  assert.doesNotMatch(wordPreviewSource, /v-for="seg in buildFormDesignerUnifiedSegments\(g\.fields\)"/)
+  assert.doesNotMatch(wordPreviewSource, /computeMergeSpans\(g\.colCount, seg\.fields\.length\)\[/)
+  assert.doesNotMatch(wordPreviewSource, /computeLabelValueSpans\(g\.colCount\)/)
+  assert.doesNotMatch(wordPreviewSource, /v-for="\(row, ri\) in getInlineRows\(/)
 })
 
 test('template preview dialog derives a view model and stops calling pure fns in template', () => {

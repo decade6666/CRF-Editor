@@ -10,6 +10,11 @@ const unitsSource = readFileSync(path.resolve(currentDir, '../src/components/Uni
 const visitsSource = readFileSync(path.resolve(currentDir, '../src/components/VisitsTab.vue'), 'utf8');
 const fieldsSource = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8');
 const formsSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
+// designer-split Step 2：word-page 预览模板合并为 DesignerWordPreview.vue，resizer 作用域调用点迁入该组件。
+const wordPreviewSource = readFileSync(
+  path.resolve(currentDir, '../src/components/DesignerWordPreview.vue'),
+  'utf8',
+);
 const mainCssSource = readFileSync(path.resolve(currentDir, '../src/styles/main.css'), 'utf8');
 const sortableSource = readFileSync(path.resolve(currentDir, '../src/composables/useSortableTable.js'), 'utf8');
 
@@ -392,10 +397,10 @@ test('useSortableTable reloads after reorder to align with backend truth', () =>
 test('FormDesignerTab keeps main preview and designer preview resizers scoped separately', () => {
   assert.match(formsSource, /function getResizer\(kind, colCount, groupIndex, group, scope = 'main'\)/);
   assert.match(formsSource, /const mapKey = `\$\{scope\}:\$\{kind\}:\$\{colCount\}:\$\{tableInstanceId\}`/);
-  // 预览模板遍历派生视图模型 gv（与原始 renderGroups/designerRenderGroups 等价），
+  // 预览模板遍历派生视图模型 gv（与原始 renderGroups/designerRenderGroups 等价）并统一读 scope prop；
   // 主预览与设计器预览仍分别传入 'main' / 'designer' 作用域，保持 resizer 隔离。
-  assert.match(formsSource, /getResizer\('normal', 2, gi, gv, 'main'\)/);
-  assert.match(formsSource, /getResizer\('normal', 2, gi, gv, 'designer'\)/);
-  assert.match(formsSource, /getResizer\('inline', gv\.fields\.length, gi, gv, 'main'\)/);
-  assert.match(formsSource, /getResizer\('inline', gv\.fields\.length, gi, gv, 'designer'\)/);
+  assert.match(wordPreviewSource, /getResizer\('normal', 2, gi, gv, scope\)/);
+  assert.match(wordPreviewSource, /getResizer\('inline', gv\.fields\.length, gi, gv, scope\)/);
+  assert.match(formsSource, /scope="main"/);
+  assert.match(formsSource, /scope="designer"/);
 });

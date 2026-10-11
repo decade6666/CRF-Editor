@@ -22,6 +22,12 @@ import { createPreviewCellRenderers } from '../src/composables/previewCellRender
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const useCRFRendererSource = readFileSync(path.resolve(currentDir, '../src/composables/useCRFRenderer.js'), 'utf8');
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8');
+// designer-split Step 2：word-page 预览模板合并为 DesignerWordPreview.vue（父组件渲染两次）。
+// 预览模板标记 / 标签样式 helper 调用 / 预览 scoped CSS 改读该组件。
+const wordPreviewSource = readFileSync(
+  path.resolve(currentDir, '../src/components/DesignerWordPreview.vue'),
+  'utf8',
+);
 const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
   'utf8',
@@ -307,7 +313,7 @@ test('quick edit fields are subset of form field instance properties', () => {
 });
 
 test('preview structural colors are unified across designer and template preview paths', () => {
-  assert.match(formDesignerSource, /form-designer-word-page/);
+  assert.match(wordPreviewSource, /form-designer-word-page/);
   assert.match(mainCssSource, /--preview-structure-bg: #D9D9D9;/);
   assert.match(
     mainCssSource,
@@ -318,7 +324,7 @@ test('preview structural colors are unified across designer and template preview
   assert.match(mainCssSource, /\.word-page \.unified-label \{ font-weight: bold; background: transparent; \}/);
   assert.match(mainCssSource, /\.word-page \.unified-value \{ font-family: 'SimSun', serif; color: #000; \}/);
   // 设计器、访视预览、模板预览统一改走标签样式聚合 helper（内部仍复用 structure 灰底逻辑）
-  assert.match(formDesignerSource, /getFormFieldLabelPreviewStyle/);
+  assert.match(wordPreviewSource, /getFormFieldLabelPreviewStyle/);
   assert.match(visitsSource, /getFormFieldLabelPreviewStyle/);
   assert.match(templatePreviewSource, /getFormFieldLabelPreviewStyle/);
   // 访视预览不应再残留硬编码的 font-weight:bold 标签样式（应由 label_bold 驱动）
@@ -395,7 +401,7 @@ test('vertical choice options render as spaced block atoms mirroring Word paragr
 });
 
 test('designer and visits Word previews both expose row height resize handles', () => {
-  assert.match(formDesignerSource, /class="wp-ctrl row-resize-anchor"/);
+  assert.match(wordPreviewSource, /class="wp-ctrl row-resize-anchor"/);
   assert.match(visitsSource, /useRowResize/);
   assert.match(visitsSource, /function getPreviewRowResizer/);
   assert.match(visitsSource, /class="wp-ctrl row-resize-anchor"/);
@@ -406,7 +412,7 @@ test('designer and visits Word previews both expose row height resize handles', 
 });
 
 test('label preview rows preserve multiline text through dedicated class', () => {
-  assert.match(formDesignerSource, /wp-structure-label--multiline/);
+  assert.match(wordPreviewSource, /wp-structure-label--multiline/);
   assert.match(templatePreviewSource, /wp-structure-label--multiline/);
   assert.match(
     mainCssSource,
@@ -432,7 +438,8 @@ test('designer preview uses full-width static layout without scale logic', () =>
   assert.doesNotMatch(formDesignerSource, /ref="previewPageRef"/);
   assert.doesNotMatch(formDesignerSource, /translateX\(-50%\) scale/);
   assert.match(formDesignerSource, /<span>实时预览<\/span>/);
-  assert.match(formDesignerSource, /<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/);
+  // 标题行随预览模板迁入 DesignerWordPreview（Step 2）。
+  assert.match(wordPreviewSource, /<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>/);
   assert.match(visitsSource, /<div class="wp-form-title">\{\{ formPreviewTitle \}\}<\/div>/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
@@ -445,11 +452,11 @@ test('designer preview page keeps A4 geometry and stretches the stage container'
     /\.designer-preview-page \{[\s\S]*position: static;[\s\S]*width: 100%;[\s\S]*min-height: 100%;[\s\S]*transform: none;/,
   );
   // 全屏对话框里的 word-page 保持 A4 几何（21cm × 29.7cm），由 wordPageGeometry.test.js 维护强契约；
-  // 这里只断言两条不可回退的负向约束：横纵向不再强制 width:100% 抹平差异。
-  const scaledBlock = formDesignerSource.match(/\.designer-scaled-word-page \{([^}]+)\}/)
+  // 这里只断言两条不可回退的负向约束：横纵向不再强制 width:100% 抹平差异（规则随模板迁入子组件）。
+  const scaledBlock = wordPreviewSource.match(/\.designer-scaled-word-page \{([^}]+)\}/)
   assert.ok(scaledBlock, '.designer-scaled-word-page rule should exist')
   assert.doesNotMatch(scaledBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page must not force width:100% (use A4 geometry)')
-  const landscapeBlock = formDesignerSource.match(/\.designer-scaled-word-page\.landscape \{([^}]+)\}/)
+  const landscapeBlock = wordPreviewSource.match(/\.designer-scaled-word-page\.landscape \{([^}]+)\}/)
   assert.ok(landscapeBlock, '.designer-scaled-word-page.landscape rule should exist')
   assert.doesNotMatch(landscapeBlock[1], /(^|\n)\s*width:\s*100%/, '.designer-scaled-word-page.landscape must not force width:100% (use A4 landscape geometry)')
 });
@@ -526,13 +533,16 @@ test('design notes use an explicit save/cancel dialog with no autosave', () => {
   assert.doesNotMatch(formDesignerSource, /\.fd-library/);
   assert.doesNotMatch(formDesignerSource, /designer-library-pane/);
   assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/);
-  // 行内预览与模态设计器预览统一使用 A4 缩放几何（form-designer-word-page + designer-scaled-word-page）
-  assert.match(formDesignerSource, /'form-designer-word-page'/);
-  assert.match(formDesignerSource, /'designer-scaled-word-page'/);
-  assert.match(formDesignerSource, /landscape: landscapeMode/);
-  assert.match(formDesignerSource, /landscape: designerLandscapeMode/);
+  // 行内预览与模态设计器预览统一使用 A4 缩放几何（form-designer-word-page + designer-scaled-word-page）；
+  // 两套实例由父组件渲染，模板与 landscape 切换现归 DesignerWordPreview。
+  assert.match(formDesignerSource, /import DesignerWordPreview from '\.\/DesignerWordPreview\.vue';/);
+  assert.match(wordPreviewSource, /'form-designer-word-page'/);
+  assert.match(wordPreviewSource, /'designer-scaled-word-page'/);
+  assert.match(wordPreviewSource, /landscape: landscapeMode/);
+  assert.match(formDesignerSource, /:landscape-mode="landscapeMode"/);
+  assert.match(formDesignerSource, /:landscape-mode="designerLandscapeMode"/);
   // 行内预览不再使用裸 .word-page（不带 A4 缩放类）的旧绑定
-  assert.doesNotMatch(formDesignerSource, /:class="\['word-page', \{ landscape: landscapeMode \}\]"/);
+  assert.doesNotMatch(wordPreviewSource, /:class="\['word-page', \{ landscape: landscapeMode \}\]"/);
   assert.doesNotMatch(formDesignerSource, /<aside v-if="designerHasPreviewNotes" class="wp-notes">/);
 });
 

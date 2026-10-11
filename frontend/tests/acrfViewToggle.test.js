@@ -7,14 +7,17 @@ import { fileURLToPath } from 'node:url';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const formDesignerPath = path.resolve(currentDir, '../src/components/FormDesignerTab.vue');
 const annotationComponentPath = path.resolve(currentDir, '../src/components/DesignerAcrfAnnotation.vue');
+const wordPreviewPath = path.resolve(currentDir, '../src/components/DesignerWordPreview.vue');
 const visitsTabPath = path.resolve(currentDir, '../src/components/VisitsTab.vue');
 const mainCssPath = path.resolve(currentDir, '../src/styles/main.css');
 
 const formDesignerSource = readFileSync(formDesignerPath, 'utf8');
-// designer-split Step 1：aCRF 注释标记抽为 DesignerAcrfAnnotation.vue（每个注释 span 迁入组件；
-// 两套 word-page 预览模板仍在 FormDesignerTab，由 Step 2 合并）。注释相关 CSS / 重置按钮标记
+// designer-split Step 1：aCRF 注释标记抽为 DesignerAcrfAnnotation.vue。注释相关 CSS / 重置按钮标记
 // 现由该组件持有，源码断言改读组件文件；父组件调用点形状由 designerPreviewSplit.test.js 守卫。
 const annotationComponentSource = readFileSync(annotationComponentPath, 'utf8');
+// designer-split Step 2：两套 word-page 预览模板合并为 DesignerWordPreview.vue（父组件渲染两次）。
+// word-page / 标题行 / 注释调用点 / 迁移后的预览 CSS 均改读该组件。
+const wordPreviewSource = readFileSync(wordPreviewPath, 'utf8');
 const visitsTabSource = readFileSync(visitsTabPath, 'utf8');
 const mainCssSource = readFileSync(mainCssPath, 'utf8');
 
@@ -201,32 +204,36 @@ test('aCRF annotations stay inside the two designer word pages and mirror the ex
     formDesignerSource,
     /const showAcrfAnnotations = computed\(\(\) => editMode\.value && viewMode\.value === 'aCRF'\);/,
   );
-  // 注释标记本身已迁入 DesignerAcrfAnnotation.vue（Step 1 只抽每个注释 span；两套预览模板仍在父组件，
-  // 由 Step 2 合并）：类名计数改读组件源码，父组件侧的站点数量 / 实参形状由 designerPreviewSplit.test.js 守卫。
+  // 注释标记本身已迁入 DesignerAcrfAnnotation.vue（Step 1），模板已合并入 DesignerWordPreview.vue（Step 2）：
+  // 类名计数改读组件源码；父组件渲染两次由 designerPreviewSplit.test.js 守卫。
   assert.equal(
     countMatches(annotationComponentSource, /'wp-acrf-annotation--form'/g),
     1,
     'annotation component should render one form-domain overlay class per instance',
   );
-  assert.equal(countMatches(formDesignerSource, /class="wp-form-title-row"/g), 2);
+  assert.equal(
+    countMatches(wordPreviewSource, /class="wp-form-title-row"/g),
+    1,
+    'merged preview template should hold exactly one title row (rendered twice by the parent)',
+  );
   assert.match(
-    formDesignerSource,
+    wordPreviewSource,
     /<div class="wp-form-title-row">[\s\S]*?<div class="wp-form-title">\{\{ selectedForm\.name \}\}<\/div>[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FORM/,
   );
   assert.match(
-    formDesignerSource,
+    wordPreviewSource,
     /class="unified-value row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?ANNOTATION_KIND_FIELD/,
   );
   assert.match(
-    formDesignerSource,
+    wordPreviewSource,
     /class="wp-inline-header row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
   );
   assert.doesNotMatch(
-    formDesignerSource,
+    wordPreviewSource,
     /v-for="\(row, ri\) in gv\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(gv\.fields\[ci\]\)/,
   );
   assert.doesNotMatch(
-    formDesignerSource,
+    wordPreviewSource,
     /v-for="\(row, ri\) in seg\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(seg\.fields\[ci\]\)/,
   );
   assert.match(formDesignerSource, /useAcrfAnnotationDrag/);
@@ -295,8 +302,8 @@ test('aCRF annotation styles stay absolute, draggable in edit mode, and out of w
   assert.ok(interactiveRule);
   assert.match(interactiveRule, /cursor:\s*ns-resize/);
 
-  // .wp-form-title-row 不属于注释层，Step 1 仍留在父组件。
-  const titleRowRule = extractRuleBody(formDesignerSource, '.wp-form-title-row');
+  // .wp-form-title-row 随预览模板迁移到 DesignerWordPreview（Step 2）。
+  const titleRowRule = extractRuleBody(wordPreviewSource, '.wp-form-title-row');
   assert.ok(titleRowRule);
   assert.match(titleRowRule, /position:\s*relative/);
   assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
