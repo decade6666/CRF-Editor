@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "dialog component extraction conventions"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "composable naming/structure rules for useWordImport.js"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "apiUrl() subpath-deployment contract and its bypass sites must be preserved"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "wizard state machine ownership between App.vue and the new component"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "test conversion expectations for App.vue source-reading tests"}
