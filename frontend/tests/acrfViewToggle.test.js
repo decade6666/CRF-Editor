@@ -6,10 +6,15 @@ import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const formDesignerPath = path.resolve(currentDir, '../src/components/FormDesignerTab.vue');
+const annotationComponentPath = path.resolve(currentDir, '../src/components/DesignerAcrfAnnotation.vue');
 const visitsTabPath = path.resolve(currentDir, '../src/components/VisitsTab.vue');
 const mainCssPath = path.resolve(currentDir, '../src/styles/main.css');
 
 const formDesignerSource = readFileSync(formDesignerPath, 'utf8');
+// designer-split Step 1：aCRF 注释标记抽为 DesignerAcrfAnnotation.vue（每个注释 span 迁入组件；
+// 两套 word-page 预览模板仍在 FormDesignerTab，由 Step 2 合并）。注释相关 CSS / 重置按钮标记
+// 现由该组件持有，源码断言改读组件文件；父组件调用点形状由 designerPreviewSplit.test.js 守卫。
+const annotationComponentSource = readFileSync(annotationComponentPath, 'utf8');
 const visitsTabSource = readFileSync(visitsTabPath, 'utf8');
 const mainCssSource = readFileSync(mainCssPath, 'utf8');
 
@@ -196,10 +201,12 @@ test('aCRF annotations stay inside the two designer word pages and mirror the ex
     formDesignerSource,
     /const showAcrfAnnotations = computed\(\(\) => editMode\.value && viewMode\.value === 'aCRF'\);/,
   );
+  // 注释标记本身已迁入 DesignerAcrfAnnotation.vue（Step 1 只抽每个注释 span；两套预览模板仍在父组件，
+  // 由 Step 2 合并）：类名计数改读组件源码，父组件侧的站点数量 / 实参形状由 designerPreviewSplit.test.js 守卫。
   assert.equal(
-    countMatches(formDesignerSource, /'wp-acrf-annotation--form'/g),
-    2,
-    'domain overlay should appear once per word-page template',
+    countMatches(annotationComponentSource, /'wp-acrf-annotation--form'/g),
+    1,
+    'annotation component should render one form-domain overlay class per instance',
   );
   assert.equal(countMatches(formDesignerSource, /class="wp-form-title-row"/g), 2);
   assert.match(
@@ -208,11 +215,11 @@ test('aCRF annotations stay inside the two designer word pages and mirror the ex
   );
   assert.match(
     formDesignerSource,
-    /class="unified-value row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FIELD/,
+    /class="unified-value row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?ANNOTATION_KIND_FIELD/,
   );
   assert.match(
     formDesignerSource,
-    /class="wp-inline-header row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
+    /class="wp-inline-header row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
   );
   assert.doesNotMatch(
     formDesignerSource,
@@ -272,8 +279,8 @@ test('designer field list hides label-field tooltip but keeps the variable-name 
 test('aCRF annotation styles stay absolute, draggable in edit mode, and out of width-cache geometry', () => {
   assert.match(mainCssSource, /\.word-page \{[\s\S]*position: relative;[\s\S]*\}/);
 
-  const annotationRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation');
-  assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in FormDesignerTab.vue');
+  const annotationRule = extractRuleBody(annotationComponentSource, '.wp-acrf-annotation');
+  assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in DesignerAcrfAnnotation.vue');
   assert.match(annotationRule, /position:\s*absolute/);
   assert.match(annotationRule, /top:\s*var\(--acrf-annotation-top\)/);
   assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
@@ -284,23 +291,25 @@ test('aCRF annotation styles stay absolute, draggable in edit mode, and out of w
   assert.match(annotationRule, /white-space:\s*nowrap/);
   assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
 
-  const interactiveRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation--interactive');
+  const interactiveRule = extractRuleBody(annotationComponentSource, '.wp-acrf-annotation--interactive');
   assert.ok(interactiveRule);
   assert.match(interactiveRule, /cursor:\s*ns-resize/);
 
+  // .wp-form-title-row 不属于注释层，Step 1 仍留在父组件。
   const titleRowRule = extractRuleBody(formDesignerSource, '.wp-form-title-row');
   assert.ok(titleRowRule);
   assert.match(titleRowRule, /position:\s*relative/);
   assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
 
-  const resetRule = extractRuleBody(formDesignerSource, '.wp-acrf-annotation-reset');
+  const resetRule = extractRuleBody(annotationComponentSource, '.wp-acrf-annotation-reset');
   assert.ok(resetRule);
   assert.match(resetRule, /position:\s*absolute/);
   assert.match(resetRule, /border:\s*1px solid #c00000/i);
 
+  // 拖拽连线仍在父组件；重置按钮标记已迁入组件。
   assert.match(formDesignerSource, /onAnnotationPointerDown/);
   assert.match(formDesignerSource, /resetAnnotationPosition/);
-  assert.match(formDesignerSource, /class="wp-acrf-annotation-reset"/);
+  assert.match(annotationComponentSource, /class="wp-acrf-annotation-reset"/);
 
   const getResizerSource = extractFunction('getResizer').body;
   const getRowResizerSource = extractFunction('getRowResizer').body;
@@ -339,7 +348,7 @@ test('VisitsTab preview annotation styles stay absolute and draggable without en
 
 test('aCRF reset button stays hidden while disabled until hover/focus-within reveals its muted state', () => {
   for (const [label, source] of [
-    ['FormDesignerTab.vue', formDesignerSource],
+    ['DesignerAcrfAnnotation.vue', annotationComponentSource],
     ['VisitsTab.vue', visitsTabSource],
   ]) {
     const disabledRule = extractRuleBodyByPattern(
