@@ -387,7 +387,7 @@ The shared writer applies bounded reads, magic-before-size validation, exclusive
 
 | Aspect | Backend (Word export) | Frontend (Word preview) |
 |--------|----------------------|-------------------------|
-| **Files** | `backend/src/services/export_service.py`, `backend/src/services/width_planning.py`, `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/composables/formFieldPresentation.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue`, `frontend/src/components/TemplatePreviewDialog.vue`, `frontend/src/styles/main.css` |
+| **Files** | `backend/src/services/export_service.py`, `backend/src/services/width_planning.py`, `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py` | `frontend/src/composables/useCRFRenderer.js`, `frontend/src/composables/formFieldPresentation.js`, `frontend/src/components/FormDesignerTab.vue` (designer state/cache/persistence owner), `frontend/src/components/DesignerWordPreview.vue` (shared designer `word-page` preview markup, rendered twice with `scope="main"` / `scope="designer"`), `frontend/src/components/VisitsTab.vue`, `frontend/src/components/TemplatePreviewDialog.vue`, `frontend/src/styles/main.css` |
 | **Purpose** | Render the authoritative `.docx` and expose a strict comparator for exported table fields | Render on-screen table fields with the same form/table/row/cell text model |
 | **Shared Constants** | `FILL_LINE_WEIGHT = 6`, width-aware fill-line length for text controls (`compute_fill_line_char_count` / `computeFillLineCharCount`: `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, min **6** / max **20** — user-set cap 2026-09-30, ≈20×0.19=3.8cm), legacy fixed fill-line length **16** for whole-cell no-width callers, page font **SimSun 10.5pt**, label font-size tiers `default=10.5pt`, `large=12pt`, `small=9pt`, table-cell vertical rhythm **5.25pt / 1.0**, vertical-choice inter-option gap `VERTICAL_OPTION_GAP_PT = 3` | Same text constants; the auto-generated (first) fill-line span emitted by `renderCtrlHtml` additionally carries an inline `max-width:10.0em` (= `FILL_LINE_MAX_CHARS × 0.5`) so `.word-page` flex-fill cannot stretch it past the 20-character equivalent — direct `toHtml` user-authored underscores (default values, unit suffixes) stay uncapped; label font-size tiers map to preview pixels `default=CSS default`, `large=16px`, `small=11px`; vertical gap mirrored by `.choice-group--vertical .choice-atom + .choice-atom { margin-top: 3pt }` |
 
@@ -443,13 +443,13 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 **Synchronization Checklist**:
 - [ ] Update `export_service.py` `_render_choice_field`, `field_rendering.get_option_labels`, `_group_form_fields`, and section-break logic when export behavior changes
 - [ ] Update `useCRFRenderer.js` `renderCtrl` (plain text) and `renderCtrlHtml → renderChoiceHtml` (HTML) together
-- [ ] Update all preview table paths: `FormDesignerTab.vue`, `VisitsTab.vue`, and `TemplatePreviewDialog.vue`
+- [ ] Update all preview table paths: `FormDesignerTab.vue` (render data + state), `DesignerWordPreview.vue` (the shared table/markup actually rendering the cells), `VisitsTab.vue`, and `TemplatePreviewDialog.vue`
 - [ ] Keep structure-row shading aligned: `formFieldPresentation.js#getFormFieldStructurePreviewStyle()` must mirror `export_service.py` log-row/label-row defaults and use solid custom `bg_color` (no `40` alpha suffix)
 - [ ] If changing planner weight, update both `FILL_LINE_WEIGHT` constants and width-planning tests
 - [ ] If changing the width-adaptive fill-line, keep `compute_fill_line_char_count` (`width_planning.py`) and `computeFillLineCharCount` (`useCRFRenderer.js`) byte-for-byte equivalent, sync the underscore constants (cap is **20** since 2026-09-30), and run `backend/tests/test_fill_line_width.py` + the `9.3e/9.3f` cases in `frontend/tests/columnWidthPlanning.test.js`; if the `FILL_LINE_MAX_CHARS` cap changes, the `renderCtrlHtml`-only inline `max-width` (10× the cap in em) must change with it, direct `toHtml` calls stay uncapped, and `planner_cases.json` must be regenerated (fractions use `FILL_LINE_WEIGHT`, so no fixture diff is expected)
 - [ ] If changing extraction semantics, update `word_table_parity.py` and comparator tests
 - [ ] Run `backend/tests/test_export_unified.py`, `backend/tests/test_export_service.py`, `backend/tests/test_width_planning.py`, `backend/tests/test_word_table_parity.py`
-- [ ] Run `frontend/tests/columnWidthPlanning.test.js`, `frontend/tests/wordPageGeometry.test.js`, `frontend/tests/formFieldPresentation.test.js`
+- [ ] Run `frontend/tests/columnWidthPlanning.test.js`, `frontend/tests/wordPageGeometry.test.js`, `frontend/tests/formFieldPresentation.test.js`, `frontend/tests/designerPreviewSplit.test.js`, `frontend/tests/component/DesignerWordPreview.spec.js`
 - [ ] For release evidence, run `backend/scripts/compare_word_table_parity.py` against preview JSON and exported `.docx`; expected strict evidence is 54/54 forms, 480/480 rows, 1181/1181 cells, mismatches 0 for the current fixture
 - [ ] Manual: side-by-side A4 zoom 100% preview vs exported `.docx` at Word/WPS 100% zoom when GUI tools are available
 
@@ -494,7 +494,7 @@ return { lines: [ctrl], repeat: true, fallback: ctrl }
 
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
-| **Files** | `backend/src/services/export_service.py`, `backend/src/schemas/form.py` | `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue`, `frontend/src/components/VisitsTab.vue` |
+| **Files** | `backend/src/services/export_service.py`, `backend/src/schemas/form.py` | `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue` (annotation state, drag gate, persistence owner), `frontend/src/components/DesignerAcrfAnnotation.vue` (per-marker markup + styles; presentational, no target prop), `frontend/src/components/DesignerWordPreview.vue` (annotation call sites), `frontend/src/components/VisitsTab.vue` |
 | **Purpose** | Persist validated annotation offsets and convert them into Word floating-box `posOffset` values | Render the same aCRF annotation geometry in browser preview and persist vertical drag offsets back to `Form.annotation_positions` |
 
 **Storage schema**:
@@ -565,10 +565,10 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 - [ ] Update `export_service.py` annotation constants and `posOffset` math together
 - [ ] Update `schemas/form.py` validation when changing key semantics or clamp limits
 - [ ] Update `acrfAnnotationGeometry.js` constants, unit conversions, and `resolveAnnotationTopCm`
-- [ ] Keep `FormDesignerTab.vue` and `VisitsTab.vue` on the same `annotation_positions` storage shape and drag gate rules
+- [ ] Keep `FormDesignerTab.vue` (drag gate, target resolution, PATCH) and `VisitsTab.vue` on the same `annotation_positions` storage shape and drag gate rules; `DesignerAcrfAnnotation.vue` stays presentational and never computes offsets
 - [ ] Run `backend/tests/test_export_acrf.py`, `backend/tests/test_export_service.py`, `backend/tests/test_export_unified.py`, `backend/tests/test_word_table_parity.py`
 - [ ] Run `backend/tests/test_acrf_offset_consistency.py`: the frontend-exported `ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU` must equal the backend constant; changing either side alone must fail this test.
-- [ ] Run `frontend/tests/acrfAnnotationGeometry.test.js`, `frontend/tests/acrfAnnotationPersistence.test.js`, `frontend/tests/acrfViewToggle.test.js`
+- [ ] Run `frontend/tests/acrfAnnotationGeometry.test.js`, `frontend/tests/acrfAnnotationPersistence.test.js`, `frontend/tests/acrfViewToggle.test.js`, `frontend/tests/component/DesignerAcrfAnnotation.spec.js`
 
 ---
 

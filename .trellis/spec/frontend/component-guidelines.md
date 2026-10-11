@@ -611,7 +611,9 @@ const visible = computed({
 - Affected files:
   - `frontend/src/composables/useCRFRenderer.js` (control text + HTML rendering)
   - `frontend/src/composables/formFieldPresentation.js` (display label and group segmentation)
-  - `frontend/src/components/FormDesignerTab.vue` (designer preview and inline rows)
+  - `frontend/src/components/FormDesignerTab.vue` (designer state/cache/persistence owner: render-group view models, resizer caches, annotation map, save/undo/session)
+  - `frontend/src/components/DesignerWordPreview.vue` (shared `word-page` preview markup, rendered twice by `FormDesignerTab` with `scope="main"` / `scope="designer"`)
+  - `frontend/src/components/DesignerAcrfAnnotation.vue` (per-marker annotation span + reset button markup and their styles)
   - `frontend/src/components/VisitsTab.vue` (visit preview and inline rows)
   - `frontend/src/components/TemplatePreviewDialog.vue` (template preview inline rows)
   - `frontend/src/styles/main.css` (`.fill-line`, `.word-page`, title and table rhythm)
@@ -770,6 +772,115 @@ return { lines: [ctrl], repeat: true, fallback: ctrl }
 `renderCtrl` remains the single preview source for field-specific placeholder text,
 and strict comparator evidence must confirm the generated preview JSON and exported
 DOCX are structurally identical.
+
+---
+
+## Scenario: Stateless Word-Preview Extraction (`DesignerWordPreview`)
+
+### 1. Scope / Trigger
+
+- Trigger: extracting the duplicated `word-page` markup out of `FormDesignerTab.vue` into a presentational child the
+  same parent renders twice — `scope="main"` / `scope="designer"` — including the per-marker annotation spans (task
+  `designer-split`, 2026-10-11). Cache keys/rehydrate stay in `state-management.md` §4; annotation spec in §6.
+
+### 2. Signatures
+
+```javascript
+// frontend/src/components/DesignerWordPreview.vue
+defineProps({
+  selectedForm: { type: Object, default: null }, groupsView: { type: Array, required: true },
+  scope: { type: String, required: true, validator: (v) => v === 'main' || v === 'designer' },
+  landscapeMode: { type: Boolean, required: true }, noFields: { type: Boolean, required: true },
+  showAcrfAnnotations: { type: Boolean, required: true },
+  // 14 required { type: Function, required: true } props bound via v-bind="previewHandlers":
+  // getResizer, getRowResizer, renderCellHtml, normalFillChars, openQuickEdit, getFormDomainAnnotationText,
+  // getFieldOidAnnotationText, getFormAnnotationTarget, getFieldAnnotationTarget, isAnnotationDraggable,
+  // hasAnnotationOverrideForTarget, getAnnotationStyle, onAnnotationPointerDown, resetAnnotationPosition
+})
+// no emits, no provide/inject, no defineExpose
+
+// frontend/src/components/DesignerAcrfAnnotation.vue
+defineProps({ text: { type: String, required: true },
+  kind: { type: String, required: true, validator: (v) => ['form', 'field', 'inline-header'].includes(v) },
+  interactive: { type: Boolean, default: false }, hasOverride: { type: Boolean, default: false },
+  annotationStyle: { type: Object, required: true } });
+defineEmits(['pointerdown', 'reset']); // pointerdown($event) unconditional; reset() from the reset button
+```
+
+### 3. Contracts
+
+| Rule | Why |
+|---|---|
+| `state-management.md` §4 (Column Width Persistence Contract) stays the single source for storage keys, rehydrate rules, and the export collector | Duplicating key formats or algorithms here would drift from the cache contract |
+| Child holds no `ref` state and no cache instance. The 6 explicit data props carry the view models; the 14 function props (one `previewHandlers` object, `v-bind` on both instances) only grant access to the parent's state/caches | Resizer caches and `rehydrate` must stay single-owned — a child-owned cache would read the same keys but desync the parent's rehydrate flow |
+| Both instances get `v-bind="previewHandlers"` plus their own data props: `scope` (`'main'` / `'designer'`), `groupsView` (`renderGroupsView` / `designerRenderGroupsView`), `landscapeMode` (`landscapeMode` / `designerLandscapeMode`), `noFields` | Declared difference set = exactly the per-instance data props |
+| Child root replaces the original `div.word-page` 1:1; parent keeps `.fd-canvas` / `.word-preview` (main) and `.designer-preview-pane` / `-viewport` / `-stage` / `-page` (fullscreen) wrappers | Keeps blank-click exclusion, responsive CSS and `paneSplit` assertions in place |
+| Scoped CSS: only rules matching **inside** the moved subtree move to the child's `<style scoped>`. A parent scoped rule reaches only the child root, so descendant rules (`__text`, `-reset`, the `:hover` / `:focus-within` reveal) must move or they silently stop applying | The gotcha that breaks previews invisibly; global `main.css` `.word-page …` rules still reach the child (e.g. `.word-page .wp-form-title { text-align: left }`) |
+| Parent signatures keep `scope` threaded through: `getResizer(kind, colCount, groupIndex, group, scope)` (24 template sites per block) and `normalFillChars(groupIndex, group, scope)` (1 site per block). The **shared row cache** stays two-arg: `getRowResizer(kind, group)` | Guarding the row cache with a scope argument changes persisted row heights |
+| Emits are declared (`defineEmits`), not native fallthrough; the annotation reset button uses `@pointerdown.stop` | A declared emit is removed from `$attrs`, so one DOM event fires the parent handler exactly once, not twice |
+| Parent keeps annotation drag gate (`isAnnotationDraggable`) and persistence; children stay presentational | Preserves cross-stack §6 geometry/clamp/PATCH contract |
+| The child is pure markup + the two view-only helpers (`cumRatio`, `getRowHeightStyle`); algorithms and storage keys do NOT move | The extraction must not change the rendered semantics — see §8 |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Typed prop validation fails in dev (wrong type / missing required prop) | Vue emits a warning; the mount-test warning gate fails the suite — do not silence it; fix the call site or the fixture |
+| A template identifier is missing from the child's imports | Depends on the expression: a Vue render/dev-mode warning, or a runtime render failure / invalid output — never assume a graceful production fallback. Mount every template branch under the warning gate so the identifier is exercised |
+| Regression test asserts rendered content | Descendant text is still readable via `textContent`, but it cannot prove markup structure, escaping, or classes; for `v-html` cells and class-carrying rows assert `innerHTML` / element selectors **alongside** text |
+| Source-level guard written across both instances | Each instance's props must be checked **inside its own tag** (segment bounded by `scope="main"` vs `scope="designer"`); a file-wide regex matches either tag and hides a real deletion |
+| Per-instance counts asserted (`renders twice`) | Meaningless if both tags can be the same instance; assert the two distinct `scope` values and each instance's declared prop set instead |
+
+### 5. Good/Base/Bad Cases
+
+- **Good**: the same `<DesignerWordPreview>` markup serves both scopes; changing the page changes both previews; the mount spec renders every template branch (no form, no fields, normal / inline / unified groups) with `showAcrfAnnotations: true` so every annotation call site is exercised.
+- **Base**: `showAcrfAnnotations: false` renders zero annotation spans, including form and inline-header sites.
+- **Bad**: a parent-only CSS rule such as `.wp-acrf-annotation-reset { … }` left in place after the markup moved — the reset button loses its styling with no error.
+- **Bad**: a guard asserting "`DesignerWordPreview` appears in the file" or "rendered twice" — it passes even if the second instance lost its `scope`.
+
+### 6. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/component/DesignerWordPreview.spec.js` | Every template branch renders with real fixtures (`formDesignerPreviewModel.js` / `formFieldPresentation.js` / `previewCellRender.test.js` shapes); `getResizer` / `normalFillChars` receive `scope`; `getRowResizer(kind, group)` stays two-arg; dblclick carries the exact clicked column's field; pointerdown carries the exact row-key / boundary index and the same event; `snapGuideX` toggles; annotation target / event / reset values point at the exact field |
+| `frontend/tests/component/DesignerAcrfAnnotation.spec.js` | Class order per `kind`, `--interactive` toggle, style passthrough, aria-label per kind, `disabled` from `hasOverride`, root pointerdown exactly-once, reset-button pointerdown does not bubble |
+| `frontend/tests/designerPreviewSplit.test.js` | Each parent instance checked inside its own tag; `previewHandlers` has all 14 closures and `v-bind` is on both instances; the parent holds no moved markup/CSS; the child holds the moved selectors; `main.css` keeps the parity title rule |
+| `frontend/tests/component/vueWarnGate.js` (shared gate) | Any Vue warning during mount **or unmount** fails the case — this turns "every template identifier resolves" into a real assertion |
+| Mutation check (evidence, not a committed test) | Disable one protected item (a handler in `previewHandlers`, a second column's field argument) and confirm the guard fails; a green suite alone does not prove the guard bites |
+
+### 7. Wrong vs Correct
+
+```javascript
+// DesignerWordPreview.vue (wrong): a second owner of the same storage keys
+const resizer = useColumnResize(props.selectedForm?.id, ...)
+// FormDesignerTab.vue (correct): parent keeps the cache, passes closures
+const previewHandlers = { getResizer, getRowResizer, renderCellHtml, normalFillChars, openQuickEdit, ... }
+// <DesignerWordPreview v-bind="previewHandlers" scope="main" … />
+```
+
+```css
+/* FormDesignerTab.vue <style scoped> (wrong) — never reaches the child's inner span */
+.wp-acrf-annotation__text { … }
+/* DesignerAcrfAnnotation.vue (correct) — the rule moves with the DOM it matches */
+.wp-acrf-annotation__text { … }
+```
+
+### 8. Equivalence evidence required for the extraction
+
+The split ships only with evidence that both instances render the **same semantics** as the pre-split component —
+Vue scope IDs and child component boundaries legitimately differ; "byte-identical literal DOM" is not the bar.
+Reference method (task `designer-split`, reusable for any giant-component split):
+
+- **AST equivalence**: parse the pre-split `FormDesignerTab.vue` (`git show <pre-split-commit>:…`) and the post-split
+  parent + child with `@vue/compiler-sfc`; compare render functions after normalizing only compiler bookkeeping
+  (scope IDs, import ownership, component-tag hops) plus the declared mode substitutions (`scope`, `groupsView`,
+  `landscapeMode`, `noFields`). The semantic diff of the moved block must be empty.
+- **Compiled-render equivalence**: compare compiled render output for the moved subtree: same element / attribute /
+  text / event semantic nodes in the same order; no node added, removed, or reordered. The normalizer must never
+  strip meaningful HTML whitespace (text content is significant to the parity contract).
+- Run both proofs against the SFC sources, not a hand-maintained copy; on mismatch, exit non-zero with the diff.
+- Visual evidence stays the QA harness screenshot comparison (task `designer-split` `research/qa/`), not a textual
+  DOM diff.
 
 ---
 
