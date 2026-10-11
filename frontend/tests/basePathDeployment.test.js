@@ -12,6 +12,7 @@ const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8
 const loginSource = readFileSync(path.resolve(currentDir, '../src/components/LoginView.vue'), 'utf8');
 const projectInfoSource = readFileSync(path.resolve(currentDir, '../src/components/ProjectInfoTab.vue'), 'utf8');
 const screenshotSource = readFileSync(path.resolve(currentDir, '../src/components/DocxScreenshotPanel.vue'), 'utf8');
+const wordImportDialogSource = readFileSync(path.resolve(currentDir, '../src/components/WordImportDialog.vue'), 'utf8');
 const nginxSource = readFileSync(path.resolve(currentDir, '../../deploy/nginx/crf-editor.conf.example'), 'utf8');
 
 test('apiUrl is identity at root deployment (node env without import.meta.env)', () => {
@@ -99,7 +100,9 @@ test('bypass fetch sites in components are wrapped with apiUrl', () => {
   assert.match(appSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{selectedProject\.value\.id\}\/export\/word`\)/);
   assert.match(appSource, /async function _blobDownload\(url, fallbackFilename\) \{[\s\S]*fetch\(apiUrl\(url\), \{ headers: getAuthHeaders\(\) \}\)/);
   assert.match(appSource, /fetch\(apiUrl\('\/api\/projects\/import\/auto'\)/);
-  assert.match(appSource, /:action="apiUrl\('/);
+  // 上传 action 随导入Word向导外移到 WordImportDialog.vue；App 只保留上面三个绕过点。
+  assert.match(wordImportDialogSource, /:action="apiUrl\('/);
+  assert.doesNotMatch(appSource, /:action="apiUrl\('/);
   assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{projectId\}\/logo`\)/);
   assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/projects\/\$\{props\.project\.id\}\/profile`\), \{ method: 'PUT', body: fd, headers: getAuthHeaders\(\) \}\)/);
   assert.match(projectInfoSource, /fetch\(apiUrl\(`\/api\/organization-presets\/\$\{item\.preset_id\}\/logo`\)/);
