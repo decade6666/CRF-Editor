@@ -25,25 +25,19 @@ import {
   Search,
   Setting,
   Sunny,
-  UploadFilled,
 } from '@element-plus/icons-vue';
 import draggable from 'vuedraggable';
-import { api, toggleSelectAll, getAuthHeaders, apiUrl } from './composables/useApi';
-import {
-  buildAiOverridesPayload,
-  getAcceptedSuggestionsForForm,
-  isAllAccepted,
-  isAllIndeterminate,
-  reconcileAcceptedOverrides,
-} from './composables/docxAiSuggestionOverrides';
+import { api, getAuthHeaders, apiUrl } from './composables/useApi';
 import { getDownloadFilename } from './composables/exportDownloadState';
 import { createLazyTabState } from './composables/useLazyTabs';
+import { useDesignerFormSelection } from './composables/useDesignerFormSelection';
 import { collectColumnWidthOverrides } from './composables/useColumnResize';
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
 import AdminView from './components/AdminView.vue';
 import OrganizationManagementView from './components/OrganizationManagementView.vue';
 import SessionTimer from './components/SessionTimer.vue';
+import WordImportDialog from './components/WordImportDialog.vue';
 import { useOrderableList } from './composables/useOrderableList';
 import { confirmFinalProjectDelete } from './composables/projectDeleteConfirmation';
 
@@ -52,7 +46,6 @@ const FormDesignerTab = defineAsyncComponent(() => import('./components/FormDesi
 const FieldsTab = defineAsyncComponent(() => import('./components/FieldsTab.vue'));
 const CodelistsTab = defineAsyncComponent(() => import('./components/CodelistsTab.vue'));
 const UnitsTab = defineAsyncComponent(() => import('./components/UnitsTab.vue'));
-const DocxCompareDialog = defineAsyncComponent(() => import('./components/DocxCompareDialog.vue'));
 const TemplatePreviewDialog = defineAsyncComponent(() => import('./components/TemplatePreviewDialog.vue'));
 const TemplateFieldSearchDialog = defineAsyncComponent(() => import('./components/TemplateFieldSearchDialog.vue'));
 
@@ -76,6 +69,7 @@ function resetSessionState() {
   isCheckingAuth.value = false;
   closeSelfPasswordDialog();
   showSettings.value = false;
+  showImportWordDialog.value = false;
   projects.value = [];
   selectedProject.value = null;
   resetLazyTabs('info');
@@ -131,6 +125,7 @@ const projects = ref([]);
 const selectedProject = ref(null);
 const { activeTab, activateTab, isTabActivated, reset: resetLazyTabs } = createLazyTabState('info');
 const formDesignerTabRef = ref(null);
+const { requestFormSelection } = useDesignerFormSelection(formDesignerTabRef);
 const showCreateProject = ref(false);
 const newProject = reactive({ name: '', version: '1.0', db_type: '其他' });
 const copyingProjectId = ref(null);
@@ -177,7 +172,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('crf:auth-expired', handleAuthExpired);
-  stopAiReviewPolling();
 });
 
 // 全局刷新信号：子组件 inject 后 watch 此值来重载数据
@@ -675,304 +669,9 @@ async function executeImport() {
 
 // 导入Word
 const showImportWordDialog = ref(false);
-const importWordStep = ref(1);
-const importWordLoading = ref(false);
-const importedFormsPreview = ref([]);
-const selectedFormsToImport = ref([]);
-const tempDocxId = ref(null);
-const importWordErrorMessage = ref('');
-const importWordAiTaskId = ref(null);
-const importWordAiReviewStatus = ref('idle');
-const importWordAiReviewError = ref('');
-let aiReviewPollTimer = null;
-// 预览对话框
-const showDocxCompare = ref(false);
-const compareFormData = ref(null);
-// Step 3：导入完成后的表单清单（每项含 form_id / name / field_count）
-const importedResults = ref([]);
-const acceptedAiOverrides = ref({});
-
-function getFormAiSuggestions(form) {
-  return Array.isArray(form?.ai_suggestions) ? form.ai_suggestions : [];
-}
-
-function resetAcceptedAiOverrides() {
-  acceptedAiOverrides.value = {};
-}
-
-const hasAnyAiSuggestions = computed(() =>
-  importedFormsPreview.value.some((form) => getFormAiSuggestions(form).length > 0),
-);
-const allAiSuggestionsAccepted = computed(() => isAllAccepted(importedFormsPreview.value, acceptedAiOverrides.value));
-const allAiSuggestionsIndeterminate = computed(() =>
-  isAllIndeterminate(importedFormsPreview.value, acceptedAiOverrides.value),
-);
-const compareFormAcceptedSuggestions = computed(() =>
-  getAcceptedSuggestionsForForm(compareFormData.value, acceptedAiOverrides.value),
-);
-
-watch(showImportWordDialog, (visible) => {
-  if (visible) return;
-  stopAiReviewPolling();
-  importWordAiTaskId.value = null;
-  showDocxCompare.value = false;
-  compareFormData.value = null;
-  resetAcceptedAiOverrides();
-});
-
-function stopAiReviewPolling() {
-  if (aiReviewPollTimer) {
-    clearTimeout(aiReviewPollTimer);
-    aiReviewPollTimer = null;
-  }
-}
-
-function resetImportWordAiReview() {
-  stopAiReviewPolling();
-  importWordAiTaskId.value = null;
-  importWordAiReviewStatus.value = 'idle';
-  importWordAiReviewError.value = '';
-}
-
-function replaceImportedFormsPreview(forms) {
-  importedFormsPreview.value = forms;
-  if (!compareFormData.value) return;
-  compareFormData.value = forms.find((form) => form.index === compareFormData.value.index) || null;
-}
-
-function mergeAiSuggestions(suggestionsByForm) {
-  const suggestionsMap = new Map(
-    Object.entries(suggestionsByForm || {}).map(([formIndex, suggestions]) => [Number(formIndex), suggestions]),
-  );
-  if (!suggestionsMap.size) return;
-  const nextForms = importedFormsPreview.value.map((form) => {
-    const aiSuggestions = suggestionsMap.get(form.index);
-    if (!aiSuggestions) return form;
-    return { ...form, ai_suggestions: aiSuggestions.map((item) => ({ ...item })) };
-  });
-  replaceImportedFormsPreview(nextForms);
-  acceptedAiOverrides.value = reconcileAcceptedOverrides(nextForms, acceptedAiOverrides.value);
-}
-
-function toggleAiSuggestionAcceptance({ formIndex, fieldIndex, suggestedType, accepted }) {
-  if (formIndex == null || fieldIndex == null || !suggestedType) return;
-
-  const nextAccepted = { ...acceptedAiOverrides.value };
-  const formAccepted = { ...(nextAccepted[formIndex] || {}) };
-
-  if (accepted) {
-    formAccepted[fieldIndex] = suggestedType;
-    nextAccepted[formIndex] = formAccepted;
-  } else {
-    delete formAccepted[fieldIndex];
-    if (Object.keys(formAccepted).length) {
-      nextAccepted[formIndex] = formAccepted;
-    } else {
-      delete nextAccepted[formIndex];
-    }
-  }
-
-  acceptedAiOverrides.value = nextAccepted;
-}
-
-function toggleAiSuggestionsForForm({ formIndex, accepted }) {
-  const form = importedFormsPreview.value.find((item) => item.index === formIndex);
-  if (!form) return;
-
-  const suggestions = getFormAiSuggestions(form);
-  const nextAccepted = { ...acceptedAiOverrides.value };
-  if (!accepted || !suggestions.length) {
-    delete nextAccepted[formIndex];
-    acceptedAiOverrides.value = nextAccepted;
-    return;
-  }
-
-  const formAccepted = {};
-  for (const suggestion of suggestions) {
-    formAccepted[suggestion.index] = suggestion.suggested_type;
-  }
-  nextAccepted[formIndex] = formAccepted;
-  acceptedAiOverrides.value = nextAccepted;
-}
-
-function toggleAiSuggestionsForAll(accepted) {
-  if (!accepted) {
-    resetAcceptedAiOverrides();
-    return;
-  }
-
-  const nextAccepted = {};
-  for (const form of importedFormsPreview.value) {
-    const suggestions = getFormAiSuggestions(form);
-    if (!suggestions.length) continue;
-
-    const formAccepted = {};
-    for (const suggestion of suggestions) {
-      formAccepted[suggestion.index] = suggestion.suggested_type;
-    }
-    nextAccepted[form.index] = formAccepted;
-  }
-
-  acceptedAiOverrides.value = nextAccepted;
-}
-
-function clearAllAiSuggestions() {
-  resetAcceptedAiOverrides();
-}
-
-function scheduleAiReviewPoll(taskId) {
-  stopAiReviewPolling();
-  if (!taskId || !showImportWordDialog.value) return;
-  aiReviewPollTimer = setTimeout(() => {
-    pollAiReview(taskId);
-  }, 3000);
-}
-
-async function pollAiReview(taskId) {
-  if (!taskId || !selectedProject.value?.id || !showImportWordDialog.value) return;
-  try {
-    const data = await api.get(
-      `/api/projects/${selectedProject.value.id}/import-docx/${encodeURIComponent(taskId)}/ai-review/status`,
-    );
-    if (importWordAiTaskId.value !== taskId || !showImportWordDialog.value) return;
-    importWordAiReviewStatus.value = data.status || 'running';
-    importWordAiReviewError.value = data.error || '';
-    if (data.suggestions) mergeAiSuggestions(data.suggestions);
-    if (data.status === 'done' || data.status === 'failed') {
-      stopAiReviewPolling();
-      return;
-    }
-    scheduleAiReviewPoll(taskId);
-  } catch (error) {
-    if (importWordAiTaskId.value !== taskId || !showImportWordDialog.value) return;
-    stopAiReviewPolling();
-    importWordAiReviewStatus.value = 'failed';
-    importWordAiReviewError.value =
-      error?.status === 404 ? 'AI复核任务已中断，请重新上传文档。' : error?.message || 'AI复核不可用';
-  }
-}
-
-function startAiReviewPolling(taskId) {
-  resetImportWordAiReview();
-  importWordAiTaskId.value = taskId;
-  importWordAiReviewStatus.value = 'pending';
-  scheduleAiReviewPoll(taskId);
-}
 
 function openImportWordDialog() {
-  importWordStep.value = 1;
-  importWordLoading.value = false;
-  importedFormsPreview.value = [];
-  selectedFormsToImport.value = [];
-  tempDocxId.value = null;
-  importWordErrorMessage.value = '';
-  resetImportWordAiReview();
-  showDocxCompare.value = false;
-  compareFormData.value = null;
-  importedResults.value = [];
-  resetAcceptedAiOverrides();
   showImportWordDialog.value = true;
-}
-
-function goBackToImportWordStep1() {
-  importWordStep.value = 1;
-  importedFormsPreview.value = [];
-  selectedFormsToImport.value = [];
-  tempDocxId.value = null;
-  importWordErrorMessage.value = '';
-  resetImportWordAiReview();
-  showDocxCompare.value = false;
-  compareFormData.value = null;
-  resetAcceptedAiOverrides();
-}
-
-function beforeDocxUpload(file) {
-  if (file.size > 10 * 1024 * 1024) {
-    ElMessage.error('文件大小不能超过 10MB');
-    return false;
-  }
-  importWordErrorMessage.value = '';
-  importWordLoading.value = true;
-  return true;
-}
-
-function handleDocxUploadSuccess(response) {
-  importWordLoading.value = false;
-  if (response?.forms && response?.temp_id) {
-    resetAcceptedAiOverrides();
-    replaceImportedFormsPreview(response.forms);
-    selectedFormsToImport.value = [];
-    tempDocxId.value = response.temp_id;
-    importWordErrorMessage.value = '';
-    importWordStep.value = 2;
-    if (response.ai_task_id) {
-      startAiReviewPolling(response.ai_task_id);
-    } else {
-      resetImportWordAiReview();
-    }
-  } else {
-    importWordErrorMessage.value = '文件解析失败或响应格式不正确。';
-    ElMessage.error(importWordErrorMessage.value);
-  }
-}
-
-function handleDocxUploadError(error) {
-  importWordLoading.value = false;
-  resetImportWordAiReview();
-  importWordErrorMessage.value = '文件上传失败。';
-  if (error?.message) {
-    try {
-      importWordErrorMessage.value += ` 错误: ${JSON.parse(error.message).detail || error.message}`;
-    } catch {
-      importWordErrorMessage.value += ` 错误: ${error.message}`;
-    }
-  }
-  ElMessage.error(importWordErrorMessage.value);
-}
-
-function toggleSelectAllImportWordForms() {
-  toggleSelectAll(importedFormsPreview, selectedFormsToImport, (f) => f.index);
-}
-
-async function executeImportWord() {
-  if (!selectedFormsToImport.value.length || !tempDocxId.value) {
-    importWordErrorMessage.value = '请选择要导入的表单。';
-    return ElMessage.warning(importWordErrorMessage.value);
-  }
-  resetImportWordAiReview();
-  importWordLoading.value = true;
-  importWordErrorMessage.value = '';
-  try {
-    const payload = {
-      temp_id: tempDocxId.value,
-      form_indices: selectedFormsToImport.value,
-    };
-    const aiOverrides = buildAiOverridesPayload({
-      forms: importedFormsPreview.value,
-      accepted: acceptedAiOverrides.value,
-      selectedFormIndices: selectedFormsToImport.value,
-    });
-    if (aiOverrides.length) {
-      payload.ai_overrides = aiOverrides;
-    }
-    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-docx/execute`, payload);
-    ElMessage.success(`导入成功：${data.imported_form_count}个表单`);
-    importedResults.value = Array.isArray(data.detail) ? data.detail : [];
-    importWordStep.value = 3;
-    api.clearAllCache();
-    refreshKey.value++;
-  } catch (e) {
-    importWordErrorMessage.value = '导入失败: ' + e.message;
-    ElMessage.error(importWordErrorMessage.value);
-  } finally {
-    importWordLoading.value = false;
-  }
-}
-
-// 打开预览对话框
-function openDocxCompare(form) {
-  compareFormData.value = form;
-  showDocxCompare.value = true;
 }
 
 // Step 3：跳转到表单设计页并选中该表单
@@ -981,14 +680,7 @@ async function openDesignerForImportedForm(formId) {
   activateTab('designer');
   activeTab.value = 'designer';
   await nextTick();
-  const tries = 20;
-  for (let i = 0; i < tries; i++) {
-    if (formDesignerTabRef.value?.selectFormById) {
-      await formDesignerTabRef.value.selectFormById(formId);
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 50));
-  }
+  await requestFormSelection(formId);
 }
 
 // 暗色模式（持久化）
@@ -1352,206 +1044,11 @@ function startResize(e) {
     <!-- 模板字段查询对话框 -->
     <TemplateFieldSearchDialog v-if="hasOpenedTemplateFieldSearch" v-model="showTemplateFieldSearch" />
 
-    <!-- 导入Word弹窗 -->
-    <el-dialog v-model="showImportWordDialog" title="导入Word" width="620px" :close-on-click-modal="false">
-      <div v-if="importWordLoading" style="text-align: center; padding: 30px 0">
-        <el-icon class="is-loading" size="24px"><Loading /></el-icon> 加载中...
-      </div>
-      <template v-else>
-        <div v-if="importWordStep === 1">
-          <el-upload
-            drag
-            :action="apiUrl('/api/projects/' + selectedProject.id + '/import-docx/preview')"
-            :headers="getAuthHeaders()"
-            :show-file-list="false"
-            accept=".docx"
-            :on-success="handleDocxUploadSuccess"
-            :on-error="handleDocxUploadError"
-            :before-upload="beforeDocxUpload"
-            style="text-align: center; padding: 20px 0"
-          >
-            <el-icon class="el-icon--upload" size="67px"><UploadFilled /></el-icon>
-            <div class="el-upload__text">将文件拖拽至此区域 或 <em>点击上传</em></div>
-            <template #tip>
-              <div class="el-upload__tip">只支持 .docx 文件</div>
-            </template>
-          </el-upload>
-          <el-alert
-            v-if="importWordErrorMessage"
-            :title="importWordErrorMessage"
-            type="error"
-            show-icon
-            style="margin-top: 10px"
-          />
-        </div>
-        <div v-if="importWordStep === 2">
-          <el-alert
-            v-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
-            type="info"
-            show-icon
-            :closable="false"
-            title="AI 复核进行中，建议会自动补充到表单预览，不影响继续导入。"
-            style="margin-bottom: 12px"
-          />
-          <el-alert
-            v-else-if="importWordAiReviewStatus === 'failed'"
-            type="warning"
-            show-icon
-            :closable="false"
-            :title="importWordAiReviewError || 'AI复核不可用，不影响继续导入。'"
-            style="margin-bottom: 12px"
-          />
-          <div class="form-select-header">
-            <div class="form-select-meta">
-              <p class="form-select-prompt">请勾选要导入的表单：</p>
-              <div class="docx-ai-global-actions">
-                <span class="docx-ai-global-label">全部表单：</span>
-                <el-checkbox
-                  :model-value="allAiSuggestionsAccepted"
-                  :indeterminate="allAiSuggestionsIndeterminate"
-                  :disabled="!hasAnyAiSuggestions"
-                  @change="toggleAiSuggestionsForAll"
-                >
-                  全接受
-                </el-checkbox>
-                <el-button
-                  link
-                  size="small"
-                  :disabled="!allAiSuggestionsAccepted && !allAiSuggestionsIndeterminate"
-                  @click="clearAllAiSuggestions"
-                >
-                  全取消
-                </el-button>
-              </div>
-            </div>
-            <el-button
-              size="small"
-              :disabled="importedFormsPreview.length === 0"
-              aria-controls="import-word-forms-list"
-              @click="toggleSelectAllImportWordForms"
-            >
-              {{
-                selectedFormsToImport.length === importedFormsPreview.length && importedFormsPreview.length > 0
-                  ? '取消全选'
-                  : '全选'
-              }}
-            </el-button>
-          </div>
-          <el-checkbox-group
-            id="import-word-forms-list"
-            v-model="selectedFormsToImport"
-            style="display: flex; flex-direction: column; gap: 8px"
-          >
-            <el-checkbox
-              v-for="f in importedFormsPreview"
-              :key="f.index"
-              :value="f.index"
-              border
-              class="docx-form-checkbox"
-            >
-              <div class="docx-form-item">
-                <el-tooltip
-                  :content="f.name + ' (' + f.field_count + '个字段)'"
-                  placement="top"
-                  :disabled="f.name.length <= 20"
-                >
-                  <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
-                </el-tooltip>
-                <span class="docx-form-actions">
-                  <el-tag v-if="Array.isArray(f.ai_suggestions) && f.ai_suggestions.length" size="small" type="warning">
-                    AI建议 {{ f.ai_suggestions.length }} 条
-                  </el-tag>
-                  <el-tag
-                    v-else-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
-                    size="small"
-                    type="info"
-                  >
-                    <el-icon class="is-loading" style="margin-right: 4px"><Loading /></el-icon>
-                    AI复核中
-                  </el-tag>
-                  <el-tag v-else-if="importWordAiReviewStatus === 'failed'" size="small" type="info">AI不可用</el-tag>
-                  <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览</el-button>
-                </span>
-              </div>
-            </el-checkbox>
-          </el-checkbox-group>
-          <div
-            v-if="importedFormsPreview.length === 0"
-            style="color: var(--color-text-muted); text-align: center; padding: 20px 0"
-          >
-            Word文档中没有发现表单
-          </div>
-          <el-alert
-            v-if="importWordErrorMessage"
-            :title="importWordErrorMessage"
-            type="error"
-            show-icon
-            style="margin-top: 10px"
-          />
-        </div>
-        <div v-if="importWordStep === 3">
-          <el-alert
-            type="success"
-            show-icon
-            :closable="false"
-            :title="`导入成功，共 ${importedResults.length} 个表单`"
-            style="margin-bottom: 12px"
-          />
-          <el-table
-            :data="importedResults"
-            size="small"
-            border
-            style="width: 100%"
-            max-height="360"
-            aria-label="导入结果"
-          >
-            <el-table-column type="index" label="#" width="50" />
-            <el-table-column prop="name" label="表单名称" show-overflow-tooltip />
-            <el-table-column prop="field_count" label="字段数" width="90" align="center" />
-            <el-table-column label="操作" width="140" align="center">
-              <template #default="{ row }">
-                <el-button size="small" type="primary" link @click="openDesignerForImportedForm(row.form_id)"
-                  >打开设计页</el-button
-                >
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </template>
-      <template #footer>
-        <el-button v-if="importWordStep !== 3" :disabled="importWordLoading" @click="showImportWordDialog = false"
-          >取消</el-button
-        >
-        <el-button v-if="importWordStep === 2" :disabled="importWordLoading" @click="goBackToImportWordStep1"
-          >上一步</el-button
-        >
-        <el-button
-          v-if="importWordStep === 2"
-          type="primary"
-          :disabled="selectedFormsToImport.length === 0 || importWordLoading"
-          :loading="importWordLoading"
-          @click="executeImportWord"
-          >确认导入</el-button
-        >
-        <el-button v-if="importWordStep === 3" type="primary" @click="showImportWordDialog = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- Word导入预览对话框 -->
-    <DocxCompareDialog
-      v-if="compareFormData"
-      :key="compareFormData?.index"
-      v-model="showDocxCompare"
-      :form-data="compareFormData"
-      :temp-id="tempDocxId || ''"
-      :project-id="selectedProject?.id || 0"
-      :all-form-names="importedFormsPreview.map((f) => f.name)"
-      :all-forms-data="importedFormsPreview"
-      :ai-review-status="importWordAiReviewStatus"
-      :ai-review-error="importWordAiReviewError"
-      :accepted-suggestions="compareFormAcceptedSuggestions"
-      @toggle-suggestion="toggleAiSuggestionAcceptance"
-      @toggle-form="toggleAiSuggestionsForForm"
+    <!-- 导入Word弹窗（v-model + 只读 projectId；projectId 可为 null 时仍挂载） -->
+    <WordImportDialog
+      v-model="showImportWordDialog"
+      :project-id="selectedProject?.id ?? null"
+      @open-designer="openDesignerForImportedForm"
     />
   </template>
 
@@ -1706,75 +1203,6 @@ function startResize(e) {
   min-height: 100vh;
   color: var(--color-text-secondary);
   background: var(--el-bg-color-page, #f5f7fa);
-}
-
-.form-select-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.form-select-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.form-select-prompt {
-  margin: 0;
-}
-
-.docx-ai-global-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.docx-ai-global-label {
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-
-/* 导入Word弹窗 - 表单项布局 */
-:deep(.docx-form-checkbox.el-checkbox.is-bordered) {
-  width: 100% !important;
-  height: auto !important;
-  padding: 8px 12px !important;
-}
-
-:deep(.docx-form-checkbox .el-checkbox__label) {
-  display: flex !important;
-  align-items: center !important;
-  width: 100% !important;
-  padding-left: 8px !important;
-}
-
-.docx-form-item {
-  display: flex !important;
-  align-items: center !important;
-  width: 100% !important;
-  gap: 12px !important;
-}
-
-.docx-form-name {
-  flex: 1 1 auto !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  min-width: 0 !important;
-}
-
-.docx-form-actions {
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  flex-shrink: 0 !important;
-  flex-grow: 0 !important;
-  margin-left: auto !important;
 }
 
 .project-item .drag-handle {

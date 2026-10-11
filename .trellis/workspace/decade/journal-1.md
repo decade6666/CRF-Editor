@@ -669,3 +669,51 @@ conftest 在 import main 前重定向 CONFIG_FILE 到会话临时根（不存在
 
 - 未推送（用户仅授权本地提交与合并）；生产部署由用户自行执行
 - 波次 D 四项（legacy-cleanup / backend-format / export-layer-cleanup / backend-dedup）全部合入 main
+
+
+## Session 19: 导入Word向导拆分（app-word-import-split）
+<!-- trellis-session: v=2 fp=ee52c51641ea9b4b -->
+
+**Date**: 2026-10-11
+**Task**: 导入Word向导拆分（app-word-import-split）
+**Branch**: `main`
+
+### Summary
+
+App.vue 的 Word 导入向导外移为 WordImportDialog.vue + useWordImport.js，新增 useDesignerFormSelection 就绪桥，前端套件与文档/规格同步，已合并 main 并推送
+
+### Main Changes
+
+- 新增 WordImportDialog.vue（v-model + 可空 projectId）与 useWordImport.js（上传/AI 复核轮询/建议接受/执行导入，逐次调用持有状态）
+- App.vue 仅保留入口与可见性开关，resetSessionState 关闭向导；删除 20×50ms 盲等
+- 新增 useDesignerFormSelection.js 就绪桥，卸载后迟到的 AI 响应不再写状态或续排
+- 文档与规格同步：根/前端 CLAUDE.md、index.json、跨栈契约 §4/§9、frontend spec 新增就绪与生命周期测试契约
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `02eff57` | fix(frontend): 导入后打开设计页改为等待设计器就绪再选中表单 |
+| `f1f7379` | refactor(frontend): 导入Word向导从 App.vue 拆分为 WordImportDialog 组件与 useWordImport |
+| `8a486bb` | fix(frontend): WordImportDialog 注入 refreshKey 时提供默认值 |
+| `4be74c1` | test(frontend): 补齐导入Word向导生命周期与宿主 v-model 往返测试 |
+| `98bc154` | docs(frontend): 同步导入Word向导拆分后的模块说明与测试索引 |
+| `47ac218` | docs(spec): 沉淀异步组件就绪与导入向导生命周期测试契约 |
+| `fd97dd6` | docs(frontend): 回填导入向导拆分的终检结果与验证限制 |
+| `d9056df` | Merge branch 'refactor/app-word-import-split' |
+
+### Testing
+
+- [OK] node:test 944→954；vitest 组件 5 文件/26 例→6 文件/50 例；lint 0 errors（3546 warnings 基线持平）；build 4.12s；后端 pytest 1210 passed
+- [OK] 两处修正均 RED→GREEN：refreshKey 注入默认值、卸载后迟到成功/失败响应不写状态；卸载守卫经隔离 /tmp 副本变异验证
+- [OK] 本地 CSS 作用域差异探针：无新增选择器丢失；实机浏览器验收因临时测试凭据策略被拦截而未运行
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- visits-preview-split 等 designer-split 合入 main 后重新核实并执行；届时可复用 DesignerAcrfAnnotation
+- 依赖审计：基线 npm ci 报 13 项漏洞（11 high），外部 audit 详情仍被权限拦截，需另行授权的私有 advisory 查询或升级任务
+- 实机浏览器验收（上传→预览→执行→跳转设计页）仍待可用隔离凭据后补做，不能由本地 happy-dom 探针替代
