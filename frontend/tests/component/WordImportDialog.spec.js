@@ -5,9 +5,10 @@
 // 主弹窗未启用 append-to-body，teleport 被 Element Plus 关闭，内容直接位于组件子树内。
 import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-import { defineComponent, nextTick, ref } from 'vue';
+import { defineComponent, effectScope, nextTick, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import WordImportDialog from '../../src/components/WordImportDialog.vue';
+import { useWordImport } from '../../src/composables/useWordImport.js';
 import { api, apiUrl, getAuthHeaders } from '../../src/composables/useApi.js';
 
 const TEMP_ID = '0f1e2d3c4b5a69788796a5b4c3d2e1f0';
@@ -112,19 +113,62 @@ function compareStub(wrapper) {
 function hostComponent() {
   return defineComponent({
     components: { WordImportDialog },
-    props: { projectId: { type: Number, default: 1 } },
-    setup() {
-      const alive = ref(true);
-      const modelValue = ref(true);
-      return { alive, modelValue };
+    props: {
+      projectId: { type: Number, default: 1 },
+      initiallyVisible: { type: Boolean, default: true },
     },
-    template: '<WordImportDialog v-if="alive" v-model="modelValue" :project-id="projectId" />',
+    setup(props) {
+      const alive = ref(true);
+      const modelValue = ref(props.initiallyVisible);
+      function openFromHost() {
+        modelValue.value = true;
+      }
+      return { alive, modelValue, openFromHost };
+    },
+    template: `
+      <div>
+        <button data-test="host-opener" @click="openFromHost">打开导入Word</button>
+        <WordImportDialog v-if="alive" v-model="modelValue" :project-id="projectId" />
+      </div>
+    `,
   });
+}
+
+// el-dialog 的离场过渡在 happy-dom 下由 rAF 驱动（无 CSS 时长 → 0ms）；此处等一拍真实计时器，
+// 让过渡与 afterLeave 的 update:modelValue(false) 落地后再重开，避免把中断过渡当成产品行为。
+function settleDialogTransition() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 60);
+  });
+}
+
+// 直接用真实 useWordImport + 独立 effectScope 驱动「卸载后迟到响应」：不挂组件、不 mock 被测代码，
+// scope.stop() 触发 composable 的 onScopeDispose，模拟组件卸载（visible 与 task id 均保持不变）。
+function setupImportScope() {
+  const projectId = ref(1);
+  const visible = ref(true);
+  const refreshKey = ref(0);
+  const scope = effectScope();
+  const wordImport = scope.run(() => useWordImport({ projectId, visible, refreshKey }));
+  return { scope, wordImport };
+}
+
+function snapshotAiReviewState(wordImport) {
+  return {
+    status: wordImport.importWordAiReviewStatus.value,
+    error: wordImport.importWordAiReviewError.value,
+    preview: wordImport.importedFormsPreview.value,
+    accepted: wordImport.acceptedAiOverrides.value,
+    compare: wordImport.compareFormData.value,
+  };
 }
 
 describe('WordImportDialog', () => {
   it('打开对话框时重置到第 1 步并清空上次会话的预览与结果', async () => {
-    vi.spyOn(api, 'post').mockResolvedValue({ imported_form_count: 1, detail: [{ form_id: 7, name: 'A', field_count: 1 }] });
+    vi.spyOn(api, 'post').mockResolvedValue({
+      imported_form_count: 1,
+      detail: [{ form_id: 7, name: 'A', field_count: 1 }],
+    });
     const { wrapper } = mountDialog();
     await openDialog(wrapper);
 
@@ -426,5 +470,139 @@ describe('WordImportDialog', () => {
     await confirmImport(wrapper);
 
     expect(wrapper.text()).toContain('导入成功，共 1 个表单');
+  });
+
+  it('宿主 v-model 往返：宿主按钮打开、子组件取消回写 false、再次打开回到第 1 步', async () => {
+    const wrapper = mount(hostComponent(), {
+      props: { initiallyVisible: false },
+      global: { provide: { refreshKey: ref(0) } },
+    });
+    await flushPromises();
+    expect(wrapper.vm.modelValue).toBe(false);
+
+    await wrapper.find('[data-test="host-opener"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.vm.modelValue).toBe(true);
+
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(2);
+
+    await buttonByText(wrapper, '取消').trigger('click');
+    await settleDialogTransition();
+    expect(wrapper.vm.modelValue).toBe(false);
+
+    await wrapper.find('[data-test="host-opener"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.vm.modelValue).toBe(true);
+    expect(wrapper.text()).toContain('将文件拖拽至此区域');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
+  });
+
+  it('初始即可见时直接渲染第 1 步上传区且不产生警告', async () => {
+    const wrapper = mount(WordImportDialog, {
+      props: { modelValue: true, projectId: 1 },
+    });
+    await flushPromises();
+
+    expect(uploadComponent(wrapper).exists()).toBe(true);
+    expect(wrapper.text()).toContain('将文件拖拽至此区域');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
+  });
+
+  it('AI 复核 failed 后展示错误并停止轮询', async () => {
+    vi.useFakeTimers();
+    const getSpy = vi
+      .spyOn(api, 'get')
+      .mockResolvedValue({ status: 'failed', error: '模型服务不可用', suggestions: {} });
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(wrapper.text()).toContain('模型服务不可用');
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('卸载后成功的迟到响应不写入状态也不再续排（effectScope + 真实 composable）', async () => {
+    vi.useFakeTimers();
+    let resolveStatus;
+    const getSpy = vi.spyOn(api, 'get').mockReturnValue(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    const { scope, wordImport } = setupImportScope();
+    try {
+      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(getSpy).toHaveBeenCalledTimes(1);
+
+      const compareForm = wordImport.importedFormsPreview.value.find((form) => form.index === 1);
+      wordImport.openDocxCompare(compareForm);
+      const before = snapshotAiReviewState(wordImport);
+      expect(before.status).toBe('pending');
+      expect(before.preview).toHaveLength(2);
+      expect(before.compare).not.toBeNull();
+
+      scope.stop();
+
+      resolveStatus({ status: 'running', suggestions: { 1: [{ index: 0, suggested_type: '日期' }] } });
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(9000);
+
+      expect(snapshotAiReviewState(wordImport)).toEqual(before);
+      expect(getSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      scope.stop();
+    }
+  });
+
+  it('卸载后失败的迟到响应不写入状态也不再续排（effectScope + 真实 composable）', async () => {
+    vi.useFakeTimers();
+    let rejectStatus;
+    const getSpy = vi.spyOn(api, 'get').mockReturnValue(
+      new Promise((resolve, reject) => {
+        rejectStatus = reject;
+      }),
+    );
+    const { scope, wordImport } = setupImportScope();
+    try {
+      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(getSpy).toHaveBeenCalledTimes(1);
+
+      const before = snapshotAiReviewState(wordImport);
+      expect(before.status).toBe('pending');
+      expect(before.error).toBe('');
+
+      scope.stop();
+
+      rejectStatus(Object.assign(new Error('gateway timeout'), { status: 504 }));
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(9000);
+
+      expect(snapshotAiReviewState(wordImport)).toEqual(before);
+      expect(getSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      scope.stop();
+    }
+  });
+
+  it('卸载后到达的上传成功响应不会再排起 AI 复核轮询', async () => {
+    vi.useFakeTimers();
+    const getSpy = vi.spyOn(api, 'get');
+    const { scope, wordImport } = setupImportScope();
+    try {
+      scope.stop();
+
+      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
+      await vi.advanceTimersByTimeAsync(9000);
+
+      expect(getSpy).not.toHaveBeenCalled();
+    } finally {
+      scope.stop();
+    }
   });
 });
