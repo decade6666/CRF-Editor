@@ -38,6 +38,7 @@ import {
 } from './composables/docxAiSuggestionOverrides';
 import { getDownloadFilename } from './composables/exportDownloadState';
 import { createLazyTabState } from './composables/useLazyTabs';
+import { useDesignerFormSelection } from './composables/useDesignerFormSelection';
 import { collectColumnWidthOverrides } from './composables/useColumnResize';
 import ProjectInfoTab from './components/ProjectInfoTab.vue';
 import LoginView from './components/LoginView.vue';
@@ -131,6 +132,7 @@ const projects = ref([]);
 const selectedProject = ref(null);
 const { activeTab, activateTab, isTabActivated, reset: resetLazyTabs } = createLazyTabState('info');
 const formDesignerTabRef = ref(null);
+const { requestFormSelection } = useDesignerFormSelection(formDesignerTabRef);
 const showCreateProject = ref(false);
 const newProject = reactive({ name: '', version: '1.0', db_type: '其他' });
 const copyingProjectId = ref(null);
@@ -981,14 +983,7 @@ async function openDesignerForImportedForm(formId) {
   activateTab('designer');
   activeTab.value = 'designer';
   await nextTick();
-  const tries = 20;
-  for (let i = 0; i < tries; i++) {
-    if (formDesignerTabRef.value?.selectFormById) {
-      await formDesignerTabRef.value.selectFormById(formId);
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 50));
-  }
+  await requestFormSelection(formId);
 }
 
 // 暗色模式（持久化）
