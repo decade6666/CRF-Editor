@@ -215,6 +215,7 @@
       ],
       "components": [
         "frontend/src/components/AdminView.vue",
+        "frontend/src/components/CodelistQuickEditDialog.vue",
         "frontend/src/components/CodelistsTab.vue",
         "frontend/src/components/DesignNotesDialog.vue",
         "frontend/src/components/DocxCompareDialog.vue",
@@ -229,7 +230,8 @@
         "frontend/src/components/TemplateFieldSearchDialog.vue",
         "frontend/src/components/TemplatePreviewDialog.vue",
         "frontend/src/components/UnitsTab.vue",
-        "frontend/src/components/VisitsTab.vue"
+        "frontend/src/components/VisitsTab.vue",
+        "frontend/src/components/WordImportDialog.vue"
       ],
       "composables": [
         "frontend/src/composables/acrfAnnotationGeometry.js",
@@ -247,6 +249,7 @@
         "frontend/src/composables/formDesignerPropertyEditor.js",
         "frontend/src/composables/formFieldPresentation.js",
         "frontend/src/composables/oidValidation.js",
+        "frontend/src/composables/previewCellRender.js",
         "frontend/src/composables/projectDeleteConfirmation.js",
         "frontend/src/composables/referenceDeleteGuard.js",
         "frontend/src/composables/searchRanking.js",
@@ -255,6 +258,7 @@
         "frontend/src/composables/useApi.js",
         "frontend/src/composables/useCRFRenderer.js",
         "frontend/src/composables/useColumnResize.js",
+        "frontend/src/composables/useDesignerFormSelection.js",
         "frontend/src/composables/useDesignerHistory.js",
         "frontend/src/composables/useLazyTabs.js",
         "frontend/src/composables/useOrderableList.js",
@@ -263,6 +267,7 @@
         "frontend/src/composables/useRowResize.js",
         "frontend/src/composables/useSessionTimer.js",
         "frontend/src/composables/useSortableTable.js",
+        "frontend/src/composables/useWordImport.js",
         "frontend/src/composables/visitPreviewLandscape.js"
       ],
       "styles": [
@@ -293,8 +298,10 @@
         "frontend/tests/codelistsCopyButton.test.js",
         "frontend/tests/columnWidthPlanning.pbt.test.js",
         "frontend/tests/columnWidthPlanning.test.js",
+        "frontend/tests/component/CodelistQuickEditDialog.spec.js",
         "frontend/tests/component/DesignNotesDialog.spec.js",
         "frontend/tests/component/SessionTimer.spec.js",
+        "frontend/tests/component/WordImportDialog.spec.js",
         "frontend/tests/component/elementPlusEnvironment.spec.js",
         "frontend/tests/component/setup.js",
         "frontend/tests/component/vueWarnGate.js",
@@ -332,6 +339,7 @@
         "frontend/tests/ordinalQuickEditWiring.test.js",
         "frontend/tests/paneSplit.test.js",
         "frontend/tests/portDefaults.test.js",
+        "frontend/tests/previewCellRender.test.js",
         "frontend/tests/projectDeleteConfirmation.test.js",
         "frontend/tests/projectInfoMetadata.test.js",
         "frontend/tests/quickEditBehavior.test.js",
@@ -350,6 +358,7 @@
         "frontend/tests/themePalette.test.js",
         "frontend/tests/toolbarPaneAlignment.test.js",
         "frontend/tests/useApiSessionRace.test.js",
+        "frontend/tests/useDesignerFormSelection.test.js",
         "frontend/tests/useOrdinalQuickEdit.test.js",
         "frontend/tests/visitFlowWorkspace.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",

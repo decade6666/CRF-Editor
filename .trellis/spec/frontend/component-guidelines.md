@@ -531,6 +531,7 @@ function openCompare(form) {
 | Parent `:key="businessObject.id"` | Force re-creation of dialog instance on target switch | Child `setup()` re-runs, all `ref` / `computed` reset, props see fresh values |
 | Child `:model-value` + `@update:model-value` | Forward open/close from parent to el-dialog and emit changes back | Maintains true two-way binding through el-dialog's internal close events |
 | Child must NOT wrap `modelValue` in `computed({ get, set: () => {} })` | — | An empty setter swallows el-dialog close events; parent state never updates and the dialog appears stuck |
+| Child does NOT translate `@close` into `update:modelValue(false)`; it forwards only `@update:model-value`. `@close` is for unrelated housekeeping (e.g. `AdminView.vue`'s `@close="resetProjectListState"`) | — | Element Plus 2.13.2 (`use-dialog.mjs`) emits `close` in `beforeLeave` but `update:modelValue(false)` in `afterLeave`. When the parent's close branch has side effects (stop polling, clear compare state), the `@close` translation moves that cleanup to the start of the leave transition — an undeclared timing change. See `WordImportDialog.vue`; `DocxCompareDialog.vue` / `TemplatePreviewDialog.vue` keep the translation only because their parents' close branches are side-effect free |
 
 ### 4. Validation & Error Matrix
 
@@ -540,6 +541,7 @@ function openCompare(form) {
 | User clicks close button / mask / presses ESC | `@update:model-value(false)` → parent `showDialog = false` → dialog closes cleanly |
 | Parent sets `businessObject = null` while open | `v-if` removes dialog from DOM; no orphaned child state |
 | Child internal `ref`s (e.g. highlight, scroll position) | Reset on every open, because `:key` change destroys the previous instance |
+| Child translates `@close` into `update:modelValue(false)` while the parent's close branch stops a timer or clears state | Cleanup runs in `beforeLeave` (leave-transition start) instead of `afterLeave`; keep the translation only for side-effect-free parents |
 
 ### 5. Wrong vs Correct
 
@@ -562,15 +564,27 @@ const visible = computed({
 <DialogComponent v-if="hasOpenedOnce" v-model="show" :form-data="current" />
 ```
 
+```vue
+<!-- Child: translating @close into update:modelValue(false) when the parent cleans up on close
+     (WordImportDialog.vue's parent stops AI-review polling and clears compare state when
+     modelValue goes false — that cleanup would fire in beforeLeave, at leave-transition start). -->
+<el-dialog
+  :model-value="modelValue"
+  @update:model-value="emit('update:modelValue', $event)"
+  @close="emit('update:modelValue', false)"
+/>
+```
+
 #### Correct
 
 ```vue
-<!-- Child: explicit emit, no empty setter, no destroy-on-close -->
+<!-- Child: explicit emit, no empty setter, no destroy-on-close, no @close translation -->
 <el-dialog
   :model-value="modelValue"
   @update:model-value="$emit('update:modelValue', $event)"
-  @close="$emit('update:modelValue', false)"
 />
+<!-- Footer buttons may still emit false directly:
+     @click="$emit('update:modelValue', false)" -->
 ```
 
 ```vue
@@ -582,6 +596,8 @@ const visible = computed({
   :form-data="current"
 />
 ```
+
+`@close` is still the right hook for housekeeping unrelated to `modelValue` — e.g. `AdminView.vue` uses `@close="resetProjectListState"`. `DocxCompareDialog.vue` and `TemplatePreviewDialog.vue` keep the `@close` → `update:modelValue(false)` translation because their parents' close branches are side-effect free.
 
 ---
 
@@ -1020,6 +1036,38 @@ const FormDesigner = defineAsyncComponent(() =>
 <!-- CORRECT - Named method -->
 <el-button @click="removeDeletedItems">
 ```
+
+### 6. Retry Loop for an Async Child's Exposed Method
+
+```javascript
+// WRONG - blind retry loop: silently drops the action when the chunk is slow
+async function openDesignerForImportedForm(formId) {
+  for (let tries = 0; tries < 20; tries += 1) {
+    if (designerRef.value?.selectFormById) {
+      return designerRef.value.selectFormById(formId)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+```
+
+```javascript
+// CORRECT - watch the template ref; the resolved inner component's ref (with its
+// defineExpose) is forwarded once defineAsyncComponent resolves. With Vue 3.5 an
+// unresolved wrapper leaves the ref null, so one watch covers both cases.
+watch(designerRef, (designer) => {
+  if (!hasPendingFormId || typeof designer?.selectFormById !== 'function') return
+  return consumePendingFormId(designer) // clears the pending id BEFORE awaiting
+})
+```
+
+Contracts:
+
+- Keep **at most** one pending request per invocation (latest wins).
+- Clear the pending id **before** invoking the designer — that is what prevents a later remount from replaying the selection. A queued request merely resolving early proves nothing on its own.
+- No timers, no polling, no module-level mutable state.
+
+Reference implementation: `frontend/src/composables/useDesignerFormSelection.js` (`requestFormSelection`); readiness tests: `frontend/tests/useDesignerFormSelection.test.js`.
 
 ---
 

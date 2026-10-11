@@ -126,7 +126,7 @@ test('app remembers username on logout and auth expiry', () => {
   assert.match(appSource, /localStorage\.setItem\('crf_last_username', normalized\)/);
   assert.match(
     appSource,
-    /function resetSessionState\(\) \{[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*showSettings\.value = false[\s\S]*currentUser\.value = getEmptyUser\(\)/,
+    /function resetSessionState\(\) \{[\s\S]*closeSelfPasswordDialog\(\)[\s\S]*showSettings\.value = false[\s\S]*showImportWordDialog\.value = false[\s\S]*currentUser\.value = getEmptyUser\(\)/,
   );
   assert.match(appSource, /function logout\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/);
   assert.match(appSource, /function handleAuthExpired\(\) \{[\s\S]*rememberUsername\(\)[\s\S]*resetSessionState\(\)/);

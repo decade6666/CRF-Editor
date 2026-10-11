@@ -511,6 +511,31 @@ export function useCRFRenderer() {
 
 ---
 
+## Ignoring Late Responses After Scope Disposal
+
+Disposal does not cancel a request already in flight — it only suppresses later
+state writes and rescheduling. Guard per invocation:
+
+```javascript
+// useWordImport.js — `disposed` lives in the per-invocation factory, never at module level
+function createWordImportSession({ projectId, visible, refreshKey }) {
+  let disposed = false
+  const state = createImportWordState()
+  const aiReview = createAiReviewControls({ state, projectId, visible, isDisposed: () => disposed })
+  function dispose() { disposed = true; aiReview.stopAiReviewPolling() }
+  return { state, aiReview, dispose }
+}
+// useWordImport(...) wires it up: onScopeDispose(session.dispose)
+```
+
+- In `createReviewPolling`, check `isDisposed()` before the request, again after it settles on **both** the success and error paths (before any state write or reschedule), and in the scheduler that queues the next poll.
+- Wrong: only clearing the timer in `dispose()` — an in-flight response then writes state and reschedules after unmount.
+- Source-level tests cannot prove this: see `quality-guidelines.md` → Component Mount Tests (`effectScope()` + `scope.stop()`).
+
+Reference: `frontend/src/composables/useWordImport.js` (`createReviewPolling`, `createWordImportSession`); tests: `frontend/tests/component/WordImportDialog.spec.js`.
+
+---
+
 ## Common Mistakes
 
 ### 1. Not Returning Reactive Values
