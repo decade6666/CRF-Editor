@@ -410,4 +410,21 @@ describe('WordImportDialog', () => {
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
   });
+
+  it('宿主未提供 refreshKey 时导入仍能完成并进入第 3 步', async () => {
+    vi.spyOn(api, 'post').mockResolvedValue({
+      imported_form_count: 1,
+      detail: [{ form_id: 7, name: '知情同意', field_count: 3 }],
+    });
+    const wrapper = mount(WordImportDialog, {
+      props: { modelValue: false, projectId: 1 },
+    });
+
+    await openDialog(wrapper);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
+    await selectAllForms(wrapper);
+    await confirmImport(wrapper);
+
+    expect(wrapper.text()).toContain('导入成功，共 1 个表单');
+  });
 });

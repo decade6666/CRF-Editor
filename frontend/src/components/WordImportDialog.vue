@@ -1,5 +1,5 @@
 <script setup>
-import { defineAsyncComponent, inject, toRef } from 'vue';
+import { defineAsyncComponent, inject, ref, toRef } from 'vue';
 import { Loading, UploadFilled } from '@element-plus/icons-vue';
 import { apiUrl, getAuthHeaders } from '../composables/useApi';
 import { useWordImport } from '../composables/useWordImport';
@@ -43,7 +43,7 @@ const {
 } = useWordImport({
   projectId: toRef(props, 'projectId'),
   visible: toRef(props, 'modelValue'),
-  refreshKey: inject('refreshKey'),
+  refreshKey: inject('refreshKey', ref(0)),
 });
 </script>
 
