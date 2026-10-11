@@ -248,6 +248,14 @@ Real DOM component tests run on vitest + @vue/test-utils + happy-dom. They are t
 | DOM polyfills | Add none by default. Only when a spec proves an API is missing (e.g. a component touching canvas or layout) add the minimal stub in `setup.js` with a comment naming the component and API. happy-dom 20 natively covers matchMedia / IntersectionObserver / scrollTo / no-op ResizeObserver — el-table / el-select / el-tooltip mount without polyfills (see `elementPlusEnvironment.spec.js`). |
 | Versions | Test toolchain deps are exact-pinned in `package.json` (`vitest@5.0.3`, `@vue/test-utils@2.5.1`, `happy-dom@20.14.5`). Upgrades are a deliberate, separately approved change. |
 
+Additional mount-test rules:
+
+- **v-model components:** prove the round trip with a real host component using ordinary `v-model`, and assert the **host** state — not only `wrapper.emitted()`. Reopen after a close and assert the child reset to its initial step. This tests the dialog wiring only, not any async-child readiness; the readiness pattern has its own tests (`tests/useDesignerFormSelection.test.js`). Reference: the 宿主 v-model 往返 case in `tests/component/WordImportDialog.spec.js`.
+- **`vi.mock` of a `defineAsyncComponent` child:** the factory must return `{ __esModule: true, default: { name, props, emits, setup } }`, and the mock must declare every prop and emitted event the child receives. Without `__esModule`, Vue treats the mock namespace object itself as the component definition and VTU then throws on missing `name` / `__isTeleport`.
+- **`el-dialog` in this project's Element Plus 2.13.2 with the default append target and no `append-to-body`:** teleport is disabled, so the content renders inline — query the mount wrapper, not `new DOMWrapper(document.body)`. Allow an animation-frame/timer tick before reopening to avoid overlapping transition callbacks; this does not prove `afterLeave` / header × behavior under happy-dom, which needs real-browser verification.
+- **Late-response-after-unmount guards:** drive the real exported composable inside an `effectScope()` and call `scope.stop()` while visibility and task id are UNCHANGED, then settle the deferred response. Assert a state snapshot is deep-equal to its pre-stop value and that no further requests are made. Prove lifecycle observables with focused mutations in an isolated `/tmp` copy — never mutate the worktree. Reference: the two 卸载后迟到响应 cases in `tests/component/WordImportDialog.spec.js`.
+- **A surviving isolated mutation can be masked:** before classifying code as dead, check whether another guard or a missing observable hid it. Example: the S2 case does unmount while the request is pending and then settles it, but it asserted only the GET count, and the schedule guard absorbed the mutation — a GET-count assertion alone does not detect post-unmount state writes. Add the missing observable/scenario before touching production code.
+
 ---
 
 ## Code Review Checklist

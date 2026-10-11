@@ -172,7 +172,7 @@ POST /api/forms/{form_id}/fields/reorder
 
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
-| **File** | `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` | `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue` |
+| **File** | `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` | `frontend/src/components/WordImportDialog.vue` (wizard + async `DocxCompareDialog` mount), `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue`, `frontend/src/composables/useWordImport.js` (upload / AI poll / execute state machine) |
 | **Purpose** | Start screenshot job, expose status/page payload, fail fast on unsupported runtime | Show left evidence panel, poll status, and react to field clicks |
 
 **Status Payload**:
@@ -578,14 +578,14 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
-| **Files** | `backend/main.py` (zero-aware — only `/`, `/assets/*`, `/api/*`) | `frontend/vite.config.js`, `frontend/src/composables/useApi.js`, `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/ProjectInfoTab.vue`, `frontend/src/components/DocxScreenshotPanel.vue` |
+| **Files** | `backend/main.py` (zero-aware — only `/`, `/assets/*`, `/api/*`) | `frontend/vite.config.js`, `frontend/src/composables/useApi.js`, `frontend/src/App.vue`, `frontend/src/components/WordImportDialog.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/ProjectInfoTab.vue`, `frontend/src/components/DocxScreenshotPanel.vue` |
 | **Purpose** | Serve the app at a subpath (e.g. `/crf/`) without backend changes | Prefix all asset and API requests with the deploy base at build time / fetch boundary |
 
 **Contract Rules**:
 
 1. **Build**: `frontend/vite.config.js` reads `VITE_BASE_PATH` (default `/`) and normalizes it into `base` (`/crf` → `/crf/`). Lazy-loaded chunk URLs are baked from `base` at build time; default builds stay root-relative so the desktop package (`backend/crf.spec` snapshots `frontend/dist`) keeps working.
 2. **Runtime prefix**: `useApi.js` exports `apiUrl(path)` and applies the prefix **only at the 6 `fetch()` boundaries** (`get` / `cachedGet` / `post` / `put` / `patch` / `del`). Cache keys, `_pending`, `invalidateCache(prefix)` and `_autoInvalidate` keep the **raw `/api/...` paths** — never prefix the cache layer.
-3. **Bypass sites**: any code that bypasses `useApi.js` (bare `fetch('/api/...')`, `el-upload :action`, blob-download helpers) must wrap with `apiUrl(...)`: `App.vue` (Word export fetch, `_blobDownload`, `import/auto` fetch, el-upload `:action`), `LoginView.vue` (login fetch), `ProjectInfoTab.vue` (Logo GET/POST), `DocxScreenshotPanel.vue` (`pageUrl`). Guarded by `frontend/tests/basePathDeployment.test.js`.
+3. **Bypass sites**: any code that bypasses `useApi.js` (bare `fetch('/api/...')`, `el-upload :action`, blob-download helpers) must wrap with `apiUrl(...)`. The current inventory is **nine** wrapped call sites: `LoginView.vue` (login fetch); `App.vue` (Word export fetch, `_blobDownload`, `import/auto` fetch); `WordImportDialog.vue` (Word import upload `:action` — this upload boundary moved out of the App shell with the Word-import wizard extraction, task `app-word-import-split`, 2026-10-11); `ProjectInfoTab.vue` (project-logo GET, profile PUT, org-preset logo GET); `DocxScreenshotPanel.vue` (`pageUrl`). Guarded by `frontend/tests/basePathDeployment.test.js`, whose recursive scan covers every `src/**/*.{vue,js}` file.
 4. **Reverse proxy**: nginx must strip the prefix before reaching the backend — `location /crf/ { proxy_pass http://127.0.0.1:8888/; }` (the trailing slash is required) plus `location = /crf { return 301 /crf/; }`. See `deploy/nginx/crf-editor.conf.example`.
 5. **Dev proxy**: `server.proxy` in `vite.config.js` follows the base (`/api` vs `/crf/api` + `rewrite`), so both modes work in `npm run dev`.
 6. **Desktop**: packaging must use a default root-path build; subpath builds are opt-in and documented in README (中/EN).
@@ -1037,7 +1037,7 @@ When creating a new cross-stack contract:
 | Auth Token | `services/auth_service.py` | `App.vue` | None |
 | Preview / Export Parity | `services/export_service.py`, `services/width_planning.py`, `services/word_table_parity.py` | `useCRFRenderer.js`, `formFieldPresentation.js`, preview components, `styles/main.css` | Strict comparator JSON + exported `.docx` |
 | Form Paper Orientation | `models/form.py`, `schemas/form.py`, `database.py`, `routers/forms.py`, `services/export_service.py` (+ clone/import) | `components/FormDesignerTab.vue`, `components/VisitsTab.vue` | None |
-| API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 8 bypass call sites | `frontend/tests/basePathDeployment.test.js` |
+| API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 9 bypass call sites (`App.vue` 3 + `WordImportDialog.vue` 1 + `LoginView.vue` 1 + `ProjectInfoTab.vue` 3 + `DocxScreenshotPanel.vue` 1) | `frontend/tests/basePathDeployment.test.js` |
 | OID / Identifier Charset | `schemas/_common.py`, `schemas/codelist.py` | `composables/oidValidation.js` | None |
 | Reference Delete Guard | `services/field_definition_reference_service.py`, `routers/codelists.py`, `routers/units.py` (delete guards unchanged) | `composables/referenceDeleteGuard.js`, `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, `styles/main.css` | None (contract test `test_reference_delete_contract.py` + `referenceDeleteGuard.test.js`) |
 
