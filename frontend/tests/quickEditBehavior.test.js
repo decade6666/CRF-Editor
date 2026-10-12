@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
+// designer-split Step 2：word-page 预览模板合并为 DesignerWordPreview.vue，双击快编调用点迁入该组件；
+// 父组件渲染两次由 designerPreviewSplit.test.js 守卫。
+const wordPreviewSource = readFileSync(
+  path.resolve(currentDir, '../src/components/DesignerWordPreview.vue'),
+  'utf8',
+)
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
 
 /**
@@ -16,9 +22,9 @@ const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8
 test('fullscreen preview field has double-click handler for quick edit', () => {
   assert.match(formDesignerSource, /class="designer-preview-pane"/)
   assert.doesNotMatch(formDesignerSource, /class="designer-side-pane"[\s\S]*class="designer-preview-pane"/)
-  assert.match(formDesignerSource, /@dblclick="openQuickEdit\(seg\.fields\[0\]\)"/)
-  assert.match(formDesignerSource, /@dblclick="openQuickEdit\(ff\)"/)
-  assert.match(formDesignerSource, /@dblclick="openQuickEdit\(seg\.fields\[ci\]\)"|@dblclick="openQuickEdit\(g\.fields\[ci\]\)"/)
+  assert.match(wordPreviewSource, /@dblclick="openQuickEdit\(seg\.fields\[0\]\)"/)
+  assert.match(wordPreviewSource, /@dblclick="openQuickEdit\(ff\)"/)
+  assert.match(wordPreviewSource, /@dblclick="openQuickEdit\(seg\.fields\[ci\]\)"|@dblclick="openQuickEdit\(g\.fields\[ci\]\)"/)
 })
 
 test('quick edit method exists and handles field instance properties', () => {

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-09T00:00:00-07:00",
+  "timestamp": "2026-10-11T00:00:00-07:00",
   "version": "1.4.2",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -218,6 +218,8 @@
         "frontend/src/components/CodelistQuickEditDialog.vue",
         "frontend/src/components/CodelistsTab.vue",
         "frontend/src/components/DesignNotesDialog.vue",
+        "frontend/src/components/DesignerAcrfAnnotation.vue",
+        "frontend/src/components/DesignerWordPreview.vue",
         "frontend/src/components/DocxCompareDialog.vue",
         "frontend/src/components/DocxScreenshotPanel.vue",
         "frontend/src/components/FieldsTab.vue",
@@ -300,6 +302,8 @@
         "frontend/tests/columnWidthPlanning.test.js",
         "frontend/tests/component/CodelistQuickEditDialog.spec.js",
         "frontend/tests/component/DesignNotesDialog.spec.js",
+        "frontend/tests/component/DesignerAcrfAnnotation.spec.js",
+        "frontend/tests/component/DesignerWordPreview.spec.js",
         "frontend/tests/component/SessionTimer.spec.js",
         "frontend/tests/component/WordImportDialog.spec.js",
         "frontend/tests/component/elementPlusEnvironment.spec.js",
@@ -314,6 +318,7 @@
         "frontend/tests/designerHistory.test.js",
         "frontend/tests/designerLabelOid.test.js",
         "frontend/tests/designerNewFieldDraft.test.js",
+        "frontend/tests/designerPreviewSplit.test.js",
         "frontend/tests/docxAiSuggestionAcceptance.test.js",
         "frontend/tests/docxBimodalPreview.test.js",
         "frontend/tests/docxImportDarkModeContract.test.js",
@@ -365,8 +370,8 @@
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
-        "estimated_files": 96,
-        "scanned_files": 96,
+        "estimated_files": 106,
+        "scanned_files": 106,
         "percent": 100
       },
       "gaps": [
@@ -407,8 +412,8 @@
     }
   ],
   "scan_summary": {
-    "estimated_total_files": 214,
-    "scanned_files": 214,
+    "estimated_total_files": 224,
+    "scanned_files": 224,
     "coverage_percent": 100,
     "ignored_patterns": [
       "node_modules/**",

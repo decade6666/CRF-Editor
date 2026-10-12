@@ -182,7 +182,8 @@ function readComponentSource(relativePath) {
 const mainCssSource = readComponentSource('../src/styles/main.css')
 
 const previewComponents = [
-  ['FormDesignerTab', '../src/components/FormDesignerTab.vue'],
+  // designer-split Step 2：设计器预览模板合并为 DesignerWordPreview.vue（父组件渲染两次）。
+  ['DesignerWordPreview', '../src/components/DesignerWordPreview.vue'],
   ['VisitsTab', '../src/components/VisitsTab.vue'],
 ]
 test('row height hover guideline spans the full preview row', () => {
