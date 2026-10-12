@@ -137,9 +137,21 @@ test('view switching never reloads data or resets selection', () => {
 })
 
 test('visit preview dialog wiring is preserved', () => {
-  assert.match(visitsSource, /v-model="showFormPreview"/)
-  assert.match(visitsSource, /openFormPreview/)
-  assert.match(visitsSource, /annotationDrag/)
+  // visits-preview-split：弹窗内容迁出 VisitsTab；父组件渲染 <VisitFormPreviewDialog> 并保留打开入口，
+  // 注解拖拽实例迁入 useVisitPreviewAnnotation.js（本文件只断言接线仍在，详细守卫见 visitPreviewSplit.test.js）。
+  assert.match(
+    visitsSource,
+    /<VisitFormPreviewDialog v-model="showFormPreview" :project-id="projectId" :form-id="formPreviewFormId" \/>/,
+  )
+  assert.match(
+    visitsSource,
+    /function openFormPreview\(form\) \{\s*formPreviewFormId\.value = form\.id\s*showFormPreview\.value = true\s*\}/,
+  )
+  const annotationGlueSource = readFileSync(
+    path.resolve(currentDir, '../src/composables/useVisitPreviewAnnotation.js'),
+    'utf8',
+  )
+  assert.match(annotationGlueSource, /annotationDrag/)
 })
 
 test('flow workspace consumes shared toolbar classes with no root gap or negative margins', () => {

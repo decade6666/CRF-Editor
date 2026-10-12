@@ -40,8 +40,9 @@ const simulatedCrfFormSource = readFileSync(
   path.resolve(currentDir, '../src/components/SimulatedCRFForm.vue'),
   'utf8',
 )
+// visits-preview-split（2026-10-12）：预览弹窗与所列的列宽/填写线接线均迁入 VisitFormPreviewDialog.vue。
 const visitsSource = readFileSync(
-  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+  path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue'),
   'utf8',
 )
 const formDesignerSource = readFileSync(

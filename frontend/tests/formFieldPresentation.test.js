@@ -32,8 +32,9 @@ const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
   'utf8',
 );
+// visits-preview-split（2026-10-12）：访视预览的标签样式 / 行高拖拽 / 标题行均迁入 VisitFormPreviewDialog.vue。
 const visitsSource = readFileSync(
-  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+  path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue'),
   'utf8',
 );
 const simulatedCrfSource = readFileSync(
