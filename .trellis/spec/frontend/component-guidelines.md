@@ -884,6 +884,146 @@ Reference method (task `designer-split`, reusable for any giant-component split)
 
 ---
 
+## Scenario: Dialog Extraction from a Tab into a Presentational Child (VisitsTab → VisitFormPreviewDialog)
+
+### 1. Scope / Trigger
+
+- Trigger: a tab component holding a large modal (its own state + template + scoped CSS + open-time API flow) must
+  drop below the 800-line file limit, so the modal moves out as a self-contained child (task
+  `visits-preview-split`, 2026-10-12).
+- This is the **sibling** of `Stateless Word-Preview Extraction (DesignerWordPreview)` above, not the same shape:
+  `DesignerWordPreview` is stateless markup the parent renders **twice** and stays presentational; this child is a
+  **self-contained dialog mounted once** that owns its data, its API calls and its reset lifecycle. Pick the shape
+  from the trigger, not by analogy: shared markup rendered N times → presentational child + function props; a modal
+  with its own load/reset cycle → data-owning child + a thin parent bridge.
+- Annotation geometry/persistence stays in `cross-stack-contracts.md` §6; column-width/row-height storage keys stay
+  in `state-management.md` §4 (`useRowResize` is reused unchanged with `toRef(props, 'formId')`).
+
+### 2. Signatures
+
+```javascript
+// frontend/src/components/VisitFormPreviewDialog.vue
+defineProps({
+  modelValue: { type: Boolean, required: true },
+  projectId: { type: Number, required: true },
+  formId: { type: Number, default: null },
+});
+const emit = defineEmits(['update:modelValue']); // the ONLY emit; no defineExpose
+// <el-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)"
+//   width="90%" top="5vh" :close-on-click-modal="false" @closed="resetPreviewState">  — @close is NOT forwarded
+```
+
+```javascript
+// frontend/src/components/VisitsTab.vue — bridge only (552 lines after the split)
+const showFormPreview = ref(false);
+const formPreviewFormId = ref(null);
+function openFormPreview(form) { formPreviewFormId.value = form.id; showFormPreview.value = true; }
+// unconditional mount at the former dialog position:
+// <VisitFormPreviewDialog v-model="showFormPreview" :project-id="projectId" :form-id="formPreviewFormId" />
+```
+
+```javascript
+// frontend/src/composables/useVisitPreviewAnnotation.js — per-invocation factory (one call = one dialog)
+useVisitPreviewAnnotation({ apiClient, projectId, formId, formState, isEnabled, onError })
+// returned: getFieldAnnotationTarget / getFormAnnotationTarget / isAnnotationDraggable /
+// hasAnnotationOverrideForTarget / getAnnotationStyle / onAnnotationPointerDown / resetAnnotationPosition /
+// flushAnnotationPositionSave / cancelActiveDrag / dispose
+```
+
+### 3. Contracts
+
+| Rule | Why |
+|---|---|
+| The **unconditional** mount is what keeps `viewMode`'s setup-time init + storage write at today's timing (tab mount, not first open). `modelValue` load watchers still use `{ immediate: true }` per "Lazy-Mounted v-model Dialogs" so mount-with-open works and the mount spec can drive it | Moving the tab to lazy `v-if` mounting would silently change when `crf_view_mode` is first written |
+| On open, resolve the authoritative model before rendering: `await flushAnnotationPositionSave()` → `api.cachedGet('/api/projects/{pid}/forms')` → shallow-clone the found entry `{ ...foundForm }` → `api.cachedGet('/api/forms/{id}/fields')`, all under **one** request-sequence counter | The parent's matrix row is only `{id,name}` — design notes / `paper_orientation` / `domain` / `annotation_positions` live on the `FormResponse`; the flush guarantees a close→instant-reopen never reads a pre-PATCH cache entry |
+| Never mutate a `cachedGet` return value: read through a shallow clone, and merge writes into the dialog's own ref as a **new object** (`formState.value = { ...form, ...updatedForm }`) | `cachedGet` hands back the cache entry itself; in-place writes corrupt every other consumer of the same entry |
+| Do **not** forward `@close`: Element Plus 2.13.2 fires `close` in the `beforeLeave` phase but `update:modelValue(false)` in `afterLeave`, so forwarding would reset state at the start of the leave transition (and double-reset when combined with `@closed`). `@closed="resetPreviewState"` keeps the post-transition reset semantics | `resetPreviewState` cancels the active drag, flushes the PATCH queue, bumps the request seq, clears state and the resizer cache — running that while the dialog is still animating out is a timing change, not a rename |
+| Annotation glue goes into a per-invocation factory (`useVisitPreviewAnnotation`): no module-level mutable state, one call = one dialog = one `useAcrfAnnotationDrag` instance | Module-level state would leak between dialog instances and pin one drag instance for the whole app |
+| Props consumed by such a factory must stay **refs** (`toRef(props, 'projectId')` / `toRef(props, 'formId')`), read per call via `currentProjectId()` / `currentFormId()` | `App.vue` keeps the tab mounted across programmatic `selectedProject.value = p` reassignment; value-capturing a primitive prop at setup permanently stamps the pre-switch id into every annotation target and the PATCH cache invalidation hits the old project |
+| Drag is the dialog's own: `useAcrfAnnotationDrag` is instantiated **inside** the factory (not in the tab), `onBeforeUnmount` calls `dispose()`; the dialog also `watch`es `projectId` and flushes with `{ cancelActiveDrag: true }` | A queued debounced PATCH must survive unmount / a project switch; the snapshot carries the old `projectId` + `formId`, so the PATCH still targets the pre-switch form |
+| The child reuses `DesignerAcrfAnnotation.vue` for all annotation markers (8 sites: form ×1 / field ×5 / inline-header ×2) and holds **zero** annotation CSS; only rules matching markup that genuinely moved (`.wp-form-title-row`) follow into the child's `<style scoped>` | The shared component is the single owner of the annotation marker CSS; a second copy silently drifts (the same scoped-CSS trap as in the `DesignerWordPreview` scenario) |
+| The dialog never writes parent collections (`visitForms` / `allForms` / `matrixData`) and the tab keeps no preview state; freshness on reopen comes from the open-time `cachedGet` + PATCH invalidation chain, so the dialog does not inject `refreshKey` | Removing the four hand-synced copies + `mergeFormIntoState` is the point of the split; a refresh-key path here would resurrect the manual-sync shape |
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected Behavior |
+|---|---|
+| Forms-list request rejects | `formPreviewError = '加载表单信息失败：' + (e.message || '未知错误')` **and** `ElMessage.error` of the same string |
+| `formId` not present in the forms list | `formPreviewError = '表单不存在'`, no toast |
+| Fields request rejects | `formPreviewError = '加载表单字段失败：' + (e.message || '未知错误')` **and** `ElMessage.error` of the same string (fallback `未知错误` preserved) |
+| A response arrives whose sequence no longer matches the current request | It writes **nothing** (state, loading and error are all seq-guarded) — a stale response can never overwrite a newer open |
+| Dialog closed via the header × / ESC (`:close-on-click-modal="false"` — a mask click deliberately does not close) | `update:modelValue(false)` → parent flips the bridge ref → after the leave transition `@closed` runs `resetPreviewState` (`cancelActiveDrag` + flush + seq bump + state/cache clear) |
+| Tab unmounts while a debounced PATCH is queued | `onBeforeUnmount` → `dispose()` still sends it |
+| Parent swaps `projectId` (in-place `selectedProject` reassignment, tab stays mounted) | The `projectId` watcher flushes the queued PATCH with the pre-switch snapshot before it fires; newly stamped targets use the new project id |
+| The forms list itself is already cached | The open path is `flush → cachedGet(forms) → cachedGet(fields)`; cache hits still honour the sequence guard |
+
+### 5. Good/Base/Bad Cases
+
+- **Good**: the tab holds three symbols (`showFormPreview`, `formPreviewFormId`, `openFormPreview(row)` — id first, open second) and one unconditional `<VisitFormPreviewDialog v-model :project-id :form-id />`; every preview concern (state, template, title-row CSS, annotation glue, reset lifecycle) lives in the child.
+- **Base**: opening the dialog resolves the form from the forms cache, then fields; closing and reopening re-reads both (`cachedGet` count increases) instead of relying on state left behind by the previous open.
+- **Bad**: seeding the dialog from the matrix row object (`{id, name}`) — design notes, explicit paper orientation, the form-domain annotation and persisted field offsets all silently disappear.
+- **Bad**: `projectId: props.projectId` captured by value inside a per-invocation factory — after a programmatic project switch the tab is still mounted, so the captured primitive is stale and invalidation hits the previous project's cache.
+- **Bad**: forwarding `@close` to `resetPreviewState` in addition to `@closed` — state is torn down twice, the first at the start of the leave transition.
+- **Bad**: a second copy of the `.wp-acrf-annotation*` rules in the dialog's scoped style block — the shared component owns them, and the copy drifts.
+- **Bad**: mutating the object `cachedGet` returned (or the array it came from) to store a drag result — the cache entry is shared with every other consumer.
+
+### 6. Tests Required
+
+| Test / Check | Assertion |
+|---|---|
+| `frontend/tests/visitPreviewSplit.test.js` (source guards, 9 cases) | Parent renders **exactly one** dialog instance and both id props plus `v-model="showFormPreview"` are checked **inside its own tag**. A negative symbol list pins what the tab must no longer contain: `mergeFormIntoState`, `getFormStateById`, `applyFormAnnotationPositions`, `formPreviewForm`, `formPreviewTitle`, `viewMode`, `VIEW_MODE_STORAGE_KEY`, `useAcrfAnnotationDrag`, `resetFormPreviewState` — plus the plain-text absences `wp-acrf-annotation`, `设计备注`, `word-page` (word-boundary matching, so `formPreviewFormId` does not read as `formPreviewForm`). Dialog side: owns `.wp-form-title-row`, imports `Loading` and `DesignerAcrfAnnotation`, exactly 8 annotation call sites with the pinned prop/emit shapes, pinned template call shapes (`renderCellHtml(ff, normalFillChars(gv, gi))`, `'word-page', 'word-page--a4'` adjacency), and **no** annotation CSS. No new source or test file may bypass `useApi` with a bare `fetch(` |
+| `frontend/tests/component/VisitFormPreviewDialog.spec.js` (vitest mount, 22 cases) | Open-time resolution from the exact `cachedGet('/api/projects/{pid}/forms')` URL, the loading branch rendering `Loading`, the F1 matrix (notes aside, landscape/portrait/auto), aCRF annotations and the persisted offset in the style, debounced drag → PATCH payload + both cache invalidations + immutable merge, save-failure re-resolve, close→reopen freshness including the flush-before-open ordering, all three error paths, and the two lifecycle guards (project switch flushes the queued PATCH; unmount flushes it) |
+| `frontend/tests/component/visitsPreviewIntegration.spec.js` (4 cases) | The retained RED→GREEN witness: a real `VisitsTab` mount walking flow → single → visit row → 预览 (`sortablejs` mocked), pinning the four symptoms against the authoritative `FormResponse`. It was red on the pre-split tree; **it must never be deleted** |
+| Mutation checks (evidence, not committed tests) | Each guard must bite when its subject is disabled: deleting the pre-open flush (`a`), resolving from row data instead of the forms cache (`b`), dropping one `DesignerAcrfAnnotation` site (`c`), removing the `Loading` import (`d`), and aliasing + writing in place into the cached object (`e`) must each fail at least one case. The single-point aliasing variants (`e′`) are a declared, recorded residual — no assertion pretends to cover them |
+
+### 7. Wrong vs Correct
+
+```javascript
+// VisitFormPreviewDialog.vue (wrong): seeds from the matrix row the parent happens to hold
+function openFormPreview(form) { formPreviewForm.value = form; formPreviewFields.value = [] }
+// → design_notes / paper_orientation / domain / annotation_positions are all missing (the live F1 defect):
+//   no notes aside, landscape form renders portrait, no form-domain annotation, offsets only appear after a drag.
+```
+
+```javascript
+// VisitFormPreviewDialog.vue (correct): resolve the authoritative FormResponse, under one seq counter
+const seq = ++formPreviewRequestSeq;
+await flushAnnotationPositionSave();                       // drain the previous session's queued PATCH
+const forms = await api.cachedGet('/api/projects/' + props.projectId + '/forms');
+if (seq !== formPreviewRequestSeq) return;
+const foundForm = forms.find((item) => item.id === props.formId);
+formPreviewForm.value = { ...foundForm };                  // shallow clone: never hold the cache entry
+const data = await api.cachedGet('/api/forms/' + props.formId + '/fields');
+if (seq !== formPreviewRequestSeq) return;
+formPreviewFields.value = data;
+```
+
+```javascript
+// useVisitPreviewAnnotation.js (wrong): captures a primitive prop for the lifetime of the dialog
+useVisitPreviewAnnotation({ projectId: props.projectId, formId: toRef(props, 'formId') });
+// → after App.vue swaps projects while the tab stays mounted, targets carry the OLD project id and the PATCH
+//   invalidation runs against /api/projects/{old id}/forms.
+```
+
+```javascript
+// VisitFormPreviewDialog.vue (correct): hand the factory refs, read them per call
+useVisitPreviewAnnotation({ projectId: toRef(props, 'projectId'), formId: toRef(props, 'formId') });
+// useVisitPreviewAnnotation.js: const currentProjectId = () => projectId?.value ?? null;
+```
+
+```vue
+<!-- VisitFormPreviewDialog.vue (wrong): stop the ref sync, then re-introduce manual copies in the tab -->
+<VisitFormPreviewDialog v-model="showFormPreview" :project-id="projectId" :form-id="formPreviewFormId"
+  @refresh="mergeFormIntoState" />
+```
+
+```vue
+<!-- VisitsTab.vue (correct): the bridge carries no data, the dialog re-reads on every open -->
+<VisitFormPreviewDialog v-model="showFormPreview" :project-id="projectId" :form-id="formPreviewFormId" />
+```
+
+---
+
 ## Scenario: Delete Confirmation Dialogs and Reference-Aware Delete Gating
 
 ### 1. Scope / Trigger

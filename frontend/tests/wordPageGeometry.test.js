@@ -159,12 +159,12 @@ test('shared A4 page class fixes VisitsTab preview to 21cm/29.7cm (parity with d
   assert.equal(extractDeclaration(a4Landscape, 'min-height'), '21cm')
 
   const visitsSource = readFileSync(
-    path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+    path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue'),
     'utf8',
   )
   assert.match(
     visitsSource,
     /'word-page',\s*'word-page--a4'/,
-    'VisitsTab preview page must apply the shared A4 class',
+    'visit preview dialog page must apply the shared A4 class',
   )
 })

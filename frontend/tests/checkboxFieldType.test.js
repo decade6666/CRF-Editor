@@ -19,7 +19,11 @@ import { syncFieldTypeSpecificProps } from '../src/composables/formDesignerPrope
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const fieldsTabSource = readFileSync(path.resolve(currentDir, '../src/components/FieldsTab.vue'), 'utf8')
 const formDesignerSource = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
-const visitsSource = readFileSync(path.resolve(currentDir, '../src/components/VisitsTab.vue'), 'utf8')
+// visits-preview-split（2026-10-12）：预览弹窗迁入 VisitFormPreviewDialog.vue，toRendererField 随预览搬迁。
+const visitPreviewDialogSource = readFileSync(
+  path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue'),
+  'utf8',
+)
 const simulatedCrfFormSource = readFileSync(path.resolve(currentDir, '../src/components/SimulatedCRFForm.vue'), 'utf8')
 const templatePreviewSource = readFileSync(path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'), 'utf8')
 const generatorSource = readFileSync(path.resolve(currentDir, '../scripts/generatePlannerFixtures.mjs'), 'utf8')
@@ -116,7 +120,7 @@ test('all preview paths retain renderer data required for checkbox text', () => 
     /function getPreviewField\(ff\) \{[\s\S]*?label: ff\.field_definition\.label,[\s\S]*?checkbox_label: ff\.field_definition\.checkbox_label/,
   )
   assert.match(
-    visitsSource,
+    visitPreviewDialogSource,
     /function toRendererField\(fd\) \{[\s\S]*?label: fd\.label,[\s\S]*?checkbox_label: fd\.checkbox_label/,
   )
   assert.match(simulatedCrfFormSource, /return renderCtrlHtml\(field, fillLineChars\)/)

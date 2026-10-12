@@ -25,8 +25,9 @@ const templatePreviewSource = readFileSync(
   path.resolve(currentDir, '../src/components/TemplatePreviewDialog.vue'),
   'utf8',
 )
+// visits-preview-split（2026-10-12）：访视预览模板迁入 VisitFormPreviewDialog.vue。
 const visitsSource = readFileSync(
-  path.resolve(currentDir, '../src/components/VisitsTab.vue'),
+  path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue'),
   'utf8',
 )
 
@@ -259,7 +260,7 @@ test('template preview dialog derives a view model and stops calling pure fns in
   assert.doesNotMatch(templatePreviewSource, /v-for="\(row, ri\) in getInlineRows\(/)
 })
 
-test('visits tab form preview derives a view model and stops calling pure fns in template', () => {
+test('visit preview dialog derives a view model and stops calling pure fns in template', () => {
   assert.match(visitsSource, /import \{ buildPreviewGroupViewModels \} from '..\/composables\/formDesignerPreviewModel'/)
   assert.match(
     visitsSource,

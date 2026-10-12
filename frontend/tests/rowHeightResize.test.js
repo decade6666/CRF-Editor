@@ -184,7 +184,8 @@ const mainCssSource = readComponentSource('../src/styles/main.css')
 const previewComponents = [
   // designer-split Step 2：设计器预览模板合并为 DesignerWordPreview.vue（父组件渲染两次）。
   ['DesignerWordPreview', '../src/components/DesignerWordPreview.vue'],
-  ['VisitsTab', '../src/components/VisitsTab.vue'],
+  // visits-preview-split：访视预览模板迁入 VisitFormPreviewDialog.vue（VisitsTab 只剩开关桥）。
+  ['VisitFormPreviewDialog', '../src/components/VisitFormPreviewDialog.vue'],
 ]
 test('row height hover guideline spans the full preview row', () => {
   assert.match(

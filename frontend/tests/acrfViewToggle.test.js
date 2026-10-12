@@ -9,6 +9,8 @@ const formDesignerPath = path.resolve(currentDir, '../src/components/FormDesigne
 const annotationComponentPath = path.resolve(currentDir, '../src/components/DesignerAcrfAnnotation.vue');
 const wordPreviewPath = path.resolve(currentDir, '../src/components/DesignerWordPreview.vue');
 const visitsTabPath = path.resolve(currentDir, '../src/components/VisitsTab.vue');
+const visitPreviewDialogPath = path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue');
+const visitPreviewAnnotationPath = path.resolve(currentDir, '../src/composables/useVisitPreviewAnnotation.js');
 const mainCssPath = path.resolve(currentDir, '../src/styles/main.css');
 
 const formDesignerSource = readFileSync(formDesignerPath, 'utf8');
@@ -19,6 +21,10 @@ const annotationComponentSource = readFileSync(annotationComponentPath, 'utf8');
 // word-page / 标题行 / 注释调用点 / 迁移后的预览 CSS 均改读该组件。
 const wordPreviewSource = readFileSync(wordPreviewPath, 'utf8');
 const visitsTabSource = readFileSync(visitsTabPath, 'utf8');
+// visits-preview-split（2026-10-12）：预览弹窗自 VisitFormPreviewDialog.vue 持有，aCRF 注解胶水
+// 迁入 useVisitPreviewAnnotation.js；viewport 相关的源码断言改读这两处（父组件只剩开关桥）。
+const visitPreviewDialogSource = readFileSync(visitPreviewDialogPath, 'utf8');
+const visitPreviewAnnotationSource = readFileSync(visitPreviewAnnotationPath, 'utf8');
 const mainCssSource = readFileSync(mainCssPath, 'utf8');
 
 function countMatches(source, pattern) {
@@ -135,15 +141,17 @@ test('two inline-prompt switches share one localStorage-backed viewMode and only
   assert.doesNotMatch(formDesignerSource, /:title="'设计：' \+ \(selectedForm\?\.name \|\| ''\)"/);
 });
 
-test('VisitsTab preview shares the same persisted viewMode and reuses the annotation drag wiring', () => {
-  const normalizeStoredViewMode = compileFunction('normalizeStoredViewMode', {}, visitsTabSource);
+test('visits preview dialog shares the same persisted viewMode and reuses the annotation drag wiring', () => {
+  // visits-preview-split：预览状态（含 viewMode 与注解拖拽）自 VisitsTab 迁入 VisitFormPreviewDialog.vue，
+  // 拖拽胶水（useAcrfAnnotationDrag 实例与两个位置回调绑定）迁入 useVisitPreviewAnnotation.js。
+  const normalizeStoredViewMode = compileFunction('normalizeStoredViewMode', {}, visitPreviewDialogSource);
   const resolveInitialViewMode = compileFunction(
     'resolveInitialViewMode',
     { normalizeStoredViewMode },
-    visitsTabSource,
+    visitPreviewDialogSource,
   );
-  const getFieldOidAnnotationText = compileFunction('getFieldOidAnnotationText', {}, visitsTabSource);
-  const getFormDomainAnnotationText = compileFunction('getFormDomainAnnotationText', {}, visitsTabSource);
+  const getFieldOidAnnotationText = compileFunction('getFieldOidAnnotationText', {}, visitPreviewDialogSource);
+  const getFormDomainAnnotationText = compileFunction('getFormDomainAnnotationText', {}, visitPreviewDialogSource);
 
   assert.equal(normalizeStoredViewMode('aCRF'), 'aCRF');
   assert.equal(normalizeStoredViewMode('bogus'), 'eCRF');
@@ -158,43 +166,52 @@ test('VisitsTab preview shares the same persisted viewMode and reuses the annota
   assert.equal(getFormDomainAnnotationText({ domain: '  LB ' }), 'LB');
   assert.equal(getFormDomainAnnotationText({ domain: '' }), '');
 
-  assert.match(visitsTabSource, /const VIEW_MODE_STORAGE_KEY = 'crf_view_mode'/);
+  assert.match(visitPreviewDialogSource, /const VIEW_MODE_STORAGE_KEY = 'crf_view_mode'/);
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /const viewMode = ref\(resolveInitialViewMode\(editMode\.value, readStoredViewMode\(\)\)\)/,
   );
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /watch\(\s*viewMode,\s*\(nextMode\)\s*=>\s*\{[\s\S]*writeStoredViewMode\(normalizedMode\)[\s\S]*\}\s*\)/,
   );
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /watch\(\s*editMode,\s*\(enabled\)\s*=>\s*\{[\s\S]*resolveInitialViewMode\(enabled, viewMode\.value\)[\s\S]*\}\s*\)/,
   );
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /const showAcrfAnnotations = computed\(\(\) => editMode\.value && viewMode\.value === 'aCRF'\)/,
   );
-  assert.match(visitsTabSource, /const annotationDrag = useAcrfAnnotationDrag\(/);
-  assert.match(visitsTabSource, /getCurrentPositions: \(formId\) => getFormAnnotationPositions\(formId\)/);
+  // 拖拽胶水归 useVisitPreviewAnnotation.js：实例建立 + 两个位置回调仍绑定到弹窗自己的位置读写。
+  assert.match(visitPreviewAnnotationSource, /const annotationDrag = useAcrfAnnotationDrag\(/);
   assert.match(
-    visitsTabSource,
-    /applyOptimisticPositions: \(formId, annotationPositions\) => applyFormAnnotationPositions\(formId, annotationPositions\)/,
+    visitPreviewAnnotationSource,
+    /getCurrentPositions: \(targetFormId\) => getFormAnnotationPositions\(targetFormId\)/,
   );
   assert.match(
-    visitsTabSource,
-    /watch\(\s*\(\)\s*=>\s*props\.projectId,\s*async \(newProjectId, previousProjectId\) => \{[\s\S]*?await flushAnnotationPositionSave\(\{ cancelActiveDrag: true \}\)[\s\S]*?showFormPreview\.value = false[\s\S]*?resetFormPreviewState\(\{ skipAnnotationCleanup: true \}\)[\s\S]*?await load\(\)[\s\S]*?\},\s*\)/,
+    visitPreviewAnnotationSource,
+    /applyOptimisticPositions: \(targetFormId, annotationPositions\) =>\s*applyFormAnnotationPositions\(targetFormId, annotationPositions\)/,
   );
+  // 项目切换：父组件关弹窗并清 id，弹窗自身取消活动拖拽并冲掉排队 PATCH（快照自带旧 projectId/formId）。
   assert.match(
     visitsTabSource,
-    /function resetFormPreviewState\(\{ skipAnnotationCleanup = false \} = \{\}\) \{[\s\S]*?if \(!skipAnnotationCleanup\) \{[\s\S]*?annotationDrag\.cancelActiveDrag\(\)[\s\S]*?void flushAnnotationPositionSave\(\)[\s\S]*?\}[\s\S]*?\}/,
+    /watch\(\s*\(\)\s*=>\s*props\.projectId,\s*async \(newProjectId, previousProjectId\) => \{[\s\S]*?showFormPreview\.value = false[\s\S]*?formPreviewFormId\.value = null[\s\S]*?await load\(\)[\s\S]*?\},\s*\)/,
+  );
+  assert.match(
+    visitPreviewDialogSource,
+    /watch\(\s*\(\)\s*=>\s*props\.projectId,[\s\S]*?await flushAnnotationPositionSave\(\{ cancelActiveDrag: true \}\)/,
+  );
+  assert.match(
+    visitPreviewDialogSource,
+    /function resetPreviewState\(\) \{[\s\S]*?cancelActiveDrag\(\)[\s\S]*?void flushAnnotationPositionSave\(\)[\s\S]*?\}/,
   );
 
   const switchPattern =
     /<el-switch[\s\S]*?v-model="viewMode"[\s\S]*?inline-prompt[\s\S]*?active-text="aCRF"[\s\S]*?inactive-text="eCRF"[\s\S]*?:active-value="'aCRF'"[\s\S]*?:inactive-value="'eCRF'"[\s\S]*?\/>/g;
-  assert.equal(countMatches(visitsTabSource, switchPattern), 1);
+  assert.equal(countMatches(visitPreviewDialogSource, switchPattern), 1);
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /<template #header>[\s\S]*?<el-switch[\s\S]*?v-if="editMode"[\s\S]*?v-model="viewMode"/,
   );
 });
@@ -239,36 +256,36 @@ test('aCRF annotations stay inside the two designer word pages and mirror the ex
   assert.match(formDesignerSource, /useAcrfAnnotationDrag/);
 });
 
-test('VisitsTab aCRF annotations stay inside the preview word page and keep the same anchor strategy', () => {
-  assert.equal(
-    countMatches(visitsTabSource, /'wp-acrf-annotation--form'/g),
-    1,
-    'visit preview should render one form-domain overlay per word-page template',
-  );
-  assert.equal(countMatches(visitsTabSource, /class="wp-form-title-row"/g), 1);
+test('visit preview dialog keeps aCRF annotations inside the word page with the same anchor strategy', () => {
+  // 标记本身是共享的 DesignerAcrfAnnotation（上方 designer 用例已锁类名计数与样式）；
+  // 此处锁弹窗侧的调用点：标题行注释、unified 值格字段注释、inline 表头注释与模板级负向。
+  assert.equal(countMatches(visitPreviewDialogSource, /class="wp-form-title-row"/g), 1);
   assert.match(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /<div class="wp-form-title-row">[\s\S]*?<div class="wp-form-title">\{\{ formPreviewTitle \}\}<\/div>[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FORM/,
   );
   assert.match(
-    visitsTabSource,
-    /class="unified-value row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?getAnnotationStyle\([\s\S]*?ANNOTATION_KIND_FIELD/,
+    visitPreviewDialogSource,
+    /class="unified-value row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(seg\.fields\[0\]\)"[\s\S]*?ANNOTATION_KIND_FIELD/,
   );
   assert.match(
-    visitsTabSource,
-    /class="wp-inline-header row-resize-anchor"[\s\S]*?<span[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
+    visitPreviewDialogSource,
+    /class="wp-inline-header row-resize-anchor"[\s\S]*?<DesignerAcrfAnnotation[\s\S]*?v-if="showAcrfAnnotations && getFieldOidAnnotationText\(ff\)"[\s\S]*?ANNOTATION_KIND_INLINE_HEADER/,
   );
   assert.doesNotMatch(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /v-for="\(row, ri\) in gv\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(gv\.fields\[ci\]\)/,
   );
   assert.doesNotMatch(
-    visitsTabSource,
+    visitPreviewDialogSource,
     /v-for="\(row, ri\) in seg\.inlineRows"[\s\S]*?getFieldOidAnnotationText\(seg\.fields\[ci\]\)/,
   );
-  assert.match(visitsTabSource, /onAnnotationPointerDown/);
-  assert.match(visitsTabSource, /resetAnnotationPosition/);
-  assert.match(visitsTabSource, /class="wp-acrf-annotation-reset"/);
+  // 拖拽接线：调用点上抛事件，门禁/几何/持久化走 useVisitPreviewAnnotation。
+  assert.match(visitPreviewDialogSource, /onAnnotationPointerDown/);
+  assert.match(visitPreviewDialogSource, /resetAnnotationPosition/);
+  assert.match(visitPreviewAnnotationSource, /hasAnnotationOverrideForTarget/);
+  assert.match(visitPreviewAnnotationSource, /buildAnnotationStyle\(\{/);
+  assert.match(visitPreviewAnnotationSource, /readAnnotationDelta01Cm\(getFormAnnotationPositions/);
 });
 
 test('designer field list hides label-field tooltip but keeps the variable-name slot in aCRF mode', () => {
@@ -326,9 +343,12 @@ test('aCRF annotation styles stay absolute, draggable in edit mode, and out of w
   assert.doesNotMatch(getRowResizerSource, /viewMode/);
 });
 
-test('VisitsTab preview annotation styles stay absolute and draggable without entering table text geometry', () => {
-  const annotationRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation');
-  assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in VisitsTab.vue');
+test('visit preview annotation styles come from the shared component and stay out of table text geometry', () => {
+  // visits-preview-split：访视预览的注解标记改用共享 DesignerAcrfAnnotation.vue，
+  // 该组件与设计器共用同一批 CSS（规则体断言在上一用例已覆盖；此处按站点复验归属不丢失）。
+  assert.match(visitPreviewDialogSource, /import DesignerAcrfAnnotation from '\.\/DesignerAcrfAnnotation\.vue'/);
+  const annotationRule = extractRuleBody(annotationComponentSource, '.wp-acrf-annotation');
+  assert.ok(annotationRule, '.wp-acrf-annotation rule should exist in the shared component');
   assert.match(annotationRule, /position:\s*absolute/);
   assert.match(annotationRule, /top:\s*var\(--acrf-annotation-top\)/);
   assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
@@ -338,26 +358,22 @@ test('VisitsTab preview annotation styles stay absolute and draggable without en
   assert.match(annotationRule, /color:\s*#c00000/i);
   assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
 
-  const interactiveRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation--interactive');
+  const interactiveRule = extractRuleBody(annotationComponentSource, '.wp-acrf-annotation--interactive');
   assert.ok(interactiveRule);
   assert.match(interactiveRule, /cursor:\s*ns-resize/);
 
-  const titleRowRule = extractRuleBody(visitsTabSource, '.wp-form-title-row');
+  // 弹窗仍持有标题行规则（迁移到弹窗的 scoped 样式，随模板一起搬走）。
+  const titleRowRule = extractRuleBody(visitPreviewDialogSource, '.wp-form-title-row');
   assert.ok(titleRowRule);
   assert.match(titleRowRule, /position:\s*relative/);
   assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
-
-  const resetRule = extractRuleBody(visitsTabSource, '.wp-acrf-annotation-reset');
-  assert.ok(resetRule);
-  assert.match(resetRule, /position:\s*absolute/);
-  assert.match(resetRule, /border:\s*1px solid #c00000/i);
 });
 
 test('aCRF reset button stays hidden while disabled until hover/focus-within reveals its muted state', () => {
-  for (const [label, source] of [
-    ['DesignerAcrfAnnotation.vue', annotationComponentSource],
-    ['VisitsTab.vue', visitsTabSource],
-  ]) {
+  // visits-preview-split（design §3.3）：VisitsTab 臂删除——重置按钮标记与这批 CSS 规则
+  // 现由组件树中唯一的所有者 DesignerAcrfAnnotation.vue 持有（访视预览经共享组件渲染同一批规则），
+  // 「弹窗不复制注解 CSS」的负向守卫在 visitPreviewSplit.test.js。
+  for (const [label, source] of [['DesignerAcrfAnnotation.vue', annotationComponentSource]]) {
     const disabledRule = extractRuleBodyByPattern(
       source,
       /(?:^|\n)\.wp-acrf-annotation-reset:disabled\s*\{([^}]*)\}/m,
@@ -402,36 +418,20 @@ test('canvas and dialog headers keep titles accessible and resilient after addin
 });
 
 
-test('VisitsTab mergeFormIntoState preserves per-collection fields like sequence on aCRF drag save', () => {
-  // aCRF 标注拖动保存回写 updatedForm = { id, annotation_positions }，不含 sequence。
-  // sequence 属于 visit_form 关系，只存在于 visitForms 集合，不在 allForms / matrixData.forms 表单对象里。
-  // 修复契约：各集合 map 必须以自身 item 为 base 合并（{ ...item, ...updatedForm }），
-  // 不能用 allForms 派生的单一 nextForm 覆盖 visitForms，否则右侧访视表单列表序号丢失。
+test('visit preview dialog merges drag saves into its own form state without touching parent collections', () => {
+  // visits-preview-split（design §3.3 DELETE/REPLACE）：mergeFormIntoState 与四份集合副本已随拆分删除。
+  // 被删断言保护的真实行为（aCRF 拖动保存回写 {id, annotation_positions} 后不得覆盖集合字段）改由行为
+  // 断言承担：弹窗级 PATCH 用例（tests/component/VisitFormPreviewDialog.spec.js「拖拽 → PATCH」）
+  // 断言两处缓存失效 + onPersisted 合并进弹窗自持 form；「无集合回写」的负向守卫
+  // （无 mergeFormIntoState / getFormStateById / formPreviewForm）在 tests/visitPreviewSplit.test.js。
   assert.match(
-    visitsTabSource,
-    /visitForms\.value = visitForms\.value\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
-    'visitForms map must merge on its own item base to preserve sequence',
+    visitPreviewAnnotationSource,
+    /onPersisted: \(updatedForm\) => \{[\s\S]*?formState\.value = \{ \.\.\.form, \.\.\.updatedForm \}/,
+    'drag save must merge the PATCH response into the dialog-owned form ref as a new object',
   );
-  assert.match(
-    visitsTabSource,
-    /allForms\.value = allForms\.value\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
-    'allForms map must merge on its own item base',
-  );
-  assert.match(
-    visitsTabSource,
-    /forms: matrixData\.value\.forms\.map\(item => item\.id === updatedForm\.id \? \{\s*\.\.\.item,\s*\.\.\.updatedForm\s*\} : item\)/,
-    'matrixData.forms map must merge on its own item base',
-  );
-  // 防回归：不允许再用单一 nextForm 覆盖 visitForms
   assert.doesNotMatch(
-    visitsTabSource,
-    /visitForms\.value = visitForms\.value\.map\(item => item\.id === updatedForm\.id \? nextForm : item\)/,
-    'visitForms must not be overwritten by external nextForm',
-  );
-  // formPreviewForm 也必须以自身为 base 合并，避免被 allForms 派生的 nextForm 截断字段
-  assert.match(
-    visitsTabSource,
-    /formPreviewForm\.value = \{ \.\.\.formPreviewForm\.value, \.\.\.updatedForm \}/,
-    'formPreviewForm must merge on its own base',
+    visitPreviewAnnotationSource,
+    /visitForms|allForms|matrixData/,
+    'annotation glue must not touch the parent visit/forms collections',
   );
 });
