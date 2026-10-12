@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-11T00:00:00-07:00",
+  "timestamp": "2026-10-12T00:00:00-07:00",
   "version": "1.4.2",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -232,6 +232,7 @@
         "frontend/src/components/TemplateFieldSearchDialog.vue",
         "frontend/src/components/TemplatePreviewDialog.vue",
         "frontend/src/components/UnitsTab.vue",
+        "frontend/src/components/VisitFormPreviewDialog.vue",
         "frontend/src/components/VisitsTab.vue",
         "frontend/src/components/WordImportDialog.vue"
       ],
@@ -269,6 +270,7 @@
         "frontend/src/composables/useRowResize.js",
         "frontend/src/composables/useSessionTimer.js",
         "frontend/src/composables/useSortableTable.js",
+        "frontend/src/composables/useVisitPreviewAnnotation.js",
         "frontend/src/composables/useWordImport.js",
         "frontend/src/composables/visitPreviewLandscape.js"
       ],
@@ -305,9 +307,11 @@
         "frontend/tests/component/DesignerAcrfAnnotation.spec.js",
         "frontend/tests/component/DesignerWordPreview.spec.js",
         "frontend/tests/component/SessionTimer.spec.js",
+        "frontend/tests/component/VisitFormPreviewDialog.spec.js",
         "frontend/tests/component/WordImportDialog.spec.js",
         "frontend/tests/component/elementPlusEnvironment.spec.js",
         "frontend/tests/component/setup.js",
+        "frontend/tests/component/visitsPreviewIntegration.spec.js",
         "frontend/tests/component/vueWarnGate.js",
         "frontend/tests/component/vueWarnGate.spec.js",
         "frontend/tests/dateTimeHourFormat.test.js",
@@ -367,6 +371,7 @@
         "frontend/tests/useOrdinalQuickEdit.test.js",
         "frontend/tests/visitFlowWorkspace.test.js",
         "frontend/tests/visitPreviewLandscape.test.js",
+        "frontend/tests/visitPreviewSplit.test.js",
         "frontend/tests/wordPageGeometry.test.js"
       ],
       "coverage": {
