@@ -764,3 +764,66 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 
 - 严格预览/导出 parity 仍为 73/79=0.924（6 项既有失配，非本次引入），未达成 1.0 目标；unified 预览分支 UI 不可达（挂载测试+双证明覆盖）；前端无数字覆盖率（未安装插件）
 - visits-preview-split 可复用 DesignerAcrfAnnotation.vue；合入后 main=e317a2e（归档前），归档提交 54fd5fa
+
+
+## Session 21: 访视预览弹窗拆分（visits-preview-split）
+<!-- trellis-session: v=2 fp=303a9b39e1e17531 -->
+
+**Date**: 2026-10-12
+**Task**: 访视预览弹窗拆分（visits-preview-split）
+**Branch**: `main`
+
+### Summary
+
+访视预览弹窗外移为 VisitFormPreviewDialog + useVisitPreviewAnnotation，修复 F1 四项预览缺陷与评审 F2；全门禁绿，QA 7/7，已合并 main 并归档
+
+### Main Changes
+
+## 交付内容
+
+- 拆分 `VisitsTab.vue`（1545 → 552 行）：预览弹窗外移为自持权威 `FormResponse` 的
+  `VisitFormPreviewDialog.vue`（796 行）+ 每次调用独立的注解胶水
+  `useVisitPreviewAnnotation.js`（126 行）；父组件只剩开关桥（`showFormPreview` /
+  `formPreviewFormId` / `openFormPreview`）与一个无条件挂载的弹窗实例。
+- 修复 F1（四项预览缺陷）：打开路径改为 flush → `cachedGet('/api/projects/{pid}/forms')`
+  解析权威表单 → `cachedGet('/api/forms/{id}/fields')`，单一请求序号；备注 aside、显式纸张
+  方向、表单域注解、持久化字段偏移首开全部生效（拆分前 RED 4/4 → 拆分后 GREEN 4/4）。
+- 评审轮 F2 修复：`projectId` 由按值捕获改为 ref（`toRef(props, …)`），消除项目程序化切换
+  后注解 target 携带旧项目 id、缓存失效打偏的回归；另补项目切换 / 卸载两条生命周期用例。
+- 测试：新增 `visitPreviewSplit.test.js`（9）、`VisitFormPreviewDialog.spec.js`（22）、
+  `visitsPreviewIntegration.spec.js`（4，F1 探针保留转正）；8 个源码读取型测试文件 16 处
+  重指向 + 1 处 DELETE/REPLACE（均给出等价替代）。
+- 文档：根 / frontend 模块 `CLAUDE.md`、`.claude/index.json`、README 中英测试清单、
+  `claudemd-changelog.md`；spec：`component-guidelines.md` 新场景 + `cross-stack-contracts.md`
+  §5/§6/§7 归属更新。
+
+## 验证
+
+- node:test **973/973**（合并后 main 复跑）、vitest **10 文件 / 102 例**、lint 0 errors /
+  2675 warnings、build 通过、backend pytest **1210 passed**。
+- 浏览器 QA（任务内 harness，baseline `0d111a1` vs 分支树，同一 seed）：行为断言 final
+  **7/7 pass / 0 known-red**；baseline↔final 差异逐项归属 D8，console / 网络 0 错误 0 失败；
+  parity 无预览 JSON 可抽取，记录 not-run（未伪造）。
+- 变异矩阵 (a)–(e) 全部咬合（(e) 组合变异由 lead 直接复核确认）；单点缓存别名变体记为
+  已声明残留（verification.md §3）。
+
+## 备注
+
+- 两个独立评审（V2c-check sonnet 只读 + 沙箱变异、V2d-review haiku 只读）未发现运行时缺陷；
+  F2 为其中唯一真实回归，已修复并补守卫。
+- 归档 28 文件（含 12 张 QA JPEG 证据与 harness 脚本）随独立 `.trellis/` 提交入库。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b8575cc` | refactor(frontend): 访视表单预览弹窗拆分并修复预览数据来源 |
+| `6cb035c` | docs(frontend): 同步访视预览拆分文档 |
+| `10722cb` | docs(spec): 记录访视预览弹窗拆分约定 |
+| `a4aaaf9` | Merge branch 'refactor/visits-preview-split' |
+| `0c86b1c` | chore(task): 归档访视预览弹窗拆分任务 |
+
+### Status
+
+[OK] **Completed**
