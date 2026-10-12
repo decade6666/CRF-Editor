@@ -1,0 +1,9 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "props/emit and component extraction conventions for DesignerWordPreview"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "state must stay in FormDesignerTab; child components communicate via props/events"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "composable reuse rules when wiring the shared codelist dialog"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "aCRF annotation geometry/persistence contract (§6) and preview parity constraints"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "updating/ converting the 26 source-reading test files"}
+{"file": ".trellis/tasks/10-08-designer-split/research/preview-template-diff.md", "reason": "R1 evidence: word-page root boundaries, 5 declared differences, identifier/prop table, style move table"}
+{"file": ".trellis/tasks/10-08-designer-split/research/acrf-annotation-layer.md", "reason": "R3 evidence: 16 annotation sites, wiring that stays in the parent, 11 CSS rules, cross-stack §6 constraints"}
+{"file": ".trellis/tasks/10-08-designer-split/research/source-reading-tests.md", "reason": "R6 evidence: affected source-reading assertions, mount-test infra rules, R2 delivered verdict"}

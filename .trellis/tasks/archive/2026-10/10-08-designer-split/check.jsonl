@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "reviewer verifies per-step tests, parity evidence, and test conversions"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "reviewer checks aCRF and column-width contracts untouched"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "reviewer confirms save/undo/session guards preserved and no state rewrite"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "reviewer traces preview data flow from designer to export"}
+{"file": ".trellis/tasks/10-08-designer-split/research/source-reading-tests.md", "reason": "verify every re-pointed assertion against the inventory and the no-weakening policy"}
+{"file": ".trellis/tasks/10-08-designer-split/research/preview-template-diff.md", "reason": "verify the declared difference set, style moves, and the template equivalence proof"}
+{"file": ".trellis/tasks/10-08-designer-split/research/acrf-annotation-layer.md", "reason": "verify annotation DOM/class order and that geometry/persistence wiring stayed in the parent"}
