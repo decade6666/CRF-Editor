@@ -717,3 +717,50 @@ App.vue 的 Word 导入向导外移为 WordImportDialog.vue + useWordImport.js�
 - visits-preview-split 等 designer-split 合入 main 后重新核实并执行；届时可复用 DesignerAcrfAnnotation
 - 依赖审计：基线 npm ci 报 13 项漏洞（11 high），外部 audit 详情仍被权限拦截，需另行授权的私有 advisory 查询或升级任务
 - 实机浏览器验收（上传→预览→执行→跳转设计页）仍待可用隔离凭据后补做，不能由本地 happy-dom 探针替代
+
+
+## Session 20: 设计器拆分（designer-split）：预览模板与 aCRF 注释组件抽出并合入 main
+<!-- trellis-session: v=2 fp=2e6bd352682fe45c -->
+
+**Date**: 2026-10-12
+**Task**: 设计器拆分（designer-split）：预览模板与 aCRF 注释组件抽出并合入 main
+**Branch**: `main`
+
+### Summary
+
+FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态子组件，父组件保留状态/缓存/保存撤销/会话，已合入 main 并推送、归档
+
+### Main Changes
+
+- 新增 DesignerAcrfAnnotation.vue（133 行，per-marker 展示组件，pointerdown/reset 事件）与 DesignerWordPreview.vue（577 行，单 word-page 模板，父渲染两次 scope=main/designer，6 数据 props + 14 个函数闭包经 v-bind 透传）
+- FormDesignerTab.vue 5985→4548 行（约 −24%）；父 script 差异仅 4 个 import hunk、previewHandlers 对象与删除 cumRatio/getRowHeightStyle 两个纯助手
+- 8 个注释调用点、25 处 scope 替换（每块 24 getResizer + 1 normalFillChars）、9 个样式块/12 选择器全部随迁；getRowResizer 仍两参共享行缓存
+- 新增测试：designerPreviewSplit.test.js（10 守卫）+ DesignerAcrfAnnotation.spec.js（8 例）+ DesignerWordPreview.spec.js（18 例）；6 个既有源码测试重指向新组件，paneSplit 未动
+- 规格与文档：component-guidelines.md 新增 Stateless Word-Preview Extraction 场景、cross-stack-contracts §5/§6 同步；根/前端 CLAUDE.md、index.json、README 中英、changelog 归档同步
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6a34721` | refactor(designer): 抽出 aCRF 注释标记组件 |
+| `8956090` | refactor(designer): 两套 Word 预览模板合并为 DesignerWordPreview |
+| `b434ff0` | chore(merge): 同步主线导入向导拆分并复验设计器 |
+| `cd0488d` | docs(spec): 记录设计器预览拆分约定 |
+| `ecbcd6d` | docs(frontend): 同步设计器拆分文档 |
+| `e317a2e` | Merge branch 'refactor/designer-split' |
+| `54fd5fa` | chore(task): 归档设计器拆分任务 |
+
+### Testing
+
+- [OK] node:test 944→964（+10 designer），vitest 26→76（+26 designer）；lint 0 errors / 2884 warnings；build 3.94s；后端 pytest 1210 passed / 0 xfailed / TOTAL 87%（后端零改动）
+- [OK] 独立等价证明：AST 语义比较 NONE、编译渲染 token 比较 IDENTICAL（两旧块），SHA256 产品哈希一致，负向变异矩阵均被捕获
+- [OK] 浏览器 QA：baseline/baseline2/final 各 24 张截图逐字节一致，5/5 行为往返（注释拖拽、快改、列宽、行高、字典快速新增），console 0 错误；parity 报告与冻结基线字段级一致
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 严格预览/导出 parity 仍为 73/79=0.924（6 项既有失配，非本次引入），未达成 1.0 目标；unified 预览分支 UI 不可达（挂载测试+双证明覆盖）；前端无数字覆盖率（未安装插件）
+- visits-preview-split 可复用 DesignerAcrfAnnotation.vue；合入后 main=e317a2e（归档前），归档提交 54fd5fa

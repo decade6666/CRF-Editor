@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
-- **Last Active**: 2026-10-11
+- **Total Sessions**: 20
+- **Last Active**: 2026-10-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~719 | Active |
+| `journal-1.md` | ~766 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-10-12 | 设计器拆分（designer-split）：预览模板与 aCRF 注释组件抽出并合入 main | `6a34721`, `8956090`, `b434ff0`, `cd0488d`, `ecbcd6d`, `e317a2e`, `54fd5fa` | `main` |
 | 19 | 2026-10-11 | 导入Word向导拆分（app-word-import-split） | `02eff57`, `f1f7379`, `8a486bb`, `4be74c1`, `98bc154`, `47ac218`, `fd97dd6`, `d9056df` | `main` |
 | 17 | 2026-10-10 | 设计器引用保留修复合入 main 并归档 | `90f45e1`, `8c6493c`, `2023d3b`, `c40cb09` | `main` |
 | 16 | 2026-10-10 | 导出层整理终检跟进与清理确认 | `d298c8f`, `aeb5047`, `3ca5771` | `main` |
