@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "component extraction and props/emit conventions for the preview dialog"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "single-source-of-truth rules for removing mergeFormIntoState sync"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "crf_view_mode and aCRF annotation contracts (§6) must stay intact"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "test update/conversion expectations for VisitsTab source-reading tests"}

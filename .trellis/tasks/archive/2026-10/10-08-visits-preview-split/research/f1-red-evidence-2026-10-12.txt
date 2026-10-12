@@ -1,0 +1,231 @@
+# F1 RED evidence — probe spec on refactor/visits-preview-split (main @ 0d111a1)
+# command: cd /home/decade/CRF-Editor-visits-preview-split/frontend && npx vitest run tests/component/visitsPreviewF1Probe.spec.js
+# probe file: frontend/tests/component/visitsPreviewF1Probe.spec.js (temporary, task 10-08-visits-preview-split design.md §3.1)
+# date: 2026-10-12
+
+
+ RUN  v5.0.3 /home/decade/CRF-Editor-visits-preview-split/frontend
+
+10:18:33 AM [vite] (client) warning: <tr> cannot be child of <table>, according to HTML specifications. This can cause hydration errors or potentially disrupt future functionality.
+1374|                    >
+1375|                  </colgroup>
+1376|                  <tr :style="getPreviewRowHeightStyle(gv, getInlineHeaderRowKey(gv.fields))">
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1377|                    <td
+   |  ^^^^^^^^^^^^^^^^^^^^^
+1378|                      v-for="ff in gv.fields"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1379|                      :key="ff.id"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1380|                      class="wp-inline-header row-resize-anchor"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1381|                      :style="getFormFieldLabelPreviewStyle(ff)"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1382|                    >
+   |  ^^^^^^^^^^^^^^^^^^^
+1383|                      {{ getFormFieldDisplayLabel(ff) }}
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1384|                      <span
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+1385|                        v-if="showAcrfAnnotations && getFieldOidAnnotationText(ff)"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1386|                        :class="[
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1387|                          'wp-acrf-annotation',
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1388|                          'wp-acrf-annotation--field',
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1389|                          'wp-acrf-annotation--inline-header',
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1390|                          {
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+1391|                            'wp-acrf-annotation--interactive': isAnnotationDraggable(
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1392|                              getFieldAnnotationTarget(ff),
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1393|                            ),
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1394|                          },
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+1395|                        ]"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^
+1396|                        :style="
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1397|                          getAnnotationStyle(
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1398|                            getFieldOidAnnotationText(ff),
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1399|                            ANNOTATION_KIND_INLINE_HEADER,
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1400|                            getFieldAnnotationTarget(ff),
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1401|                          )
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+1402|                        "
+   |  ^^^^^^^^^^^^^^^^^^^^^^^
+1403|                        @pointerdown="(event) => onAnnotationPointerDown(getFieldAnnotationTarget(ff), event)"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1404|                      >
+   |  ^^^^^^^^^^^^^^^^^^^^^
+1405|                        <span class="wp-acrf-annotation__text">{{ getFieldOidAnnotationText(ff) }}</span>
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1406|                        <button
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1407|                          type="button"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1408|                          class="wp-acrf-annotation-reset"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1409|                          :disabled="!hasAnnotationOverrideForTarget(getFieldAnnotationTarget(ff))"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1410|                          aria-label="重置字段标注位置"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1411|                          @pointerdown.stop
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1412|                          @click.stop="resetAnnotationPosition(getFieldAnnotationTarget(ff))"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1413|                        >
+   |  ^^^^^^^^^^^^^^^^^^^^^^^
+1414|                          R
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+1415|                        </button>
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1416|                      </span>
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1417|                      <span
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^
+1418|                        class="row-resizer-handle"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1419|                        @pointerdown="(e) => getPreviewRowResizer(gv)?.onResizeStart(getInlineHeaderRowKey(gv.fields), e)"
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1420|                      ></span>
+   |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1421|                    </td>
+   |  ^^^^^^^^^^^^^^^^^^^^^^^
+1422|                  </tr>
+   |  ^^^^^^^^^^^^^^^^^^^^^
+  Plugin: vite:vue
+  File: /home/decade/CRF-Editor-visits-preview-split/frontend/src/components/VisitsTab.vue
+ ❯ tests/component/visitsPreviewF1Probe.spec.js (4 tests | 4 failed) 541ms
+   ❯ F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse (4)
+     × 症状 1：设计备注 aside 出现（design_notes 来自权威表单） 226ms
+     × 症状 2：paper_orientation=landscape 落到 .word-page 的 landscape class 112ms
+     × 症状 3：aCRF（editMode + aCRF）下渲染表单 domain 注解 114ms
+     × 症状 4：字段注解 top 偏移等于 annotation_positions 持久化位置 88ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 1：设计备注 aside 出现（design_notes 来自权威表单）
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/component/visitsPreviewF1Probe.spec.js:199:58
+    197|   it('症状 1：设计备注 aside 出现（design_notes 来自权威表单）', async () => {
+    198|     const { wrapper } = await mountAndOpenPreview();
+    199|     expect(wrapper.find('[aria-label="设计备注"]').exists()).toBe(true);
+       |                                                          ^
+    200|     expect(wrapper.text()).toContain('设计备注');
+    201|     expect(wrapper.text()).toContain('第一行备注');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 1：设计备注 aside 出现（design_notes 来自权威表单）
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 2：paper_orientation=landscape 落到 .word-page 的 landscape class
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 3：aCRF（editMode + aCRF）下渲染表单 domain 注解
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 4：字段注解 top 偏移等于 annotation_positions 持久化位置
+Error: 挂载测试期间出现 5 个 Vue 警告（策略：任何 Vue 警告都视为用例失败，请修复根因，绝不消音）：
+  - [Vue warn]: Failed to resolve component: Loading
+If this is a native custom element, make sure to exclude it from component resolution via compilerOptions.isCustomElement.
+at <VisitsTab>
+at <VTUROOT>
+  - [Vue warn]: Failed to resolve component: Loading
+If this is a native custom element, make sure to exclude it from component resolution via compilerOptions.isCustomElement.
+at <VisitsTab>
+at <VTUROOT>
+  - [Vue warn]: Failed to resolve component: Loading
+If this is a native custom element, make sure to exclude it from component resolution via compilerOptions.isCustomElement.
+at <VisitsTab>
+at <VTUROOT>
+  - [Vue warn]: Failed to resolve component: Loading
+If this is a native custom element, make sure to exclude it from component resolution via compilerOptions.isCustomElement.
+at <VisitsTab>
+at <VTUROOT>
+  - [Vue warn]: Failed to resolve component: Loading
+If this is a native custom element, make sure to exclude it from component resolution via compilerOptions.isCustomElement.
+at <VisitsTab>
+at <VTUROOT>
+ ❯ assertNoVueWarnings tests/component/vueWarnGate.js:43:11
+     41|   if (collected.length > 0) {
+     42|     const list = collected.map((warning) => `  - ${warning}`).join('\n…
+     43|     throw new Error(
+       |           ^
+     44|       `挂载测试期间出现 ${collected.length} 个 Vue 警告（策略：任何 Vue 警告都视为用例失败，请修复根因…
+     45|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 2：paper_orientation=landscape 落到 .word-page 的 landscape class
+AssertionError: .word-page 应带 landscape class: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/component/visitsPreviewF1Probe.spec.js:210:76
+    208|     // 注意：'landscape' 是绑定在 .word-page 自身上的动态 class（VisitsTab.vue:1012），
+    209|     // 不是任何祖父元素的 class —— 祖父上的 presence 断言无法代理本症状。
+    210|     expect(wordPage.classes('landscape'), '.word-page 应带 landscape cla…
+       |                                                                            ^
+    211|   });
+    212|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 3：aCRF（editMode + aCRF）下渲染表单 domain 注解
+AssertionError: 应渲染 form 级注解（当前因 formState.domain 缺失而不渲染）: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/component/visitsPreviewF1Probe.spec.js:216:82
+    214|     const { wrapper } = await mountAndOpenPreview();
+    215|     const formAnnotation = wrapper.find('.wp-acrf-annotation--form');
+    216|     expect(formAnnotation.exists(), '应渲染 form 级注解（当前因 formState.domain…
+       |                                                                                  ^
+    217|     expect(formAnnotation.text()).toContain('DM');
+    218|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  tests/component/visitsPreviewF1Probe.spec.js > F1 探针：访视预览必须用 /api/projects/{id}/forms 的权威 FormResponse > 症状 4：字段注解 top 偏移等于 annotation_positions 持久化位置
+AssertionError: expected '-0.0748cm' to be '1.9252cm' // Object.is equality
+
+Expected: "1.9252cm"
+Received: "-0.0748cm"
+
+ ❯ tests/component/visitsPreviewF1Probe.spec.js:241:85
+    239|     expect(expectedPersisted['--acrf-annotation-top']).not.toBe(expect…
+    240|
+    241|     expect(fieldAnnotation.element.style.getPropertyValue('--acrf-anno…
+       |                                                                                     ^
+    242|       expectedPersisted['--acrf-annotation-top'],
+    243|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  10:18:32
+   Duration  1.51s (tests 38%, setup 28%, transform 20%, environment 12%, import 2%)
+
+exit=1
