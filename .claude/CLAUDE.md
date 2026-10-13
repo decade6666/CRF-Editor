@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-10-11
+> Last updated: 2026-10-13
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -15,17 +15,17 @@
 ```mermaid
 graph TD
     A["(root) CRF-Editor"] --> B["backend"];
-    B --> B1["src/routers (14)"];
-    B --> B2["src/services (33)"];
-    B --> B3["src/models (11)"];
-    B --> B4["src/schemas (11)"];
-    B --> B5["src/repositories (4)"];
-    B --> B6["tests (76)"];
+    B --> B1["src/routers"];
+    B --> B2["src/services"];
+    B --> B3["src/models"];
+    B --> B4["src/schemas"];
+    B --> B5["src/repositories"];
+    B --> B6["tests"];
     A --> C["frontend"];
-    C --> C1["src/components (21)"];
-    C --> C2["src/composables (36)"];
+    C --> C1["src/components"];
+    C --> C2["src/composables"];
     C --> C3["src/styles"];
-    C --> C4["tests (87)"];
+    C --> C4["tests"];
     A --> D["assets/logos"];
 
     click B "./backend/.claude/CLAUDE.md" "View backend module docs"
@@ -35,8 +35,8 @@ graph TD
 ## Module Index
 | Module | Path | Tech Stack | Responsibilities | Key Entry Points | Tests |
 | --- | --- | --- | --- | --- | --- |
-| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, reference-aware delete guards, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` (76 files, including 74 `test_*.py`) |
-| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, reference-aware delete gating, theme and preview interaction, Word import wizard dialog, visits form preview dialog | `frontend/src/main.js`, `frontend/src/App.vue`, `frontend/src/components/DesignerWordPreview.vue`, `frontend/src/components/DesignerAcrfAnnotation.vue`, `frontend/src/components/VisitFormPreviewDialog.vue` | `frontend/tests/` (87 files: 74 node:test `.test.js` + `testProperty.js` + 12 vitest mount-test files under `tests/component/` — 10 `.spec.js` + `setup.js` + `vueWarnGate.js`) |
+| backend | `backend/` | FastAPI, SQLAlchemy, SQLite, Pydantic, PyJWT, passlib, python-docx | API, authentication, admin, project isolation, lightweight migrations, import/export, read-only template field search, reference-aware delete guards, desktop release entry point, preview/export strict parity comparison, Word table-of-contents page number pre-calculation, recycle-bin auto-cleanup background task | `backend/main.py`, `backend/app_launcher.py` | `backend/tests/` |
+| frontend | `frontend/` | Vue 3, Vite, Element Plus, sortablejs, vuedraggable | Login, session countdown, project workbench, admin workbench, brief/full editing modes, form designer, import/export, template field search dialog, reference-aware delete gating, theme and preview interaction, Word import wizard dialog, visits form preview dialog | `frontend/src/main.js`, `frontend/src/App.vue`, `frontend/src/components/DesignerWordPreview.vue`, `frontend/src/components/DesignerAcrfAnnotation.vue`, `frontend/src/components/VisitFormPreviewDialog.vue` | `frontend/tests/` |
 | assets | `assets/logos/` | Static resources | Logo sample resource notes; runtime uploads are not written to this directory | `assets/logos/README.md` | None |
 | deploy | `deploy/` | Shell, systemd | Linux 生产部署：systemd 服务安装/卸载脚本、unit 模板、环境变量样例、Nginx 反代示例 | `deploy/install-service.sh`, `deploy/crf-editor.service.template` | None |
 
@@ -95,7 +95,7 @@ sudo bash deploy/install-service.sh uninstall
 - Frontend reuse constraints: APIs go uniformly through `useApi.js`; field rendering goes uniformly through `useCRFRenderer.js`; field display attributes and preview display logic go uniformly through `formFieldPresentation.js`; user-facing fuzzy search ordering goes uniformly through `searchRanking.js`; ordinal jump sorting goes uniformly through `useOrdinalQuickEdit.js` alongside `useSortableTable.js` / `useOrderableList.js`.
 - When features, commands, or test entry points change, synchronously update `README.md`, `README.en.md`, the module-level `CLAUDE.md`, and `.claude/index.json`.
 
-- Keep `## Change Log` in this file as a one-line index only; full task narratives go to `.context/history/archives/claudemd-changelog.md`. This file must stay under the 40k-char context limit.
+- Keep `## Change Log` in this file as a one-line index only; full task narratives go to `.context/history/archives/claudemd-changelog.md`. The module-level `CLAUDE.md` files no longer keep their own Change Log — their narratives live in the same archive, and this file keeps the single-line index. This file must stay under the 40k-char context limit.
 
 ## Security and Deployment Constraints
 - Production deployment prefers the `CRF_*` environment variables from the root `.env.example`.
@@ -106,20 +106,24 @@ sudo bash deploy/install-service.sh uninstall
 - On first startup with an empty database in production, the reserved admin account is automatically created or repaired; after going live, an admin account audit and access-surface review must be completed immediately.
 
 ## Cross-Stack Contracts
-- Column width planning: the backend `backend/src/services/width_planning.py` and the frontend `frontend/src/composables/useCRFRenderer.js` must evolve in sync. Shared constants `WEIGHT_CHINESE=2`, `WEIGHT_ASCII=1`, `FILL_LINE_WEIGHT=6`, `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, `FILL_LINE_MIN_CHARS=6`, `FILL_LINE_MAX_CHARS=20`, `FILL_LINE_EPSILON=1e-9`, `INLINE_HEADER_FLOOR=WEIGHT_CHINESE*4=8` (applies only to inline tables, protecting short headers of ≤4 characters from being squeezed by long neighbors to the point they cannot fit on a single line), `AVAILABLE_CM=14.66`. The adaptive underscore count is used directly for whole-cell text fill-lines (capped at 20 since 2026-09-30; the preview's auto-generated fill-line span also carries an HTML-only `max-width:10.0em` from `renderCtrlHtml`, user-authored underscores excluded). Changing either side requires syncing the other and regenerating fixtures via `frontend/scripts/generatePlannerFixtures.mjs`.
-- Column width fixtures: `backend/tests/fixtures/planner_cases.json` is output from the generator as a single source of truth, and is used simultaneously by the backend `backend/tests/test_width_planning.py` and the frontend `frontend/tests/columnWidthPlanning.test.js`.
-- Checkbox field contract: `复选` is a single codelist-free checkbox with conceptual option OID `1`, which is never persisted or shown in the dictionary library. Its optional field-definition `checkbox_label` falls back to the default character `✔` (not the field label) when empty; normal rendering is `label | □checkbox text`. Keep `backend/src/models/field_definition.py`, `backend/src/database.py`, `backend/src/schemas/field.py`, `backend/src/services/field_rendering.py`, `backend/src/services/export_service.py`, `backend/src/services/import_service.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `frontend/src/components/FieldsTab.vue`, `frontend/src/components/FormDesignerTab.vue`, and `frontend/src/composables/useCRFRenderer.js` aligned. It is not DOCX auto-detected and creates no aCRF option-level OID annotation.
-- Ordering contract: the backend `backend/src/services/order_service.py` and the frontend `frontend/src/composables/useOrderableList.js` / `useSortableTable.js` need to keep consistent interface semantics.
-- Authentication contract: the backend `backend/src/routers/auth.py`, `backend/src/services/auth_service.py` and the frontend `frontend/src/App.vue`, `frontend/src/components/LoginView.vue`, `frontend/src/components/AdminView.vue`, `frontend/src/composables/useApi.js` need to be checked in sync; the `useApi.js` write-back of `X-Refreshed-Token` and its 401 sign-out are session-scoped — only a response whose request carried the still-current `crf_token` may write the token or dispatch `crf:auth-expired` (see `.trellis/spec/guides/cross-stack-contracts.md` §3 rules 4–5).
-- Form orientation contract: the backend `backend/src/models/form.py`, `backend/src/schemas/form.py`, `backend/src/database.py`, `backend/src/routers/forms.py`, `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/export_service.py` need to be synced with the frontend `frontend/src/components/FormDesignerTab.vue`; when `paper_orientation` changes, validate `test_form_paper_orientation.py`, `test_export_paper_orientation.py`, `test_project_copy.py` and the frontend source-level tests in sync.
-- Word import screenshot evidence contract: the backend `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` and the frontend `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue` need to keep consistent semantics for task status, page positioning, and failure prompts.
-- Strict preview/export parity: the frontend `frontend/src/styles/main.css` `.wp-form-title` must keep `text-align: left`; `backend/src/services/word_table_parity.py` and `backend/scripts/compare_word_table_parity.py` are used to compare the form / row / cell text of the browser preview JSON and the exported `.docx`; see `.trellis/spec/guides/cross-stack-contracts.md` §5.
-- aCRF annotation geometry and persistence: backend `backend/src/services/export_service.py`, `backend/src/schemas/form.py` (shared parse/serialize/canonicalize helpers), `backend/src/routers/forms.py` (create/update/copy), `backend/src/services/project_clone_service.py`, `backend/src/services/project_import_service.py`, `backend/src/services/import_service.py` (template import passthrough + mixed-column legacy read-only fallback), and frontend `frontend/src/composables/acrfAnnotationGeometry.js`, `frontend/src/composables/useAcrfAnnotationDrag.js`, `frontend/src/components/FormDesignerTab.vue` (owns annotation state/targets/drag/reset), `frontend/src/components/DesignerWordPreview.vue` and `frontend/src/components/DesignerAcrfAnnotation.vue` (markup owners extracted 2026-10-11, geometry/storage contract unchanged), `frontend/src/components/VisitsTab.vue` (switch bridge since 2026-10-12), `frontend/src/components/VisitFormPreviewDialog.vue` and `frontend/src/composables/useVisitPreviewAnnotation.js` (visits-preview annotation host/glue extracted 2026-10-12, geometry/storage contract unchanged) must evolve together; `Form.annotation_positions` string storage is canonicalized on every write path so copy/clone/project `.db` import/template import clamp + canonicalize instead of storing raw out-of-range values; see `.trellis/spec/guides/cross-stack-contracts.md` §6.
-- API base path (subpath deployment): the frontend `frontend/vite.config.js` reads `VITE_BASE_PATH` (default `/`) into `base`; when non-root, all assets and API calls carry the prefix (`/crf/assets/...`, `/crf/api/...`). The runtime prefix is applied only at the `useApi.js` fetch boundary via the exported `apiUrl()` (cache keys / `invalidateCache` stay on raw paths), and the 9 bypass sites must keep using `apiUrl()`: `LoginView.vue` login fetch (1); `App.vue` Word export fetch / `_blobDownload` / project-import fetch (3); `WordImportDialog.vue` Word import upload `:action` (1); `ProjectInfoTab.vue` project-logo GET / profile PUT / org-preset logo GET (3); `DocxScreenshotPanel.vue` `pageUrl()` (1). The backend stays zero-aware: nginx must strip the prefix (`location /crf/ { proxy_pass http://127.0.0.1:8888/; }`, trailing slash required). Desktop packaging requires a default (root) build; subpath builds are opt-in. Guarded by `frontend/tests/basePathDeployment.test.js`. The upload `:action` moved out of `App.vue` into `WordImportDialog.vue` with the Word-import wizard extraction (task `app-word-import-split`, 2026-10-11).
-- Recycle-bin cleanup contract: backend `backend/src/config.py`, `backend/src/routers/admin.py`, `backend/src/services/project_size_service.py`, `backend/src/services/recycle_bin_cleanup_service.py`, `backend/src/background_jobs.py` and frontend `frontend/src/components/AdminView.vue`, `frontend/src/composables/byteSize.js` must evolve together. Shared canonical unit values are `day/month/year` and `MB/GB`; `month=30` days, `year=365` days. Response field `estimated_size_bytes` is an estimate, not the real SQLite-file delta, and the frontend must keep the estimate labeling/help text. See `.trellis/spec/guides/cross-stack-contracts.md` §11.
-- Date/time format options: `frontend/src/composables/dateFormatOptions.js` is the single option-list source for `FieldsTab.vue` / `FormDesignerTab.vue`; backend `database.py` `_DATE_FORMAT_CANONICALS` mirrors it (contract test parses the JS file), `field_rendering.py` `render_date_time_placeholder` and `useCRFRenderer.js` `renderCtrl` must produce identical placeholder text for every format (hour-only 日期时间 `yyyy-MM-dd HH` / 时间 `HH` / `hh AP` included), and `docx_import_service.py` `_detect_field_type` recognizes the exported hour-only placeholders strictly. 12-hour `  AP` is preview-only (accepted gap); see `.trellis/spec/guides/cross-stack-contracts.md` §13.
-- Template field search contract: backend `backend/src/routers/template_fields.py` + `backend/src/services/template_field_index_service.py` and frontend `frontend/src/composables/templateFieldSearch.js` + `frontend/src/components/TemplateFieldSearchDialog.vue` must evolve together (entry shape incl. `sources[].form_code: string | null` with read-only `form.code` probing, exclusion/merge rules, field/form-OID four-group search ranking, inline source display, click-to-copy semantics). See `.trellis/spec/guides/cross-stack-contracts.md` §12.
-- Reference-delete contract: backend `field_definition_reference_service.py`, `codelists.py`, and `units.py` must keep reference queries aligned with DELETE/batch-delete guards; the opt-in `include_unplaced=true` adds library-only fields for delete preflight while default edit-impact responses remain unchanged. Frontend `referenceDeleteGuard.js` drives the eight single/batch deletion handlers, and codelist/option routes enforce project ownership before resource lookup. The four batch-delete 409 reference pre-checks run only over ids owned by the path project (foreign/nonexistent ids are silently ignored, never 409). See cross-stack-contracts §14 and `backend/auth-security.md`.
+
+> Contract bodies (rules, constants, fixtures, sync file lists) live only in
+> `.trellis/spec/guides/cross-stack-contracts.md`. The lines below are pointers — do not restate details here.
+
+- §1 Column width planning — `backend/src/services/width_planning.py` ↔ `frontend/src/composables/useCRFRenderer.js`; shared fixture `backend/tests/fixtures/planner_cases.json` (generator `frontend/scripts/generatePlannerFixtures.mjs`).
+- §2 Two-phase ordering — `backend/src/services/order_service.py` ↔ `frontend/src/composables/useOrderableList.js` / `useSortableTable.js`.
+- §3 Authentication token schema (incl. rules 4–5 session-scoped token write-back / 401) — `auth_service.py`, `dependencies.py` ↔ `useApi.js`, `App.vue`, `LoginView.vue`.
+- §4 Word import screenshot evidence + temp-resource lifecycle — `routers/import_docx.py`, `docx_screenshot_service.py` ↔ `DocxCompareDialog.vue`, `DocxScreenshotPanel.vue`, `WordImportDialog.vue`.
+- §5 Word preview / export strict table-field parity — `word_table_parity.py`, `scripts/compare_word_table_parity.py` ↔ `main.css` (`.wp-form-title`).
+- §6 aCRF annotation geometry & persistence — `acrfAnnotationGeometry.js`, `useAcrfAnnotationDrag.js` + designer/visits preview chain ↔ `schemas/form.py`, `export_service.py`, `forms.py`, clone/import services.
+- §7 Form paper orientation — `models/form.py` + schema/migration/copy/import/export ↔ `FormDesignerTab.vue`.
+- §8 Checkbox field type (`复选`) — model/schema/migration/rendering/imports ↔ `FieldsTab.vue`, `FormDesignerTab.vue`, `useCRFRenderer.js`.
+- §9 API base path (subpath deployment) — `vite.config.js`, `apiUrl()` bypass sites (e.g. `/crf/assets/...`, `/crf/api/...`); backend zero-aware; nginx strips the prefix.
+- §10 OID / identifier charset — `schemas/_common.py` ↔ `oidValidation.js`.
+- §11 Recycle-bin cleanup policy — `config.py`, `routers/admin.py`, `project_size_service.py`, `recycle_bin_cleanup_service.py`, `background_jobs.py` ↔ `AdminView.vue`, `byteSize.js`.
+- §12 Template field search index — `routers/template_fields.py`, `template_field_index_service.py` ↔ `templateFieldSearch.js`, `TemplateFieldSearchDialog.vue`.
+- §13 Date/time format options — `dateFormatOptions.js` (single option source) ↔ `database.py`, `field_rendering.py`, `docx_import_service.py`, `useCRFRenderer.js`.
+- §14 Reference-aware delete guard — `field_definition_reference_service.py`, `codelists.py`, `units.py` ↔ `referenceDeleteGuard.js`.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, and other cases.
@@ -144,7 +148,7 @@ sudo bash deploy/install-service.sh uninstall
 **Rule**: Always read prefs/ before modifying code, and log decisions according to the rules in workflow.md when making decisions.
 
 ## Git Workflow
-- **Direct commits to `main` (since 2026-10-08)**: updates are committed directly on `main` — no PR, no CI, and no GitHub Actions (all workflows removed 2026-10-08, together with the repo-root `.gitleaks.toml` and the `test_ci_merge_gate.py` contract test).
+- **Direct commits to `main` (since 2026-10-08)**: updates are committed directly on `main` — no PR, no CI, and no GitHub Actions (all workflows and the `test_ci_merge_gate.py` contract test were removed 2026-10-08; the repo-root `.gitleaks.toml` was removed the same day, then restored for the local pre-commit gate).
 - Commit messages: `<type>(<scope>): 中文描述` — Conventional Commits prefix with a Chinese description (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
 - Code changes: implement in a dedicated git worktree + task branch → merge locally into `main` after checks pass → remove the worktree and delete the branch.
 - `.trellis/` updates (task archives, journal, spec) go into standalone commits, never mixed with project code commits.
@@ -153,7 +157,9 @@ sudo bash deploy/install-service.sh uninstall
 
 ## Change Log
 
-> Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (archived 2026-10-08, 43 entries). Append new entries as single lines only.
+> Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (root index archived 2026-10-08; module-level Change Logs folded in 2026-10-13). Append new entries as single lines only.
+
+- `2026-10-13` (task `docs-sync`): 跨栈契约单一来源收敛：根/后端/前端三份 `CLAUDE.md` 的契约正文改为指向 `.trellis/spec/guides/cross-stack-contracts.md` 的指针（根 §1–§14 逐条锚点；后端 §1/§5/§8 与 §6/§7 同步清单；前端 §1/§3/§5/§8），手写文件计数清除；`.claude/index.json` 补齐 5 个包标记 `__init__.py` 并修复 2 处排序（version 1.4.3）；模块级 Change Log 全文并入归档并改为指针（后端 42 条、前端 59 条，去重 2 条字节相同项）；README 中英测试文件计数改为不计数表述；`cross-stack-contracts.md:62` 交叉引用 §12→§13，`git-and-tooling-conventions.md` 新增变更日志收敛约定。详见 `.context/history/archives/claudemd-changelog.md`。
 
 - `2026-10-12` (task `visits-preview-split`): 访视预览弹窗外移为 `VisitFormPreviewDialog.vue`（自持权威 FormResponse）+ `useVisitPreviewAnnotation.js`，`VisitsTab.vue` 1545→552 行只剩开关桥；四项 F1 预览缺陷（备注 / 纸张方向 / 表单域注解 / 持久化偏移首开生效）随弹窗外移修复；前端测试 84→87 文件（node:test 973 / vitest 10 文件 102 例）。详见 `.context/history/archives/claudemd-changelog.md`。
 
