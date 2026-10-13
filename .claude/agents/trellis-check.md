@@ -20,22 +20,19 @@ You are already the `trellis-check` sub-agent that the main session dispatched. 
 
 Look for the `<!-- trellis-hook-injected -->` marker in your input above.
 
-- **If the marker is present**: task artifacts, spec, and research files have already been auto-loaded for you above. Proceed with the check work directly.
+- **If the marker is present**: task artifacts, spec, and research files have already been auto-loaded for you above. Reuse that context and read only what is missing, truncated, or changed since it was loaded — a manifest file whose content did not arrive, a section cut off mid-way, or the task artifacts when they were not injected. Do not re-read files you already have in context.
 - **If the marker is absent**: hook injection didn't fire (Windows + Claude Code, `--continue` resume, fork distribution, hooks disabled, etc.). Find the active task path from your dispatch prompt's first line `Active task: <path>`, then Read `<task-path>/check.jsonl`, each listed file, `<task-path>/prd.md`, `<task-path>/design.md` if present, and `<task-path>/implement.md` if present before doing the work.
 
 ## Context
 
-Before checking, read:
-- `.trellis/spec/` - Development guidelines
-- Task `prd.md` - Requirements document
-- Task `design.md` - Technical design (if exists)
-- Task `implement.md` - Execution plan (if exists)
+Supplement the loaded context with:
+- `.trellis/spec/` - Development guidelines relevant to the changed files
 - Pre-commit checklist for quality standards
 
 ## Core Responsibilities
 
 1. **Get code changes** - Use git diff to get uncommitted code
-2. **Review task artifacts** - Check changes against prd.md, design.md if present, and implement.md if present
+2. **Review task artifacts** - Reuse injected `prd.md` / `design.md` / `implement.md`; read them only when injection did not deliver them
 3. **Check against specs** - Verify code follows guidelines
 4. **Self-fix** - Fix issues yourself, not just report them
 5. **Run verification** - typecheck and lint
@@ -59,7 +56,7 @@ git diff              # View specific changes
 
 ### Step 2: Check Against Specs and Task Artifacts
 
-Read the task's prd.md, design.md if present, and implement.md if present, then read relevant specs in `.trellis/spec/` to check code:
+Reuse the task artifacts already in context (`prd.md`, `design.md` if present, `implement.md` if present), then read the specs in `.trellis/spec/` relevant to the changed files:
 
 - Does it satisfy the task requirements
 - Does it follow the technical design and implementation plan when present
