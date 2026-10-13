@@ -13,7 +13,7 @@
 4. Write the minimal implementation (GREEN), avoiding opportunistic unrelated refactoring.
 5. Add necessary regression tests and make them pass together.
 6. If the change affects entry points, commands, contracts, or user-visible behavior, update documentation in sync.
-7. For code changes over 30 lines, perform additional quality validation and change review.
+7. Add the quality validation and change review the change actually needs: run the affected tests and, where the impact reaches them, lint / type checks / a build. Match depth to impact and risk, not to raw line count.
 
 ### fix (bug fix)
 
@@ -36,8 +36,9 @@
 - Backend changes must run at least the corresponding `pytest` cases.
 - Frontend changes must run at least the corresponding `node --test` cases; if UI behavior is involved, prefer launching the app and validating the main path manually. When components are touched, also run the vitest component mount tests (`npm run test:component`; `npm test` runs both suites).
 - New features / bug fixes target at least 80% coverage.
-- When a single change exceeds 30 lines, prefer running `/verify-change` and `/verify-quality`.
-- For security-sensitive changes involving authentication, authorization, input validation, import/export, secrets, uploads, and similar areas, run `/verify-security`.
+- Match verification depth to the change's impact and risk, not to its line count. Small low-risk edits need the affected tests plus a diff review; wider or riskier edits also need lint, type checks, and a build where those exist.
+- Security-sensitive changes (authentication, authorization, input validation, import/export, secrets, uploads, and similar) require a dedicated security review pass plus targeted regression tests before merge.
+- `verification-loop`, `review-code`, and `security-review` are available paths when they fit; they are options, not a mandatory trio for every change.
 
 ## Commit Rules
 

@@ -20,22 +20,19 @@ You are already the `trellis-implement` sub-agent that the main session dispatch
 
 Look for the `<!-- trellis-hook-injected -->` marker in your input above.
 
-- **If the marker is present**: prd / spec / research files have already been auto-loaded for you above. Proceed with the implementation work directly.
+- **If the marker is present**: task artifacts, spec, and research files have already been auto-loaded for you above. Reuse that context and read only what is missing, truncated, or changed since it was loaded — a manifest file whose content did not arrive, a section cut off mid-way, or the task artifacts when they were not injected. Do not re-read files you already have in context.
 - **If the marker is absent**: hook injection didn't fire (Windows + Claude Code, `--continue` resume, fork distribution, hooks disabled, etc.). Find the active task path from your dispatch prompt's first line `Active task: <path>`, then Read `<task-path>/implement.jsonl`, each listed file, `<task-path>/prd.md`, `<task-path>/design.md` if present, and `<task-path>/implement.md` if present before doing the work.
 
 ## Context
 
-Before implementing, read:
+Supplement the loaded context with:
 - `.trellis/workflow.md` - Project workflow
-- `.trellis/spec/` - Development guidelines
-- Task `prd.md` - Requirements document
-- Task `design.md` - Technical design (if exists)
-- Task `implement.md` - Execution plan (if exists)
+- `.trellis/spec/` - Development guidelines relevant to the files you are about to change
 
 ## Core Responsibilities
 
-1. **Understand specs** - Read relevant spec files in `.trellis/spec/`
-2. **Understand task artifacts** - Read prd.md, design.md if present, and implement.md if present
+1. **Understand specs** - Read the spec files relevant to the task
+2. **Understand task artifacts** - Reuse injected `prd.md` / `design.md` / `implement.md`; read them only when injection did not deliver them
 3. **Implement features** - Write code following specs and task artifacts
 4. **Self-check** - Ensure code quality
 5. **Report results** - Report completion status

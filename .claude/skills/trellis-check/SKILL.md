@@ -18,11 +18,9 @@ git status
 
 ## Step 2: Read Task Artifacts and Applicable Specs
 
-Read the current task artifacts in order:
-
-- `prd.md`
-- `design.md` if present
-- `implement.md` if present
+Reuse the current task artifacts already in context (`prd.md`, `design.md` if
+present, `implement.md` if present); read them only if they were not loaded,
+were truncated, or changed since.
 
 ```bash
 python3 ./.trellis/scripts/get_context.py --mode packages
@@ -34,7 +32,9 @@ For each changed package/layer, read the spec index and follow its **Quality Che
 cat .trellis/spec/<package>/<layer>/index.md
 ```
 
-Read the specific guideline files referenced — the index is a pointer, not the goal.
+Read the specific guideline files referenced — the index is a pointer, not the
+goal. For a long index or guideline file, locate the target heading and read
+that range; a skipped section is never acceptable when the change touches it.
 
 ## Step 3: Run Project Checks
 

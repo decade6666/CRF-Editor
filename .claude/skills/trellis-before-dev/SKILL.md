@@ -11,6 +11,7 @@ Execute these steps:
    - `prd.md` for requirements and acceptance criteria
    - `design.md` if present for technical design
    - `implement.md` if present for execution order and validation plan
+   - Skip anything already loaded into your context this session; read it only if it is missing, truncated, or has changed.
 
 2. **Discover packages and their spec layers**:
    ```bash
@@ -26,9 +27,9 @@ Execute these steps:
    ```bash
    cat .trellis/spec/<package>/<layer>/index.md
    ```
-   Follow the **"Pre-Development Checklist"** section in the index.
+   Follow the **"Pre-Development Checklist"** section in the index. For an index or guideline file longer than roughly 500 lines, locate the target heading first and read that range instead of the whole file.
 
-5. **Read the specific guideline files** listed in the Pre-Development Checklist that are relevant to your task. The index is NOT the goal — it points you to the actual guideline files (e.g., `error-handling.md`, `conventions.md`, `mock-strategies.md`). Read those files to understand the coding standards and patterns.
+5. **Read the specific guideline files** listed in the Pre-Development Checklist that are relevant to your task. The index is NOT the goal — it points you to the actual guideline files (e.g., `error-handling.md`, `conventions.md`, `mock-strategies.md`). Read those files (or their relevant sections) to understand the coding standards and patterns. Reading a range never excuses skipping a checklist item that applies to your change.
 
 6. **Always read shared guides**:
    ```bash
