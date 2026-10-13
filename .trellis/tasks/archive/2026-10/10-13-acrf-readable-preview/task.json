@@ -1,0 +1,29 @@
+{
+  "id": "acrf-readable-preview",
+  "name": "acrf-readable-preview",
+  "title": "aCRF 标注可读性与 Word 预览表单 OID",
+  "description": "Plan background-only 75-percent transparency for existing aCRF preview/Word floats and actual form OID beside full-mode paper-preview titles; implementation is deferred.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-10-13",
+  "completedAt": "2026-10-13",
+  "branch": "worktree-acrf-word-annotations",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/CRF-Editor/.claude/worktrees/acrf-word-annotations",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-13-acrf-annotation-space",
+    "10-13-word-preview-form-oid"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

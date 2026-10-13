@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/10-13-acrf-readable-preview/research/cross-stack-preview-excerpt.md", "reason": "Bounded section 6 and section 5 shading/geometry context; retain original y/schema and read authoritative source ranges if changed"}
+{"file": ".trellis/tasks/10-13-acrf-readable-preview/research/word-transparency.md", "reason": "Word alpha 25000, background-only CSS and accepted remaining text overlaps"}
