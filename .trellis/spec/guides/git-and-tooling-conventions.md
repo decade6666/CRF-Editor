@@ -26,7 +26,7 @@
 | Normal path | commit on `main`, or merge a task branch into `main` locally |
 | PRs | not opened for routine updates; do not run `gh pr create` / `gh pr merge` |
 | Push | push `main` after committing/merging |
-| CI | none — GitHub Actions workflows were removed on 2026-10-08; the local pre-commit gate (§6), once enabled per development machine, checks every commit, and the backend / frontend suites must still be run locally before merging |
+| CI | none — GitHub Actions workflows were removed on 2026-10-08; the local pre-commit gate (see §7), once enabled per development machine, checks every commit, and the backend / frontend suites must still be run locally before merging |
 
 **Why**: single-owner repo; the PR + CI merge workflow added on 2026-09-29 is no longer the required path.
 
@@ -66,7 +66,20 @@ git branch -d <task-branch>
 - Backend changes have no separate reviewer model beyond Claude's own review.
 - Do not dispatch `codeagent-wrapper` / Codex / Antigravity by default anymore.
 
-## 6. Local Pre-commit Gate
+## 6. Change Log Convergence (settled 2026-10-12, task `docs-sync`)
+
+**What**: the project keeps exactly one narrative change log. Three files were converging on the same class of drift the rest of the docs cleanup removes (same task told three ways, each copy independently stale).
+
+| Location | Role | Rule |
+|---|---|---|
+| `.context/history/archives/claudemd-changelog.md` | **The only narrative store.** | Every task's full entry lands here: root-cause, fix, test and live-verification evidence. |
+| `.claude/CLAUDE.md` `## Change Log` | Single-line **index** only (40k-char budget). | One `- <date> (task <slug>): …` line per task, ending with a pointer to the archive. Never expand an entry here. |
+| `backend/.claude/CLAUDE.md`, `frontend/.claude/CLAUDE.md` | **No Change Log of their own.** | A pointer paragraph naming the archive. New narratives must not be written into module docs. |
+
+- When a module doc's Change Log is folded into the archive, fold **verbatim** — module prose is independently written, not a copy of the root entry; byte-identical lines are the only ones safe to drop.
+- The archive header states provenance, never a hand-maintained entry count (the count is one more thing that goes stale).
+
+## 7. Local Pre-commit Gate
 
 **What** (since 2026-10-08): a versioned `.githooks/pre-commit` hook replaces the deleted CI checks at commit time. Enable it once per development machine:
 
