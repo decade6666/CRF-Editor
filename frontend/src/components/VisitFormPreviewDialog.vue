@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { Loading } from '@element-plus/icons-vue';
 import { api } from '../composables/useApi';
 import DesignerAcrfAnnotation from './DesignerAcrfAnnotation.vue';
+import FormPreviewOid from './FormPreviewOid.vue';
 import {
   ANNOTATION_KIND_FIELD,
   ANNOTATION_KIND_FORM,
@@ -433,6 +434,7 @@ onBeforeUnmount(() => {
       >
         <div class="wp-form-title-row">
           <div class="wp-form-title">{{ formPreviewTitle }}</div>
+          <FormPreviewOid v-if="editMode" :code="formPreviewForm?.code" />
           <DesignerAcrfAnnotation
             v-if="showAcrfAnnotations && getFormDomainAnnotationText(formPreviewForm)"
             kind="form"
@@ -792,5 +794,10 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 0.7cm;
   padding-right: 4.8cm;
+  /* 表单 OID 元数据与名称同行基线排列；超长时在行内换行，右侧 4.8cm 仍为 domain 标注保留区。 */
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

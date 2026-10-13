@@ -7,6 +7,7 @@ import {
   ANNOTATION_KIND_FORM,
   ANNOTATION_KIND_INLINE_HEADER,
   ACRF_ANNOTATION_BACKGROUND_COLOR,
+  ACRF_ANNOTATION_BACKGROUND_OPACITY,
   ACRF_ANNOTATION_BORDER_COLOR,
   ACRF_ANNOTATION_BORDER_WIDTH_EMU,
   ACRF_ANNOTATION_BOX_WIDTH_MAX_CM,
@@ -68,6 +69,10 @@ test('aCRF preview style uses shared red palette and backend-sized box metrics',
   assert.equal(ACRF_ANNOTATION_BORDER_COLOR, '#C00000');
   assert.equal(ACRF_ANNOTATION_BACKGROUND_COLOR, '#FFF2F2');
   assert.equal(ACRF_ANNOTATION_TEXT_COLOR, '#C00000');
+  // 底色半透明（用户决策 2026-10-13）：75% 透明 / 25% 不透明，仅作用于背景；
+  // 文字与边框保持不透明，由组件 CSS 各自声明，不经过此变量。
+  assert.equal(ACRF_ANNOTATION_BACKGROUND_OPACITY, 0.25);
+  assert.equal(style['--acrf-annotation-background'], 'rgba(255, 242, 242, 0.25)');
   assert.equal(style['--acrf-annotation-font-size'], '8pt');
   assert.equal(style['--acrf-annotation-height'], '0.7cm');
   assert.equal(style['--acrf-annotation-max-width'], '4.6cm');

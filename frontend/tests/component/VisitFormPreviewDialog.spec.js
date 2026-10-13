@@ -447,6 +447,15 @@ describe('VisitFormPreviewDialog 视图模式与注解门禁', () => {
     expect(wrapper.find('.wp-acrf-annotation').exists()).toBe(false);
   });
 
+  it('editMode + eCRF 视图仍渲染 OID 元数据（OID 门禁独立于 aCRF 开关）', async () => {
+    stageApiMocks();
+    const wrapper = mountDialog({}, { editMode: true, storedViewMode: 'eCRF' });
+    await flushPromises();
+
+    expect(wrapper.find('.wp-form-oid').text()).toBe(`OID: ${authoritativeForm().code}`);
+    expect(wrapper.find('.wp-acrf-annotation').exists()).toBe(false);
+  });
+
   it('关闭路径恰好发出一次 update:modelValue(false)', async () => {
     stageApiMocks();
     const { wrapper, dialog } = mountHost();
@@ -463,6 +472,43 @@ describe('VisitFormPreviewDialog 视图模式与注解门禁', () => {
     expect(emissions).toHaveLength(1);
     expect(emissions[0]).toEqual([false]);
   });
+});
+
+describe('VisitFormPreviewDialog 表单 OID 标题元数据', () => {
+  it('editMode 下纸面标题旁渲染权威表单 code（区别于 domain），原始标题保持纯名称', async () => {
+    stageApiMocks({ forms: [authoritativeForm({ code: 'ICF-V2', domain: 'DM' })] });
+    const wrapper = mountDialog();
+    await flushPromises();
+
+    expect(wrapper.find('.wp-form-title').text()).toBe(FORM_NAME);
+    const oid = wrapper.find('.wp-form-oid');
+    expect(oid.exists()).toBe(true);
+    expect(oid.text()).toBe('OID: ICF-V2');
+    // OID 与标题同处一个标题行（兄弟节点，不混入标题文本）
+    expect(oid.element.parentElement).toBe(wrapper.find('.wp-form-title-row').element);
+  });
+
+  it('code 缺失或纯空白不渲染 OID 元素', async () => {
+    stageApiMocks({ forms: [authoritativeForm({ code: null })] });
+    const noCode = mountDialog();
+    await flushPromises();
+    expect(noCode.find('.wp-form-oid').exists()).toBe(false);
+
+    stageApiMocks({ forms: [authoritativeForm({ code: '   ' })] });
+    const blank = mountDialog();
+    await flushPromises();
+    expect(blank.find('.wp-form-oid').exists()).toBe(false);
+  });
+
+  it('editMode=false 不渲染 OID 元数据', async () => {
+    stageApiMocks();
+    const wrapper = mountDialog({}, { editMode: false, storedViewMode: 'aCRF' });
+    await flushPromises();
+
+    expect(wrapper.find('.wp-form-oid').exists()).toBe(false);
+  });
+  // 关闭→重开的取数新鲜度由既有「关闭 → 重开：读取最新的 annotation_positions」用例锁定；
+  // code 与 annotation_positions 同源于权威 FormResponse，此处不重复模拟关闭时序。
 });
 
 describe('VisitFormPreviewDialog 错误路径', () => {

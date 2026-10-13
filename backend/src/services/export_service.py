@@ -102,6 +102,9 @@ ACRF_ANNOTATION_PADDING_X_EMU = 22860
 ACRF_ANNOTATION_PADDING_Y_EMU = 18000
 ACRF_ANNOTATION_BORDER_WIDTH_EMU = 12700
 ACRF_ANNOTATION_BOX_WIDTH_MAX_CM = 4.6
+# 底色不透明度（2026-10-13 用户决策）：仅注释背景 25% 不透明，文字/边框保持不透明。
+# 与前端 acrfAnnotationGeometry.js 同名常量同值；DrawingML 写作 a:alpha val=25000（opacity × 100000）。
+ACRF_ANNOTATION_BACKGROUND_OPACITY = 0.25
 # 默认纵向偏移：让 0.7cm 注记盒纵向居中于单元格内单行文本。
 # = -(Cm(0.7)=252000 - Pt(15.6)=198120)/2 = -26940 EMU；与前端 acrfAnnotationGeometry.js 同源同值。
 ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU = -26940
@@ -900,7 +903,9 @@ class ExportService:
                                 <a:avLst/>
                             </a:prstGeom>
                             <a:solidFill>
-                                <a:srgbClr val="FFF2F2"/>
+                                <a:srgbClr val="FFF2F2">
+                                    <a:alpha val="{int(ACRF_ANNOTATION_BACKGROUND_OPACITY * 100000)}"/>
+                                </a:srgbClr>
                             </a:solidFill>
                             <a:ln w="{ACRF_ANNOTATION_BORDER_WIDTH_EMU}">
                                 <a:solidFill>

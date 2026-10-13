@@ -166,6 +166,7 @@ function mountPreview({ handlers: handlerOverrides, harness: harnessOptions, ...
       landscapeMode: false,
       noFields: false,
       showAcrfAnnotations: true,
+      showFormOid: false,
       ...handlers,
       ...previewProps,
     },
@@ -442,5 +443,55 @@ describe('DesignerWordPreview', () => {
     expect(handlers.resetAnnotationPosition).toHaveBeenCalledWith(fieldTarget);
     // 重置按钮上的 pointerdown 不触发拖拽上抛（组件内 .stop，此处不复制该断言，仅确认不额外计数）
     expect(handlers.onAnnotationPointerDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('showFormOid=true 时标题旁渲染表单 OID 元数据，原始 .wp-form-title 保持纯名称', () => {
+    const { wrapper } = mountPreview({
+      selectedForm: { id: 1, name: '知情同意', code: 'F-ICF-01', domain: 'LB' },
+      showFormOid: true,
+    });
+
+    expect(wrapper.find('.wp-form-title').text()).toBe('知情同意');
+    const oid = wrapper.find('.wp-form-oid');
+    expect(oid.exists()).toBe(true);
+    expect(oid.text()).toBe('OID: F-ICF-01');
+    // OID 与标题同处一个标题行，且位于 domain 标注之外（兄弟节点，不进入标题文本）
+    expect(oid.element.parentElement).toBe(wrapper.find('.wp-form-title-row').element);
+  });
+
+  it('showFormOid=false 或 code 缺失/空白时不渲染 OID 元素', () => {
+    const hidden = mountPreview({
+      selectedForm: { id: 1, name: 'X', code: 'C1', domain: 'LB' },
+      showFormOid: false,
+    });
+    expect(hidden.wrapper.find('.wp-form-oid').exists()).toBe(false);
+
+    const noCode = mountPreview({ selectedForm: { id: 1, name: 'X', domain: 'LB' }, showFormOid: true });
+    expect(noCode.wrapper.find('.wp-form-oid').exists()).toBe(false);
+
+    const blank = mountPreview({ selectedForm: { id: 1, name: 'X', code: '   ', domain: 'LB' }, showFormOid: true });
+    expect(blank.wrapper.find('.wp-form-oid').exists()).toBe(false);
+  });
+
+  it('两个 scope 都按各自的 showFormOid 渲染 OID', () => {
+    for (const scope of ['main', 'designer']) {
+      const { wrapper } = mountPreview({
+        scope,
+        showFormOid: true,
+        selectedForm: { id: 1, name: 'N', code: 'S1', domain: 'LB' },
+      });
+      expect(wrapper.find('.wp-form-oid').text()).toBe('OID: S1');
+    }
+  });
+
+  it('showFormOid 与 showAcrfAnnotations 相互独立：eCRF 视图也可显示 OID', () => {
+    const { wrapper } = mountPreview({
+      showFormOid: true,
+      showAcrfAnnotations: false,
+      selectedForm: { id: 1, name: 'N', code: 'S2', domain: 'LB' },
+    });
+
+    expect(wrapper.find('.wp-form-oid').text()).toBe('OID: S2');
+    expect(wrapper.find('.wp-acrf-annotation').exists()).toBe(false);
   });
 });
