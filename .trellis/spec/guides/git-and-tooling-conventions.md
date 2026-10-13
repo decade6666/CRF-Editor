@@ -54,17 +54,14 @@ git branch -d <task-branch>
 - Task archival keeps the existing `chore(task): …` commit shape, with a Chinese description where applicable.
 - If a task produces both code and `.trellis/` changes, split them into separate commits (code first, then the trellis housekeeping commit).
 
-## 5. Multi-Model Collaboration: Haiku-Only Frontend Review
+## 5. Sub-Agent Ownership Contract
 
-**What** (since 2026-10-08): The external-CLI collaboration plane (Codex execution/review, Antigravity review via `codeagent-wrapper`) is **discontinued** for this project. The only retained reviewer model is **Haiku**, and only for **frontend modifications**.
+**What** (settled 2026-10-13): Model-specific dispatch wording (Opus-led decomposition, per-tier model assignment, Haiku-only frontend review) is no longer part of the project rules; agent work is governed by the provider-neutral contract below.
 
-| Role | Mechanism | Scope |
-|------|-----------|-------|
-| Frontend change review | Claude-native sub-agent (`Agent` tool, `model: haiku`), read-only | Review the frontend diff for defects / edge cases; report findings, do not edit code |
-
-- Claude (lead model) keeps implementation, orchestration, and final decisions.
-- Backend changes have no separate reviewer model beyond Claude's own review.
-- Do not dispatch `codeagent-wrapper` / Codex / Antigravity by default anymore.
+- Claude (the lead session) keeps implementation, orchestration, and final decisions.
+- Every write slice has exactly one writer with an explicit, mutually exclusive file scope; no two workers edit the same file concurrently.
+- Claude inspects the actual diff after any delegated change; an agent's summary is not acceptance evidence.
+- External-CLI collaboration (Codex / Antigravity via `codeagent-wrapper`) stays discontinued; use Claude-native sub-agents.
 
 ## 6. Change Log Convergence (settled 2026-10-12, task `docs-sync`)
 

@@ -152,7 +152,7 @@ sudo bash deploy/install-service.sh uninstall
 - Commit messages: `<type>(<scope>): 中文描述` — Conventional Commits prefix with a Chinese description (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
 - Code changes: implement in a dedicated git worktree + task branch → merge locally into `main` after checks pass → remove the worktree and delete the branch.
 - `.trellis/` updates (task archives, journal, spec) go into standalone commits, never mixed with project code commits.
-- Multi-model collaboration retains only Haiku as the review model for frontend modifications (read-only sub-agent); Codex / Antigravity external-CLI collaboration is discontinued.
+- Sub-agent delegation follows the provider-neutral ownership contract in `.trellis/spec/guides/git-and-tooling-conventions.md` §5; external-CLI collaboration (Codex / Antigravity) remains discontinued.
 - Detail: `.trellis/spec/guides/git-and-tooling-conventions.md`.
 
 ## Change Log
@@ -160,6 +160,8 @@ sudo bash deploy/install-service.sh uninstall
 > Single-line index only. Full entries (root cause / fix / test and live-verification evidence): `.context/history/archives/claudemd-changelog.md` (root index archived 2026-10-08; module-level Change Logs folded in 2026-10-13). Append new entries as single lines only.
 
 - `2026-10-13` (task `docs-sync`): 跨栈契约单一来源收敛：根/后端/前端三份 `CLAUDE.md` 的契约正文改为指向 `.trellis/spec/guides/cross-stack-contracts.md` 的指针（根 §1–§14 逐条锚点；后端 §1/§5/§8 与 §6/§7 同步清单；前端 §1/§3/§5/§8），手写文件计数清除；`.claude/index.json` 补齐 5 个包标记 `__init__.py` 并修复 2 处排序（version 1.4.3）；模块级 Change Log 全文并入归档并改为指针（后端 42 条、前端 59 条，去重 2 条字节相同项）；README 中英测试文件计数改为不计数表述；`cross-stack-contracts.md:62` 交叉引用 §12→§13，`git-and-tooling-conventions.md` 新增变更日志收敛约定。详见 `.context/history/archives/claudemd-changelog.md`。
+
+- `2026-10-13` (rules): 按用户决定删除模型派发框架：项目 spec/prefs/入口文档移除「Haiku 前端审查」等多模型协作条款，改为供应商中立的子代理权约定（Claude 主导、单写入者、审查实际 diff）；同步全局规则树删除 Opus 主导委派 / 模型选择表 / 派发机制（Haiku 前端审查规则移至用户层级管理），在途任务计划去除 Sonnet 派发标注。
 
 - `2026-10-12` (task `visits-preview-split`): 访视预览弹窗外移为 `VisitFormPreviewDialog.vue`（自持权威 FormResponse）+ `useVisitPreviewAnnotation.js`，`VisitsTab.vue` 1545→552 行只剩开关桥；四项 F1 预览缺陷（备注 / 纸张方向 / 表单域注解 / 持久化偏移首开生效）随弹窗外移修复；前端测试 84→87 文件（node:test 973 / vitest 10 文件 102 例）。详见 `.context/history/archives/claudemd-changelog.md`。
 
