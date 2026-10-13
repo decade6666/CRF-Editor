@@ -827,3 +827,73 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Status
 
 [OK] **Completed**
+
+## Session 22: 文档单一来源与过时内容清理（docs-sync）
+
+**Date**: 2026-10-13
+**Task**: 文档单一来源与过时内容清理（10-08-docs-sync，整改树 Wave F 收尾）
+**Branch**: `docs/docs-sync` → 合入 `main`（`ecffbd3`）
+
+### Summary
+
+跨栈契约正文收敛为唯一来源；手写文件计数清除；`index.json` 清单与文件系统一一对应；
+三份 CLAUDE.md 的变更日志统一并入归档。纯文档变更，无代码测试。
+
+### Main Changes
+
+- **R1 契约单一来源**：根 `.claude/CLAUDE.md` 的 `## Cross-Stack Contracts`（9,319 字符、
+  13 条正文）改为 14 条 `§N` 指针（文件对锚点 + 指向
+  `.trellis/spec/guides/cross-stack-contracts.md`）；后端模块删去纯复述行（列宽常量、
+  fixture、parity、复选框）改为 §1/§5/§8 指针，三条 Development-Conventions 同步清单
+  收缩为 §7/§6/§8 指针；前端同样处理 §1/§3/§5/§8。保留全部 UNIQUE/NO-SPEC 行
+  （`useSortableTable.js`、localStorage 键语法、`.wp-form-title` 句、`snapToGrid`/`tcMar`
+  机制、模板导入 OID、导出错误语义、表单复制契约）。
+- **R2/R7 `index.json`**：补齐 5 个包标记 `__init__.py`，修复 2 处排序颠倒
+  （`services` 的 `database_export_service.py`、`deploy.important_paths`），version
+  1.4.2→1.4.3，timestamp→2026-10-13。18 个清单逐一与文件系统对账（0 缺 0 多），
+  4 处排序例外有文档依据（`entry_files` 主入口在前、`commands` 工作流序等）。
+- **R3 计数清理**：mermaid 9 个计数标签、Module Index 2 个 Tests 单元格、模块 Core
+  Directories 各 6/4 处括号计数、4 处组件行数、README 中英各 2 句测试文件计数全部改为
+  不计数表述；保留阈值/版本/历史数字（40k、`ruff==0.16.10`、JWT 60 分钟、
+  `month=30`/`year=365`、changelog 叙事）。
+- **R4 变更日志收敛**：后端 42 条 + 前端 59 条模块级 Change Log **逐字**并入
+  `.context/history/archives/claudemd-changelog.md`（74→187 行，仅去重 2 条字节相同项并留
+  注记），模块文件改为指针段；归档头部过时的「43 条」计数改为无计数溯源说明；根文件保留
+  单行索引并新增本任务一行。
+- **R5 收尾扫描**：路径/命令/README 一致性全量复查，另修出 4 类既有漂移——前端与 spec 的
+  `apiUrl()` 绕过站点计数（9→11，漏 `OrganizationManagementView.vue`）、后端
+  `repositories` 描述中的「field instances」（无此模块）、根文件「`.gitleaks.toml` 随 CI
+  删除」句（实为删除后同日恢复供 pre-commit 使用）、三份 CLAUDE.md 的 `Last updated` 日期。
+- **D8/D9 spec**：`cross-stack-contracts.md:62` 交叉引用 §12→§13；§1 补「CJK 码点范围属于
+  契约」说明；§9 绕过站点清单更正为 eleven call sites（跨六个组件）；Tests Required 表两个
+  示例测试路径改为真实文件。`git-and-tooling-conventions.md` 新增 §6
+  「Change Log Convergence」（原 §6 顺延为 §7，并修掉指向旧编号的自引用）。
+- **D5 模块清单**：两个 `## Related File List` 表改为指向 `.claude/index.json`
+  （11 处漂移漏项一并消除；被删文件名均在正文或 index.json 中可查）。
+
+### 验证（R6：纯文档变更，以字数/链接/路径检查 + diff 复核代替测试）
+
+- 五项探针全 PASS：`reconcile_index`（18 清单 + 5 标记，0 缺 0 多）、`scan_order`
+  （0 未解释颠倒）、路径检查（678 in-scope token 全解析）、spec § 交叉引用 + 锚点、
+  `verify_fold`（101 条逐字在档、归档前缀字节不变）。
+- 归档完整性：`git diff --numstat` = `+115/−2`，删除的仅 3–4 行头部；前缀与 HEAD 逐字节一致。
+- 根文件字节数 40,921 → 35,377（限 40,000）；两模块文件合计 −111KB 而归档 +103KB
+  （叙事是搬移而非删除）。
+- 独立对抗式验证 workflow（5 代理 / 60 项）：46 CONFIRMED / 5 REFUTED / 9 PARTIAL；
+  据其发现修 6 处（含 spec 侧补回 CJK 码点范围契约句）。Haiku 只读审查 3 项 OK +
+  3 项 LOW 全修。两次评审后修复项均回归探针复跑通过。
+- 实际运行的两个测试：`portDefaults.test.js` 4/4、`wordPageGeometry.test.js` 7/7
+  （唯一读取本次改动文档的测试）；未运行其余测试套件，理由已写入 `verification.md`。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f2cfe23` | docs(docs): 收敛跨栈契约单一来源并清理过时计数 |
+| `f77a124` | docs(spec): 修正跨栈契约交叉引用并记录变更日志收敛约定 |
+| `68dda42` | Merge branch 'main' into docs/docs-sync |
+| `ecffbd3` | Merge branch 'docs/docs-sync' |
+
+### Status
+
+[OK] **Completed** — 已合并 `main` 并推送 origin；worktree 与分支已清理。

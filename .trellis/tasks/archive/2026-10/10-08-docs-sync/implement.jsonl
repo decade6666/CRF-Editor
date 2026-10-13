@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "the canonical contract document this task turns into the single source of truth"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "standalone-commit rule for Trellis doc updates and docs-sync expectations"}
+{"file": ".context/prefs/workflow.md", "reason": "documentation change workflow and verification-substitution rules"}
+{"file": ".context/prefs/coding-style.md", "reason": "doc conventions reference for keeping style consistent"}

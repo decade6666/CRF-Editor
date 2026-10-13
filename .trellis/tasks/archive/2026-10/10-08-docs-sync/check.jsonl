@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-08-review-remediation/implement.md", "reason": "shared execution runbook"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "reviewer verifies contract semantics unchanged and duplication removed"}
+{"file": ".trellis/spec/guides/git-and-tooling-conventions.md", "reason": "reviewer checks standalone doc commit and docs-sync completeness"}
+{"file": ".context/prefs/workflow.md", "reason": "reviewer confirms doc-only verification substitution is justified"}
