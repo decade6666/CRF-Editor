@@ -24,7 +24,7 @@ These guides help you **ask the right questions before coding**.
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
 | [Cross-Stack Contracts](./cross-stack-contracts.md) | Backend-frontend shared contracts | Changing shared constants/fixtures |
-| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | Chinese commit messages, direct-to-`main` policy, worktree workflow, local pre-commit gate, haiku-only frontend review | Committing or merging any update; reviewing frontend changes |
+| [Git & Tooling Conventions](./git-and-tooling-conventions.md) | Chinese commit messages, direct-to-`main` policy, worktree workflow, sub-agent ownership contract, local pre-commit gate | Committing or merging any update; reviewing frontend changes |
 
 ---
 
@@ -71,9 +71,9 @@ These guides help you **ask the right questions before coding**.
 - [ ] Writing a commit message (Chinese description)
 - [ ] Finishing a code change (worktree → merge to `main` → cleanup)
 - [ ] Updating anything under `.trellis/` (standalone commit)
-- [ ] Reviewing frontend modifications (Haiku sub-agent)
+- [ ] Reviewing frontend modifications
 
-→ Read [Git & Tooling Conventions](./git-and-tooling-conventions.md): updates commit directly to `main` without a PR; `.trellis/` changes get standalone commits; Haiku is the only retained review model (frontend only).
+→ Read [Git & Tooling Conventions](./git-and-tooling-conventions.md): updates commit directly to `main` without a PR; `.trellis/` changes get standalone commits.
 
 ---
 

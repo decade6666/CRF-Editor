@@ -45,7 +45,7 @@
 - Commit messages keep the `<type>(<scope>):` prefix and write the description in Chinese (types: feat/fix/refactor/docs/test/chore/perf/ci; identifiers and paths stay ASCII).
 - Code changes are implemented in a dedicated git worktree + task branch, merged locally into `main` after checks pass, then the worktree and the branch are removed.
 - Changes under `.trellis/` (task archives, journal, spec) get standalone commits and are never mixed with project code commits.
-- Frontend modifications are reviewed by a Haiku sub-agent (read-only); external CLIs (Codex / Antigravity) are not part of the default flow.
+- Sub-agent work follows the ownership contract in `.trellis/spec/guides/git-and-tooling-conventions.md` §5; external CLIs (Codex / Antigravity) are not part of the default flow.
 
 ## Context Logging (decision records)
 
