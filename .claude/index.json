@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-10-12T00:00:00-07:00",
-  "version": "1.4.2",
+  "timestamp": "2026-10-13T00:00:00-07:00",
+  "version": "1.4.3",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
     {
@@ -26,6 +26,7 @@
         "git config blame.ignoreRevsFile .git-blame-ignore-revs"
       ],
       "api_routes": [
+        "backend/src/routers/__init__.py",
         "backend/src/routers/admin.py",
         "backend/src/routers/auth.py",
         "backend/src/routers/codelists.py",
@@ -42,14 +43,15 @@
         "backend/src/routers/visits.py"
       ],
       "services": [
+        "backend/src/services/__init__.py",
         "backend/src/services/admin_bootstrap_service.py",
         "backend/src/services/ai_review_service.py",
         "backend/src/services/auth_service.py",
         "backend/src/services/await_drain.py",
+        "backend/src/services/database_export_service.py",
         "backend/src/services/docx_import_service.py",
         "backend/src/services/docx_screenshot_service.py",
         "backend/src/services/export_service.py",
-        "backend/src/services/database_export_service.py",
         "backend/src/services/field_cleanup_service.py",
         "backend/src/services/field_definition_reference_service.py",
         "backend/src/services/field_normalization.py",
@@ -77,6 +79,7 @@
         "backend/src/services/word_table_parity.py"
       ],
       "models": [
+        "backend/src/models/__init__.py",
         "backend/src/models/codelist.py",
         "backend/src/models/field.py",
         "backend/src/models/field_definition.py",
@@ -90,6 +93,7 @@
         "backend/src/models/visit_form.py"
       ],
       "schemas": [
+        "backend/src/schemas/__init__.py",
         "backend/src/schemas/_common.py",
         "backend/src/schemas/admin.py",
         "backend/src/schemas/codelist.py",
@@ -103,6 +107,7 @@
         "backend/src/schemas/visit.py"
       ],
       "repositories": [
+        "backend/src/repositories/__init__.py",
         "backend/src/repositories/base_repository.py",
         "backend/src/repositories/field_definition_repository.py",
         "backend/src/repositories/form_field_repository.py",
@@ -407,8 +412,8 @@
       "language": "Shell",
       "claude_md": null,
       "important_paths": [
-        "deploy/crf-editor.service.template",
         "deploy/crf-editor.env.example",
+        "deploy/crf-editor.service.template",
         "deploy/install-service.sh",
         "deploy/nginx/crf-editor.conf.example"
       ],

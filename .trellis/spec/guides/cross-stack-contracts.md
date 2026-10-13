@@ -47,6 +47,13 @@ const INLINE_HEADER_FLOOR = WEIGHT_CHINESE * 4  // = 8
 const AVAILABLE_CM = 14.66
 ```
 
+The width classifier on both sides is **code-point driven, not language-detected**: each character
+contributes `WEIGHT_CHINESE` when its code point falls in the CJK ranges (basic block, extensions A–I,
+compatibility ideographs and their supplement) and `WEIGHT_ASCII` otherwise. The two range tables are
+part of this contract — adding or removing a range on one side without the other silently changes
+planned widths (locked by `backend/tests/test_width_planning.py` and
+`frontend/tests/columnWidthPlanning.pbt.test.js`).
+
 `INLINE_HEADER_FLOOR` is the **per-column minimum demand for inline tables only**.
 It protects ≤4-CJK-char headers (e.g. `未查` / `项目` / `单位`) from being squeezed
 to a sub-line width by long sibling columns. Both ends apply it inside the same
@@ -59,7 +66,7 @@ For `日期` / `日期时间` / `时间` fields, the **control weight is the wei
 rendered placeholder text on both sides** (`render_date_time_placeholder` in
 `field_rendering.py` ↔ `renderCtrl` in `useCRFRenderer.js`), so per-format changes
 (e.g. hour-only `HH` / `yyyy-MM-dd HH`) automatically re-plan the control column —
-see §12 for the format-option contract.
+see §13 for the format-option contract.
 
 **Contract Rules**:
 1. Any change to weight constants must update both files
@@ -585,7 +592,7 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 
 1. **Build**: `frontend/vite.config.js` reads `VITE_BASE_PATH` (default `/`) and normalizes it into `base` (`/crf` → `/crf/`). Lazy-loaded chunk URLs are baked from `base` at build time; default builds stay root-relative so the desktop package (`backend/crf.spec` snapshots `frontend/dist`) keeps working.
 2. **Runtime prefix**: `useApi.js` exports `apiUrl(path)` and applies the prefix **only at the 6 `fetch()` boundaries** (`get` / `cachedGet` / `post` / `put` / `patch` / `del`). Cache keys, `_pending`, `invalidateCache(prefix)` and `_autoInvalidate` keep the **raw `/api/...` paths** — never prefix the cache layer.
-3. **Bypass sites**: any code that bypasses `useApi.js` (bare `fetch('/api/...')`, `el-upload :action`, blob-download helpers) must wrap with `apiUrl(...)`. The current inventory is **nine** wrapped call sites: `LoginView.vue` (login fetch); `App.vue` (Word export fetch, `_blobDownload`, `import/auto` fetch); `WordImportDialog.vue` (Word import upload `:action` — this upload boundary moved out of the App shell with the Word-import wizard extraction, task `app-word-import-split`, 2026-10-11); `ProjectInfoTab.vue` (project-logo GET, profile PUT, org-preset logo GET); `DocxScreenshotPanel.vue` (`pageUrl`). Guarded by `frontend/tests/basePathDeployment.test.js`, whose recursive scan covers every `src/**/*.{vue,js}` file.
+3. **Bypass sites**: any code that bypasses `useApi.js` (bare `fetch('/api/...')`, `el-upload :action`, blob-download helpers) must wrap with `apiUrl(...)`. The current inventory is **eleven** call sites across six components (`ProjectInfoTab.vue` 3, `App.vue` 3, `OrganizationManagementView.vue` 2, and `LoginView.vue` / `WordImportDialog.vue` / `DocxScreenshotPanel.vue` 1 each) — counted per call site, not per component; the `useApi.js` internals are not bypass sites. Sites: `LoginView.vue` (login fetch); `App.vue` (Word export fetch, `_blobDownload`, `import/auto` fetch); `WordImportDialog.vue` (Word import upload `:action` — this upload boundary moved out of the App shell with the Word-import wizard extraction, task `app-word-import-split`, 2026-10-11); `ProjectInfoTab.vue` (project-logo GET, profile PUT, org-preset logo GET); `OrganizationManagementView.vue` (org-preset logo GET + PUT); `DocxScreenshotPanel.vue` (`pageUrl`). Guarded by `frontend/tests/basePathDeployment.test.js`, whose recursive scan covers every `src/**/*.{vue,js}` file.
 4. **Reverse proxy**: nginx must strip the prefix before reaching the backend — `location /crf/ { proxy_pass http://127.0.0.1:8888/; }` (the trailing slash is required) plus `location = /crf { return 301 /crf/; }`. See `deploy/nginx/crf-editor.conf.example`.
 5. **Dev proxy**: `server.proxy` in `vite.config.js` follows the base (`/api` vs `/crf/api` + `rewrite`), so both modes work in `npm run dev`.
 6. **Desktop**: packaging must use a default root-path build; subpath builds are opt-in and documented in README (中/EN).
@@ -1087,8 +1094,8 @@ When modifying cross-stack contracts, run:
 | Contract | Backend Test | Frontend Test |
 |----------|--------------|---------------|
 | Width Planning | `tests/test_width_planning.py` | `tests/columnWidthPlanning.test.js` |
-| Ordering | `tests/test_ordering.py` | Manual E2E verification |
-| Auth Token | `tests/test_auth.py` | `tests/App.test.js` |
+| Ordering | `tests/test_order_service.py`, `tests/test_phase0_ordering_contracts.py` | `tests/orderingStructure.test.js` |
+| Auth Token | `tests/test_auth.py` | `tests/appSettingsShell.test.js`, `tests/useApiSessionRace.test.js` |
 | Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_export_service.py`, `tests/test_width_planning.py`, `tests/test_word_table_parity.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js`, `tests/visitPreviewSplit.test.js`, `tests/component/VisitFormPreviewDialog.spec.js` + strict comparator + manual A4 side-by-side when available |
 | Form Paper Orientation | `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_project_copy.py` | `tests/visitPreviewLandscape.test.js`, `tests/wordPageGeometry.test.js` |
 | Reference Delete Guard | `tests/test_reference_delete_contract.py`, `tests/test_batch_delete_isolation.py` | `tests/referenceDeleteGuard.test.js`, `tests/referenceDeleteWiring.test.js` |
