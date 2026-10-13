@@ -3,6 +3,7 @@
 // 由父组件 FormDesignerTab 渲染两次，仅通过 props 表达模式差异（design.md §3）。
 // 状态、resizer 缓存与全部保存/撤销/会话逻辑仍归父组件；本组件只读 props 并调用父组件闭包。
 import DesignerAcrfAnnotation from './DesignerAcrfAnnotation.vue';
+import FormPreviewOid from './FormPreviewOid.vue';
 import {
   ANNOTATION_KIND_FIELD,
   ANNOTATION_KIND_FORM,
@@ -34,6 +35,8 @@ defineProps({
   landscapeMode: { type: Boolean, required: true },
   noFields: { type: Boolean, required: true },
   showAcrfAnnotations: { type: Boolean, required: true },
+  // 完全编辑模式下的纸面标题表单 OID 元数据（独立于 aCRF 视图开关；6→7 个 mode/data props）。
+  showFormOid: { type: Boolean, required: true },
   // 父组件闭包：resizer 缓存 / 渲染适配器 / 注释拖拽接线都留在 FormDesignerTab，
   // 按引用透传，模板沿用原调用名。
   getResizer: { type: Function, required: true },
@@ -69,6 +72,7 @@ function getRowHeightStyle(rowResizer, rowKey) {
     <template v-else>
       <div class="wp-form-title-row">
         <div class="wp-form-title">{{ selectedForm.name }}</div>
+        <FormPreviewOid v-if="showFormOid" :code="selectedForm.code" />
         <DesignerAcrfAnnotation
           v-if="showAcrfAnnotations && getFormDomainAnnotationText(selectedForm)"
           kind="form"
@@ -522,6 +526,11 @@ function getRowHeightStyle(rowResizer, rowKey) {
   min-height: 0.7cm;
   margin-bottom: 24px;
   padding-right: 4.8cm;
+  /* 表单 OID 元数据与名称同行基线排列；超长时在行内换行，右侧 4.8cm 仍为 domain 标注保留区。 */
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .wp-form-title-row .wp-form-title {

@@ -792,6 +792,7 @@ defineProps({
   scope: { type: String, required: true, validator: (v) => v === 'main' || v === 'designer' },
   landscapeMode: { type: Boolean, required: true }, noFields: { type: Boolean, required: true },
   showAcrfAnnotations: { type: Boolean, required: true },
+  showFormOid: { type: Boolean, required: true },
   // 14 required { type: Function, required: true } props bound via v-bind="previewHandlers":
   // getResizer, getRowResizer, renderCellHtml, normalFillChars, openQuickEdit, getFormDomainAnnotationText,
   // getFieldOidAnnotationText, getFormAnnotationTarget, getFieldAnnotationTarget, isAnnotationDraggable,
@@ -812,7 +813,7 @@ defineEmits(['pointerdown', 'reset']); // pointerdown($event) unconditional; res
 | Rule | Why |
 |---|---|
 | `state-management.md` §4 (Column Width Persistence Contract) stays the single source for storage keys, rehydrate rules, and the export collector | Duplicating key formats or algorithms here would drift from the cache contract |
-| Child holds no `ref` state and no cache instance. The 6 explicit data props carry the view models; the 14 function props (one `previewHandlers` object, `v-bind` on both instances) only grant access to the parent's state/caches | Resizer caches and `rehydrate` must stay single-owned — a child-owned cache would read the same keys but desync the parent's rehydrate flow |
+| Child holds no `ref` state and no cache instance. The 7 explicit data props carry the view models (`showFormOid` added 2026-10-13, task `word-preview-form-oid`: full-mode paper-title form-OID gate rendered through the shared `FormPreviewOid.vue`, independent of `showAcrfAnnotations`); the 14 function props (one `previewHandlers` object, `v-bind` on both instances) only grant access to the parent's state/caches | Resizer caches and `rehydrate` must stay single-owned — a child-owned cache would read the same keys but desync the parent's rehydrate flow |
 | Both instances get `v-bind="previewHandlers"` plus their own data props: `scope` (`'main'` / `'designer'`), `groupsView` (`renderGroupsView` / `designerRenderGroupsView`), `landscapeMode` (`landscapeMode` / `designerLandscapeMode`), `noFields` | Declared difference set = exactly the per-instance data props |
 | Child root replaces the original `div.word-page` 1:1; parent keeps `.fd-canvas` / `.word-preview` (main) and `.designer-preview-pane` / `-viewport` / `-stage` / `-page` (fullscreen) wrappers | Keeps blank-click exclusion, responsive CSS and `paneSplit` assertions in place |
 | Scoped CSS: only rules matching **inside** the moved subtree move to the child's `<style scoped>`. A parent scoped rule reaches only the child root, so descendant rules (`__text`, `-reset`, the `:hover` / `:focus-within` reveal) must move or they silently stop applying | The gotcha that breaks previews invisibly; global `main.css` `.word-page …` rules still reach the child (e.g. `.word-page .wp-form-title { text-align: left }`) |

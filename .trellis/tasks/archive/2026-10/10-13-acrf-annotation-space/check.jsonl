@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/10-13-acrf-readable-preview/research/cross-stack-preview-excerpt.md", "reason": "Complete bounded geometry/persistence/parity constraints and required tests without oversized-spec truncation"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Shared marker CSS, real component assertions and warning gate"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Existing export tests, hermetic fixtures, formatting and honest coverage/renderer evidence"}
+{"file": ".trellis/tasks/10-13-acrf-readable-preview/research/word-transparency.md", "reason": "No whole-element opacity, no false claim of complete collision avoidance or verified Word rendering"}

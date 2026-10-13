@@ -56,7 +56,7 @@ function extractSelfClosingInstances(source, tagName) {
   return instances;
 }
 
-// 两个预览实例各自必须满足的契约：scope 值、v-bind、5 个 mode/data props，
+// 两个预览实例各自必须满足的契约：scope 值、v-bind、6 个 mode/data props，
 // 以及「不得引用另一个实例数据源」的反向集合（错 dataset / 错 scope 会被逐实例捕获）。
 const PREVIEW_INSTANCE_CONTRACTS = [
   {
@@ -67,6 +67,7 @@ const PREVIEW_INSTANCE_CONTRACTS = [
       ':landscape-mode="landscapeMode"',
       ':no-fields="!formFields.length"',
       ':show-acrf-annotations="showAcrfAnnotations"',
+      ':show-form-oid="editMode"',
     ],
     absent: [
       ':groups-view="designerRenderGroupsView"',
@@ -83,6 +84,7 @@ const PREVIEW_INSTANCE_CONTRACTS = [
       ':landscape-mode="designerLandscapeMode"',
       ':no-fields="!designerPreviewFields.length"',
       ':show-acrf-annotations="showAcrfAnnotations"',
+      ':show-form-oid="editMode"',
     ],
     absent: [
       ':groups-view="renderGroupsView"',
@@ -300,6 +302,19 @@ test('the annotation component holds the reset button markup and every moved CSS
   for (const selector of ANNOTATION_CSS_SELECTORS) {
     assert.ok(annotationSource.includes(selector), `DesignerAcrfAnnotation.vue should own the moved rule: ${selector}`);
   }
+});
+
+test('the annotation background consumes the shared translucent variable without whole-element alpha', () => {
+  // 底色半透明（任务 acrf-annotation-space）：背景消费几何模块的 rgba 变量，
+  // 根元素不引入整体 opacity（避免文字/边框/重置按钮一起变淡）。
+  const markerRule = annotationSource.match(/\.wp-acrf-annotation\s*\{([^}]*)\}/);
+  assert.ok(markerRule, '.wp-acrf-annotation rule should exist in DesignerAcrfAnnotation.vue');
+  assert.match(markerRule[1], /background:\s*var\(--acrf-annotation-background\)/);
+  assert.doesNotMatch(markerRule[1], /opacity:/);
+  // 重置按钮保留既有状态透明度（隐藏 0 / 悬停聚焦 1 / 禁用 0.45），不随背景半透明改变。
+  assert.match(annotationSource, /opacity:\s*0;/);
+  assert.match(annotationSource, /opacity:\s*1;/);
+  assert.match(annotationSource, /opacity:\s*0\.45;/);
 });
 
 test('main.css keeps the preview/export parity title rule', () => {

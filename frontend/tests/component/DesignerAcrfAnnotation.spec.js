@@ -61,6 +61,10 @@ describe('DesignerAcrfAnnotation', () => {
     expect(root(wrapper).element.style.getPropertyValue('--acrf-annotation-width')).toBe(
       style['--acrf-annotation-width'],
     );
+    // 底色半透明变量随样式对象整体透传；组件 CSS 只把它用在 background 上（见 designerPreviewSplit 源守卫）。
+    expect(root(wrapper).element.style.getPropertyValue('--acrf-annotation-background')).toBe(
+      style['--acrf-annotation-background'],
+    );
   });
 
   it('字段级注释只带 --field，interactive=false 时不出现 --interactive', () => {

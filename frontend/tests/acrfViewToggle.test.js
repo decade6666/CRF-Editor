@@ -310,7 +310,8 @@ test('aCRF annotation styles stay absolute, draggable in edit mode, and out of w
   assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
   assert.match(annotationRule, /height:\s*var\(--acrf-annotation-height\)/);
   assert.match(annotationRule, /border:\s*var\(--acrf-annotation-border-width\) solid #c00000/i);
-  assert.match(annotationRule, /background:\s*#fff2f2/i);
+  // 底色半透明（任务 acrf-annotation-space）：背景消费几何模块的 rgba 变量，文字保持不透明红色。
+  assert.match(annotationRule, /background:\s*var\(--acrf-annotation-background\)/);
   assert.match(annotationRule, /color:\s*#c00000/i);
   assert.match(annotationRule, /white-space:\s*nowrap/);
   assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
@@ -354,7 +355,7 @@ test('visit preview annotation styles come from the shared component and stay ou
   assert.match(annotationRule, /width:\s*var\(--acrf-annotation-width\)/);
   assert.match(annotationRule, /height:\s*var\(--acrf-annotation-height\)/);
   assert.match(annotationRule, /border:\s*var\(--acrf-annotation-border-width\) solid #c00000/i);
-  assert.match(annotationRule, /background:\s*#fff2f2/i);
+  assert.match(annotationRule, /background:\s*var\(--acrf-annotation-background\)/);
   assert.match(annotationRule, /color:\s*#c00000/i);
   assert.doesNotMatch(annotationRule, /pointer-events:\s*none/);
 

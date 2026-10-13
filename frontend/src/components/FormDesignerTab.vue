@@ -3201,6 +3201,7 @@ function openAddForm() {
             :landscape-mode="landscapeMode"
             :no-fields="!formFields.length"
             :show-acrf-annotations="showAcrfAnnotations"
+            :show-form-oid="editMode"
           />
         </div>
       </div>
@@ -3437,6 +3438,7 @@ function openAddForm() {
                       :landscape-mode="designerLandscapeMode"
                       :no-fields="!designerPreviewFields.length"
                       :show-acrf-annotations="showAcrfAnnotations"
+                      :show-form-oid="editMode"
                     />
                   </div>
                 </div>

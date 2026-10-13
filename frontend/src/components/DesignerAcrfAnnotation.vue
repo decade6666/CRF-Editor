@@ -60,7 +60,7 @@ const resetAriaLabel = computed(() => (props.kind === 'form' ? '重置表单 dom
   box-sizing: border-box;
   border: var(--acrf-annotation-border-width) solid #c00000;
   border-radius: 2px;
-  background: #fff2f2;
+  background: var(--acrf-annotation-background);
   color: #c00000;
   font-family: 'SimSun', serif;
   font-size: var(--acrf-annotation-font-size);

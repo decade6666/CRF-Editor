@@ -18,6 +18,9 @@ export const ACRF_ANNOTATION_EMU_PER_01CM = 3600;
 export const ACRF_ANNOTATION_BORDER_COLOR = '#C00000';
 export const ACRF_ANNOTATION_BACKGROUND_COLOR = '#FFF2F2';
 export const ACRF_ANNOTATION_TEXT_COLOR = '#C00000';
+// 底色半透明（2026-10-13 用户决策）：仅背景 75% 透明 / 25% 不透明，文字与边框保持不透明。
+// 后端 export_service.py 同名常量必须同值（DrawingML a:alpha = opacity × 100000 = 25000）。
+export const ACRF_ANNOTATION_BACKGROUND_OPACITY = 0.25;
 
 export const ANNOTATION_KIND_FIELD = 'field';
 export const ANNOTATION_KIND_INLINE_HEADER = 'inline-header';
@@ -49,6 +52,12 @@ function formatCssNumber(value, digits = 4) {
   return Number(value)
     .toFixed(digits)
     .replace(/\.?0+$/, '');
+}
+
+// '#FFF2F2' → '255, 242, 242'：供 rgba() 底色变量复用同一份色板常量。
+function backgroundColorRgbTriplet(hex) {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
 }
 
 export function clampAnnotationDelta01Cm(value) {
@@ -126,6 +135,7 @@ export function estimateAnnotationWidthCm(text) {
 
 export function buildAnnotationStyle({ text, kind = ANNOTATION_KIND_FIELD, deltaY01cm = 0 } = {}) {
   return {
+    '--acrf-annotation-background': `rgba(${backgroundColorRgbTriplet(ACRF_ANNOTATION_BACKGROUND_COLOR)}, ${ACRF_ANNOTATION_BACKGROUND_OPACITY})`,
     '--acrf-annotation-top': `${formatCssNumber(resolveAnnotationTopCm(kind, deltaY01cm))}cm`,
     '--acrf-annotation-height': `${formatCssNumber(ACRF_ANNOTATION_HEIGHT_CM)}cm`,
     '--acrf-annotation-width': `${formatCssNumber(estimateAnnotationWidthCm(text))}cm`,

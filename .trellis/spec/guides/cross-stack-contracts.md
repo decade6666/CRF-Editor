@@ -557,7 +557,7 @@ posOffset = defaultVerticalOffset + deltaY01cm * 3600
 
 **Shared frontend/backend constants**:
 
-- Visual constants that must evolve together: font size `8pt`, box height `0.7cm`, X padding `22860 EMU`, Y padding `18000 EMU`, border width `12700 EMU`, max width `4.6cm`, default vertical offset `-26940 EMU`.
+- Visual constants that must evolve together: font size `8pt`, box height `0.7cm`, X padding `22860 EMU`, Y padding `18000 EMU`, border width `12700 EMU`, max width `4.6cm`, default vertical offset `-26940 EMU`, background fill opacity `0.25` (`ACRF_ANNOTATION_BACKGROUND_OPACITY`; Word writes `<a:alpha val="25000"/>` — opacity × 100000 — beneath the annotation shape fill color only; annotation text and border, and the reset control's own state opacities, stay unchanged).
 - Frontend single source: `frontend/src/composables/acrfAnnotationGeometry.js`
 - Backend single source: `backend/src/services/export_service.py`
 - Validation/storage single source: `backend/src/schemas/form.py`

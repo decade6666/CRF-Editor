@@ -19,6 +19,7 @@ from src.models.user import User
 from src.models.visit import Visit
 from src.models.visit_form import VisitForm
 from src.services.export_service import (
+    ACRF_ANNOTATION_BACKGROUND_OPACITY,
     ACRF_ANNOTATION_DEFAULT_VERTICAL_OFFSET_EMU,
     ACRF_ANNOTATION_EMU_PER_01CM,
     ExportError,
@@ -30,6 +31,7 @@ NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
     "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
     "wps": "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
 }
 
 
@@ -51,6 +53,24 @@ def _annotation_anchor_count(docx_path: Path) -> int:
 def _annotation_shape_count(docx_path: Path) -> int:
     tree = _document_xml_tree(docx_path)
     return len(tree.xpath("//wps:wsp", namespaces=NS))
+
+
+def _annotation_fill_alpha_vals(docx_path: Path) -> list[str]:
+    """收集每个注释形状背景填充色上的 a:alpha 取值（底色半透明契约：每盒恰一个 25000）。"""
+    tree = _document_xml_tree(docx_path)
+    return tree.xpath("//wps:wsp/wps:spPr/a:solidFill/a:srgbClr/a:alpha/@val", namespaces=NS)
+
+
+def _assert_fill_alpha_only_on_annotation_background(docx_path: Path, expected_boxes: int) -> None:
+    """背景填充半透明只允许出现在注释形状的 solidFill 内；边框与文字保持不透明。"""
+    assert (
+        _annotation_fill_alpha_vals(docx_path)
+        == [str(int(ACRF_ANNOTATION_BACKGROUND_OPACITY * 100000))] * expected_boxes
+    )
+    tree = _document_xml_tree(docx_path)
+    assert tree.xpath("//wps:wsp/wps:spPr/a:ln/a:solidFill/a:srgbClr/a:alpha", namespaces=NS) == []
+    assert tree.xpath("//wps:wsp/wps:txbx//a:alpha", namespaces=NS) == []
+    assert set(tree.xpath("//wps:wsp/wps:txbx//w:r/w:rPr/w:color/@w:val", namespaces=NS)) == {"C00000"}
 
 
 def _annotation_docpr_ids(docx_path: Path) -> list[str]:
@@ -374,6 +394,7 @@ def test_acrf_export_adds_expected_annotation_boxes_and_preserves_form_tables(tm
         _assert_annotation_counts(acrf_texts, expected_texts, absent=["Standalone log row", "LEGACY_LABEL"])
         assert _annotation_anchor_count(acrf_path) == len(expected_texts)
         assert _annotation_shape_count(acrf_path) == len(expected_texts)
+        _assert_fill_alpha_only_on_annotation_background(acrf_path, len(expected_texts))
         _assert_anchors_wrapped_in_drawing(acrf_path)
         _assert_unique_docpr_ids(acrf_path)
         _assert_no_annotation_nodes(ecrf_path)
@@ -463,6 +484,7 @@ def test_mixed_landscape_annotations_only_emit_boxes_for_annotated_output(tmp_pa
         _assert_annotation_counts(annotated_texts, expected_texts, absent=["Unified log row", "UNI_LABEL"])
         assert _annotation_anchor_count(annotated_path) == len(expected_texts)
         assert _annotation_shape_count(annotated_path) == len(expected_texts)
+        _assert_fill_alpha_only_on_annotation_background(annotated_path, len(expected_texts))
         _assert_unique_docpr_ids(annotated_path)
         assert extract_docx_form_table_fields(annotated_path) == extract_docx_form_table_fields(plain_path)
     finally:
