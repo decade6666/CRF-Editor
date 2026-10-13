@@ -784,6 +784,65 @@ _BREADCRUMB_TAG_RE = re.compile(
     re.DOTALL,
 )
 
+# SessionStart overview budget. The full Phase Index range is ~11k characters,
+# so the overview renders only the phase boundaries, the detected platform's
+# routing group, and the guardrails; everything else stays available on demand
+# behind `_OVERVIEW_POINTER`.
+_OVERVIEW_LIMIT = 2000
+_OVERVIEW_POINTER = (
+    "Full guide: .trellis/workflow.md. Step detail: "
+    "`python3 ./.trellis/scripts/get_context.py --mode phase --step <X.Y>`."
+)
+
+# Sections kept in the overview: the phase skeleton, the resolved routing for
+# this host, and the consent/artifact/activation guardrails. Step lists and
+# planning prose are deliberately excluded - the guide pointer above plus
+# `get_context.py --mode phase --step <X.Y>` are the on-demand path for them,
+# and carrying them here is what pushed the payload past the budget.
+_OVERVIEW_SECTIONS = (
+    "## Phase Index",
+    "### Active Task Routing",
+    "### Guardrails",
+)
+
+# Inside a kept section only headings, list items, and quotes survive; prose
+# paragraphs are dropped so the overview stays a summary, not a copy. Fenced
+# blocks are tracked by the caller's fence state and are never filtered.
+_OVERVIEW_LINE_RE = re.compile(r"^(#{1,6}\s|[-*+]\s|\d+\.\s|>)")
+
+# Marker label vs stable id, mirroring common.workflow_phase. Duplicated
+# locally because the overview must still render when `.trellis/scripts` is not
+# importable (fresh checkout, broken scripts dir).
+_PLATFORM_LABEL_FALLBACKS = {
+    "claude": "Claude Code",
+    "kimi": "Kimi Code",
+    "omp": "Oh My Pi",
+    "dsh": "DeepSeek Harness",
+}
+
+# A platform marker line is `[A, B]` / `[/A, B]` on a line of its own.
+_GROUP_OPEN_RE = re.compile(r"^\[([A-Za-z][^\[\]]*)\]$")
+_GROUP_CLOSE_RE = re.compile(r"^\[/([A-Za-z][^\[\]]*)\]$")
+
+_FALLBACK_OVERVIEW = """\
+Phase 1: Plan    -> classify, request consent, then write planning artifacts
+Phase 2: Execute -> implement only after task status is in_progress
+Phase 3: Finish  -> verify, update spec, commit, and wrap up
+
+- Consent: creating a task requires user consent; consent to create is not
+  consent to implement.
+- Artifacts: lightweight tasks may be PRD-only; complex tasks need `prd.md`,
+  `design.md`, and `implement.md` reviewed before `task.py start`.
+- Activation: implementation waits for `task.py start` (status `in_progress`)
+  after artifact review.
+- Validation: checks must run before completion is reported; the commit step
+  stays reachable before `/trellis:finish-work`.
+
+The workflow Phase Index could not be summarized safely (missing, malformed, or
+larger than the overview budget); the full guide and per-step detail remain
+available through the pointer above.
+"""
+
 
 def _strip_breadcrumb_tag_blocks(content: str) -> str:
     """Remove `[workflow-state:STATUS]...[/workflow-state:STATUS]` blocks.
@@ -793,30 +852,267 @@ def _strip_breadcrumb_tag_blocks(content: str) -> str:
     UserPromptSubmit hook (`inject-workflow-state.py`). The session-start
     payload already covers the full step bodies, so re-inlining the
     breadcrumbs here would just duplicate context.
+
+    HTML comments go with them. Bracket-only lines are deliberately NOT removed
+    here: an earlier version deleted every `[...]` line, which erased the
+    `[Claude Code, ...]` marker lines while keeping both groups' contents, so
+    two unlabeled, identical routing routes reached the model. Platform groups
+    are resolved by `_select_platform_groups` before any marker is hidden.
     """
     stripped = _BREADCRUMB_TAG_RE.sub("", content)
     stripped = re.sub(r"<!--.*?-->", "", stripped, flags=re.DOTALL)
-    stripped = re.sub(r"^\[(?!/?workflow-state:)/?[^\]\n]+\]\s*\n?", "", stripped, flags=re.MULTILINE)
     return re.sub(r"\n{3,}", "\n\n", stripped).strip()
 
 
-def _build_workflow_overview(workflow_path: Path) -> str:
-    """Inject only the compact Phase Index summary for SessionStart."""
-    content = read_file(workflow_path)
-    if not content:
-        return "No workflow.md found"
+def _normalize_platform_name(name: str) -> str:
+    """Case/punctuation-insensitive platform name for marker comparison."""
+    return name.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
 
-    out_lines = [
-        "# Development Workflow - Session Summary",
-        "Full guide: .trellis/workflow.md. Step detail: `python3 ./.trellis/scripts/get_context.py --mode phase --step <X.Y>`.",
-        "",
+
+def _read_codex_dispatch_mode(config_path: Path) -> str | None:
+    """Return `codex.dispatch_mode` from `.trellis/config.yaml`, or None.
+
+    Fallback for when the shared reader is unavailable (`.trellis/scripts` not
+    importable). The hook needs this single key, so it does not pull in a YAML
+    parser on the startup path.
+    """
+    try:
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, OSError):
+        return None
+    in_codex = False
+    for raw in lines:
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        if not line.startswith((" ", "\t")):
+            in_codex = line.strip() == "codex:"
+            continue
+        if in_codex and line.strip().startswith("dispatch_mode:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _codex_dispatch_mode(trellis_dir: Path) -> str:
+    """Return `auto` or `inline` for the Codex host.
+
+    The shared reader is preferred so `.trellis/config.yaml` decides; the local
+    fallback read keeps the behaviour identical when `.trellis/scripts` is not
+    importable. A missing section means the default (`auto`, matching
+    `common.config.DEFAULT_CODEX_DISPATCH_MODE`); an invalid explicit value
+    falls back to `inline`, as the shared parser does, so a typo cannot
+    silently switch a host into sub-agent dispatch.
+    """
+    scripts_dir = trellis_dir / "scripts"
+    config: object = None
+    if scripts_dir.is_dir():
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        try:
+            from common.trellis_config import read_trellis_config  # type: ignore[import-not-found]
+
+            config = read_trellis_config(trellis_dir.parent)
+        except Exception:
+            config = None  # Optional helper; the local reader covers it.
+    if not isinstance(config, dict):
+        mode = _read_codex_dispatch_mode(trellis_dir / "config.yaml")
+        if mode is None:
+            return "auto"
+        return "auto" if mode.strip().lower() in ("auto", "sub-agent") else "inline"
+    codex = config.get("codex")
+    if codex is None:
+        return "auto"
+    if not isinstance(codex, dict):
+        return "inline"
+    raw = str(codex.get("dispatch_mode", "auto")).strip().lower()
+    return "auto" if raw in ("auto", "sub-agent") else "inline"
+
+
+def _effective_platform_label(platform: str | None, trellis_dir: Path) -> str | None:
+    """Resolve a platform id to the label its marker block uses.
+
+    `claude` has to match a `[Claude Code, ...]` block, so the shared
+    `common.workflow_phase.resolve_effective_platform` is preferred when
+    `.trellis/scripts` is importable; the local fallback table covers every id
+    whose marker label differs from the id. Unknown ids pass through unchanged,
+    which leaves group selection labeled rather than guessing.
+
+    `codex` is namespaced by its dispatch mode first: the shared helper reads
+    that mode from the config dict it is handed, and this hook passes none, so
+    the mode is resolved here instead of defaulting every Codex host to the
+    sub-agent group.
+    """
+    if not platform:
+        return None
+    name = platform.strip().lower()
+    if name == "codex":
+        mode = _codex_dispatch_mode(trellis_dir)
+        return "codex-sub-agent" if mode == "auto" else "codex-inline"
+    scripts_dir = trellis_dir / "scripts"
+    if scripts_dir.is_dir():
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        try:
+            from common.workflow_phase import resolve_effective_platform  # type: ignore[import-not-found]
+
+            return resolve_effective_platform(name, {})
+        except Exception:
+            pass  # Optional helper; fall back to the local label table.
+    return _PLATFORM_LABEL_FALLBACKS.get(name, name)
+
+
+def _find_group_close(lines: list[str], start: int, names: list[str]) -> int | None:
+    """Index of the `[/...]` line closing the group that opens at `start`.
+
+    A group whose closing marker lists different platforms, or that runs into
+    another opening marker first, is malformed and treated as ordinary text.
+    Fenced blocks are skipped so sample markers inside code never pair.
+    """
+    target = sorted(_normalize_platform_name(n) for n in names)
+    in_fence = False
+    for j in range(start, len(lines)):
+        stripped = lines[j].strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _GROUP_CLOSE_RE.match(stripped)
+        if m:
+            closing = sorted(
+                _normalize_platform_name(n) for n in m.group(1).split(",") if n.strip()
+            )
+            return j if closing == target else None
+        if _GROUP_OPEN_RE.match(stripped):
+            return None
+    return None
+
+
+def _platform_group_spans(lines: list[str]) -> list[tuple[int, int, list[str]]]:
+    """Find well-formed `[A, B] ... [/A, B]` marker pairs, skipping fences.
+
+    A bracket-only line with no matching close is ordinary Markdown and is
+    left alone.
+    """
+    spans: list[tuple[int, int, list[str]]] = []
+    in_fence = False
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence:
+            m = _GROUP_OPEN_RE.match(stripped)
+            if m:
+                names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+                close = _find_group_close(lines, i + 1, names)
+                if close is not None:
+                    spans.append((i, close, names))
+                    i = close + 1
+                    continue
+        i += 1
+    return spans
+
+
+def _select_platform_groups(content: str, platform: str | None) -> str:
+    """Keep only the detected platform's groups; hide their marker lines.
+
+    Selection runs before any marker is hidden - the earlier order deleted the
+    labels while keeping the contents, which duplicated the shared routing
+    route. Non-matching groups are dropped whole. When no group matches at all
+    (unknown or unlisted host), every group is kept WITH its label instead of
+    guessing which route applies to the session.
+    """
+    lines = content.splitlines()
+    spans = _platform_group_spans(lines)
+    needle = _normalize_platform_name(platform) if platform else None
+    matched = [
+        idx
+        for idx, (_, _, names) in enumerate(spans)
+        if needle and any(_normalize_platform_name(n) == needle for n in names)
     ]
+    if spans and not matched:
+        return content
+    drop: set[int] = set()
+    hide: set[int] = set()
+    for idx, (open_i, close_i, _) in enumerate(spans):
+        if idx in matched:
+            hide.update((open_i, close_i))
+        else:
+            drop.update(range(open_i, close_i + 1))
+    kept = [line for i, line in enumerate(lines) if i not in drop and i not in hide]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
-    phases = _extract_range(content, "Phase Index", "Phase 1: Plan")
+
+def _overview_blocks(content: str) -> dict[str, list[str]]:
+    """Split the Phase Index range into heading-keyed blocks.
+
+    Every ATX heading starts a block (`##` and `###` alike), so the allowlist
+    can pick individual sections instead of the whole range.
+    """
+    blocks: dict[str, list[str]] = {}
+    key = ""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if re.match(r"^#{1,6}\s", stripped):
+            key = stripped
+            blocks[key] = []
+        if key:
+            blocks[key].append(line)
+    return blocks
+
+
+def _condense_section(lines: list[str]) -> list[str]:
+    """Keep headings, list items, quotes, and fenced blocks; drop prose."""
+    kept: list[str] = []
+    in_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            kept.append(line)
+        elif in_fence or _OVERVIEW_LINE_RE.match(stripped) or not stripped:
+            kept.append(line)
+    return kept
+
+
+def _render_overview_sections(content: str) -> str:
+    """Render the allowlisted sections of the Phase Index range."""
+    blocks = _overview_blocks(content)
+    out: list[str] = []
+    for key in _OVERVIEW_SECTIONS:
+        block = blocks.get(key)
+        if not block:
+            continue
+        out.extend(_condense_section(block))
+        out.append("")
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def _build_workflow_overview(workflow_path: Path, platform: str | None = None) -> str:
+    """Inject only the compact Phase Index summary for SessionStart.
+
+    The whole overview - heading, guide/step pointer, and sections - must stay
+    within `_OVERVIEW_LIMIT` Unicode characters. When the source is missing,
+    malformed, or too large to summarize, a reviewed static summary replaces it
+    rather than any blind truncation; no model call and no file write happens
+    here.
+    """
+    content = read_file(workflow_path)
+    phases = _extract_range(content, "Phase Index", "Phase 1: Plan") if content else ""
+    summary = ""
     if phases:
-        out_lines.append(_strip_breadcrumb_tag_blocks(phases).rstrip())
+        cleaned = _strip_breadcrumb_tag_blocks(phases)
+        selected = _select_platform_groups(
+            cleaned, _effective_platform_label(platform, workflow_path.parent)
+        )
+        summary = _render_overview_sections(selected)
 
-    return "\n".join(out_lines).rstrip()
+    head = f"# Development Workflow - Session Summary\n{_OVERVIEW_POINTER}\n\n"
+    overview = f"{head}{summary}" if summary else ""
+    if not summary or len(overview) > _OVERVIEW_LIMIT:
+        overview = f"{head}{_FALLBACK_OVERVIEW}"
+    return overview.rstrip()
 
 
 def main():
@@ -885,7 +1181,12 @@ Trellis compact SessionStart context. Use it to orient the session; load details
     output.write("\n</current-state>\n\n")
 
     output.write("<trellis-workflow>\n")
-    output.write(_build_workflow_overview(trellis_dir / "workflow.md"))
+    output.write(
+        _build_workflow_overview(
+            trellis_dir / "workflow.md",
+            platform=_detect_platform(hook_input),
+        )
+    )
     output.write("\n</trellis-workflow>\n\n")
 
     output.write("<guidelines>\n")
