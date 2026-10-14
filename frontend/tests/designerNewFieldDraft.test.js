@@ -200,7 +200,7 @@ test('切换项目时设计器已激活就必须经过 canLeaveProject 守卫', 
 })
 
 test('草稿存在时禁止排序', () => {
-  assert.match(fnBody('onDrop'), /if \(hasDraft\.value\) return ElMessage\.warning/)
+  assert.match(fnBody('commitFieldDropAtBoundary'), /if \(hasDraft\.value\) return ElMessage\.warning/)
 })
 
 test('batchDelete 删除标签字段后回放时可重建被清理的字段定义', () => {

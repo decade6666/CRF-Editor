@@ -371,7 +371,7 @@ test('all async history commands capture context and both reorder paths pass it 
     'copyFormField',
     'removeField',
     'batchDelete',
-    'onDrop',
+    'commitFieldDropAtBoundary',
     'saveFieldProp',
     'saveDraftField',
     'addLogRow',
@@ -384,7 +384,10 @@ test('all async history commands capture context and both reorder paths pass it 
   const persistBody = functionBody('persistFieldReorder')
   assert.match(persistBody, /recordReorderHistory\(historyContext, previousOrder, nextOrder\)/)
   assert.match(persistBody, /if \(isCurrentDesignerHistoryContext\(historyContext\)\) \{[\s\S]*formFields\.value = previousFields/)
-  assert.match(functionBody('onDrop'), /persistFieldReorder\(historyContext, previousFields, normalizeFormFieldOrder\(arr\)\)/)
+  // 拖拽路径：onDrop / onDropAtListEnd 委托边界换算，由 commit 捕获上下文并调用共享 persist
+  assert.match(functionBody('onDrop'), /await commitFieldDropAtBoundary\(previousFields, boundaryIdx\)/)
+  assert.match(functionBody('onDropAtListEnd'), /commitFieldDropAtBoundary\(sortFormFieldsByOrder\(formFields\.value\), formFields\.value\.length\)/)
+  assert.match(functionBody('commitFieldDropAtBoundary'), /persistFieldReorder\(historyContext, previousFields, normalizeFormFieldOrder\(arr\)\)/)
   assert.match(functionBody('handleFieldKeydown'), /persistFieldReorder\(historyContext, previousFields, normalizeFormFieldOrder\(arr\)\)/)
 })
 
@@ -459,7 +462,7 @@ test('stale async completions cannot mutate current designer field state or focu
     reorderBody,
     /await api\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;[\s\S]*?recordReorderHistory\(historyContext, previousOrder, nextOrder\)/,
   )
-  assert.match(functionBody('onDrop'), /await persistFieldReorder\(historyContext, previousFields,/)
+  assert.match(functionBody('commitFieldDropAtBoundary'), /await persistFieldReorder\(historyContext, previousFields,/)
   const keyboardBody = functionBody('handleFieldKeydown')
   assert.match(keyboardBody, /await persistFieldReorder\(historyContext, previousFields,/)
   assert.match(keyboardBody, /nextTick\(\(\) => \{[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/)
@@ -511,7 +514,7 @@ test('history-producing command functions reject new work while replay is busy',
   for (const name of [
     'copyFormField',
     'batchDelete',
-    'onDrop',
+    'commitFieldDropAtBoundary',
     'saveFieldProp',
     'newField',
     'saveDraftField',
@@ -521,7 +524,7 @@ test('history-producing command functions reject new work while replay is busy',
   }
   assert.match(functionBody('removeField'), /if \(designerHistory\.busy\.value && !isDraftField\(ff\)\) return;/)
   assert.match(functionBody('onDragStart'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) \{[\s\S]*return;/)
-  assert.match(functionBody('onDrop'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
+  assert.match(functionBody('commitFieldDropAtBoundary'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
   assert.match(functionBody('handleFieldKeydown'), /if \(ctrlKey && \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\)\)\) return;/)
   assert.match(functionBody('handleFieldKeydown'), /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) return;/)
 })
@@ -550,7 +553,7 @@ test('field property save blocks conflicting mutations until the request settles
     'copyFormField',
     'addLogRow',
     'onDragStart',
-    'onDrop',
+    'commitFieldDropAtBoundary',
   ]) {
     assert.match(
       functionBody(name),
@@ -581,7 +584,7 @@ test('membership-changing actions, history replay, and leave guards all block re
   }
   assert.match(functionBody('persistFieldReorder'), /if \(isReordering\.value \|\| isFieldMembershipBusy\(\)\) return false/)
   assert.match(functionBody('onDragStart'), /isFieldMembershipBusy\(\)/)
-  assert.match(functionBody('onDrop'), /isFieldMembershipBusy\(\)/)
+  assert.match(functionBody('commitFieldDropAtBoundary'), /isFieldMembershipBusy\(\)/)
   assert.match(functionBody('handleFieldKeydown'), /isFieldMembershipBusy\(\)/)
   assert.match(
     designerSource,
