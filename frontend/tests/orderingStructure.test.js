@@ -207,6 +207,10 @@ test('FormDesignerTab field reorder dragover advertises a move drop target for t
   assert.match(onDragOverBody, /e\.preventDefault\(\)/);
   assert.match(onDragOverBody, /e\.dataTransfer\.dropEffect = 'move'/);
   assert.match(formsSource, /@dragover\.prevent="onDragOver\(\$event, idx\)"/);
+  // 行落点按字段 ID 定位“该行上方”边界；末尾落点区域独立提供第 N+1 个边界
+  assert.match(formsSource, /@drop="onDrop\(\$event, ff\.id\)"/);
+  assert.match(formsSource, /class="ff-drop-end"[\s\S]*?@dragover\.prevent="onDragOver\(\$event, designerVisibleFields\.length\)"/);
+  assert.match(formsSource, /@drop\.stop="onDropAtListEnd\(\$event\)"/);
   assert.match(formsSource, /function onDragStart\(ff, e\)/);
   assert.match(formsSource, /if \(designerHistory\.busy\.value \|\| isReordering\.value \|\| isFieldMembershipBusy\(\) \|\| isSavingFieldProp\.value \|\| savingDraft\.value\) \{/);
   assert.match(formsSource, /e\.dataTransfer\.effectAllowed = 'move'/);

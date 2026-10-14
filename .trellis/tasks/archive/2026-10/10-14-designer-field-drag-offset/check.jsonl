@@ -1,0 +1,6 @@
+{"file": ".context/prefs/coding-style.md", "reason": "Check minimal immutable changes and preserve domain/API boundaries without opportunistic refactoring."}
+{"file": ".context/prefs/workflow.md", "reason": "Verify real RED/GREEN evidence, actual diff, browser verification honesty, and no unauthorized dependency/build/release changes."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Check the Designer History Busy / Session Residual Coordination section (lines 624-645), especially optimistic success, stale context/cache order, draft guards, and membership-reorder exclusion."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check mounted wiring regressions against Component Mount Tests (lines 233-249), warning gate, API spy boundary, and existing test toolchain."}
+{"file": ".trellis/tasks/10-14-designer-field-drag-offset/research/drag-root-cause.md", "reason": "Verify true before-target insertion, directional correction, adjacent no-op and end boundary; retain actual ordered_ids/204 API despite stale spec example."}
+{"file": ".trellis/tasks/10-14-designer-field-drag-offset/research/test-coverage.md", "reason": "Require executed landing/history/rollback regressions, not string-only assertions; do not claim VM percentages or simulated events are SFC coverage or real-browser validation."}

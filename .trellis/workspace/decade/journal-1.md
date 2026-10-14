@@ -897,3 +897,46 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Status
 
 [OK] **Completed** — 已合并 `main` 并推送 origin；worktree 与分支已清理。
+
+## Session 23: 字段拖拽落点修复（designer-field-drag-offset）
+
+### 完成内容
+
+- 修复 `FormDesignerTab.vue` 原生字段拖拽落点偏移：`onDrop` 改为按字段 ID 在
+  `sortFormFieldsByOrder` 统一可见逻辑顺序中定位目标，`commitFieldDropAtBoundary`
+  以 `insertIndex = boundaryIndex - (srcIdx < boundaryIndex ? 1 : 0)` 换算插入边界；
+  新增 `onDropAtListEnd` 显式末尾落点（`.ff-drop-end`），同位/相邻/自身落点零请求零历史。
+- 附带根因修复：行内批量选择框改 `:model-value` 布尔绑定 + `toggleFieldSelection`
+  （消除 el-checkbox 数组 modelValue prop 类型警告，键盘空格共用）；挂载测试门禁
+  「任何 Vue 警告即失败」要求修根因而非消音。
+- 新测试：`tests/designerFieldReorder.test.js`（21 例行为测试，真实函数 bind 提取执行）
+  与 `tests/component/FormDesignerFieldReorder.spec.js`（3 例真实挂载）；更新 4 个既有
+  源码契约断言文件（onDrop→commitFieldDropAtBoundary 契约迁移 + 新接线锁定）。
+- 文档同步：README.md / README.en.md 表单设计条目、`frontend/.claude/CLAUDE.md`
+  FormDesignerTab 描述、`.claude/index.json` 测试索引。
+- 浏览器验收（一次性后端 :8901 + 无头 Chrome，凭据经用户授权生成）：首次向下拖、
+  向上拖、末尾落点+高亮、相邻 no-op 零请求、首位落点、撤销回放、刷新重开持久化、
+  真实新增保存后拖动，8 项全通过；POST 逐笔核对 `{ordered_ids}`。
+
+### 关键事实
+
+- RED：16 失败 / 5 对照通过（与规划会话复现表逐字一致）；GREEN：21/21。
+- 全量回归：node:test 995/995 + vitest 118/118；lint 0 error（+12 条测试文件风格警告）；
+  build 通过。
+- 测试 harness 教训：提取组件函数需「依赖形参前置 + .bind()」，保持组件内部调用签名；
+  旧/新形参名差异（targetIdx/targetId）由 functionParams 动态解析。
+- 应用 CSP `default-src 'self'` 阻止页面跨端口 fetch 辅助服务（非代理问题）；
+  `localhost` 走 ::1 而后端听 0.0.0.0，浏览器验收一律用 `127.0.0.1`。
+- 遗留：`.trellis/spec/guides/cross-stack-contracts.md:114-133` 排序接口示例仍与实际
+  `{ordered_ids}`/HTTP 204 冲突，留作独立规范纠正改动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4681b07` | fix(designer): 字段拖拽按插入边界落点并新增末尾落点 |
+| （见下） | chore(task): 归档字段拖拽落点任务并记录实施决策 |
+
+### Status
+
+[OK] **Completed** — 待合并 `main` 并重启本地 8888 服务供用户人工测试。

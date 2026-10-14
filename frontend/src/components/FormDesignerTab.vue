@@ -1161,21 +1161,39 @@ async function persistFieldReorder(historyContext, previousFields, normalized) {
   }
 }
 
-async function onDrop(e, targetIdx) {
+// 拖拽提示线是目标行的上边框，即“插入到该行之前”的边界；N 行共有 N+1 个边界。
+// 在统一可见逻辑顺序中定位源与边界，删除源字段后仅当源位于边界前方时边界前移一位。
+async function commitFieldDropAtBoundary(previousFields, boundaryIndex) {
+  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy() || isSavingFieldProp.value || savingDraft.value) return;
+  const srcIdx = previousFields.findIndex((f) => f.id === dragSrcId.value);
+  if (srcIdx === -1) return;
+  if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
+  const insertIndex = boundaryIndex - (srcIdx < boundaryIndex ? 1 : 0);
+  if (insertIndex === srcIdx) return;
+  const historyContext = captureDesignerHistoryContext();
+  if (!historyContext) return;
+  const arr = [...previousFields];
+  const [item] = arr.splice(srcIdx, 1);
+  arr.splice(insertIndex, 0, item);
+  await persistFieldReorder(historyContext, previousFields, normalizeFormFieldOrder(arr));
+}
+
+async function onDrop(e, targetId) {
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
   dragOverIdx.value = null;
-  if (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy() || isSavingFieldProp.value || savingDraft.value) return;
-  const srcIdx = formFields.value.findIndex((f) => f.id === dragSrcId.value);
-  if (srcIdx === -1 || srcIdx === targetIdx) return;
-  if (hasDraft.value) return ElMessage.warning('请先保存或丢弃新增字段草稿');
-  const historyContext = captureDesignerHistoryContext();
-  if (!historyContext) return;
-  const previousFields = formFields.value;
-  const arr = [...previousFields];
-  const [item] = arr.splice(srcIdx, 1);
-  arr.splice(targetIdx, 0, item);
-  await persistFieldReorder(historyContext, previousFields, normalizeFormFieldOrder(arr));
+  const previousFields = sortFormFieldsByOrder(formFields.value);
+  const boundaryIdx = previousFields.findIndex((f) => f.id === targetId);
+  if (boundaryIdx === -1) return;
+  await commitFieldDropAtBoundary(previousFields, boundaryIdx);
+}
+
+// 列表末尾落点：拖入末尾区域即移动到绝对末尾（第 N+1 个边界）
+async function onDropAtListEnd(e) {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  dragOverIdx.value = null;
+  await commitFieldDropAtBoundary(sortFormFieldsByOrder(formFields.value), formFields.value.length);
 }
 
 // 键盘排序与焦点
@@ -1183,6 +1201,14 @@ const fieldItemRefs = ref({});
 onBeforeUpdate(() => {
   fieldItemRefs.value = {};
 });
+
+// 批量选择框（行内点击与空格键共用）：selectedIds 为字段 id 数组，按成员切换
+function toggleFieldSelection(ff) {
+  const id = ff.id,
+    idx = selectedIds.value.indexOf(id);
+  if (idx > -1) selectedIds.value.splice(idx, 1);
+  else selectedIds.value.push(id);
+}
 
 async function handleFieldKeydown(event, field, index) {
   const { key, ctrlKey } = event;
@@ -1194,10 +1220,7 @@ async function handleFieldKeydown(event, field, index) {
   }
   if (key === ' ') {
     if (isDraftField(field)) return;
-    const id = field.id,
-      idx = selectedIds.value.indexOf(id);
-    if (idx > -1) selectedIds.value.splice(idx, 1);
-    else selectedIds.value.push(id);
+    toggleFieldSelection(field);
     return;
   }
   if (ctrlKey && (designerHistory.busy.value || isReordering.value || isFieldMembershipBusy())) return;
@@ -3348,17 +3371,17 @@ function openAddForm() {
                   @dragstart="onDragStart(ff, $event)"
                   @dragover.prevent="onDragOver($event, idx)"
                   @dragleave="onDragLeave"
-                  @drop="onDrop($event, idx)"
+                  @drop="onDrop($event, ff.id)"
                   @keydown="handleFieldKeydown($event, ff, idx)"
                 >
                   <span class="ff-select-slot"
                     ><el-checkbox
                       v-if="!isDraftField(ff)"
-                      v-model="selectedIds"
-                      :value="ff.id"
+                      :model-value="selectedIds.includes(ff.id)"
                       size="small"
                       draggable="false"
                       @click.stop
+                      @change="toggleFieldSelection(ff)"
                       ><span></span></el-checkbox
                   ></span
                   ><span class="ordinal-cell" style="width: 56px; margin-left: 2px">{{ ff._displayOrder }}</span
@@ -3416,6 +3439,17 @@ function openAddForm() {
                       @click.stop="removeField(ff)"
                       ><el-icon aria-hidden="true"><Delete /></el-icon></el-button
                     ></el-tooltip>
+                </div>
+                <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- 末尾落点仅接收拖放事件，拖拽已有键盘排序（Ctrl+↑/↓）等价替代 -->
+                <div
+                  v-if="designerVisibleFields.length"
+                  class="ff-drop-end"
+                  :class="{ 'ff-drop-end-active': dragOverIdx === designerVisibleFields.length }"
+                  @dragover.prevent="onDragOver($event, designerVisibleFields.length)"
+                  @dragleave="onDragLeave"
+                  @drop.stop="onDropAtListEnd($event)"
+                >
+                  拖到此处移至末尾
                 </div>
               </div>
             </div>
@@ -4124,6 +4158,21 @@ function openAddForm() {
 .ff-item.ff-selected {
   border-color: var(--color-selected-border);
   background: var(--color-selected-bg);
+}
+.ff-drop-end {
+  margin-top: 2px;
+  padding: 8px 6px;
+  border: 1px dashed var(--color-border);
+  border-radius: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: center;
+  user-select: none;
+}
+.ff-drop-end-active {
+  border-top: 2px solid var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .drag-handle {
   cursor: move;

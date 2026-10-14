@@ -1,0 +1,6 @@
+{"file": ".context/prefs/coding-style.md", "reason": "Keep immutable, minimal frontend changes; preserve sorting contracts and testing conventions."}
+{"file": ".context/prefs/workflow.md", "reason": "Reproduce and add behavior RED before implementation; code changes and Trellis updates have separate authorization/commit boundaries."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Read the Designer History Busy / Session Residual Coordination section (lines 624-645) and relevant draft guards; preserve optimistic reorder, session isolation, and mutual exclusion."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "If adding a mounted wiring regression, follow Component Mount Tests (lines 233-249), the existing real Element Plus setup, and zero-warning gate; do not expand dependencies."}
+{"file": ".trellis/tasks/10-14-designer-field-drag-offset/research/drag-root-cause.md", "reason": "Verified drop-boundary defect, original-function RED evidence, first-only qualification, exact ordered_ids/204 contract, and move-to-end compatibility constraint."}
+{"file": ".trellis/tasks/10-14-designer-field-drag-offset/research/test-coverage.md", "reason": "Existing actual-function harness precedent, required behavior regression matrix, source-test limitations, and honest SFC coverage boundary."}

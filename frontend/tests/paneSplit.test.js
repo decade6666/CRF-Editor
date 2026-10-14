@@ -120,13 +120,16 @@ describe('FormDesignerTab pane split wiring', () => {
 });
 
 describe('FormDesignerTab R3: checkbox value binding', () => {
-  test('uses :value instead of :label for ff.id', () => {
-    assert.match(formDesignerSource, /:value="ff\.id"/);
+  test('uses explicit boolean model + toggle instead of :label for ff.id', () => {
+    // 2026-10-14 起：:model-value 布尔绑定 + @change 切换 selectedIds（消除 el-checkbox 数组
+    // modelValue 的 prop 类型警告），字段 id 经 toggleFieldSelection(ff) 携带；仍禁止 :label。
+    assert.match(formDesignerSource, /:model-value="selectedIds\.includes\(ff\.id\)"/);
+    assert.match(formDesignerSource, /@change="toggleFieldSelection\(ff\)"/);
     assert.doesNotMatch(formDesignerSource, /:label="ff\.id"/);
   });
 
   test('checkbox has empty span slot to prevent label rendering', () => {
-    assert.match(formDesignerSource, /:value="ff\.id"[\s\S]*?><span><\/span><\/el-checkbox/);
+    assert.match(formDesignerSource, /@change="toggleFieldSelection\(ff\)"[\s\S]*?><span><\/span><\/el-checkbox/);
   });
 
   test('preserves _displayOrder ordinal cell', () => {
