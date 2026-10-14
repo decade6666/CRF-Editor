@@ -935,7 +935,7 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 | Hash | Message |
 |------|---------|
 | `4681b07` | fix(designer): 字段拖拽按插入边界落点并新增末尾落点 |
-| （见下） | chore(task): 归档字段拖拽落点任务并记录实施决策 |
+| `f2580d3` | chore(task): 归档字段拖拽落点任务并记录实施决策 |
 
 ### Status
 
