@@ -940,3 +940,25 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Status
 
 [OK] **Completed** — 待合并 `main` 并重启本地 8888 服务供用户人工测试。
+
+
+## Session 25: 字典快编影响提醒改为仅多表单时弹出
+<!-- trellis-session: v=2 fp=4ccdc8fe48bebcdf -->
+
+**Date**: 2026-10-15
+**Task**: 字典快编影响提醒改为仅多表单时弹出
+**Branch**: `plan/codelist-impact-multiform`
+
+### Summary
+
+前置 10-14 合并后同步基线 b909ca5 并激活任务;TDD 修复共享弹窗 CodelistQuickEditDialog.confirmSave 的影响提醒谓词(refs.length → countDistinctForms(refs) > 1,复用 fieldReferenceImpact.js 同表单合并口径),新增 7 用例阈值套件并将 5 处单表单影响 fixture 升级为双表单;全量前端 137/137、相关 node:test 112/112、lint/build 通过,浏览器实测通过;README×2 与 frontend 模块文档同步。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8b76b8e` | fix(frontend): 字典快编影响提醒仅多表单时弹出 |
+
+### Status
+
+[OK] **Completed**

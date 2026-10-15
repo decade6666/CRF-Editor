@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
-- **Last Active**: 2026-10-12
+- **Total Sessions**: 25
+- **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~829 | Active |
+| `journal-1.md` | ~964 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-10-15 | 字典快编影响提醒改为仅多表单时弹出 | `8b76b8e` | `plan/codelist-impact-multiform` |
 | 21 | 2026-10-12 | 访视预览弹窗拆分（visits-preview-split） | `b8575cc`, `6cb035c`, `10722cb`, `a4aaaf9`, `0c86b1c` | `main` |
 | 20 | 2026-10-12 | 设计器拆分（designer-split）：预览模板与 aCRF 注释组件抽出并合入 main | `6a34721`, `8956090`, `b434ff0`, `cd0488d`, `ecbcd6d`, `e317a2e`, `54fd5fa` | `main` |
 | 19 | 2026-10-11 | 导入Word向导拆分（app-word-import-split） | `02eff57`, `f1f7379`, `8a486bb`, `4be74c1`, `98bc154`, `47ac218`, `fd97dd6`, `d9056df` | `main` |
