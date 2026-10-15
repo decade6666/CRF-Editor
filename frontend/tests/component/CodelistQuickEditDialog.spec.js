@@ -164,9 +164,10 @@ describe('CodelistQuickEditDialog', () => {
 
   it('编辑成功：引用确认后 snapshot 单请求保存，失效两份缓存并等待 afterChange，随后关闭并提示保存成功', async () => {
     vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
-    const getSpy = vi
-      .spyOn(api, 'get')
-      .mockResolvedValue([{ form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' }]);
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValue([
+      { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+    ]);
     const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
     const afterChange = vi.fn().mockResolvedValue(undefined);
@@ -236,6 +237,7 @@ describe('CodelistQuickEditDialog', () => {
     await openDialog(wrapper);
     vi.spyOn(api, 'get').mockResolvedValue([
       { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
     ]);
 
     await clickConfirm(wrapper);
@@ -245,6 +247,169 @@ describe('CodelistQuickEditDialog', () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
     expect(afterChange).not.toHaveBeenCalled();
     expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+  });
+
+  describe('影响提醒按受影响表单数判定', () => {
+    it('零引用编辑：不弹影响提醒，直接 snapshot 保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
+      const getSpy = vi.spyOn(api, 'get').mockResolvedValue([]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(getSpy).toHaveBeenCalledWith('/api/projects/1/codelists/5/references');
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(putSpy).toHaveBeenCalledWith('/api/projects/1/codelists/5/snapshot', expect.anything());
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+      expect(ElMessage.success).toHaveBeenCalledWith('保存成功');
+    });
+
+    it('仅一个表单的一条引用：不弹影响提醒，直接 snapshot 保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+      expect(ElMessage.success).toHaveBeenCalledWith('保存成功');
+    });
+
+    it('同一表单的多条字段引用：合并为单表单，不弹影响提醒直接保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '随访', form_code: 'V1', field_label: '年龄', field_var: 'age' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(ElMessage.success).toHaveBeenCalledWith('保存成功');
+    });
+
+    it('同一表单的重复引用行：合并计数后不弹影响提醒直接保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(ElMessage.success).toHaveBeenCalledWith('保存成功');
+    });
+
+    it('同名不同编码的两个表单：视为两个表单，弹一次影响提醒后保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '随访', form_code: 'V2', field_label: '心率', field_var: 'hr' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(confirmSpy.mock.calls[0][0]).toContain('随访(V1)');
+      expect(confirmSpy.mock.calls[0][0]).toContain('随访(V2)');
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+    });
+
+    it('两个表单的重复引用行合并后：仍恰好弹一次影响提醒并保存', async () => {
+      const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+        { form_name: '体格检查', form_code: 'PEx', field_label: '体重', field_var: 'weight' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+      expect(ElMessage.success).toHaveBeenCalledWith('保存成功');
+    });
+
+    it('影响提醒未决期间不发起写入，确认后才发 snapshot 请求', async () => {
+      let resolveConfirm;
+      vi.spyOn(ElMessageBox, 'confirm').mockReturnValue(
+        new Promise((resolve) => {
+          resolveConfirm = resolve;
+        }),
+      );
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+      ]);
+      const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
+      const wrapper = mountDialog({
+        mode: 'edit',
+        codelistId: 5,
+        codelists: [{ id: 5, name: '字典A', description: '', options: [] }],
+      });
+      await openDialog(wrapper);
+
+      await clickConfirm(wrapper);
+      expect(putSpy).not.toHaveBeenCalled();
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+
+      resolveConfirm('confirm');
+      await flushPromises();
+
+      expect(putSpy).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+    });
   });
 
   it('取消按钮：只发出关闭事件，不发请求、不失效缓存、不回调 afterChange', async () => {
@@ -296,9 +461,10 @@ describe('CodelistQuickEditDialog', () => {
 
   it('编辑保存请求在途时项目与字典目标已切换：snapshot 仍写入原目标，不回调 afterChange，弹窗静默关闭', async () => {
     vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
-    vi
-      .spyOn(api, 'get')
-      .mockResolvedValue([{ form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' }]);
+    vi.spyOn(api, 'get').mockResolvedValue([
+      { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+    ]);
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
     let resolvePut;
     const putSpy = vi.spyOn(api, 'put').mockReturnValue(
@@ -332,9 +498,10 @@ describe('CodelistQuickEditDialog', () => {
 
   it('编辑保存失败且操作已过期：只报原始错误并关闭弹窗，不回调 afterChange、不提示已刷新', async () => {
     vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
-    vi
-      .spyOn(api, 'get')
-      .mockResolvedValue([{ form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' }]);
+    vi.spyOn(api, 'get').mockResolvedValue([
+      { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+      { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+    ]);
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
     let rejectPut;
     const putSpy = vi.spyOn(api, 'put').mockReturnValue(
@@ -688,9 +855,10 @@ describe('CodelistQuickEditDialog', () => {
 
     it('编辑模式存在引用：未添加选项提醒先于影响提醒，两步依次通过后再保存', async () => {
       const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
-      vi
-        .spyOn(api, 'get')
-        .mockResolvedValue([{ form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' }]);
+      vi.spyOn(api, 'get').mockResolvedValue([
+        { form_name: '随访', form_code: 'V1', field_label: '性别', field_var: 'sex' },
+        { form_name: '体格检查', form_code: 'PEx', field_label: '身高', field_var: 'height' },
+      ]);
       const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
       const wrapper = mountDialog({
         mode: 'edit',

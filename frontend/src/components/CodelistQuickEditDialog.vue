@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api, truncRefs } from '../composables/useApi';
+import { countDistinctForms } from '../composables/fieldReferenceImpact';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
 
 // FieldsTab / FormDesignerTab 共用的字典快捷增/改弹窗（shared-rule-convergence R3）。
@@ -204,7 +205,9 @@ async function confirmSave() {
   saving.value = true;
   try {
     const refs = await api.get(`/api/projects/${opProjectId}/codelists/${opCodelistId}/references`);
-    if (refs.length) {
+    // 影响提醒只在引用跨两个及以上表单时出现（与字段库 fieldReferenceImpact 同口径：同表单多字段/重复行合并计数）；
+    // 单表单内任意多条引用直接保存。
+    if (countDistinctForms(refs) > 1) {
       const msg = truncRefs(refs.map((r) => `${r.form_name}(${r.form_code})-${r.field_label}(${r.field_var})`));
       await ElMessageBox.confirm(`修改将影响以下字段：\n${msg}\n确认修改？`, '影响提醒', { type: 'warning' });
     }

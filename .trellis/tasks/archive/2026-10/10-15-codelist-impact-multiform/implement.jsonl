@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Locate frontend standards; load only task-relevant sections of long specs rather than relying on truncated injection."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Use real component mount regressions, API-boundary spies, Vue warning gate, and the existing frontend test commands."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Respect worktree isolation, one writer per shared file, explicit commit authorization, and separate Trellis housekeeping."}
+{"file":".trellis/tasks/10-15-codelist-impact-multiform/research/frontend-impact-threshold.md","reason":"Verified defect, existing counter, shared consumers, adjacent-task ordering, and exact spec ranges to read before coding."}
+{"file":".trellis/tasks/10-15-codelist-impact-multiform/research/codelist-reference-api.md","reason":"Backend reference endpoint/data contract and why query, permissions, identity, and delete semantics must not change."}
