@@ -49,6 +49,15 @@ function resetForm() {
   optDecode.value = '';
 }
 
+// 未添加选项提醒：确认时若标签框仍有未点击「添加」的内容，先征求用户意见再保存。
+// 「返回编辑」、关闭或 Escape 都是普通用户决定：保留全部输入、不保存、不报错（无丢弃并保存动作）。
+const PENDING_OPTION_TITLE = '未添加选项';
+const PENDING_OPTION_MESSAGE = '有一项标签尚未点击“添加”，是否添加并保存？';
+// dialogSession 每次打开递增：提醒未决期间弹窗关闭重开或切换目标后，迟到的决定一律失效；
+// pendingReminderActive 独立于 saving——若复用 saving，confirmAdd/confirmSave 的在途守卫会直接 no-op。
+let dialogSession = 0;
+let pendingReminderActive = false;
+
 // 打开时按模式初始化（原 FieldsTab openQuickAddCodelist / openQuickEditCodelist 的
 // 状态播种序列迁入此处）：add 清空并以 C.1 起始；edit 按 codelistId 从 codelists 回填。
 // immediate 兼容「挂载时 modelValue 已为 true」的懒挂载用法。
@@ -57,6 +66,7 @@ watch(
   ([visible]) => {
     if (!visible) return;
     resetForm();
+    dialogSession += 1;
     if (props.mode === 'add') {
       optCode.value = 'C.1';
       return;
@@ -232,7 +242,45 @@ async function confirmSave() {
   }
 }
 
-function onConfirm() {
+// 确认入口：有待添加标签时先弹「未添加选项」提醒（先于引用查询/写入，也不绕过后续校验与影响提醒）。
+async function onConfirm() {
+  if (saving.value || pendingReminderActive) return;
+  if (optDecode.value.trim()) {
+    // 校验失败只提示一次：这里先拦下并提示，confirmAdd/confirmSave 内部的二次校验静默通过
+    if (!validateForm()) return;
+    const opProjectId = props.projectId;
+    const opMode = props.mode;
+    const opCodelistId = props.codelistId;
+    const session = dialogSession;
+    pendingReminderActive = true;
+    let accepted = false;
+    try {
+      await ElMessageBox.confirm(PENDING_OPTION_MESSAGE, PENDING_OPTION_TITLE, {
+        type: 'warning',
+        confirmButtonText: '添加并保存',
+        cancelButtonText: '返回编辑',
+      });
+      accepted = true;
+    } catch (e) {
+      // 取消/关闭/Escape = 返回编辑：保留输入不保存，也不走保存失败的错误提示
+      if (e !== 'cancel' && e !== 'close') ElMessage.error(e.message);
+    } finally {
+      pendingReminderActive = false;
+    }
+    if (!accepted) return;
+    // 提醒未决期间弹窗关闭重开或项目/模式/字典目标已变化：迟到的决定对新上下文一律失效
+    if (
+      !props.modelValue ||
+      props.projectId !== opProjectId ||
+      props.mode !== opMode ||
+      props.codelistId !== opCodelistId ||
+      dialogSession !== session ||
+      !optDecode.value.trim()
+    ) {
+      return;
+    }
+    addOptRow();
+  }
   return props.mode === 'edit' ? confirmSave() : confirmAdd();
 }
 </script>
