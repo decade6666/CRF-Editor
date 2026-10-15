@@ -952,12 +952,23 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Summary
 
 修复访视信息保存后已挂载的访视流程实例不刷新：reloadVisits 在权威本地重载后递增共享 refreshKey，copyVisit 接入同一等待边界；新增双保留实例 vitest 回归（RED→GREEN）与项目级 PUT 真实缓存控制用例；npm test/lint/build 全绿；一次性后端 + headless 浏览器实机走查 AC1/AC2/AC3/AC6 通过（截图在 /tmp/visit-flow-e2e-rxKy/evidence/）。发现既有 Sortable.destroy 陈旧 tbody 竞态（未修，已记入记忆）。
+## Session 25: 字典快编影响提醒改为仅多表单时弹出
+<!-- trellis-session: v=2 fp=4ccdc8fe48bebcdf -->
+
+**Date**: 2026-10-15
+**Task**: 字典快编影响提醒改为仅多表单时弹出
+**Branch**: `plan/codelist-impact-multiform`
+
+### Summary
+
+前置 10-14 合并后同步基线 b909ca5 并激活任务;TDD 修复共享弹窗 CodelistQuickEditDialog.confirmSave 的影响提醒谓词(refs.length → countDistinctForms(refs) > 1,复用 fieldReferenceImpact.js 同表单合并口径),新增 7 用例阈值套件并将 5 处单表单影响 fixture 升级为双表单;全量前端 137/137、相关 node:test 112/112、lint/build 通过,浏览器实测通过;README×2 与 frontend 模块文档同步。
 
 ### Git Commits
 
 | Hash | Message |
 |------|---------|
 | `9612205` | fix(visits): 保存访视后广播刷新信号同步访视流程实例 |
+| `8b76b8e` | fix(frontend): 字典快编影响提醒仅多表单时弹出 |
 
 ### Status
 

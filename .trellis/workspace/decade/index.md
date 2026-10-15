@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-10-15 | 字典快编影响提醒改为仅多表单时弹出 | `8b76b8e` | `plan/codelist-impact-multiform` |
 | 24 | 2026-10-15 | 访视修改后跨实例刷新同步修复 | `9612205` | `plan/visit-flow-refresh` |
 | 21 | 2026-10-12 | 访视预览弹窗拆分（visits-preview-split） | `b8575cc`, `6cb035c`, `10722cb`, `a4aaaf9`, `0c86b1c` | `main` |
 | 20 | 2026-10-12 | 设计器拆分（designer-split）：预览模板与 aCRF 注释组件抽出并合入 main | `6a34721`, `8956090`, `b434ff0`, `cd0488d`, `ecbcd6d`, `e317a2e`, `54fd5fa` | `main` |
