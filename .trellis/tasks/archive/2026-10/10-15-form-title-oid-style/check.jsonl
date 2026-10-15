@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review the actual frontend diff, scoped CSS, and required regression/lint/build evidence; current package.json and component test setup determine the actual test harness."}
+{"file":".trellis/tasks/10-15-form-title-oid-style/research/preview-oid-context.md","reason":"Verify decoration-only scope, retained visibility/safety/title identity, and unchanged annotation/export contracts using the exact source and authoritative spec ranges."}

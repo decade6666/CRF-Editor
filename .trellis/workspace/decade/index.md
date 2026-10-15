@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
+- **Total Sessions**: 26
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~964 | Active |
+| `journal-1.md` | ~997 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-10-15 | 表单 OID 徽章去前缀并统一红框样式 | `73e1597` | `worktree-form-title-oid-style` |
 | 25 | 2026-10-15 | 字典快编影响提醒改为仅多表单时弹出 | `8b76b8e` | `plan/codelist-impact-multiform` |
 | 24 | 2026-10-15 | 访视修改后跨实例刷新同步修复 | `9612205` | `plan/visit-flow-refresh` |
 | 21 | 2026-10-12 | 访视预览弹窗拆分（visits-preview-split） | `b8575cc`, `6cb035c`, `10722cb`, `a4aaaf9`, `0c86b1c` | `main` |
