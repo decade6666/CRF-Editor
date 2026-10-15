@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review actual diff, real mount coverage, API/cache/error behavior, lint/build, and honest verification reporting."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Respect shared-file execution ordering, explicit commit authorization, and separate Trellis housekeeping changes."}
+{"file":".trellis/tasks/10-15-codelist-impact-multiform/research/frontend-impact-threshold.md","reason":"Check distinct-form fixtures, cancellation, pending-option task integration, unchanged refresh, and read the cited cross-stack §14 range."}
+{"file":".trellis/tasks/10-15-codelist-impact-multiform/research/codelist-reference-api.md","reason":"Verify counter use matches the historical response identity without backend contract, permission, or deletion changes."}

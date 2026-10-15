@@ -1,0 +1,38 @@
+{
+  "id": "codelist-impact-multiform",
+  "name": "codelist-impact-multiform",
+  "title": "字典编辑仅多表单影响时提醒",
+  "description": "修复表单设计器编辑选项字典时仅影响当前单一表单也弹出影响提醒的问题：复用现有表单去重工具，仅影响多个不同表单时提示。本轮仅规划和交接，不实现。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "codelist-quick-edit",
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-10-15",
+  "completedAt": "2026-10-15",
+  "branch": "plan/codelist-impact-multiform",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/CRF-Editor/.claude/worktrees/codelist-impact-multiform-plan",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/components/CodelistQuickEditDialog.vue",
+    "frontend/tests/component/CodelistQuickEditDialog.spec.js",
+    "frontend/src/composables/fieldReferenceImpact.js",
+    "frontend/tests/fieldReferenceImpact.test.js",
+    "README.md",
+    "README.en.md",
+    "frontend/.claude/CLAUDE.md",
+    ".claude/index.json"
+  ],
+  "notes": "Planning-only request from 2026-10-15; user will hand the artifacts to Sonnet later. Do not implement, task.py start, commit, merge, push, or clean up this worktree in the planning session. Read prd.md -> design.md -> implement.md plus both curated context manifests. Reuse the existing form_name/form_code counter; API row shape, delete guards, and standalone dictionary-page handlers remain unchanged.",
+  "meta": {
+    "planning_source_commit": "e2f19b4",
+    "execution_prerequisite": "10-14-codelist-pending-option-confirmation must be integrated into main and shared-file ownership released before this task is implemented; safely synchronize and recheck the baseline first"
+  }
+}
