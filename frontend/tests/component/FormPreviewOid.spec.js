@@ -1,5 +1,5 @@
-// FormPreviewOid 挂载测试（任务 word-preview-form-oid）：
-// Word 预览纸面标题的表单 OID 元数据——只读展示 form.code，空值不渲染，文字插值（非 v-html）。
+// FormPreviewOid 挂载测试（任务 word-preview-form-oid / form-title-oid-style）：
+// Word 预览纸面标题的表单 OID 元数据——只读展示纯 form.code 值（无展示前缀），空值不渲染，文字插值（非 v-html）。
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import FormPreviewOid from '../../src/components/FormPreviewOid.vue';
@@ -9,11 +9,11 @@ function mountOid(props = {}) {
 }
 
 describe('FormPreviewOid', () => {
-  it('渲染 OID: 前缀与 code 文本', () => {
+  it('渲染纯 code 文本，无任何展示前缀', () => {
     const wrapper = mountOid();
 
     expect(wrapper.find('span.wp-form-oid').exists()).toBe(true);
-    expect(wrapper.find('span.wp-form-oid').text()).toBe('OID: F-001');
+    expect(wrapper.find('span.wp-form-oid').text()).toBe('F-001');
   });
 
   it('空字符串 / 纯空白 / null / undefined 不渲染任何元素', () => {
@@ -26,12 +26,16 @@ describe('FormPreviewOid', () => {
   it('HTML 形输入按字面文本渲染，不产生子元素（禁 v-html 契约）', () => {
     const wrapper = mountOid({ code: '<b>x</b>' });
 
-    expect(wrapper.find('span.wp-form-oid').text()).toBe('OID: <b>x</b>');
+    expect(wrapper.find('span.wp-form-oid').text()).toBe('<b>x</b>');
     expect(wrapper.find('span.wp-form-oid').find('b').exists()).toBe(false);
   });
 
   it('code 首尾空白修剪后展示，不改传入值结构', () => {
-    expect(mountOid({ code: '  F9  ' }).find('span.wp-form-oid').text()).toBe('OID: F9');
+    expect(mountOid({ code: '  F9  ' }).find('span.wp-form-oid').text()).toBe('F9');
+  });
+
+  it('值内字面 OID: 原样透传（只去展示前缀，不改写实际值）', () => {
+    expect(mountOid({ code: 'OID:X-1' }).find('span.wp-form-oid').text()).toBe('OID:X-1');
   });
 
   it('长 code 仍为单一 span 结构（换行由宿主标题行布局负责）', () => {

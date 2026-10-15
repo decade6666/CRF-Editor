@@ -454,7 +454,7 @@ describe('DesignerWordPreview', () => {
     expect(wrapper.find('.wp-form-title').text()).toBe('知情同意');
     const oid = wrapper.find('.wp-form-oid');
     expect(oid.exists()).toBe(true);
-    expect(oid.text()).toBe('OID: F-ICF-01');
+    expect(oid.text()).toBe('F-ICF-01');
     // OID 与标题同处一个标题行，且位于 domain 标注之外（兄弟节点，不进入标题文本）
     expect(oid.element.parentElement).toBe(wrapper.find('.wp-form-title-row').element);
   });
@@ -480,7 +480,7 @@ describe('DesignerWordPreview', () => {
         showFormOid: true,
         selectedForm: { id: 1, name: 'N', code: 'S1', domain: 'LB' },
       });
-      expect(wrapper.find('.wp-form-oid').text()).toBe('OID: S1');
+      expect(wrapper.find('.wp-form-oid').text()).toBe('S1');
     }
   });
 
@@ -491,7 +491,7 @@ describe('DesignerWordPreview', () => {
       selectedForm: { id: 1, name: 'N', code: 'S2', domain: 'LB' },
     });
 
-    expect(wrapper.find('.wp-form-oid').text()).toBe('OID: S2');
+    expect(wrapper.find('.wp-form-oid').text()).toBe('S2');
     expect(wrapper.find('.wp-acrf-annotation').exists()).toBe(false);
   });
 });

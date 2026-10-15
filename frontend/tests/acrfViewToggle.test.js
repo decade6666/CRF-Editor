@@ -12,6 +12,8 @@ const visitsTabPath = path.resolve(currentDir, '../src/components/VisitsTab.vue'
 const visitPreviewDialogPath = path.resolve(currentDir, '../src/components/VisitFormPreviewDialog.vue');
 const visitPreviewAnnotationPath = path.resolve(currentDir, '../src/composables/useVisitPreviewAnnotation.js');
 const mainCssPath = path.resolve(currentDir, '../src/styles/main.css');
+// form-title-oid-style：纸面标题表单 OID 徽章（FormPreviewOid.vue）与字段注记共用红框装饰令牌。
+const formPreviewOidPath = path.resolve(currentDir, '../src/components/FormPreviewOid.vue');
 
 const formDesignerSource = readFileSync(formDesignerPath, 'utf8');
 // designer-split Step 1：aCRF 注释标记抽为 DesignerAcrfAnnotation.vue。注释相关 CSS / 重置按钮标记
@@ -26,6 +28,7 @@ const visitsTabSource = readFileSync(visitsTabPath, 'utf8');
 const visitPreviewDialogSource = readFileSync(visitPreviewDialogPath, 'utf8');
 const visitPreviewAnnotationSource = readFileSync(visitPreviewAnnotationPath, 'utf8');
 const mainCssSource = readFileSync(mainCssPath, 'utf8');
+const formPreviewOidSource = readFileSync(formPreviewOidPath, 'utf8');
 
 function countMatches(source, pattern) {
   return [...source.matchAll(pattern)].length;
@@ -73,6 +76,10 @@ function extractRuleBody(css, selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
   return match ? match[1] : null;
+}
+
+function stripCssComments(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 function extractRuleBodyByPattern(css, pattern, description) {
@@ -368,6 +375,34 @@ test('visit preview annotation styles come from the shared component and stay ou
   assert.ok(titleRowRule);
   assert.match(titleRowRule, /position:\s*relative/);
   assert.match(titleRowRule, /padding-right:\s*4\.8cm/);
+});
+
+test('form title OID badge renders the value only and reuses field-annotation decoration without annotation behavior', () => {
+  // form-title-oid-style（2026-10-15）：纸面标题表单 OID 去前缀，并与字段 OID 注记共用红框装饰。
+  // 模板契约：只插值 displayCode，不拼接展示前缀；装饰变量取自共享 buildAnnotationStyle。
+  assert.match(formPreviewOidSource, /class="wp-form-oid"[^>]*>\{\{\s*displayCode\s*\}\}/);
+  assert.doesNotMatch(formPreviewOidSource, /OID:\s*\{\{/, 'badge must not add a presentation prefix');
+  assert.match(formPreviewOidSource, /buildAnnotationStyle\(\{/);
+
+  // 源码注释会解释「为什么不设 nowrap」，先剥离 CSS 注释再提取规则体，负向断言只看真实声明。
+  const oidRule = extractRuleBody(stripCssComments(formPreviewOidSource), '.wp-form-oid');
+  assert.ok(oidRule, '.wp-form-oid rule should exist in FormPreviewOid.vue');
+  // 红框装饰与 .wp-acrf-annotation 同源：边框宽度/内边距/底色走同一批几何变量，圆角/文字色同值。
+  assert.match(oidRule, /border:\s*var\(--acrf-annotation-border-width\) solid #c00000/i);
+  assert.match(oidRule, /border-radius:\s*2px/);
+  assert.match(oidRule, /padding:\s*var\(--acrf-annotation-padding-y\)\s+var\(--acrf-annotation-padding-x\)/);
+  assert.match(oidRule, /background:\s*var\(--acrf-annotation-background\)/);
+  assert.match(oidRule, /color:\s*#c00000/i);
+  // 边框与内边距计入宽度预算（宿主 flex 行内受可用宽度约束）。
+  assert.match(oidRule, /box-sizing:\s*border-box/);
+  // 标题徽章不是注记标记：保持文档流内容尺寸与软换行，不引入绝对定位/nowrap/省略号。
+  assert.doesNotMatch(oidRule, /position:\s*absolute/);
+  assert.doesNotMatch(oidRule, /white-space:\s*nowrap/);
+  assert.doesNotMatch(oidRule, /text-overflow:\s*ellipsis/);
+  // 不复用注记根类/组件行为：无 wp-acrf-annotation 类、无重置按钮、无事件上抛。
+  assert.doesNotMatch(formPreviewOidSource, /wp-acrf-annotation/);
+  assert.doesNotMatch(formPreviewOidSource, /wp-acrf-annotation-reset/);
+  assert.doesNotMatch(formPreviewOidSource, /defineEmits/);
 });
 
 test('aCRF reset button stays hidden while disabled until hover/focus-within reveals its muted state', () => {

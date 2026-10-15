@@ -452,7 +452,7 @@ describe('VisitFormPreviewDialog 视图模式与注解门禁', () => {
     const wrapper = mountDialog({}, { editMode: true, storedViewMode: 'eCRF' });
     await flushPromises();
 
-    expect(wrapper.find('.wp-form-oid').text()).toBe(`OID: ${authoritativeForm().code}`);
+    expect(wrapper.find('.wp-form-oid').text()).toBe(authoritativeForm().code);
     expect(wrapper.find('.wp-acrf-annotation').exists()).toBe(false);
   });
 
@@ -483,7 +483,7 @@ describe('VisitFormPreviewDialog 表单 OID 标题元数据', () => {
     expect(wrapper.find('.wp-form-title').text()).toBe(FORM_NAME);
     const oid = wrapper.find('.wp-form-oid');
     expect(oid.exists()).toBe(true);
-    expect(oid.text()).toBe('OID: ICF-V2');
+    expect(oid.text()).toBe('ICF-V2');
     // OID 与标题同处一个标题行（兄弟节点，不混入标题文本）
     expect(oid.element.parentElement).toBe(wrapper.find('.wp-form-title-row').element);
   });
