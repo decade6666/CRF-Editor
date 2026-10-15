@@ -122,6 +122,10 @@ const reorderUrl = computed(() => `/api/projects/${props.projectId}/visits/reord
 async function reloadVisits() {
   api.invalidateCache(`/api/projects/${props.projectId}/visits`)
   await load()
+  // 写操作完成权威本地重载后广播刷新信号：另一个保留实例（访视列表 / 访视流程）监听
+  // 同一 refreshKey 并重载，修改访视信息后无需重进页面即可看到最新值（契约见
+  // .trellis/spec/frontend/state-management.md「refreshKey Global Bump」）。读路径不广播。
+  refreshKey.value++
 }
 
 async function reloadAndSelectVisit(visitId) {
@@ -235,7 +239,7 @@ async function copyVisit(v) {
   try {
     await api.post(`/api/visits/${v.id}/copy`, {})
     api.invalidateCache(`/api/projects/${props.projectId}`)
-    load(); ElMessage.success('复制成功')
+    await reloadVisits(); ElMessage.success('复制成功')
   }
   catch (e) { ElMessage.error(e.message) }
 }
