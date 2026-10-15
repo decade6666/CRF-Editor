@@ -72,6 +72,7 @@ These guides help you **ask the right questions before coding**.
 - [ ] Finishing a code change (worktree → merge to `main` → cleanup)
 - [ ] Updating anything under `.trellis/` (standalone commit)
 - [ ] Reviewing frontend modifications
+- [ ] The user says 「收尾」 after implementation → run the full wrap-up pipeline (§8 of Git & Tooling Conventions)
 
 → Read [Git & Tooling Conventions](./git-and-tooling-conventions.md): updates commit directly to `main` without a PR; `.trellis/` changes get standalone commits.
 

@@ -112,6 +112,37 @@ Four gates run on every `git commit` (no test suites, no builds, no npm; a few s
 
   Branches created after the format commit start formatted and merge normally. The format commit is registered in the repo-root `.git-blame-ignore-revs` (enable with `git config blame.ignoreRevsFile .git-blame-ignore-revs`); never rebase, amend, or squash it — its hash must stay stable.
 
+## 8. Task Wrap-up Pipeline (user says 「收尾」; settled 2026-10-15, task `codelist-impact-multiform`)
+
+**Trigger**: the user says 收尾 / 完成收尾工作 after implementation is verified. Run ALL steps in order — do not stop after the code commit and leave archive/merge/push/cleanup "for later".
+
+| Step | Commit produced |
+|------|-----------------|
+| 1. code | `<type>(<scope>): 中文描述` |
+| 2. archive | `chore(task): 归档 <task> 任务` |
+| 3. journal | `chore: record journal` |
+| 4. merge + push | merge commit on `main` |
+
+1. **Reconcile before writing**: in the task worktree, `git status --short` must equal the session's own file inventory (guards against parallel-session injection); re-check `git log --oneline -1 main` and `git worktree list` — a parallel session may have advanced `main` or even merged your branch already.
+2. **Code commit** on the task branch: stage explicit paths (never `git add .`); the §7 pre-commit gate runs automatically.
+3. **`/trellis:finish-work`**: `get_context.py --mode record` → classify dirty paths → archive → journal.
+   - `python3 ./.trellis/scripts/task.py archive <task-name>` — **gotcha**: if the task dir was never committed (planning-only worktree), the auto-commit fails with `pathspec ... did not match any file(s) known to git`; the move itself succeeded, so commit manually: `git add .trellis/tasks/archive/2026-10/<task>/ && git commit -m 'chore(task): 归档 <task> 任务'`.
+   - `python3 ./.trellis/scripts/add_session.py --title … --commit <work-hash> --summary …` (work hashes only, never archive hashes) — **gotcha**: `.trellis/workspace` is gitignored, but journal commits are the current convention (precedents `7006212`, `62b1eef`): `git add -f .trellis/workspace/decade/index.md .trellis/workspace/decade/journal-1.md && git commit -m 'chore: record journal'`. Never "fix" this by editing `.gitignore`.
+4. **Merge into `main`** from the main checkout (re-verify its tip first): `git merge <task-branch>`. **Gotcha**: parallel sessions finishing near-simultaneously conflict on `.trellis/workspace/decade/index.md` — resolve by union: `Total Sessions` = the larger count, keep BOTH `Session History` rows (higher number on top). `journal-1.md` appends auto-merge cleanly.
+5. **Frontend live build**: if any task merged in this round touched `frontend/src`, rebuild from the **main checkout** (`cd frontend && npm run build`) — never keep serving a dist built in a worktree once multiple tasks merged (it misses the others' changes). Verify served == dist: `curl -s --noproxy '*' http://127.0.0.1:8888/ | grep -o 'assets/index-[^"]*\.js'` vs `grep -o 'assets/index-[^"]*\.js' dist/index.html`. Pure-frontend changes need **no backend restart** (static files are read per request; local serve = nohup `main.py` from the main checkout `backend/`, port 8888, db `<root>/crf_editor.db`).
+6. **Push** `git push origin main`.
+7. **Cleanup**: `git worktree remove <path>` + `git branch -d <task-branch>`; confirm `git worktree list` shows only `main`.
+
+| Condition | Resolution |
+|-----------|------------|
+| archive auto-commit: `pathspec … did not match` | task dir was untracked → manual `git add` of the new archive path (step 3) |
+| `git add .trellis/workspace/…` refused as ignored | `add -f` per convention (step 3); do not touch `.gitignore` |
+| `index.md` merge conflict (UU) | union merge: larger session count, both history rows (step 4) |
+| `git worktree remove` refuses | real untracked dirt — inventory it first; only then `--force` |
+
+**Wrong**: stop at the code commit and report done; serve a worktree-built dist after a multi-task merge; rebase/amend the format commit `fb1ae18` during cleanup.
+**Correct**: run to a clean end state — pushed `main`, rebuilt main-checkout dist, only the `main` worktree left, no merged branch remaining.
+
 ---
 
 ## Legacy reference
