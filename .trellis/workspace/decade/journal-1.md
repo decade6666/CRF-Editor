@@ -940,3 +940,25 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Status
 
 [OK] **Completed** — 待合并 `main` 并重启本地 8888 服务供用户人工测试。
+
+
+## Session 24: 访视修改后跨实例刷新同步修复
+<!-- trellis-session: v=2 fp=a8f43b7cd76f1ba6 -->
+
+**Date**: 2026-10-15
+**Task**: 访视修改后跨实例刷新同步修复
+**Branch**: `plan/visit-flow-refresh`
+
+### Summary
+
+修复访视信息保存后已挂载的访视流程实例不刷新：reloadVisits 在权威本地重载后递增共享 refreshKey，copyVisit 接入同一等待边界；新增双保留实例 vitest 回归（RED→GREEN）与项目级 PUT 真实缓存控制用例；npm test/lint/build 全绿；一次性后端 + headless 浏览器实机走查 AC1/AC2/AC3/AC6 通过（截图在 /tmp/visit-flow-e2e-rxKy/evidence/）。发现既有 Sortable.destroy 陈旧 tbody 竞态（未修，已记入记忆）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9612205` | fix(visits): 保存访视后广播刷新信号同步访视流程实例 |
+
+### Status
+
+[OK] **Completed**

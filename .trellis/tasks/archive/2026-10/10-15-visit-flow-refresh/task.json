@@ -1,0 +1,30 @@
+{
+  "id": "visit-flow-refresh",
+  "name": "visit-flow-refresh",
+  "title": "修复访视信息修改后流程界面未同步",
+  "description": "修改访视信息并保存后，切换到访视流程仍显示旧信息。分析保存、缓存与流程加载链路，给出最小修复、回归测试和浏览器验收计划；本轮仅创建规划产物，留待用户后续交给 Sonnet 执行。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-10-15",
+  "completedAt": "2026-10-15",
+  "branch": "plan/visit-flow-refresh",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/CRF-Editor/.claude/worktrees/visit-flow-refresh-plan",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/components/VisitsTab.vue",
+    "frontend/tests/component/visitFlowRefresh.spec.js",
+    "frontend/tests/apiCacheInvalidation.test.js"
+  ],
+  "notes": "Planning artifacts finalized for user review, not implementation-approved. The main session verified separate retained list/flow VisitsTab instances lack a refreshKey mutation notification; source evidence and the minimal reloadVisits/copyVisit repair are recorded in design.md, with RED/GREEN execution steps in implement.md. No standalone research report was created because of the read-only subagent role restriction. Reuse this task worktree for later Sonnet execution. This planning turn authorizes no business-code changes, task start, commits, merges or pushes.",
+  "meta": {}
+}

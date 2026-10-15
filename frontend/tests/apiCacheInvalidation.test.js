@@ -116,3 +116,50 @@ test('write operations invalidate so the next read refetches instead of reusing 
     stub.restore()
   }
 })
+
+// 访视元数据 PUT 的缓存控制（10-15-visit-flow-refresh）：项目级 PUT 的 _autoInvalidate 本就
+// 会同时失效 visits 与 visit-form-matrix 两条缓存 —— 缺的是跨实例刷新通知，不是缓存失效。
+// 本控制用真实 cachedGet/put、仅 stub fetch，在同 TTL 内证明两条 GET 都会重新发起请求。
+test('project visit PUT evicts visits and matrix entries so both refetch within the same TTL', async () => {
+  api.clearAllCache()
+  const serverVisit = { id: 5, name: '访视一', code: 'V1', sequence: 1 }
+  let getCalls = 0
+  const stub = installFetchStub(async (url, options = {}) => {
+    const method = options.method || 'GET'
+    if (method === 'GET' && url === '/api/projects/77/visits') {
+      getCalls += 1
+      return jsonResponse([{ ...serverVisit }])
+    }
+    if (method === 'GET' && url === '/api/projects/77/visit-form-matrix') {
+      getCalls += 1
+      return jsonResponse({ visits: [{ ...serverVisit }], forms: [], matrix: { 5: {} } })
+    }
+    if (method === 'PUT' && url === '/api/projects/77/visits/5') {
+      const body = JSON.parse(options.body)
+      serverVisit.name = body.name
+      serverVisit.code = body.code
+      return jsonResponse({ ok: true })
+    }
+    throw new Error(`unexpected request: ${method} ${url}`)
+  })
+  try {
+    // 预热两条缓存（不推进时间，保持在同一 30s TTL 窗口内）
+    await api.cachedGet('/api/projects/77/visits')
+    await api.cachedGet('/api/projects/77/visit-form-matrix')
+    assert.equal(getCalls, 2)
+
+    await api.put('/api/projects/77/visits/5', { name: '随访晚期', code: 'V9' })
+
+    const visits = await api.cachedGet('/api/projects/77/visits')
+    assert.equal(getCalls, 3, 'visits 列表应在同 TTL 内重新发起 GET')
+    assert.equal(visits[0].name, '随访晚期')
+
+    const matrix = await api.cachedGet('/api/projects/77/visit-form-matrix')
+    assert.equal(getCalls, 4, '矩阵应在同 TTL 内重新发起 GET')
+    assert.equal(matrix.visits[0].name, '随访晚期')
+    assert.equal(matrix.visits[0].code, 'V9')
+  } finally {
+    stub.restore()
+    api.clearAllCache()
+  }
+})
