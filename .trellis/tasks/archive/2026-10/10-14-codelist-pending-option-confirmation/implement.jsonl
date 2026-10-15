@@ -1,0 +1,2 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Use the established vitest component mount tests, API/message-box spies, Vue-warning gate, v-model lifecycle assertions, and existing frontend validation commands; relevant sections: Testing and Component Mount Tests."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Keep implementation isolated in the task worktree, retain one writer for the component/tests slice, and separate Trellis planning/spec/journal changes from project-code commits; relevant sections: 1-5."}
