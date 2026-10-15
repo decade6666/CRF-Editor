@@ -973,3 +973,25 @@ FormDesignerTab.vue 的 aCRF 注释标记与 Word 预览模板抽出为无状态
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: 表单 OID 徽章去前缀并统一红框样式
+<!-- trellis-session: v=2 fp=f38d691b95a31b4f -->
+
+**Date**: 2026-10-15
+**Task**: 表单 OID 徽章去前缀并统一红框样式
+**Branch**: `worktree-form-title-oid-style`
+
+### Summary
+
+FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀，值内字面 OID: 透传），经 buildAnnotationStyle 键过滤注入 4 个装饰变量实现与字段注记一致的红框（#c00000 边框/文字不透明、rgba 25% 底色、2px 圆角、border-box），保留文档流布局/10.5pt 字号/overflow-wrap；三套挂载测试前缀断言改纯值并新增字面透传用例，acrfViewToggle 新增红框装饰源码契约（注释剥离后负向断言）；vitest 145 全绿、lint 0 errors、build 通过；隔离环境浏览器实测全矩阵（主/全屏/访视预览、eCRF/aCRF、简明/空值、纵/横向换行与 4.8cm 保留区、明暗主题、计算样式与字段注记一致），凭据生成经 AskUserQuestion 授权。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `73e1597` | feat(frontend): 表单 OID 徽章去前缀并统一字段注记红框样式 |
+
+### Status
+
+[OK] **Completed**
