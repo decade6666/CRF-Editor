@@ -27,7 +27,8 @@ test('OID validation helper accepts and rejects the expected values', () => {
 })
 
 test('FieldsTab imports shared OID helpers and guards field save', () => {
-  assert.match(fieldsSource, /import \{ OID_ERROR, isValidRequiredOid \} from ['"]\.\.\/composables\/oidValidation\.js['"]/)
+  // 共享校验器必须仍从 oidValidation 导入；允许名单随功能扩展（如赛美斯长度策略）新增导入名
+  assert.match(fieldsSource, /import \{[^}]*OID_ERROR[^}]*isValidRequiredOid[^}]*\} from ['"]\.\.\/composables\/oidValidation\.js['"]/)
   assert.match(fieldsSource, /async function save\(\) \{[\s\S]*?isValidRequiredOid\(editProp\.variable_name\)[\s\S]*?ElMessage\.warning\(OID_ERROR\)[\s\S]*?api\.(post|put)/)
 })
 

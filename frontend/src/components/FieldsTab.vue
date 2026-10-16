@@ -10,7 +10,7 @@ import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibilit
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
-import { OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
+import { editedOidLengthError, oidMaxLength, OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
 import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js'
@@ -31,6 +31,8 @@ const editProp = reactive({
   integer_digits: null, decimal_digits: null, date_format: null,
   checkbox_label: null, codelist_id: null, unit_id: null,
 })
+// 赛美斯 OID 长度限制基线：resetProp 是唯一初始化缝隙（新增生成值 / 编辑行值 / 保存后回填）
+const oidBaseline = ref('')
 const fieldTypes = ['文本', '数值', '日期', '日期时间', '时间', '单选', '多选', '单选（纵向）', '多选（纵向）', '复选']
 const availableFieldTypes = computed(() =>
   buildFieldTypeOptions(fieldTypes, projectDbType.value, editProp.field_type)
@@ -96,6 +98,7 @@ function resetProp(data) {
     integer_digits: null, decimal_digits: null, date_format: null,
     checkbox_label: null, codelist_id: null, unit_id: null,
   }, data || {})
+  oidBaseline.value = editProp.variable_name || ''
 }
 
 function openAdd() { resetProp({ variable_name: genFieldVarName() }); selectedFieldId.value = null; isCreating.value = true }
@@ -107,6 +110,11 @@ async function save() {
   if (!['标签', '日志行'].includes(editProp.field_type) && !isValidRequiredOid(editProp.variable_name)) {
     return ElMessage.warning(OID_ERROR)
   }
+  const oidLengthError = editedOidLengthError({
+    dbType: projectDbType.value, kind: 'field',
+    candidate: editProp.variable_name, baseline: oidBaseline.value,
+  })
+  if (oidLengthError) return ElMessage.warning(oidLengthError)
   if (isChoiceField(editProp.field_type) && !editProp.codelist_id)
     return ElMessage.warning('单选/多选字段必须选择选项字典')
   if (isMultiselectFieldType(editProp.field_type) && !allowsMultiselect(projectDbType.value))
@@ -319,7 +327,7 @@ async function afterCodelistDialogChange(kind, { codelist }) {
         <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
         <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
-          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" /></el-form-item>
+          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" :maxlength="oidMaxLength(projectDbType, 'field')" /></el-form-item>
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
           <el-form-item label="字段类型">
             <el-select v-model="editProp.field_type" style="width:100%">
