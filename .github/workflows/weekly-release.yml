@@ -1,0 +1,303 @@
+# 每周 AI 辅助源码发布（发布专用例外；不恢复任何合并 CI / PR 门禁）。
+#
+# 时间表：cron '17 1 * * 1' = 每周一 01:17 UTC = 北京时间周一 09:17。
+# GitHub 定时触发是尽力而为，可能延迟，不承诺准点。
+#
+# 默认关闭：仓库 Variable WEEKLY_RELEASE_ENABLED=true 才会发布；计划任务未启用时
+# 在接触任何 AI 配置/密钥之前直接跳过。手动 dry_run=true 试运行可能调用外部 AI（不是
+# 离线模式），但绝不写远端；手动真实发布同样要求 WEEKLY_RELEASE_ENABLED=true（发布
+# 作业内的 CLI 也会独立复核该开关）。存在「待恢复」版本时，真实运行会校验同一发布
+# 信封并只补建该 Release：不再询问 AI、不再升版本，期间 main 上的新提交不会被混入。
+#
+# 配置（仓库 Settings → Secrets and variables → Actions）：
+#   Variables: RELEASE_AI_API_URL（HTTPS 基础地址，不含 /chat/completions 或 /messages 后缀）
+#              RELEASE_AI_MODEL、RELEASE_AI_API_FORMAT（openai|anthropic）、
+#              RELEASE_AI_TIMEOUT_SECONDS（可选，默认 60）、WEEKLY_RELEASE_ENABLED
+#   Secrets:   RELEASE_AI_API_KEY（仅本 workflow 的 inspect 规划作业使用）
+#
+# 发布内容：裸三段版本标签 + 中文更新说明 + GitHub 生成的源码压缩包；无任何可执行附件，
+# 不部署生产服务器。紧急停止：禁用本 workflow → 取消并确认所有运行/排队中的发布运行 →
+# 核对远端 main/标签/Release 状态。仅改开关不会取消已开始的运行，也不回滚已发布内容。
+name: weekly-release
+
+on:
+  schedule:
+    - cron: '17 1 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '试运行（true=只规划与验证，不写远端；false=发布，需 WEEKLY_RELEASE_ENABLED=true）'
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  inspect:
+    name: 规划（基线 / 净变更 / AI 判定）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      mode: ${{ steps.guards.outputs.mode }}
+      no_change: ${{ steps.plan.outputs.no_change }}
+      pending_tag: ${{ steps.plan.outputs.pending_tag }}
+    steps:
+      - name: 可信分支与启用开关守卫（先于任何密钥或 AI 配置使用）
+        id: guards
+        env:
+          GIT_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          ENABLED: ${{ vars.WEEKLY_RELEASE_ENABLED }}
+        run: |
+          if [ "$GIT_REF" != "refs/heads/main" ]; then
+            echo "只允许在 main 分支运行，本次运行来自不受信任的引用，已终止" >&2
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "schedule" ] && [ "$ENABLED" != "true" ]; then
+            echo "WEEKLY_RELEASE_ENABLED 未启用，计划任务跳过（不调用 AI，不要求密钥）"
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mode=dry
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$DRY_RUN" = "false" ]; then
+            mode=publish
+          fi
+          if [ "$mode" = "publish" ] && [ "$ENABLED" != "true" ]; then
+            echo "发布被拒绝：WEEKLY_RELEASE_ENABLED 未启用，真实发布需操作者显式开启" >&2
+            exit 1
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: 检出候选源码（不持久化凭据）
+        if: steps.guards.outputs.mode != 'skip'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: 安装 Python
+        if: steps.guards.outputs.mode != 'skip'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装 Python 依赖（此步不接触任何密钥）
+        if: steps.guards.outputs.mode != 'skip'
+        run: |
+          python -m pip install --quiet -r backend/requirements.txt
+
+      - name: 安装 gitleaks（固定版本与校验和）
+        if: steps.guards.outputs.mode != 'skip'
+        run: |
+          curl -fsSL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: 生成发布计划（确认净产品变更后可能调用外部 AI；只读访问 GitHub）
+        id: plan
+        if: steps.guards.outputs.mode != 'skip'
+        env:
+          RELEASE_AI_API_URL: ${{ vars.RELEASE_AI_API_URL }}
+          RELEASE_AI_MODEL: ${{ vars.RELEASE_AI_MODEL }}
+          RELEASE_AI_API_FORMAT: ${{ vars.RELEASE_AI_API_FORMAT }}
+          RELEASE_AI_TIMEOUT_SECONDS: ${{ vars.RELEASE_AI_TIMEOUT_SECONDS }}
+          RELEASE_AI_API_KEY: ${{ secrets.RELEASE_AI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          # 只读 GITHUB_TOKEN：gh 用于读取 Release 元数据，setup-git 供 git fetch 拉取远端标签/main。
+          gh auth setup-git
+          PLAN_OUT="$(python backend/scripts/weekly_release.py plan \
+            --repo "$RELEASE_REPO" \
+            --source-sha "$SOURCE_SHA" \
+            --plan-output release-plan.json \
+            --cwd . \
+            --gitleaks-config .gitleaks.toml)"
+          echo "$PLAN_OUT"
+          if printf '%s\n' "$PLAN_OUT" | grep -q '^pending_recovery='; then
+            pending_tag="${PLAN_OUT#pending_recovery=}"
+            echo "pending_tag=$pending_tag" >> "$GITHUB_OUTPUT"
+            echo "存在待恢复版本 $pending_tag：真实运行将只补建该 Release（不调用 AI、不升版本）"
+          fi
+          if [ -f release-plan.json ]; then
+            echo "no_change=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_change=true" >> "$GITHUB_OUTPUT"
+            if [ -z "${pending_tag:-}" ]; then
+              echo "无净产品变更：本轮跳过（未调用 AI，未发布）"
+            fi
+          fi
+
+      - name: 上传发布计划工件（仅计划 JSON，不含任何原始差异或提示词）
+        if: steps.guards.outputs.mode != 'skip' && steps.plan.outputs.no_change == 'false' && steps.plan.outputs.pending_tag == ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-plan
+          path: release-plan.json
+
+  validate:
+    name: 验证（版本就位 + 全量门禁 + 树哈希绑定；待恢复时改验该标签）
+    needs: inspect
+    if: needs.inspect.outputs.mode != 'skip' && ((needs.inspect.outputs.no_change != 'true' && needs.inspect.outputs.pending_tag == '') || (needs.inspect.outputs.pending_tag != '' && needs.inspect.outputs.mode == 'publish'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PENDING_TAG: ${{ needs.inspect.outputs.pending_tag }}
+    steps:
+      - name: 检出被测源码（待恢复路径检出该版本标签；不持久化凭据）
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.PENDING_TAG != '' && env.PENDING_TAG || github.sha }}
+          persist-credentials: false
+
+      - name: 下载发布计划
+        if: env.PENDING_TAG == ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-plan
+
+      - name: 安装 Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装 Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: 安装 gitleaks（后端测试套件含真实扫描器集成用例，缺失即失败）
+        run: |
+          curl -fsSL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: 就位发布版本（仅三个应用版本字段，不改依赖内容）
+        if: env.PENDING_TAG == ''
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          VERSION="$(jq -r .version release-plan.json)"
+          python backend/scripts/weekly_release.py bump-versions --version "$VERSION" --cwd frontend
+
+      - name: 计算并核对测试树哈希（绑定被验证的源码树）
+        if: env.PENDING_TAG == ''
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          COMPUTED="$(python backend/scripts/weekly_release.py tree-hash --source-sha "$SOURCE_SHA" --cwd .)"
+          EXPECTED="$(jq -r .tree_hash release-plan.json)"
+          if [ "$COMPUTED" != "$EXPECTED" ]; then
+            echo "磁盘版本就位后的树哈希与计划不一致，终止" >&2
+            exit 1
+          fi
+
+      - name: 只读校验待恢复标签的结构与信封一致性
+        if: env.PENDING_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: |
+          gh auth setup-git
+          python backend/scripts/weekly_release.py verify-pending --tag "$PENDING_TAG" --repo "$RELEASE_REPO" --cwd .
+
+      - name: 后端测试与格式门禁（新发布模块覆盖率 ≥80%）
+        run: |
+          python -m pip install --quiet -r backend/requirements-dev.txt
+          python -m py_compile backend/scripts/weekly_release.py
+          (cd backend && python -m pytest -q --cov=scripts.weekly_release --cov-report=term-missing --cov-fail-under=80)
+          (cd backend && python -m ruff format --check .)
+
+      - name: 前端测试、Lint 与根基础路径构建
+        env:
+          VITE_BASE_PATH: /
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+          npm test
+          npm run lint
+          npm run build
+
+  publish:
+    name: 发布（版本提交 + 标签 + Release；或补建待恢复 Release）
+    needs: [inspect, validate]
+    if: needs.inspect.outputs.mode == 'publish' && (needs.inspect.outputs.no_change != 'true' || needs.inspect.outputs.pending_tag != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      PENDING_TAG: ${{ needs.inspect.outputs.pending_tag }}
+    steps:
+      - name: 检出被测源码（发布作业需要推送凭据；待恢复路径检出该版本标签）
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.PENDING_TAG != '' && env.PENDING_TAG || github.sha }}
+
+      - name: 下载发布计划
+        if: env.PENDING_TAG == ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-plan
+
+      - name: 安装 Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装 Python 依赖（此步不接触任何密钥）
+        run: |
+          python -m pip install --quiet -r backend/requirements.txt
+
+      - name: 安装 gitleaks（发布前复扫提交信息与说明文本）
+        run: |
+          curl -fsSL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: 发布（原子推送 main + 标签后创建 Release；或补建待恢复 Release；失败则保留待恢复状态）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh auth setup-git
+          if [ -n "$PENDING_TAG" ]; then
+            python backend/scripts/weekly_release.py recover \
+              --tag "$PENDING_TAG" \
+              --repo "$RELEASE_REPO" \
+              --cwd . \
+              --gitleaks-config .gitleaks.toml
+          else
+            python backend/scripts/weekly_release.py publish \
+              --repo "$RELEASE_REPO" \
+              --plan-file release-plan.json \
+              --remote origin \
+              --cwd . \
+              --gitleaks-config .gitleaks.toml
+          fi
+
+      - name: 运行摘要（净化输出，仅含版本号）
+        if: success()
+        run: |
+          if [ -n "$PENDING_TAG" ]; then
+            VERSION="$PENDING_TAG"
+          else
+            VERSION="$(jq -r .version release-plan.json)"
+          fi
+          echo "已发布 $VERSION（源码标签 + 中文说明 + GitHub 源码压缩包）" >> "$GITHUB_STEP_SUMMARY"
