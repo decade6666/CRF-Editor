@@ -1042,3 +1042,25 @@ FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀�
 ### Status
 
 [OK] **Completed**
+
+## Session 29: weekly-release 线上三轮修复与 dry-run 全链路通过
+
+**Date**: 2026-10-16
+**Task**: weekly-ai-release 后续线上验证（任务已归档，未新建 Trellis 任务）
+**Branch**: `task/release-*`（三轮短命修复分支，均已合并 main 后删除）
+
+### Summary
+
+真实 GitHub Actions 验证暴露并修复三个缺陷：depth-1 检出无标签（三作业 checkout 改 fetch-depth: 0 + fetch-tags: true）、0.4.0 首次积压摘要超预算（AI 载荷总预算 64→256KiB、差异 48→128KiB）、validate 作业依赖未装即运行 CLI（httpx 延迟导入至唯一使用点 _post_once + sys.modules 置 None reload 回归测试）；第四轮 run 38860465507 全绿，真实 AI 消费 256KiB 载荷判定 minor→0.5.0，validate 全量云端门禁通过，dry_run 发布作业跳过。聚焦套件 166 passed、模块覆盖 91%。远端配置：三项 RELEASE_AI_* 进 Variables、仅 API_KEY 进 Secrets；WEEKLY_RELEASE_ENABLED 仍默认关闭，真实发布待运营者显式启用。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `066d864` | fix(release): 检出完整历史与标签，修复基线标签无法解析 |
+| `53c09bb` | fix(release): 放大 AI 载荷预算至 256KiB，适配首次发布积压 |
+| `229afe0` | fix(release): 延迟导入 httpx，修复 validate 作业依赖未装即运行 CLI |
+
+### Status
+
+[OK] **Completed**
