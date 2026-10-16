@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TemplateFormItem(BaseModel):
@@ -35,6 +35,9 @@ class ImportExecuteResponse(BaseModel):
     merged_units: int
     created_field_definitions: int
     created_form_fields: int
+    # 加字段兼容：目標項目本次導入實際建立的表單 id（創建順序）。
+    # 舊構造路徑缺省為空列表，前端僅在列表非空時選中首個 id。
+    imported_form_ids: List[int] = Field(default_factory=list)
 
 
 class TemplateFieldOptionPreview(BaseModel):

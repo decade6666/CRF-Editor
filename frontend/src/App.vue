@@ -650,9 +650,11 @@ async function executeImport() {
   if (!importSelectedForms.value.length) return;
   const sourceProjectId = getSourceProjectId();
   if (!sourceProjectId) return;
+  const targetProjectId = selectedProject.value?.id;
+  if (targetProjectId == null) return;
   importLoading.value = true;
   try {
-    const data = await api.post(`/api/projects/${selectedProject.value.id}/import-template/execute`, {
+    const data = await api.post(`/api/projects/${targetProjectId}/import-template/execute`, {
       source_project_id: sourceProjectId,
       form_ids: importSelectedForms.value,
     });
@@ -660,6 +662,17 @@ async function executeImport() {
     showImport.value = false;
     api.clearAllCache();
     refreshKey.value++;
+    // 展示交接只属于发起导入的项目：迟到的成功不得在切换后的工作区选中表单。
+    try {
+      const importedFormIds = Array.isArray(data.imported_form_ids) ? data.imported_form_ids : [];
+      const firstImportedId = importedFormIds.length ? importedFormIds[0] : null;
+      if (firstImportedId != null && selectedProject.value?.id === targetProjectId) {
+        await requestFormSelection(firstImportedId);
+      }
+    } catch (e) {
+      // 写入已成功：展示失败必须与导入失败区分，避免诱导重复导入。
+      ElMessage.error('导入已完成，但展示新表单失败: ' + e.message);
+    }
   } catch (e) {
     ElMessage.error('导入失败: ' + e.message);
   } finally {

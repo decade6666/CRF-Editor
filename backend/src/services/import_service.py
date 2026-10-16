@@ -660,6 +660,8 @@ class ImportService:
             "merged_units": 0,
             "created_field_definitions": 0,
             "created_form_fields": 0,
+            # 目標項目實際建立的 Form 行 id（創建順序），供前端導入後直接展示首個新表單
+            "imported_form_ids": [],
         }
 
         # ---- 1. 構建目標庫已有數據緩存 ----
@@ -819,6 +821,7 @@ class ImportService:
                 summary["created_form_fields"] += 1
 
             summary["imported_form_count"] += 1
+            summary["imported_form_ids"].append(new_form.id)
 
         return summary
 
