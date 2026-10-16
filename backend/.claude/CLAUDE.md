@@ -2,13 +2,14 @@
 
 # backend Module Notes
 
-> Last updated: 2026-10-13
+> Last updated: 2026-10-16
 
 ## Module Responsibilities
 - Provide REST APIs and the frontend static resource entry point.
 - Manage SQLite data models, lightweight migrations, and connection configuration such as WAL / foreign keys.
 - Execute template `.db` import, project `.db` import / full-database merge, Word `.docx` import, Word export (eCRF / aCRF), and database export.
 - Provide user authentication, admin APIs, regular-user password change, project isolation, and the desktop release entry point.
+- Provide the weekly AI-assisted source-release automation: standalone CLI `scripts/weekly_release.py` (plan / bump-versions / tree-hash / publish) plus `.github/workflows/weekly-release.yml` — release-only Actions exception, default-off, no executable assets, no production deploy.
 
 ## Key Entry Points
 - `backend/main.py`: creates the FastAPI app, registers routers, configures exception handling and security headers, validates configuration at startup, creates upload directories, initializes the database, and starts/stops the in-process recycle-bin cleanup background task; `should_enable_reload()` disables uvicorn hot reload when `CRF_ENV=production` (production runs are managed by systemd via `deploy/install-service.sh`).
@@ -19,6 +20,7 @@
 - `backend/src/dependencies.py`: dependencies for authentication, database sessions, project permissions, and admin permissions.
 - `backend/src/rate_limit.py`: single-node in-memory rate limiting, used for login, password change, and high-cost import endpoints.
 - `backend/src/utils.py`: common utility functions such as path safety validation.
+- `backend/scripts/weekly_release.py`: standalone weekly-release CLI (no runtime-app imports). Deterministic version arithmetic (bare three-part semver, minor/patch only), net-product-diff eligibility policy, bounded + secret-scanned AI payload (openai/anthropic), closed-schema decision parsing, `Release-Plan-V1` commit envelope with digest, atomic `main`+tag push, pending-release recovery. Configuration comes only from `RELEASE_AI_*` environment mappings; gitleaks gates every outgoing/persisted surface and fails closed. See README「每周 AI 辅助发布」.
 
 ## Core Directories
 - `src/routers/`: APIs for authentication, admin, projects, visits, forms, fields, dictionaries, units, import/export, settings, and the read-only template field search. Dictionary/unit reference endpoints support opt-in `include_unplaced=true` for delete preflight; reference and codelist-option mutation routes enforce project ownership before resource lookup.
@@ -27,7 +29,7 @@
 - `src/schemas/`: request/response structures for projects, visits, forms, fields, field profiles, dictionaries, units, organization presets, admin routes (`admin.py`), template import (`template_import.py`), plus shared validation helpers (`_common.py`, OID charset validators).
 - `src/repositories/`: database access wrappers for the base repository, projects, field definitions, and form fields.
 - `tests/`: pytest cases for authentication, admin, recycle-bin cleanup policy/background-task isolation, permissions, project isolation, batch-delete isolation, import/export, streamed DB/DOCX upload limits and cleanup, temp-resource expiry, async worker draining and threadpool handoff, Word import temp-file ownership/expiry, synthetic multi-type Word import parsing, ordering, configuration, WAL, rate limiting, column width planning, performance FK indexes, form orientation, Word import contract, Docx screenshot failure semantics, Word table parity, reference-query/delete-guard contracts, codelist option authorization, startup migrations, template field index, form copy style retention, Word export error semantics, unhandled-exception logging, copy-name ladder contracts, order-index migration, admin bootstrap service, template-import error mapping, order/sequence service parity, and more.
-- `scripts/`: template database migration, Docx template field comparison, preview/export table field parity comparison, and date format normalization.
+- `scripts/`: template database migration, Docx template field comparison, preview/export table field parity comparison, date format normalization, and the weekly release CLI (`weekly_release.py`, covered by `tests/test_weekly_release*.py`).
 
 ## Router Overview
 - `routers/auth.py`: login, current user, regular-user password change, and authentication error semantics.

@@ -424,6 +424,51 @@ The script only stops and removes the service; it **keeps** `/etc/crf-editor/`, 
 
 Security hardening items before go-live (reserved admin bootstrap and audit, secret rotation, multi-instance limits, etc.) are covered in "Deployment Security Notes" below.
 
+## Weekly AI-Assisted Release (GitHub Actions)
+
+The repository ships one release-only GitHub Actions workflow, `.github/workflows/weekly-release.yml`: every Monday at 09:17 China Standard Time (01:17 UTC) it checks `main` for unreleased product changes, and when changes qualify, asks a configured external AI to classify the bump (minor feature / patch fix) and draft Chinese release notes, then publishes a version-only commit, a bare three-part tag, a formal GitHub Release, and GitHub-generated source archives. **No Windows/Linux executables are attached, and no production server is deployed.** This is the single workflow exception kept after Actions were removed on 2026-10-08; no merge CI or PR gate is restored.
+
+Detection and publication logic lives in the standalone CLI `backend/scripts/weekly_release.py` (subcommands `plan` / `bump-versions` / `tree-hash` / `publish`), covered by `backend/tests/test_weekly_release.py` (pure logic plus AI/scanner boundaries), `test_weekly_release_git.py` (baseline/transaction/recovery on disposable local Git repos), and `test_weekly_release_workflow.py` (workflow wiring contract).
+
+### One-time operator setup (implementing or merging the code does NOT enable publishing)
+
+Configure in the repository's Settings → Secrets and variables → Actions:
+
+| Name | Stored as | Meaning |
+| --- | --- | --- |
+| `RELEASE_AI_API_URL` | Variable | HTTPS API **base** URL; include the `/v1` prefix when the gateway requires it; no embedded credentials/query strings, and it must not already end with `/chat/completions` or `/messages` |
+| `RELEASE_AI_MODEL` | Variable | Model identifier |
+| `RELEASE_AI_API_FORMAT` | Variable | `openai` (default) or `anthropic` protocol |
+| `RELEASE_AI_TIMEOUT_SECONDS` | Variable | Optional positive integer, default 60, cap 600 |
+| `RELEASE_AI_API_KEY` | Secret (encrypted) | API key, visible only to the AI call step of the planning job |
+| `WEEKLY_RELEASE_ENABLED` | Variable | Publication switch; only the exact value `true` allows scheduled or manual publishing |
+
+### Triggers and decision logic
+
+- The schedule runs Mondays at 01:17 UTC; GitHub schedules are best-effort and may be delayed. When `WEEKLY_RELEASE_ENABLED` is not `true`, scheduled runs skip before any AI configuration or secret is read.
+- Manual runs (Actions → weekly-release → Run workflow) default to `dry_run=true`: planning and validation only, with no remote writes. **A dry run may still send the bounded diff to the external AI once product changes are confirmed — it is not an offline check.** Real publishing requires `dry_run=false` plus the enable flag.
+- The comparison is made against the source tree of the last successfully published stable Release (drafts/prereleases excluded), not the last seven days or an arbitrary latest tag: docs-only, test-only, task-record-only, or release-engineering-only changes trigger neither a release nor an AI call; manifests ignore only their three application version fields, so dependency changes still qualify; fully reverted changes do not release merely because commits exist.
+- The AI receives commit subjects, file statistics, and filtered, secret-scanned, size-capped text diffs (4 KiB per file, 48 KiB total diff, 64 KiB total request). `.env` instances, real configuration, databases, uploads, screenshots, binaries, and author information are never sent; configuration examples are summarized only, and omitted/truncated files are explicitly marked. The AI must answer with a fixed JSON schema (violations are rejected); the version number is computed locally with integer three-part arithmetic (`0.4.9 → 0.4.10`; minor resets the patch to zero), so the AI can never choose a version.
+- When the AI reports insufficient context (`sufficient_context=false`) or a breaking change (`breaking_change=true`), publication stops for manual review. There is no silent patch fallback, and a failed AI request is never presented as a passed review.
+
+### Failure and recovery
+
+- Any test, build, AI, or scanner failure: no remote writes at all.
+- If `main` and the tag push succeed but Release creation fails: the run stays in a "pending release" state (tag and version commit exist remotely). The next run validates the same release envelope and finishes that Release without re-bumping or asking the AI again; commits added to `main` meanwhile are not folded into that version.
+- Conflicting tags, multiple pending versions, manually created version tags, or manifest-version drift versus the published release always stop for human reconciliation. The automation never force-pushes, never changes branch protection, and never deletes tags or Releases.
+
+### Emergency stop and caveats
+
+1. Set `WEEKLY_RELEASE_ENABLED` to `false` or disable the workflow (prevents new runs);
+2. Cancel **all running and queued** release runs from the Actions page and verify they have actually stopped;
+3. Inspect remote `main` / tags / Releases to determine whether publication completed or is left pending.
+
+Note that changing the flag alone neither cancels in-flight work nor reverts published content; cancellation can race an in-flight API request. Any deletion or rollback is a separate high-risk operation requiring explicit confirmation.
+
+- Ordinary Variables are not masked; if the API endpoint itself carries confidential information, use a Secret-based scheme instead of putting credentials in the URL.
+- Public-repository scheduled workflows may be disabled by GitHub after 60 days without repository activity; forks do not run schedules by default. Re-enable manually or trigger a manual run when that happens.
+- This workflow never deploys the production server; production upgrades follow the "Production Deployment" chapter.
+
 ## Deployment Security Notes
 
 - On the first production startup, or whenever the reserved admin account is unusable, the app creates or repairs that account from `CRF_ADMIN_BOOTSTRAP_PASSWORD`; provide that value only in a controlled environment and rotate/reset it immediately after takeover.
@@ -460,7 +505,7 @@ The two suites are disjoint and can run independently:
 - `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions; includes a Vue-warning gate — any Vue warning during a test, including during unmount, fails that test, implemented in `tests/component/vueWarnGate.js`)
 
 In the current repository:
-- `backend/tests/` holds the backend pytest suite (`test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests
+- `backend/tests/` holds the backend pytest suite (`test_*.py` modules plus `conftest.py` and `helpers.py`), including some `hypothesis` property tests; `test_weekly_release.py` / `test_weekly_release_git.py` / `test_weekly_release_workflow.py` cover the weekly release's net-change detection, AI config and payload boundaries, secret-scan gates, atomic Git publication transactions, the pending-release state machine, and the workflow wiring contract
 - `frontend/tests/` holds the frontend tests: the flat `tests/` root of node:test `.test.js` source-level regression checks (including `testProperty.js`), plus the vitest component-mount test files under `tests/component/` (`.spec.js` files with the shared `setup.js` and `vueWarnGate.js`), covering source-level contracts including designer / visits aCRF annotation geometry, persistence, drag wiring, the post-split parent/child wiring and the mount behavior of the two new designer components (`DesignerWordPreview` / `DesignerAcrfAnnotation`), the visits-preview split parent/child wiring and `VisitFormPreviewDialog` mount behavior (including the integration regression over the full flow → list → preview path), the Word import wizard and the designer ready bridge, field-instance copy, the checkbox field type, OID charset validation wiring, Units/Visits right-side property cards, admin org dialog editing, and the `useApi` session-token race guard
 - Strict preview/export table-field parity can be checked with `backend/scripts/compare_word_table_parity.py` against browser preview JSON and the exported `.docx`
 

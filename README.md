@@ -424,6 +424,51 @@ sudo bash deploy/install-service.sh uninstall
 
 上线前的安全收敛项（保留管理员初始化与审计、密钥轮换、多实例限制等）见下方「上线安全注意事项」。
 
+## 每周 AI 辅助发布（GitHub Actions）
+
+仓库提供一个发布专用的 GitHub Actions 工作流 `.github/workflows/weekly-release.yml`：每周一北京时间 09:17（01:17 UTC）检查 `main` 上是否有未发布的实际代码变化，确认后调用外部 AI 判定升级幅度（功能升级 minor / 小修复 patch）并生成中文更新说明，随后以「版本提交 + 裸三段版本标签 + 中文 Release + GitHub 源码压缩包」的形式发布。**不含 Windows/Linux 可执行包，也不部署生产服务器。** 这是 2026-10-08 移除 Actions 后唯一的 workflow 例外，不恢复任何合并 CI / PR 门禁。
+
+判定与发布逻辑由独立 CLI `backend/scripts/weekly_release.py` 实现（子命令 `plan` / `bump-versions` / `tree-hash` / `publish`），对应测试为 `backend/tests/test_weekly_release.py`（纯逻辑与 AI/扫描边界）、`test_weekly_release_git.py`（一次性本地 Git 仓库上的基线/事务/恢复）、`test_weekly_release_workflow.py`（workflow 装配契约）。
+
+### 启用前配置（需操作者手动完成；实现或合并代码不等于启用发布）
+
+在 GitHub 仓库 Settings → Secrets and variables → Actions 配置：
+
+| 名称 | 保存位置 | 说明 |
+| --- | --- | --- |
+| `RELEASE_AI_API_URL` | Variables | HTTPS API **基础**地址；需要 `/v1` 前缀的网关要一并写上；不得内嵌凭据或查询参数，不得已含 `/chat/completions` 或 `/messages` 后缀 |
+| `RELEASE_AI_MODEL` | Variables | 模型名称 |
+| `RELEASE_AI_API_FORMAT` | Variables | `openai`（默认）或 `anthropic` 接口格式 |
+| `RELEASE_AI_TIMEOUT_SECONDS` | Variables | 可选，正整数，默认 60，上限 600 |
+| `RELEASE_AI_API_KEY` | Secrets（加密保存） | 请求密钥，仅规划作业的 AI 调用步骤可见 |
+| `WEEKLY_RELEASE_ENABLED` | Variables | 发布开关；仅精确 `true` 时允许计划任务与手动发布 |
+
+### 触发与判定
+
+- 计划任务每周一 01:17 UTC 运行；GitHub 定时为尽力而为，可能延迟，不保证准点。`WEEKLY_RELEASE_ENABLED` 非 `true` 时，计划任务在读取任何 AI 配置或密钥之前直接跳过。
+- 手动运行（Actions → weekly-release → Run workflow）默认 `dry_run=true`：只做规划与验证，不写任何远端引用或 Release；**dry run 在确认存在净产品变更后仍可能把受控差异发送给外部 AI，不是离线检查**。`dry_run=false` 且开关开启时才真实发布。
+- 比较「上一次成功发布的正式 Release」（排除 draft/prerelease）对应的源码树，而不是最近 7 天或任意最新标签：仅文档 / 测试 / 任务记录 / 发布工程文件变化时不触发发布、不调用 AI；清单文件只忽略应用自身三个版本字段的差异，依赖变化仍会触发；完整回退的变更不会因提交存在而发布。
+- AI 只收到提交主题、文件统计与经筛选、密钥扫描、限长（单文件 4 KiB、差异总量 48 KiB、整体 64 KiB）的文本源码差异；`.env` 实例、真实配置、数据库、上传文件、截图、二进制与作者信息一律不外发，配置样例只发摘要并明确标注截断/省略。AI 输出被限制为固定 JSON 字段（超出即拒绝）；版本号由本地代码按三段整数运算（`0.4.9 → 0.4.10`、minor 归零修正号），AI 无法指定版本号。
+- AI 判定上下文不足（`sufficient_context=false`）或存在破坏性变更（`breaking_change=true`）时停止发布，转人工处理；不会静默回退为 patch，也不会把失败的 AI 请求当作已通过审查。
+
+### 失败与恢复
+
+- 测试、构建、AI 或扫描任一失败：不产生任何远端写入。
+- main 与标签推送成功但 Release 创建失败：保留「待恢复」状态（标签与版本提交已在远端），下次运行校验同一发布信封后补建 Release，不会重复升版本、不会再次询问 AI；恢复期间 main 上的新提交不会被混入该版本。
+- 标签冲突、多个待恢复版本、手工创建的版本标签、清单版本与已发布版本漂移等情况一律停止并转人工；绝不 force push、不改分支保护、不自动删除标签或 Release。
+
+### 紧急停止与注意事项
+
+1. 将 `WEEKLY_RELEASE_ENABLED` 置为 `false` 或禁用本 workflow（阻止新运行）；
+2. 到 Actions 页取消**所有运行中和排队中**的发布运行，并确认其已实际停止；
+3. 核对远端 main / 标签 / Release 状态，判断发布是已完成还是处于待恢复。
+
+注意：仅修改开关不会取消已开始的运行，也不会回滚已发布内容；取消可能与进行中的 API 请求竞争。任何删除或回滚都是需单独确认的高风险操作。
+
+- 普通 Variables 不会被打码；若 API 端点本身含敏感信息，应改用 Secret 方案，不要把凭据放进 URL。
+- 公开仓库的计划任务在 60 天无仓库活动后可能被 GitHub 自动停用；fork 默认不运行定时任务。届时手动重新启用或手动触发即可。
+- 本 workflow 不部署生产服务器；生产升级仍按「生产部署」章节执行。
+
 ## 上线安全注意事项
 
 - 生产环境首次空库启动或发现保留管理员不可用时，系统会使用 `CRF_ADMIN_BOOTSTRAP_PASSWORD` 自动创建 / 修复保留管理员账号；该密码必须在受控环境中提供，且上线后应立即轮换或重置。
@@ -460,7 +505,7 @@ node --test tests/*.test.js # 仅运行 node:test 源码级回归测试
 - `tests/component/**/*.spec.js`：vitest + @vue/test-utils + happy-dom 组件挂载测试（真实渲染组件并断言交互，共享 `tests/component/setup.js` 全局注册与 mock 约定；含 Vue 警告门禁——测试期间出现任何 Vue 警告（含卸载阶段）即判该用例失败，实现于 `tests/component/vueWarnGate.js`）
 
 当前仓库中：
-- `backend/tests/` 存放后端 pytest 测试（`test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试
+- `backend/tests/` 存放后端 pytest 测试（`test_*.py` 模块 + `conftest.py` + `helpers.py`），并包含部分 `hypothesis` 属性测试；其中 `test_weekly_release.py` / `test_weekly_release_git.py` / `test_weekly_release_workflow.py` 覆盖每周发布的净变更判定、AI 配置与载荷边界、密钥扫描门禁、Git 原子发布事务、待恢复状态机与 workflow 装配契约
 - `frontend/tests/` 存放前端测试：`tests/` 根目录平铺的 node:test `.test.js` 源码级回归测试（含 `testProperty.js`），另加 `tests/component/` 下的 vitest 组件挂载测试文件（`.spec.js` + 共享 `setup.js` + `vueWarnGate.js`），覆盖设计器 / 访视预览 aCRF 标注几何、持久化与拖动接线、设计器预览拆分后的父/子接线与两个新组件（`DesignerWordPreview` / `DesignerAcrfAnnotation`）的挂载行为、访视预览弹窗拆分后的父/子接线与 `VisitFormPreviewDialog` 挂载行为（含走完整「访视流程 → 列表 → 预览」路径的集成回归）、导入 Word 向导与设计器就绪桥、字段实例复制、复选字段类型契约、OID 字符集校验接线、单位 / 访视右侧属性卡、管理端机构弹窗编辑，以及 `useApi` 会话令牌竞态守卫等契约
 - 预览 / 导出严格表格字段一致性可通过 `backend/scripts/compare_word_table_parity.py` 对比浏览器预览 JSON 与导出的 `.docx`
 

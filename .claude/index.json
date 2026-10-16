@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-13T00:00:00-07:00",
+  "timestamp": "2026-10-16T00:00:00-07:00",
   "version": "1.4.3",
   "root_claude_md": ".claude/CLAUDE.md",
   "modules": [
@@ -10,7 +10,9 @@
       "claude_md": "backend/.claude/CLAUDE.md",
       "entry_files": [
         "backend/main.py",
-        "backend/app_launcher.py"
+        "backend/app_launcher.py",
+        "backend/scripts/weekly_release.py",
+        ".github/workflows/weekly-release.yml"
       ],
       "infrastructure": [
         "backend/src/background_jobs.py",
@@ -117,7 +119,8 @@
         "backend/scripts/compare_docx_template_fields.py",
         "backend/scripts/compare_word_table_parity.py",
         "backend/scripts/migrate_template_db.py",
-        "backend/scripts/normalize_date_formats.py"
+        "backend/scripts/normalize_date_formats.py",
+        "backend/scripts/weekly_release.py"
       ],
       "tests": [
         "backend/tests/conftest.py",
@@ -194,6 +197,9 @@
         "backend/tests/test_user_admin.py",
         "backend/tests/test_utils.py",
         "backend/tests/test_wal.py",
+        "backend/tests/test_weekly_release.py",
+        "backend/tests/test_weekly_release_git.py",
+        "backend/tests/test_weekly_release_workflow.py",
         "backend/tests/test_width_planning.py",
         "backend/tests/test_word_table_parity.py"
       ],
