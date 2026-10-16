@@ -81,8 +81,10 @@ class PublishError(ReleaseError):
 # 预算与常量
 # ---------------------------------------------------------------------------
 
-TOTAL_BUDGET = 64 * 1024
-DIFF_BUDGET = 48 * 1024
+# 2026-10-16 实测首次发布积压（0.4.0 以来约 364 提交）摘要即达 17KB，64KiB 总预算会让
+# 正常积压直接硬失败；claude 级模型可轻松承载 256KiB（约 64K token），故放大总量与差异预算。
+TOTAL_BUDGET = 256 * 1024
+DIFF_BUDGET = 128 * 1024
 PER_FILE_DIFF_BUDGET = 4 * 1024
 RESPONSE_BUDGET = 32 * 1024
 RATIONALE_BUDGET = 1024

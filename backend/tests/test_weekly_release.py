@@ -358,7 +358,7 @@ def test_payload_truncates_large_file_diff_with_marker() -> None:
 
 def test_payload_enforces_total_diff_budget_and_lists_omitted() -> None:
     big = "y" * (wr.PER_FILE_DIFF_BUDGET + 10)
-    changes = [_eligible_change(f"backend/src/services/{i}.py") for i in range(15)]
+    changes = [_eligible_change(f"backend/src/services/{i}.py") for i in range(40)]
 
     def provider(change: wr.FileChange) -> str:
         return big
@@ -369,7 +369,7 @@ def test_payload_enforces_total_diff_budget_and_lists_omitted() -> None:
 
 
 def test_payload_rejects_when_summary_alone_exceeds_budget() -> None:
-    huge_subjects = ["fix: " + "长" * 200 for _ in range(200)]
+    huge_subjects = ["fix: " + "长" * 200 for _ in range(300)]
     with pytest.raises(wr.PayloadError):
         _build(commit_subjects=huge_subjects)
 
