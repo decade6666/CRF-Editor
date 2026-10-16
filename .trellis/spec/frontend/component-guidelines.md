@@ -1523,6 +1523,40 @@ Reference implementation: `frontend/src/composables/useDesignerFormSelection.js`
   replay builder across `shared` / `rebind-undo` / `rebind-redo` / fork types
   with and without `definitionUpdated`.
 
+## Scenario: Saimeisi Manual-OID Length Limits (Save Gate + Entry maxlength)
+
+### 1. Scope / Trigger
+
+- Trigger: touching `editedOidLengthError` / `oidMaxLength` in
+  `frontend/src/composables/oidValidation.js`, any of the five OID entry
+  controls (FieldsTab panel input; add-form dialog, edit-form dialog, inline
+  form-property card, designer field-OID autocomplete in
+  `FormDesignerTab.vue`), or the baseline arguments wired into
+  `FieldsTab.save` / `persistFormProps` / `saveSelectedFieldProp` /
+  `saveDraftField`.
+
+### 2. Contracts
+
+| Rule | Why |
+|---|---|
+| Limits apply only when the project `db_type` is exactly 赛美斯; `oidMaxLength` returns `undefined` otherwise so no maxlength attribute renders | 其他 / absent types keep their historical behavior; the DB-type constant comes from `fieldTypeAvailability.js` (single source) |
+| Save-gate baseline: FieldsTab captures it in `resetProp` (the single initialization seam: 新增 generated / 编辑 row / post-save rehydration); the designer uses `candidateOid` when `selectedDefinitionId` is set (same judgment as `buildBindingProfileCommand`'s `isCandidateRebind`), else `fieldPropBaseline.fd.variable_name` / draft `__labelOidSeed.variable_name` | Untouched system values (27/26-char generated defaults, copy-ladder names, legacy/imported OIDs, untouched rebinds) stay exempt; the length judgment and the fork/rebind classifier can never disagree |
+| 标签 / 日志行 are skipped in both designer save paths (OID inputs hidden there; `ensureLabelVariableName` may rewrite label OIDs), while the fields library gates 日志行 edits normally | Designer log/label OIDs are system-managed; the library's log-row OID input is user-editable, so a manual change is still a manual change |
+| Entry-level enforcement is a conditional native `maxlength` (8 fields / 10 forms) bound via `oidMaxLength`; no keydown interception, no truncation watchers | Native maxlength blocks the overlimit keystroke and truncates paste with zero custom code; it does NOT constrain programmatic `value` assignment, so generated defaults and candidate hydration prefill untouched (exemption preserved); el-autocomplete passes maxlength through to the inner input |
+| The save-time gate stays wired even though capped inputs make it unreachable via pure typing in 赛美斯 projects | Defense in depth for programmatic paths and for any future surface that forgets the maxlength binding; `persistFormProps` fails closed when `baselineCode` is omitted (empty baseline ⇒ changed value) |
+
+### 3. Validation
+
+- `frontend/tests/oidEditLengthPolicy.test.js` locks the policy matrix
+  (8/9 and 10/11 boundaries, 其他/blank types, unchanged automatic/copy
+  values, generated-looking edits, revert/trim equality, missing baseline,
+  empty candidate, unknown kind, and the `oidMaxLength` mapping).
+- `frontend/tests/component/OidEditSave.spec.js` witnesses every save surface
+  with real mounts (zero write/reference requests on rejection, input
+  retention, dialog/inline form routes, candidate pick → pure rebind PUT then
+  typed fork rejected) and the maxlength wiring on all five entry controls
+  (programmatic 27-char prefill unaffected).
+
 ## Scenario: Non-Modal Penetrable Dialog (`TemplateFieldSearchDialog`)
 
 ### 1. Scope / Trigger
