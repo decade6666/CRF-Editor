@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"Shared refreshKey invalidation order, draft/dirty leave guards, selected-form identity, and history/reorder invariants."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Real component mount testing, API spies, Vue warning gate, and frontend validation conventions."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Additive response-field compatibility, typed schema defaults, backend tests and code-quality boundaries."}
+{"file":".trellis/spec/backend/auth-security.md","reason":"Preserve target-project ownership, template import security and existing authentication boundaries."}
+{"file":".trellis/tasks/10-16-template-import-refresh/research/template-import-refresh.md","reason":"Confirmed import/refresh/selection evidence, approved decisions, and reusable tests; do not re-derive resolved intent."}

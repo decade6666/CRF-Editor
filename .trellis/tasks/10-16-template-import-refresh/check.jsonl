@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check import selection against refreshKey, unsaved work, selected-form identity, and busy/session guarantees."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Require behavioral DOM assertions, only boundary mocks, warning-gated mount tests, and lint/build evidence."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify actual target ids survive HTTP serialization and response construction stays backward compatible."}
+{"file":".trellis/spec/backend/auth-security.md","reason":"Security pass: no new authorization bypass, template writes, sensitive-data exposure, or cross-project ids."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Review actual diff in the isolated branch; no unauthorized commits, pushes, merges, or unrelated edits."}
+{"file":".trellis/tasks/10-16-template-import-refresh/research/template-import-refresh.md","reason":"Compare implementation to confirmed evidence and user-approved first-imported-form/additive-id scope."}
