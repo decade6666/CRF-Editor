@@ -396,7 +396,8 @@ test('FormDesignerTab guards OID charset on form/field submit paths (option code
   // 内联字典选项 code 为自由文本（与标签一致），不再做字符集校验
   assert.match(
     formDesignerSource,
-    /import \{ isValidOptionalOid, isValidRequiredOid, OID_ERROR \} from '..\/composables\/oidValidation'/,
+    // 共享校验器必须仍从 oidValidation 导入；允许名单随功能扩展（如赛美斯长度策略）新增导入名
+    /import \{[^}]*\bisValidOptionalOid\b[^}]*\bisValidRequiredOid\b[^}]*\bOID_ERROR\b[^}]*\} from '..\/composables\/oidValidation'/,
     'should import the shared OID validators',
   )
 
