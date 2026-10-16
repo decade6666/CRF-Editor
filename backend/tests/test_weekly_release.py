@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import shutil
+import sys
 from pathlib import Path
 
 import httpx
@@ -820,6 +822,14 @@ def test_ai_failure_logs_do_not_contain_key_or_body(caplog: pytest.LogCaptureFix
             wr.request_ai_decision(config, "prompt-body-XYZ", transport=httpx.MockTransport(handler))
     assert "sk-super-secret-key-value" not in caplog.text
     assert "prompt-body-XYZ" not in caplog.text
+
+
+def test_module_top_level_import_does_not_require_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """顶层导入零第三方 HTTP 依赖：CI 在安装依赖前运行 bump-versions 等子命令也必须可用。"""
+    monkeypatch.setitem(sys.modules, "httpx", None)  # None = 模块不可导入（import 即 ImportError）
+    importlib.reload(wr)  # 不得抛 ImportError
+    monkeypatch.undo()
+    importlib.reload(wr)  # 恢复常规模块状态，避免影响后续测试
 
 
 # ---------------------------------------------------------------------------

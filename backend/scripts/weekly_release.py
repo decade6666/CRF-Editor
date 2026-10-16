@@ -24,8 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -613,6 +611,9 @@ def _extract_content(data: object) -> str:
 
 
 def _post_once(config: ReleaseAIConfig, prompt: str, transport: object) -> str:
+    # 延迟导入：只有 AI 请求路径需要 httpx，其余子命令在未安装该库的环境也能运行
+    import httpx
+
     body = _request_body(config, prompt)
     try:
         with httpx.Client(
