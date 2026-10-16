@@ -1,0 +1,4 @@
+{"file":".context/prefs/coding-style.md","reason":"Keep the eventual implementation small and consistent with project patterns."}
+{"file":".context/prefs/workflow.md","reason":"Follow TDD, required validation, review, and documentation synchronization."}
+{"file":".trellis/spec/frontend/index.md","reason":"Load the frontend package's actual component/state/testing guidelines before implementation."}
+{"file":".trellis/tasks/10-16-saimosi-oid-limit/research/oid-edit-boundaries.md","reason":"Verified database-type, identifier, automatic-value, and save-boundary evidence; preserve existing backend contracts."}

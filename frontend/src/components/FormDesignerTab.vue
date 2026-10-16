@@ -35,7 +35,7 @@ import {
 } from '../composables/referenceDeleteGuard';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
-import { isValidOptionalOid, isValidRequiredOid, OID_ERROR } from '../composables/oidValidation';
+import { editedOidLengthError, isValidOptionalOid, isValidRequiredOid, oidMaxLength, OID_ERROR } from '../composables/oidValidation';
 import {
   buildFieldDefinitionCreatePayload,
   isLabelFieldDefinition,
@@ -195,10 +195,13 @@ const showEditForm = ref(false);
 const showDesigner = ref(false);
 const newFormName = ref('');
 const newFormCode = ref('');
+// 赛美斯 OID 长度限制基线：新建弹窗打开时生成的表单 OID / 编辑弹窗打开时的原表单 OID
+const newFormBaselineCode = ref('');
 const editFormName = ref('');
 const editFormCode = ref('');
 const editFormPaperOrientation = ref('auto');
 const editFormTarget = ref(null);
+const editFormBaselineCode = ref('');
 // 全屏设计器右侧「表单属性」编辑缓冲（与左侧弹窗 editForm* 双入口；显式保存，镜像字段属性脏态模式）
 const editFormProp = reactive({ name: '', code: '', paper_orientation: 'auto' });
 const formPropBaseline = ref(null);
@@ -447,6 +450,13 @@ watch(editMode, (enabled) => {
 // 表单CRUD
 async function addForm() {
   if (!isValidOptionalOid(newFormCode.value)) return ElMessage.warning(OID_ERROR);
+  const newFormLengthError = editedOidLengthError({
+    dbType: projectDbType.value,
+    kind: 'form',
+    candidate: newFormCode.value,
+    baseline: newFormBaselineCode.value,
+  });
+  if (newFormLengthError) return ElMessage.warning(newFormLengthError);
   try {
     const created = await api.post(`/api/projects/${props.projectId}/forms`, {
       name: newFormName.value,
@@ -532,6 +542,8 @@ function openEditForm(f) {
   editFormName.value = f.name;
   editFormCode.value = f.code || '';
   editFormPaperOrientation.value = f.paper_orientation || 'auto';
+  // 行对象会被 reload 替换，打开时冻结原 OID 快照，不信任可变的 targetForm 引用
+  editFormBaselineCode.value = f.code || '';
   editFormTarget.value = f;
   showEditForm.value = true;
 }
@@ -555,7 +567,7 @@ const isFormPropDirty = computed(() => {
  * Shared form-property PUT path for the edit dialog and the designer side pane.
  * Returns true on success, false on validation/cancel/error.
  */
-async function persistFormProps({ name, code, paper_orientation, targetForm }) {
+async function persistFormProps({ name, code, paper_orientation, targetForm, baselineCode }) {
   if (!targetForm?.id) return false;
   if (!String(name ?? '').trim()) {
     ElMessage.warning('表单名称不能为空');
@@ -563,6 +575,16 @@ async function persistFormProps({ name, code, paper_orientation, targetForm }) {
   }
   if (!isValidOptionalOid(code)) {
     ElMessage.warning(OID_ERROR);
+    return false;
+  }
+  const codeLengthError = editedOidLengthError({
+    dbType: projectDbType.value,
+    kind: 'form',
+    candidate: code,
+    baseline: baselineCode,
+  });
+  if (codeLengthError) {
+    ElMessage.warning(codeLengthError);
     return false;
   }
   try {
@@ -606,6 +628,7 @@ async function updateForm() {
     code: editFormCode.value,
     paper_orientation: editFormPaperOrientation.value,
     targetForm: editFormTarget.value,
+    baselineCode: editFormBaselineCode.value,
   });
   if (ok) showEditForm.value = false;
 }
@@ -620,6 +643,7 @@ async function saveFormProp() {
       code: editFormProp.code,
       paper_orientation: editFormProp.paper_orientation,
       targetForm: selectedForm.value,
+      baselineCode: formPropBaseline.value?.code ?? '',
     });
   } finally {
     isSavingFormProp.value = false;
@@ -2206,6 +2230,24 @@ async function saveSelectedFieldProp() {
       ElMessage.warning(OID_ERROR);
       return false;
     }
+    // 赛美斯手工 OID 长度：候选绑定未改动按候选 OID 豁免（与命令决策同一判据），
+    // 否则与打开编辑器/上次保存成功时的基线比较；标签/日志行 OID 由系统托管，豁免
+    if (!['标签', '日志行'].includes(snapshot.field_type)) {
+      const oidLengthBaseline =
+        selectedDefinitionId.value != null && candidateOid.value != null
+          ? candidateOid.value
+          : fieldPropBaseline.value?.fd?.variable_name ?? null;
+      const oidLengthError = editedOidLengthError({
+        dbType: projectDbType.value,
+        kind: 'field',
+        candidate: snapshot.variable_name,
+        baseline: oidLengthBaseline,
+      });
+      if (oidLengthError) {
+        ElMessage.warning(oidLengthError);
+        return false;
+      }
+    }
     // 手输 OID 命中其他现有定义但未明确点击候选：阻止并提示（后端唯一约束兜底）
     const oidConflict = findOidConflict(
       fieldDefs.value.filter(isVisibleInFieldLibrary),
@@ -2645,6 +2687,24 @@ async function saveDraftField() {
   }
   const draftVariableName =
     fd.field_type === '标签' ? ensureLabelVariableName(fd.variable_name, genFieldVarName) : fd.variable_name;
+  // 赛美斯手工 OID 长度：候选绑定未改动按候选 OID 豁免，否则与草稿创建态快照比较；
+  // 标签/日志行 OID 由系统托管，豁免（草稿创建基线取 __labelOidSeed，draft 定义会镜像编辑器不可作基线）
+  if (!['标签', '日志行'].includes(fd.field_type)) {
+    const draftOidLengthBaseline =
+      selectedDefinitionId.value != null && candidateOid.value != null
+        ? candidateOid.value
+        : draft.__labelOidSeed?.variable_name ?? null;
+    const draftOidLengthError = editedOidLengthError({
+      dbType: projectDbType.value,
+      kind: 'field',
+      candidate: draftVariableName,
+      baseline: draftOidLengthBaseline,
+    });
+    if (draftOidLengthError) {
+      ElMessage.warning(draftOidLengthError);
+      return false;
+    }
+  }
   // 手输 OID 命中其他现有定义但未明确点击候选：阻止并提示
   const oidConflict = findOidConflict(
     fieldDefs.value.filter(isVisibleInFieldLibrary),
@@ -3102,6 +3162,7 @@ defineExpose({
 
 function openAddForm() {
   newFormCode.value = genCode('FORM');
+  newFormBaselineCode.value = newFormCode.value;
   showAddForm.value = true;
 }
 </script>
@@ -3494,7 +3555,7 @@ function openAddForm() {
                 :disabled="designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
               >
                 <el-form-item v-if="editMode" label="OID">
-                  <el-input v-model="editFormProp.code" data-test="designer-form-property-code" />
+                  <el-input v-model="editFormProp.code" data-test="designer-form-property-code" :maxlength="oidMaxLength(projectDbType, 'form')" />
                 </el-form-item>
                 <el-form-item label="名称">
                   <el-input v-model="editFormProp.name" data-test="designer-form-property-name" />
@@ -3535,6 +3596,7 @@ function openAddForm() {
                     placeholder="输入OID搜索字段库"
                     style="width: 100%"
                     data-test="designer-field-oid-autocomplete"
+                    :maxlength="oidMaxLength(projectDbType, 'field')"
                     @select="selectAutocompleteCandidate"
                   >
                     <template #default="{ item }">
@@ -3891,7 +3953,7 @@ function openAddForm() {
     />
     <el-dialog v-model="showAddForm" title="新建表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item>
       </el-form>
       <template #footer>
@@ -3901,7 +3963,7 @@ function openAddForm() {
     </el-dialog>
     <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item>
         <el-form-item label="纸张方向">
           <el-radio-group v-model="editFormPaperOrientation" data-test="edit-form-paper-orientation">
