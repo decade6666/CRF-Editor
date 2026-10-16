@@ -1,0 +1,3 @@
+{"file":".context/prefs/workflow.md","reason":"Verify TDD evidence, affected tests, validation, actual-diff review, security/input-validation compatibility, and documentation synchronization."}
+{"file":".trellis/spec/frontend/index.md","reason":"Use the existing frontend component/state/quality conventions for the affected editor hosts."}
+{"file":".trellis/tasks/10-16-saimosi-oid-limit/research/oid-edit-boundaries.md","reason":"Check every real OID save surface, automatic/candidate/legacy exemptions, immutable draft baselines, and the cited narrow spec/test contracts without broadening scope."}

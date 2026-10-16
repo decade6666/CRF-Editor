@@ -1,0 +1,33 @@
+{
+  "id": "saimosi-oid-limit",
+  "name": "saimosi-oid-limit",
+  "title": "赛美斯数据库手工 OID 长度限制",
+  "description": "仅数据库类型为赛美斯时，在用户修改后保存时限制字段 OID 不超过 8 位、表单 OID 不超过 10 位；系统自动填充值豁免。本轮仅规划，后续交给 Sonnet 执行。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-10-16",
+  "completedAt": "2026-10-16",
+  "branch": "task/saimosi-oid-limit",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/crf-editor-saimosi-oid-limit",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/composables/oidValidation.js",
+    "frontend/src/components/FieldsTab.vue",
+    "frontend/src/components/FormDesignerTab.vue"
+  ],
+  "notes": "Planning artifacts only; user review and an explicit execution instruction are still required. Requested later executor: Sonnet. Preserve automatic/unchanged/candidate-supplied OIDs and existing backend contracts.",
+  "meta": {
+    "requested_executor": "Sonnet",
+    "execution_authorization": "deferred"
+  }
+}
