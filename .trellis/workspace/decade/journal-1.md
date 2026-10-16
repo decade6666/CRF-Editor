@@ -1019,3 +1019,26 @@ FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: weekly-ai-release 每周 AI 辅助源码发布自动化
+<!-- trellis-session: v=2 fp=78a8629ad7f2b2e9 -->
+
+**Date**: 2026-10-16
+**Task**: weekly-ai-release 每周 AI 辅助源码发布自动化
+**Branch**: `task/weekly-ai-release`
+
+### Summary
+
+实现默认关闭的每周发布链：workflow+独立CLI（净变更判定/限长密钥扫描AI载荷/封闭schema决策/原子main+tag推送/待恢复恢复），独立评审1C3M9Minor全修复，后端1375 passed、新模块覆盖91%；未配置密钥未启用发布
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2afce01` | feat(release): 新增每周 AI 辅助源码发布自动化（默认关闭） |
+| `f53e7b7` | docs(release): 同步每周发布自动化文档、模块索引与双语 README |
+
+### Status
+
+[OK] **Completed**
