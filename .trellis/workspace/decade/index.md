@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 28
+- **Total Sessions**: 30
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1044 | Active |
+| `journal-1.md` | ~1105 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-10-16 | 模板导入后立即展示新表单并保护草稿 | `a539ad3`, `7a02d53` | `fix/template-import-refresh` |
 | 28 | 2026-10-16 | weekly-ai-release 每周 AI 辅助源码发布自动化 | `2afce01`, `f53e7b7` | `task/weekly-ai-release` |
 | 26 | 2026-10-15 | 表单 OID 徽章去前缀并统一红框样式 | `73e1597` | `worktree-form-title-oid-style` |
 | 25 | 2026-10-15 | 字典快编影响提醒改为仅多表单时弹出 | `8b76b8e` | `plan/codelist-impact-multiform` |

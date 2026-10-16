@@ -1064,3 +1064,42 @@ FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: 模板导入后立即展示新表单并保护草稿
+<!-- trellis-session: v=2 fp=7691f83c93e631b9 -->
+
+**Date**: 2026-10-16
+**Task**: 模板导入后立即展示新表单并保护草稿
+**Branch**: `fix/template-import-refresh`
+
+### Summary
+
+模板导入成功后通过响应新增 imported_form_ids 经既有就绪桥自动选中首个新表单；修复共享刷新先清草稿与程序化选中双重确认两个连带缺陷；用户人工测试通过后完成收尾归档。
+
+### Main Changes
+
+- 后端 ImportExecuteResponse 以 default_factory 追加 imported_form_ids：目标项目实际新建行 id、创建顺序、零导入为空列表
+- 前端 executeImport 捕获目标项目并在成功后 clearAllCache、refreshKey++、requestFormSelection 首个 id；迟到成功不跨项目选中，展示失败与导入失败分别提示
+- FormDesignerTab 刷新 watcher 在草稿、草稿保存、撤销重放、拖拽排序期间跳过 loadFormFields；selectFormById 改为先守卫选择后同步表格高亮，消除双重未保存草稿弹框
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a539ad3` | fix(import): 模板导入后立即展示新表单并保护草稿 |
+| `7a02d53` | docs(task): 记录模板导入修复验收与选择刷新契约 |
+
+### Testing
+
+- [OK] 后端 pytest 全量 1383 passed、覆盖率 87%；新增 test_template_import_selection.py 6 例
+- [OK] 前端 npm test 1007 node:test + 171 vitest 通过；新增 TemplateImportSelection.spec.js 10 例真实挂载
+- [OK] 真实 Chromium 加模拟 API 验证导入即显、单次取消保留草稿、单次丢弃切换；lint 0 errors、build 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 已推送 main 并归档；本地服务已由用户停止，需要时按 local-serve-restart-recipe 重启
