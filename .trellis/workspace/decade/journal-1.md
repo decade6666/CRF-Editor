@@ -995,3 +995,27 @@ FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀�
 ### Status
 
 [OK] **Completed**
+
+## Session 27: 赛美斯 OID 长度限制（保存门禁+录入 maxlength）
+<!-- trellis-session: v=2 fp=6bb35f7372320672 -->
+
+**Date**: 2026-10-16
+**Task**: 赛美斯数据库手工 OID 长度限制
+**Branch**: `task/saimosi-oid-limit`
+
+### Summary
+
+赛美斯项目下字段 OID ≤8 位、表单 OID ≤10 位双层限制：保存门禁 editedOidLengthError（与基线值比较判定人工修改，未改动的系统生成/历史/复制默认值豁免，FIELD_/FORM_ 前缀形态不豁免；设计器候选绑定基线取 candidateOid 与 isCandidateRebind 判定同源，草稿取 __labelOidSeed 创建态快照，标签/日志行设计器内豁免）+ 录入层条件 maxlength（oidMaxLength，8/10，五处 OID 输入含 el-autocomplete 透传，程序化预填不受影响，其他项目不渲染）。TDD 先红后绿：策略套件 10 例 + 真实挂载 16 例（含 autocomplete 真实候选挑选→纯换绑 PUT→手输超长被拒）；全量 node:test 1007 / vitest 161 / lint 0 errors / build ✓；后端兼容 125 ✓；真机冒烟 7 场景全过（throwaway 环境 DB 级零写入验证，凭据经用户明确授权；el-tabs 渲染全部面板致无可见性过滤的按钮查询命中隐藏表单——假成功教训已入记忆）；用户浏览器实测确认后收尾。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `826b00f` | feat(frontend): 赛美斯项目 OID 长度限制（保存门禁+录入 maxlength） |
+| `abe82bd` | docs: 同步赛美斯 OID 长度限制功能说明 |
+| `a2dbbdd` | docs(spec): 沉淀赛美斯手工 OID 长度限制契约 |
+| `4bf0c80` | chore(task): 归档 saimosi-oid-limit 任务 |
+
+### Status
+
+[OK] **Completed**
