@@ -428,7 +428,17 @@ watch(refreshKey, () => {
     loadCodelists();
     loadUnits();
   }
-  if (selectedForm.value) loadFormFields();
+  // 草稿 / 草稿保存中 / 撤销重放 / 拖拽排序的未落库状态都在 formFields 里；
+  // 刷新重载会在切换守卫运行前把它们清掉（如导入后的取消切换），此时跳过本次字段重载。
+  if (
+    selectedForm.value &&
+    !hasDraft.value &&
+    !savingDraft.value &&
+    !designerHistory.busy.value &&
+    !isReordering.value
+  ) {
+    loadFormFields();
+  }
 });
 watch(viewMode, (nextMode) => {
   const normalizedMode = resolveInitialViewMode(editMode.value, nextMode);
@@ -3155,8 +3165,15 @@ defineExpose({
     await loadForms();
     const target = forms.value.find((f) => f.id === formId);
     if (!target) return;
-    formsTableRef.value?.setCurrentRow(target);
+    // 单一选择权威：先完成守卫选择，再同步表格高亮。若先 setCurrentRow，
+    // 同步发出的 current-change 回显会经 onFormsTableCurrentChange 抢先进入
+    // selectForm，与显式调用各弹一次保存/放弃确认（浏览器中是两个叠放的
+    // 「未保存草稿」弹框）。成功后回显为同 id 事件，会被 onFormsTableCurrentChange
+    // 忽略；取消 / 忙碌分支由 selectForm 自行恢复原行高亮。
     await selectForm(target);
+    if ((selectedForm.value?.id ?? null) === (target.id ?? null)) {
+      formsTableRef.value?.setCurrentRow(target);
+    }
   },
 });
 

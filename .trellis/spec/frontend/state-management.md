@@ -644,3 +644,49 @@ function logout() {
 
 **Forbidden**: whole-file overwrite of `FormDesignerTab.vue`, applying isolation full patches, `npm run format`, backend contract changes, or converting optimistic reorder success back into list reload.
 
+### Programmatic Form Selection and Refresh Safety
+
+#### 1. Scope / Trigger
+
+Programmatic `selectFormById` calls (template/Word import handoff) while the designer may hold a draft, history replay, or optimistic reorder.
+
+#### 2. Signatures
+
+`selectFormById(formId)` -> `selectForm(target)` -> `onFormsTableCurrentChange(row)`; shared refresh uses `watch(refreshKey, ...)`.
+
+#### 3. Contracts
+
+- Run the guarded `selectForm(target)` exactly once before calling `setCurrentRow(target)`; sync highlight only if `selectedForm.id === target.id`. Its same-id echo is ignored by the existing table handler.
+- Shared refresh must skip `loadFormFields()` while `hasDraft`, `savingDraft`, `designerHistory.busy`, or `isReordering` is true. Those local states live in `formFields`; reloading first would erase them before leave guards can inspect them.
+- Keep the existing save/discard/cancel and busy decisions; cancel preserves the old selection/draft. Metadata and auxiliary-data refresh may still run.
+
+#### 4. Validation & Error Matrix
+
+| State/action | Required outcome |
+|---|---|
+| Programmatic switch with a draft | Exactly one confirmation |
+| Close the confirmation once to abort switching | No remaining confirmation; old form and draft remain |
+| Discard and continue | New form selected; highlight synchronized after commit |
+| Busy/reorder gate rejects switching | Keep existing selection; do not pre-highlight target |
+
+#### 5. Good / Base / Bad Cases
+
+- Good: import -> guarded selection -> committed highlight; one cancel ends the switch.
+- Base: no local draft -> selected-form watcher loads the target fields.
+- Bad: pre-highlight emits `current-change` before explicit selection -> two concurrent guards and stacked dialogs.
+
+#### 6. Tests Required
+
+`frontend/tests/component/TemplateImportSelection.spec.js`: real App/designer title + field assertions; exact `ElMessageBox.confirm.toHaveBeenCalledTimes(1)` for cancel and discard; shared-refresh draft retention. Real-browser verification must distinguish simulated API responses from complete backend E2E.
+
+#### 7. Wrong vs Correct
+
+```javascript
+// Wrong: the table echo starts another guarded selection.
+formsTableRef.value?.setCurrentRow(target);
+await selectForm(target);
+
+// Correct: a committed selection makes the later echo a harmless same-id event.
+await selectForm(target);
+if (selectedForm.value?.id === target.id) formsTableRef.value?.setCurrentRow(target);
+```
