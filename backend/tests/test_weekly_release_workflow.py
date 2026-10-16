@@ -256,6 +256,16 @@ def test_validate_and_publish_checkout_pinned_source(workflow: dict) -> None:
         assert "github.sha" in ref, f"{name}: 常规路径必须固定在运行源码 SHA"
 
 
+def test_all_checkouts_fetch_full_history_and_tags(workflow: dict) -> None:
+    # 浅克隆无法解析基线标签（如 0.4.0）、无法计算跨版本差异与提交主题。
+    for name, job in jobs(workflow).items():
+        steps = checkout_steps(job)
+        assert len(steps) == 1, f"{name}: 应恰好一次 checkout"
+        opts = steps[0]["with"]
+        assert opts["fetch-depth"] == 0, f"{name}: 必须拉全量历史"
+        assert opts["fetch-tags"] is True, f"{name}: 必须拉取标签"
+
+
 def test_pending_recovery_is_wired_end_to_end(workflow: dict) -> None:
     inspect = jobs(workflow)["inspect"]
     assert "pending_tag" in inspect.get("outputs", {})

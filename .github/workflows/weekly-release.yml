@@ -84,6 +84,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
       - name: 安装 Python
@@ -161,6 +163,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.PENDING_TAG != '' && env.PENDING_TAG || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
       - name: 下载发布计划
@@ -247,6 +251,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.PENDING_TAG != '' && env.PENDING_TAG || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: 下载发布计划
         if: env.PENDING_TAG == ''
