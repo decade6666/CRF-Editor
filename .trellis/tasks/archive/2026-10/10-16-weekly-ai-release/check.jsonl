@@ -1,0 +1,5 @@
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Review the actual diff and scoped release-only policy exception; retain main/worktree isolation and no unrelated PR/CI restoration."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify RED/GREEN evidence, typed implementation, hermetic tests, coverage, and narrow regression/format validation."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Check that API errors, request payloads, notes scanning and workflow summaries never expose secrets or personal data."}
+{"file":".trellis/tasks/10-16-weekly-ai-release/research/release-chain.md","reason":"Check the existing bare three-part scheme and three package-version fields; prevent out-of-scope desktop/deployment changes."}
+{"file":".trellis/tasks/10-16-weekly-ai-release/research/workflow-security.md","reason":"Verify trusted triggers, opt-in activation, credential isolation, constrained AI output, outgoing-data limits, and safe tag-bound publication."}

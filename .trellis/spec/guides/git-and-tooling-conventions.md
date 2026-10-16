@@ -26,7 +26,7 @@
 | Normal path | commit on `main`, or merge a task branch into `main` locally |
 | PRs | not opened for routine updates; do not run `gh pr create` / `gh pr merge` |
 | Push | push `main` after committing/merging |
-| CI | none — GitHub Actions workflows were removed on 2026-10-08; the local pre-commit gate (see §7), once enabled per development machine, checks every commit, and the backend / frontend suites must still be run locally before merging |
+| CI | none — GitHub Actions workflows were removed on 2026-10-08; the local pre-commit gate (see §7), once enabled per development machine, checks every commit, and the backend / frontend suites must still be run locally before merging. **Sole exception (2026-10-16)**: the release-only `.github/workflows/weekly-release.yml` + `backend/scripts/weekly_release.py` (default-off, manual-publication gated by `WEEKLY_RELEASE_ENABLED`, never a merge/PR gate — see README「每周 AI 辅助发布」) |
 
 **Why**: single-owner repo; the PR + CI merge workflow added on 2026-09-29 is no longer the required path.
 

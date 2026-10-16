@@ -1,0 +1,5 @@
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Respect main/worktree and separate Trellis commit policies; release automation is a scoped exception to the former no-Actions policy."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply typed Python, failure transparency, test isolation, focused coverage, and actual-diff review requirements."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Keep credentials, source payloads and personal data out of release diagnostics and avoid duplicate error logs."}
+{"file":".trellis/tasks/10-16-weekly-ai-release/research/release-chain.md","reason":"Load verified package/tag/version mirrors, actual source-only GitHub release state, reusable build/test commands, and deferred desktop gaps."}
+{"file":".trellis/tasks/10-16-weekly-ai-release/research/workflow-security.md","reason":"Load official schedule/Variables/Secrets/CLI evidence, user-approved bounded-diff scope, and AI/token/injection safety boundaries."}

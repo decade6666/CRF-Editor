@@ -1,0 +1,28 @@
+{
+  "id": "weekly-ai-release",
+  "name": "weekly-ai-release",
+  "title": "每周 AI 辅助版本发布",
+  "description": "规划每周检测 main 分支的可发布代码变更，使用环境配置的 AI 服务决定 +0.1 或 +0.01 并发布 GitHub 版本；本阶段仅创建任务与交接计划，待用户审阅后由 Sonnet 实施。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-10-16",
+  "completedAt": "2026-10-16",
+  "branch": "task/weekly-ai-release",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/crf-editor-weekly-ai-release",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Planning handoff only. User confirmed semantic minor/patch, summaries plus bounded source diffs, and source-only GitHub Releases. Read prd.md, design.md and implement.md in the recorded worktree. Later implementation is intended for Sonnet; do not start, call the release AI, configure remote secrets, enable schedules, commit, push or publish in this planning session.",
+  "meta": {
+    "planned_executor": "sonnet"
+  }
+}
