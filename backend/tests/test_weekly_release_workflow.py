@@ -247,6 +247,14 @@ def test_publish_invokes_cli_and_never_inline_release_creation(workflow: dict, w
     assert "gh release create" not in workflow_raw, "Release 创建必须走 CLI（--verify-tag + notes 文件）"
 
 
+def test_publish_passes_weekly_release_enabled_to_cli(workflow: dict) -> None:
+    publish = jobs(workflow)["publish"]
+    publish_step = next(s for s in publish["steps"] if "weekly_release.py publish" in (s.get("run") or ""))
+    assert publish_step.get("env", {}).get("WEEKLY_RELEASE_ENABLED") == "${{ vars.WEEKLY_RELEASE_ENABLED }}", (
+        "publish 步骤必须显式传递 WEEKLY_RELEASE_ENABLED 环境变量，供 CLI 进行独立开关校验"
+    )
+
+
 def test_validate_and_publish_checkout_pinned_source(workflow: dict) -> None:
     for name in ("validate", "publish"):
         steps = checkout_steps(jobs(workflow)[name])

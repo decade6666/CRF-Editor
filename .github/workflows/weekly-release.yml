@@ -281,6 +281,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
+          WEEKLY_RELEASE_ENABLED: ${{ vars.WEEKLY_RELEASE_ENABLED }}
         run: |
           gh auth setup-git
           if [ -n "$PENDING_TAG" ]; then
