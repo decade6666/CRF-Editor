@@ -64,10 +64,10 @@ def test_only_schedule_and_dispatch_triggers(workflow: dict) -> None:
     assert set(on) == {"schedule", "workflow_dispatch"}
 
 
-def test_weekly_cron_at_0117_utc(workflow: dict, workflow_raw: str) -> None:
+def test_weekly_cron_at_2100_utc(workflow: dict, workflow_raw: str) -> None:
     on = workflow[True] if True in workflow else workflow.get("on")
     crons = [item["cron"] for item in on["schedule"]]
-    assert crons == ["17 1 * * 1"]
+    assert crons == ["0 21 * * 0"]
     assert "北京时间" in workflow_raw, "必须书面注明对应北京时间"
 
 

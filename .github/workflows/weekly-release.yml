@@ -1,6 +1,6 @@
 # 每周 AI 辅助源码发布（发布专用例外；不恢复任何合并 CI / PR 门禁）。
 #
-# 时间表：cron '17 1 * * 1' = 每周一 01:17 UTC = 北京时间周一 09:17。
+# 时间表：cron '0 21 * * 0' = 每周日 21:00 UTC = 北京时间周一 05:00。
 # GitHub 定时触发是尽力而为，可能延迟，不承诺准点。
 #
 # 默认关闭：仓库 Variable WEEKLY_RELEASE_ENABLED=true 才会发布；计划任务未启用时
@@ -22,7 +22,7 @@ name: weekly-release
 
 on:
   schedule:
-    - cron: '17 1 * * 1'
+    - cron: '0 21 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:

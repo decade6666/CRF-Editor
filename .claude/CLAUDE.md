@@ -65,7 +65,7 @@ graph TD
 - Backend services: `backend/src/services/`
 - Backend preview/export comparison: `backend/src/services/word_table_parity.py`, `backend/scripts/compare_word_table_parity.py`
 - Backend table-of-contents page number pre-calculation: `backend/src/services/toc_pagination.py` (optional LibreOffice + `pypdf`; failure keeps non-empty fallback page numbers and Word field correction)
-- Weekly AI-assisted source release: `.github/workflows/weekly-release.yml` (周一 01:17 UTC / 北京 09:17，`WEEKLY_RELEASE_ENABLED` 默认关闭，dry run 可能调用外部 AI 但绝不写远端) + `backend/scripts/weekly_release.py` (`plan` / `bump-versions` / `tree-hash` / `publish`，`RELEASE_AI_*` 环境配置，gitleaks 门禁，原子 main+tag 推送，待恢复状态机)；配置与启用说明见 README「每周 AI 辅助发布」章节；这是 2026-10-08 移除 Actions 后唯一的发布专用例外，不恢复合并 CI/PR 门禁
+- Weekly AI-assisted source release: `.github/workflows/weekly-release.yml` (周日 21:00 UTC / 北京周一 05:00，`WEEKLY_RELEASE_ENABLED` 默认关闭，dry run 可能调用外部 AI 但绝不写远端) + `backend/scripts/weekly_release.py` (`plan` / `bump-versions` / `tree-hash` / `publish`，`RELEASE_AI_*` 环境配置，gitleaks 门禁，原子 main+tag 推送，待恢复状态机)；配置与启用说明见 README「每周 AI 辅助发布」章节；这是 2026-10-08 移除 Actions 后唯一的发布专用例外，不恢复合并 CI/PR 门禁
 - Frontend entry: `frontend/src/main.js`
 - Frontend application shell: `frontend/src/App.vue` (login recovery, project workbench, admin routing, global refresh, brief/full editing modes, theme and settings)
 - Frontend development configuration: `frontend/vite.config.js`

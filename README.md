@@ -426,7 +426,7 @@ sudo bash deploy/install-service.sh uninstall
 
 ## 每周 AI 辅助发布（GitHub Actions）
 
-仓库提供一个发布专用的 GitHub Actions 工作流 `.github/workflows/weekly-release.yml`：每周一北京时间 09:17（01:17 UTC）检查 `main` 上是否有未发布的实际代码变化，确认后调用外部 AI 判定升级幅度（功能升级 minor / 小修复 patch）并生成中文更新说明，随后以「版本提交 + 裸三段版本标签 + 中文 Release + GitHub 源码压缩包」的形式发布。**不含 Windows/Linux 可执行包，也不部署生产服务器。** 这是 2026-10-08 移除 Actions 后唯一的 workflow 例外，不恢复任何合并 CI / PR 门禁。
+仓库提供一个发布专用的 GitHub Actions 工作流 `.github/workflows/weekly-release.yml`：每周一北京时间 05:00（UTC 周日 21:00）检查 `main` 上是否有未发布的实际代码变化，确认后调用外部 AI 判定升级幅度（功能升级 minor / 小修复 patch）并生成中文更新说明，随后以「版本提交 + 裸三段版本标签 + 中文 Release + GitHub 源码压缩包」的形式发布。**不含 Windows/Linux 可执行包，也不部署生产服务器。** 这是 2026-10-08 移除 Actions 后唯一的 workflow 例外，不恢复任何合并 CI / PR 门禁。
 
 判定与发布逻辑由独立 CLI `backend/scripts/weekly_release.py` 实现（子命令 `plan` / `bump-versions` / `tree-hash` / `publish`），对应测试为 `backend/tests/test_weekly_release.py`（纯逻辑与 AI/扫描边界）、`test_weekly_release_git.py`（一次性本地 Git 仓库上的基线/事务/恢复）、`test_weekly_release_workflow.py`（workflow 装配契约）。
 
@@ -445,7 +445,7 @@ sudo bash deploy/install-service.sh uninstall
 
 ### 触发与判定
 
-- 计划任务每周一 01:17 UTC 运行；GitHub 定时为尽力而为，可能延迟，不保证准点。`WEEKLY_RELEASE_ENABLED` 非 `true` 时，计划任务在读取任何 AI 配置或密钥之前直接跳过。
+- 计划任务每周日 21:00 UTC（北京时间周一 05:00）运行；GitHub 定时为尽力而为，可能延迟，不保证准点。`WEEKLY_RELEASE_ENABLED` 非 `true` 时，计划任务在读取任何 AI 配置或密钥之前直接跳过。
 - 手动运行（Actions → weekly-release → Run workflow）默认 `dry_run=true`：只做规划与验证，不写任何远端引用或 Release；**dry run 在确认存在净产品变更后仍可能把受控差异发送给外部 AI，不是离线检查**。`dry_run=false` 且开关开启时才真实发布。
 - 比较「上一次成功发布的正式 Release」（排除 draft/prerelease）对应的源码树，而不是最近 7 天或任意最新标签：仅文档 / 测试 / 任务记录 / 发布工程文件变化时不触发发布、不调用 AI；清单文件只忽略应用自身三个版本字段的差异，依赖变化仍会触发；完整回退的变更不会因提交存在而发布。
 - AI 只收到提交主题、文件统计与经筛选、密钥扫描、限长（单文件 4 KiB、差异总量 128 KiB、整体 256 KiB）的文本源码差异；`.env` 实例、真实配置、数据库、上传文件、截图、二进制与作者信息一律不外发，配置样例只发摘要并明确标注截断/省略。AI 输出被限制为固定 JSON 字段（超出即拒绝）；版本号由本地代码按三段整数运算（`0.4.9 → 0.4.10`、minor 归零修正号），AI 无法指定版本号。
