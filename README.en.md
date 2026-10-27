@@ -286,6 +286,13 @@ The desktop entry launches the local backend, opens the browser automatically, a
 7. **Import Data**: Run template import, project database import, or Word compare-based import when needed
 8. **Export Results**: Export the project as a Word document or database template
 
+### One Horizontal Table per Form
+
+- Consecutive fields with the horizontal-table marker enabled form one horizontal table. Ordinary two-column field sections do not count and may appear before or after it.
+- Compliant forms allow at most one horizontal table. Marker toggles, drag or Ctrl+↑/↓ ordering, quick edit, type changes and draft edits that would add another table are rejected immediately; only that operation is reverted, preserving earlier unsaved names, colors and other edits.
+- Existing multi-table forms are not rewritten: edits may retain or reduce their table count, but never increase it. Undo/redo cannot increase the count again after repair. Template, Word and project imports, whole-form copies and whole-project copies retain their existing behavior.
+- Single- and batch-delete undo use `POST /api/forms/{form_id}/fields/restore-batch` to restore fields, order and necessary label definitions together: the entire batch succeeds or nothing is written, preventing partial restoration on failure.
+
 ### Word Document Export Format
 
 The exported Word document contains:

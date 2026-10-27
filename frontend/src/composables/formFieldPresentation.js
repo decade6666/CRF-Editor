@@ -133,3 +133,27 @@ export function buildFormDesignerRenderGroups(fields) {
 
   return groups
 }
+
+// ── 单横向表格编辑守卫（R2/R6）────────────────────────────────────────────
+// 与后端 inline_table_guard 同一业务规则：横向块 = 实际字段顺序里连续 truthy
+// inline_mark 的一段；允许 after <= max(1, before)（遗留多块可保留或减少）。
+// 共享用例表：backend/tests/fixtures/inline_table_block_cases.json。
+
+export const INLINE_TABLE_LIMIT_MESSAGE = '单个表单最多允许一个横向表格，本次操作会新增横向表格，已取消操作'
+
+// 复用 buildFormDesignerRenderGroups 的分组语义（不引入第二套分组算法）：
+// 先按 order_index/id 排序，再统计 inline 组数，使数组原序（如草稿行追加）
+// 不会伪造出第二个横向块。
+export function countInlineTableBlocks(fields) {
+  const sorted = [...(fields || [])].sort(
+    (a, b) =>
+      (a?.order_index ?? ORDER_INDEX_FALLBACK) - (b?.order_index ?? ORDER_INDEX_FALLBACK) ||
+      (a?.id ?? 0) - (b?.id ?? 0),
+  )
+  return buildFormDesignerRenderGroups(sorted).filter((group) => group.type === 'inline').length
+}
+
+// R6 兼容基线：合规表单（≤1 块）不得增加；遗留多块可维持或递减。
+export function isInlineTableCountAllowed(beforeCount, afterCount) {
+  return afterCount <= Math.max(1, beforeCount)
+}

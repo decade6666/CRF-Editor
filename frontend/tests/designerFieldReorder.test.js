@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { nextTick } from 'vue'
 import { useDesignerHistory } from '../src/composables/useDesignerHistory.js'
+import { INLINE_TABLE_LIMIT_MESSAGE, countInlineTableBlocks, isInlineTableCountAllowed } from '../src/composables/formFieldPresentation.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
@@ -162,6 +163,16 @@ function createDragRuntime({
   )
 
   // persistFieldReorder 在组件内部被 3 参调用，依赖必须前置 bind
+  const getInlineLayoutPreview = extractFunction(
+    'getInlineLayoutPreview',
+    ['designerPreviewFields', 'selectedFieldId', 'DRAFT_FIELD_ID'],
+    [{ value: fields }, { value: null }, '__draft__'],
+  )
+  const inlineLayoutAllowsFields = extractFunction(
+    'inlineLayoutAllowsFields',
+    ['countInlineTableBlocks', 'isInlineTableCountAllowed', 'getInlineLayoutPreview'],
+    [countInlineTableBlocks, isInlineTableCountAllowed, getInlineLayoutPreview],
+  )
   const persistBound = extractFunction(
     'persistFieldReorder',
     [
@@ -173,6 +184,8 @@ function createDragRuntime({
       'recordReorderHistory',
       'ElMessage',
       'loadFormFields',
+      'inlineLayoutAllowsFields',
+      'INLINE_TABLE_LIMIT_MESSAGE',
     ],
     [
       isReordering,
@@ -183,6 +196,8 @@ function createDragRuntime({
       recordReorderHistory,
       ElMessage,
       loadFormFields,
+      inlineLayoutAllowsFields,
+      INLINE_TABLE_LIMIT_MESSAGE,
     ],
   )
 

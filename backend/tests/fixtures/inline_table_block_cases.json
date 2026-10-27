@@ -1,0 +1,30 @@
+{
+  "limit_message": "单个表单最多允许一个横向表格，本次操作会新增横向表格，已取消操作",
+  "count_cases": [
+    { "name": "empty_form_counts_zero", "markers": [], "blocks": 0 },
+    { "name": "all_normal_counts_zero", "markers": [0, 0], "blocks": 0 },
+    { "name": "single_inline_counts_one", "markers": [1], "blocks": 1 },
+    { "name": "consecutive_markers_count_one_block", "markers": [1, 1, 1], "blocks": 1 },
+    { "name": "separated_markers_count_two_blocks", "markers": [1, 0, 1], "blocks": 2 },
+    { "name": "adjacent_expansion_keeps_one_block", "markers": [1, 1, 0], "blocks": 1 },
+    { "name": "edge_disable_keeps_one_block", "markers": [1, 1, 0], "blocks": 1 },
+    { "name": "middle_disable_splits_into_two_blocks", "markers": [1, 0, 1], "blocks": 2 },
+    { "name": "ordinary_normal_sections_are_not_blocks", "markers": [0, 1, 0, 0, 0, 1], "blocks": 2 },
+    { "name": "noncanonical_two_counts_truthy", "markers": [2, 0, 2], "blocks": 2 },
+    { "name": "negative_marker_counts_truthy", "markers": [-1, 0, -1], "blocks": 2 }
+  ],
+  "policy_cases": [
+    { "name": "first_block_allowed", "before": 0, "after": 1, "allowed": true },
+    { "name": "zero_to_zero_allowed", "before": 0, "after": 0, "allowed": true },
+    { "name": "unchanged_single_block_allowed", "before": 1, "after": 1, "allowed": true },
+    { "name": "adjacent_expansion_allowed", "before": 1, "after": 1, "allowed": true },
+    { "name": "second_block_rejected_on_compliant_form", "before": 1, "after": 2, "allowed": false },
+    { "name": "split_block_rejected_on_compliant_form", "before": 1, "after": 2, "allowed": false },
+    { "name": "legacy_two_blocks_may_persist", "before": 2, "after": 2, "allowed": true },
+    { "name": "legacy_three_blocks_may_persist", "before": 3, "after": 3, "allowed": true },
+    { "name": "legacy_repair_two_to_one_allowed", "before": 2, "after": 1, "allowed": true },
+    { "name": "legacy_repair_three_to_one_allowed", "before": 3, "after": 1, "allowed": true },
+    { "name": "legacy_two_blocks_may_not_increase", "before": 2, "after": 3, "allowed": false },
+    { "name": "repaired_form_may_not_regrow_second_block", "before": 1, "after": 2, "allowed": false }
+  ]
+}

@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-10-13
+> Last updated: 2026-10-27
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -51,6 +51,7 @@ graph TD
 - Read-only 模板字段查询 (template field search) dialog in complete edit mode: a non-modal draggable window cross-references template-library fields by OID / label / source-form OID (`GET /api/template-fields`, excludes 标签 fields / log rows / soft-deleted projects; four-group ranking field-strong > form-OID-strong > field-fuzzy > form-OID-fuzzy over the shared fuzzy rules; inline read-only multi-line source cells `form OID + form name` with 仅字段库 fallback, never copy targets; click-cell-to-copy elsewhere)
 - Reference-aware deletion for dictionaries, units, field definitions, and forms: block single deletes when referenced; batch deletes show blocked references and confirm only unreferenced items in one dialog. Dictionary/unit preflight includes unplaced field-library definitions without changing edit-impact queries.
 - Form designer real-time preview, full-screen form-switch dropdown and inline form-property editing (OID / name / paper orientation), field instance quick edit and regular-field copy-as-draft with save-gated persistence (log-row copy remains immediate), no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching with 75%-translucent annotation box backgrounds and full-mode form-OID paper-title metadata (`FormPreviewOid.vue`; actual `form.code`, hidden when absent/brief mode), aCRF vertical annotation dragging/persistence, and column width / row height dragging; the designer's two `word-page` previews (main canvas / fullscreen) now share one `DesignerWordPreview.vue` template, with the aCRF marker layer in `DesignerAcrfAnnotation.vue`; the visits form preview is a self-contained `VisitFormPreviewDialog.vue` whose `VisitsTab.vue` parent only toggles it
+- Horizontal-table edit guard with immediate narrow rollback and atomic single/batch-delete undo; legacy multi-block forms may retain or reduce their count, while imports and whole-form/project copies remain unchanged (authoritative contract: cross-stack §15).
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - AI configuration testing, tiered fuzzy search (exact / substring / subsequence / bounded typo tolerance), Element Plus zh-cn locale, iconized list actions with tooltips, centered table selection checkboxes, session countdown with click-to-renew, theme switching, desktop packaging and release
 - Weekly AI-assisted source release automation (default-off): Monday schedule + manual dispatch, net-product-diff detection against the last published stable release, bounded/secret-scanned AI payload with closed-schema minor/patch decision, trusted-code three-part version arithmetic, atomic main+tag push with `Release-Plan-V1` envelope, pending-release recovery, source-only GitHub Release（详见 README「每周 AI 辅助发布」）
@@ -126,6 +127,7 @@ sudo bash deploy/install-service.sh uninstall
 - §12 Template field search index — `routers/template_fields.py`, `template_field_index_service.py` ↔ `templateFieldSearch.js`, `TemplateFieldSearchDialog.vue`.
 - §13 Date/time format options — `dateFormatOptions.js` (single option source) ↔ `database.py`, `field_rendering.py`, `docx_import_service.py`, `useCRFRenderer.js`.
 - §14 Reference-aware delete guard — `field_definition_reference_service.py`, `codelists.py`, `units.py` ↔ `referenceDeleteGuard.js`.
+- §15 Horizontal-table edit guard and atomic restoration — `inline_table_guard.py`, `field_restore_service.py`, `fields.py` ↔ `formFieldPresentation.js`, `FormDesignerTab.vue`; shared fixture `backend/tests/fixtures/inline_table_block_cases.json`.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, weekly release logic/Git transactions/workflow wiring (`test_weekly_release*.py`), and other cases.
@@ -159,6 +161,8 @@ sudo bash deploy/install-service.sh uninstall
 - Detail: `.trellis/spec/guides/git-and-tooling-conventions.md`.
 
 ## Change Log
+
+- `2026-10-27` (task `single-table-guard`): Horizontal-table edit guards, narrow rollback and atomic delete restoration; legacy/import compatibility, shared fixtures and regression coverage; 8888 deployment and user acceptance passed. Details: `.context/history/archives/claudemd-changelog.md`.
 
 > **Archived (2026-10-13, task `prompt-context-slimming`).** The former per-task index (67 lines) moved verbatim into `.context/history/archives/claudemd-changelog.md`, section "根 `.claude/CLAUDE.md` Change Log 索引快照" (root history was first archived 2026-10-08; module-level logs folded in 2026-10-13). Read the archive only when you need one task's history; add new entries below as single lines and do not rebuild the timeline.
 

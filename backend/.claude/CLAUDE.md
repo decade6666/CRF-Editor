@@ -2,7 +2,7 @@
 
 # backend Module Notes
 
-> Last updated: 2026-10-16
+> Last updated: 2026-10-26
 
 ## Module Responsibilities
 - Provide REST APIs and the frontend static resource entry point.
@@ -61,6 +61,8 @@
 - `form_field_copy.py`: shared field-instance copy used by project clone, template import, and form copy; `COPIED_ATTRS` is derived from the `FormField` table columns minus `CALLER_SUPPLIED_ATTRS` (`form_id` / `field_definition_id` / `order_index`) and `NEVER_COPIED_ATTRS` (`id` / `created_at` / `updated_at`), so a column added to the model is copied by default and no single copy site can silently drop a display attribute again.
 - `docx_screenshot_service.py`: Word import screenshot cache lifecycle and failure state for unsupported runtimes, with PDF-outline-first form page detection plus form-name-signature-based page-range caching; the auto-mode no-backend error is platform-aware (`_no_backend_message`, `_is_windows`), and `main.py` lifespan runs a non-blocking startup self-check via `log_render_backend_status` (WARNING + install hint when missing, INFO when ready).
 - `ai_review_service.py`: AI import suggestion/review calls.
+- `inline_table_guard.py`: edit-only horizontal-block guard shared by direct instance create, normalized profile create/update and reorder; the authoritative count/policy and excluded import/whole-copy boundaries are in cross-stack §15.
+- `field_restore_service.py`: `POST /api/forms/{form_id}/fields/restore-batch` restores 1–500 instance snapshots and necessary deleted label definitions in the request transaction, validating ownership/links and the final block count once; HTTP 201 returns instances in request order. Any failure rolls back all instances, definitions and order shifts. Covered by `test_field_restore.py`, `test_inline_table_guard.py` and the shared `fixtures/inline_table_block_cases.json`.
 - `field_cleanup_service.py`: structural cleanup for orphaned label field definitions after delete flows.
 - `field_definition_reference_service.py`: shared codelist/unit reference query builder; default mode preserves historical placed-field edit-impact rows, while `include_unplaced=true` includes library-only definitions so delete preflight matches the 409 guards.
 - `field_rendering.py`: field rendering helper logic.

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { useDesignerHistory } from '../src/composables/useDesignerHistory.js'
 import { buildCopyVariableName } from '../src/composables/fieldDefinitionAutocomplete.js'
+import { INLINE_TABLE_LIMIT_MESSAGE, countInlineTableBlocks, isInlineTableCountAllowed } from '../src/composables/formFieldPresentation.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const source = readFileSync(path.resolve(currentDir, '../src/components/FormDesignerTab.vue'), 'utf8')
@@ -81,6 +82,10 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
       calls.confirms += 1
       return true
     })
+  const getInlineLayoutPreview = new Function(
+    'designerPreviewFields', 'selectedFieldId', 'DRAFT_FIELD_ID',
+    `return function(fields) { ${functionBody('getInlineLayoutPreview')} }`,
+  )({ value: fields }, { value: null }, '__draft__')
   const copyFormField = new AsyncFunction(
     'ff',
     'isDraftField',
@@ -107,9 +112,12 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     'recordDesignerHistory',
     'designerHistory',
     'ElMessage',
+    'canToggleInline',
+    'inlineLayoutAllowsFields',
+    'INLINE_TABLE_LIMIT_MESSAGE',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 25, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 28, 'runtime copy function should receive its full dependency context')
   const copyingFieldIds = { value: new Set() }
   const context = [
     (ff) => ff?.__draft === true || ff?.id === '__draft__',
@@ -146,6 +154,9 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
       error: (message) => calls.errors.push(message),
       warning: (message) => calls.warnings.push(message),
     },
+    new Function('ff', functionBody('canToggleInline')),
+    new Function('countInlineTableBlocks', 'isInlineTableCountAllowed', 'getInlineLayoutPreview', `return function(beforeFields, afterFields) { ${functionBody('inlineLayoutAllowsFields')} }`)(countInlineTableBlocks, isInlineTableCountAllowed, getInlineLayoutPreview),
+    INLINE_TABLE_LIMIT_MESSAGE,
   ]
 
   return {
@@ -368,7 +379,9 @@ test('regular copy branch never calls the field-definition copy endpoint', () =>
   const regularBranch = body.slice(body.indexOf('if (!isLogRow)'), body.indexOf('const baseInstancePayload'))
 
   assert.match(regularBranch, /buildCopyDraft\(currentField, fieldDefs\.value, formId\)/)
-  assert.match(regularBranch, /formFields\.value = \[\.\.\.formFields\.value, draft\]/)
+  assert.match(regularBranch, /const nextFields = \[\.\.\.formFields\.value, draft\]/)
+  assert.match(regularBranch, /inlineLayoutAllowsFields\(formFields\.value, nextFields\)/)
+  assert.match(regularBranch, /formFields\.value = nextFields/)
   assert.match(regularBranch, /selectField\(draft\)/)
   assert.doesNotMatch(regularBranch, /api\.post\(/)
   assert.doesNotMatch(body, /\/api\/field-definitions\/\$\{ff\.field_definition_id\}\/copy/)

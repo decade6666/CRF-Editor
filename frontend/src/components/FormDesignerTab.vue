@@ -99,11 +99,14 @@ import {
   hydrateEditorFromCandidate,
 } from '../composables/fieldDefinitionAutocomplete';
 import {
+  INLINE_TABLE_LIMIT_MESSAGE,
   buildFormDesignerRenderGroups,
   buildFormDesignerUnifiedSegments,
+  countInlineTableBlocks,
   getFormFieldDisplayLabel,
   getFormFieldListLabel,
   getFormFieldTextColorStyle,
+  isInlineTableCountAllowed,
 } from '../composables/formFieldPresentation';
 import { buildPreviewGroupViewModels } from '../composables/formDesignerPreviewModel';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
@@ -394,6 +397,50 @@ function sortFormFieldsByOrder(fields) {
     if (orderA !== orderB) return orderA - orderB;
     return (a?.id ?? 0) - (b?.id ?? 0);
   });
+}
+
+// ── 单横向表格编辑守卫（R2/R6）────────────────────────────────────────────
+// 计数复用共享分组语义；仅对被操作字段做终态归一折算（标签/日志行/log 行标记为 0，
+// 与后端 normalize_field_instance_inline_mark 一致），其余字段按现值 truthy 计数。
+
+// 单字段操作（开关 / 快编 / 属性保存 / 草稿）：把 id 对应字段替换为 buildNextField(f) 后布局是否合规
+function getInlineLayoutPreview(fields) {
+  const preview = designerPreviewFields.value.find((field) => field.id === selectedFieldId.value && field.id !== DRAFT_FIELD_ID);
+  if (!preview) return fields;
+  return fields.map((field) => field.id === preview.id
+    ? { ...field, inline_mark: preview.inline_mark, field_definition: preview.field_definition }
+    : field);
+}
+
+function inlineLayoutAllowsField(targetId, buildNextField) {
+  const ordered = sortFormFieldsByOrder(formFields.value);
+  const allows = (fields) => isInlineTableCountAllowed(
+    countInlineTableBlocks(fields),
+    countInlineTableBlocks(fields.map((field) => {
+      if (field.id !== targetId) return field;
+      const next = buildNextField(field);
+      return { ...next, inline_mark: canToggleInline(next) && next.inline_mark ? 1 : 0 };
+    })),
+  );
+  // 同时保护已提交布局和当前可见布局，避免别的字段操作跨过尚未保存的类型分隔行。
+  return allows(ordered) && allows(getInlineLayoutPreview(ordered));
+}
+
+function inlineLayoutAllowsEditorState(targetId, state) {
+  return inlineLayoutAllowsField(targetId, (field) => ({
+    ...field,
+    inline_mark: state.inline_mark,
+    field_definition: { ...field.field_definition, field_type: state.field_type },
+  }));
+}
+
+// 整表操作（拖拽 / 键盘排序）：比较操作前后的实际顺序布局
+function inlineLayoutAllowsFields(beforeFields, afterFields) {
+  const allows = (before, after) => isInlineTableCountAllowed(
+    countInlineTableBlocks(before), countInlineTableBlocks(after),
+  );
+  return allows(beforeFields, afterFields)
+    && allows(getInlineLayoutPreview(beforeFields), getInlineLayoutPreview(afterFields));
 }
 
 // 返回 boolean：本次加载是否成功落地（被会话守卫吞掉时返回 false，调用方可决定是否原位保留草稿行）
@@ -838,32 +885,23 @@ function buildReplaySnapshot(ff) {
   };
 }
 
-async function recreateFieldFromSnapshot(formId, snapshot) {
-  try {
-    return await api.post(`/api/forms/${formId}/fields`, snapshot.formFieldPayload);
-  } catch (error) {
-    const status = Number(error?.status ?? error?.response?.status);
-    if (status !== 404) throw error;
-    if (!snapshot.fieldDefinitionPayload) throw error;
+// R9：单条 / 批量删除撤销共用一个原子恢复请求（restore-batch）。
+// 任何条目失败或终态违反单横向表格规则时后端零写入，前端据此保证不产生部分恢复。
+async function restoreFieldsFromSnapshots(formId, snapshots) {
+  return api.post(`/api/forms/${formId}/fields/restore-batch`, {
+    items: snapshots.map((snapshot) => ({
+      form_field: snapshot.formFieldPayload,
+      field_definition: isValidRequiredOid(snapshot.fieldDefinitionPayload?.variable_name)
+        ? snapshot.fieldDefinitionPayload
+        : null,
+    })),
+  });
+}
 
-    const recreatedDefinition = await api.post(
-      `/api/projects/${props.projectId}/field-definitions`,
-      snapshot.fieldDefinitionPayload,
-    );
-    try {
-      return await api.post(`/api/forms/${formId}/fields`, {
-        ...snapshot.formFieldPayload,
-        field_definition_id: recreatedDefinition.id,
-      });
-    } catch (recreateError) {
-      try {
-        await api.del(`/api/field-definitions/${recreatedDefinition.id}`);
-      } catch {
-        // 清理失败时保留原始回放错误，避免吞掉真正的失败原因。
-      }
-      throw recreateError;
-    }
-  }
+// 单条删除撤销：走批量恢复端点的 1 条请求（含标签定义缺失兜底），返回新建实例。
+async function recreateFieldFromSnapshot(formId, snapshot) {
+  const restored = await restoreFieldsFromSnapshots(formId, [snapshot]);
+  return restored[0];
 }
 
 // 抓取属性编辑前/后的字段定义 + 实例状态，用于属性编辑的正/逆回放。
@@ -947,7 +985,7 @@ async function runHistory(direction) {
     await (direction === 'undo' ? designerHistory.undo() : designerHistory.redo());
   } catch (e) {
     ElMessage.error(`${direction === 'undo' ? '撤回' : '恢复'}失败：${e?.message || '后端回放出错'}`);
-    if (selectedForm.value) loadFormFields();
+    if (e?.message !== INLINE_TABLE_LIMIT_MESSAGE && selectedForm.value) loadFormFields();
   }
 }
 function handleUndo() {
@@ -964,6 +1002,17 @@ async function copyFormField(ff) {
   const historyContext = captureDesignerHistoryContext();
   if (!historyContext) return;
 
+  // 不可执行的复制先拒绝，避免先提示保存/丢弃而损失原有草稿或脏输入。
+  const sourceBeforePrompts = formFields.value.find((field) => field.id === ff.id) || ff;
+  if (!(sourceBeforePrompts.is_log_row && sourceBeforePrompts.field_definition_id == null)) {
+    const copied = buildCopyDraft(sourceBeforePrompts, fieldDefs.value, historyContext.formId);
+    const draft = { ...copied, inline_mark: canToggleInline(copied) && copied.inline_mark ? 1 : 0 };
+    const persistedFields = formFields.value.filter((field) => !isDraftField(field));
+    if (!inlineLayoutAllowsFields(persistedFields, [...persistedFields, draft])) {
+      ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+      return;
+    }
+  }
   copyingFieldIds.value = new Set([...copyingFieldIds.value, ff.id]);
   try {
     const canLeaveFieldProp = await resolveFieldPropLeave({ actionText: '复制字段' });
@@ -984,8 +1033,14 @@ async function copyFormField(ff) {
     const isLogRow = Boolean(currentField.is_log_row) && currentField.field_definition_id == null;
 
     if (!isLogRow) {
-      const draft = buildCopyDraft(currentField, fieldDefs.value, formId);
-      formFields.value = [...formFields.value, draft];
+      const copied = buildCopyDraft(currentField, fieldDefs.value, formId);
+      const draft = { ...copied, inline_mark: canToggleInline(copied) && copied.inline_mark ? 1 : 0 };
+      const nextFields = [...formFields.value, draft];
+      if (!inlineLayoutAllowsFields(formFields.value, nextFields)) {
+        ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+        return;
+      }
+      formFields.value = nextFields;
       selectField(draft);
       return;
     }
@@ -1128,12 +1183,16 @@ async function batchDelete() {
         label: '批量删除',
         ids: { ffIds: ids },
         undo: async (entryIds, { remapId }) => {
-          // 逐条重建（按原 order_index 携带全部属性），并回写新 id。
-          for (let i = 0; i < snapshots.length; i += 1) {
-            const recreated = await recreateFieldFromSnapshot(formId, snapshots[i].snapshot);
-            remapId(snapshots[i].ffId, recreated.id);
+          // 原子批量恢复：一次请求按快照顺序重建全部实例/标签定义；失败时零写入，
+          // 不改写快照 id、不 remap，栈保持可重试。
+          const restored = await restoreFieldsFromSnapshots(formId, snapshots.map(({ snapshot }) => snapshot));
+          // SQLite 可能复用旧 rowid：先停泊到临时标识，再统一换成新 ID，避免置换链互相覆盖。
+          const parkedIds = snapshots.map((_, i) => `__restore_${formId}_${i}__`);
+          snapshots.forEach((snapshot, i) => remapId(snapshot.ffId, parkedIds[i]));
+          restored.forEach((recreated, i) => {
+            remapId(parkedIds[i], recreated.id);
             snapshots[i].ffId = recreated.id;
-          }
+          });
           await reloadAfterReplay(formId, { defs: shouldReloadDefs });
         },
         redo: async (entryIds) => {
@@ -1175,6 +1234,11 @@ async function persistFieldReorder(historyContext, previousFields, normalized) {
   const formId = historyContext.formId;
   const previousOrder = previousFields.map((f) => f.id);
   const nextOrder = normalized.map((f) => f.id);
+  // 单横向表格守卫：会拆出/新增横向块的移动在乐观替换与请求前就地拒绝
+  if (!inlineLayoutAllowsFields(previousFields, normalized)) {
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return false;
+  }
   isReordering.value = true;
   formFields.value = normalized;
   try {
@@ -1185,6 +1249,12 @@ async function persistFieldReorder(historyContext, previousFields, normalized) {
     return true;
   } catch (e) {
     if (isCurrentDesignerHistoryContext(historyContext)) {
+      if (e?.message === INLINE_TABLE_LIMIT_MESSAGE) {
+        // 业务拒绝（并发竞态）：精确还原旧顺序与选中上下文，不做整表重载
+        formFields.value = previousFields;
+        ElMessage.error(e.message);
+        return false;
+      }
       formFields.value = previousFields;
       ElMessage.warning('排序保存失败，已恢复');
       loadFormFields(formId);
@@ -1294,6 +1364,31 @@ const selectedDefinitionId = ref(null);
 const candidateOid = ref(null);
 // 点击候选时的候选定义快照（撤销候选换绑时需要恢复其共享内容）。
 let candidateBeforeDefinition = null;
+let inlineLayoutRollback = null;
+
+function rememberInlineLayoutChange(nextType) {
+  const field = getSelectedFormField();
+  if (!editProp.inline_mark || canToggleInline({ ...field, field_definition: { field_type: nextType } })) return;
+  // 仅保存这次类型/候选切换的依赖值；名称、颜色、字体仍由当前编辑器持有。
+  const keys = [...DEFINITION_PAYLOAD_KEYS.filter((key) => key !== 'label' && key in editProp), 'default_value', 'inline_mark'];
+  inlineLayoutRollback = {
+    editor: Object.fromEntries(keys.map((key) => [key, editProp[key]])),
+    labelOidSession,
+    definitionId: selectedDefinitionId.value,
+    oid: candidateOid.value,
+    definition: candidateBeforeDefinition,
+  };
+}
+
+function restoreInlineLayoutChange() {
+  if (!inlineLayoutRollback) return;
+  Object.assign(editProp, inlineLayoutRollback.editor);
+  labelOidSession = inlineLayoutRollback.labelOidSession;
+  selectedDefinitionId.value = inlineLayoutRollback.definitionId;
+  candidateOid.value = inlineLayoutRollback.oid;
+  candidateBeforeDefinition = inlineLayoutRollback.definition;
+  inlineLayoutRollback = null;
+}
 
 // DEC2：定义级比较与写入共用同一套类型归一基线（日期默认格式、类型无关键清理）。
 function comparableDefinitionPayload(definition) {
@@ -1337,6 +1432,11 @@ function selectAutocompleteCandidate(item) {
   if (isSavingFieldProp.value || savingDraft.value || !item || item.state === CANDIDATE_STATE_ADDED) return;
   const ff = getSelectedFormField();
   const definition = item.definition;
+  if (!inlineLayoutAllowsEditorState(ff.id, { ...editProp, field_type: definition.field_type })) {
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return;
+  }
+  rememberInlineLayoutChange(definition.field_type);
   selectedDefinitionId.value = definition.id;
   candidateOid.value = definition.variable_name;
   candidateBeforeDefinition = buildDefinitionPayload(definition);
@@ -1418,7 +1518,9 @@ const { renderCellHtml, getInlineRows, getInlineColumnCms, getInlineFillChars } 
   getPaperOrientation: () => selectedFormPaperOrientation.value,
 });
 
-const renderGroups = computed(() => buildFormDesignerRenderGroups(formFields.value));
+// 主预览与全屏预览一致按 order_index/id 排序后分组：草稿行（数组尾部追加、
+// order_index 携带小数插入位）不得在预览里因数组原序伪造出第二个横向块。
+const renderGroups = computed(() => buildFormDesignerRenderGroups(sortFormFieldsByOrder(formFields.value)));
 
 // 预览视图模型：把模板内按单元格反复调用的纯函数提前算好（segments / inlineRows /
 // mergeSpans / labelValueSpans），模板只读属性，消除 inline 表 colspan 的 O(M²) 重建。
@@ -1854,6 +1956,24 @@ function openQuickEdit(ff) {
   showQuickEdit.value = true;
 }
 
+watch(
+  () => quickEditProp.inline_mark,
+  (nextInlineMark) => {
+    // 打开弹窗时的水合不属于用户改动；只验证偏离当前实例的编辑值。
+    if (!showQuickEdit.value || nextInlineMark === Boolean(quickEditField.value?.inline_mark)) return;
+    void onQuickEditInlineChange(nextInlineMark);
+  },
+);
+
+async function onQuickEditInlineChange(nextInlineMark) {
+  const fieldId = quickEditField.value.id;
+  if (inlineLayoutAllowsField(fieldId, (field) => ({ ...field, inline_mark: nextInlineMark ? 1 : 0 }))) return;
+  // 先让受控复选框同步这次输入，再回退其值，原生 checked 状态才能同步恢复。
+  await nextTick();
+  quickEditProp.inline_mark = !nextInlineMark;
+  ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+}
+
 // DesignerWordPreview 的函数 props：resizer 缓存、渲染适配器与注释拖拽接线都留在本组件，
 // 按引用透传给两处预览实例（状态与缓存仍由父组件单点持有，见 state-management §4）。
 const previewHandlers = {
@@ -1879,6 +1999,12 @@ async function saveQuickEdit() {
   if (!historyContext) return;
   const formId = historyContext.formId;
   const fieldId = quickEditField.value.id;
+  // 单横向表格守卫：快编改变横向标记前先按终态预检；拒绝时仅回滚布局位并保留弹窗
+  if (!inlineLayoutAllowsField(fieldId, (field) => ({ ...field, inline_mark: quickEditProp.inline_mark ? 1 : 0 }))) {
+    quickEditProp.inline_mark = Boolean(quickEditField.value.inline_mark);
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return;
+  }
   try {
     const supportsDefaultValue = isDefaultValueSupported(quickEditProp.field_type, Boolean(quickEditProp.inline_mark));
     const normalizedDefaultValue = supportsDefaultValue
@@ -1924,6 +2050,11 @@ async function saveQuickEdit() {
     ElMessage.success('已保存');
     showQuickEdit.value = false;
   } catch (e) {
+    if (e?.message === INLINE_TABLE_LIMIT_MESSAGE) {
+      quickEditProp.inline_mark = Boolean(quickEditField.value.inline_mark);
+      ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+      return;
+    }
     ElMessage.error('保存失败: ' + e.message);
   }
 }
@@ -1935,6 +2066,11 @@ async function toggleInline(ff) {
   if (!historyContext || !canToggleInline(ff)) return;
   const formId = historyContext.formId;
   const nextInlineMark = ff.inline_mark ? 0 : 1;
+  // 单横向表格守卫：拆块（块中间关闭）/ 新增块（分隔位开启）在确认与写请求前就地拒绝
+  if (!inlineLayoutAllowsField(ff.id, (field) => ({ ...field, inline_mark: nextInlineMark }))) {
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return;
+  }
   try {
     await confirmFormChange();
     if (!isCurrentDesignerHistoryContext(historyContext) || isReordering.value) return;
@@ -2044,6 +2180,16 @@ watch(
 
 // 字段类型切换（仅用户选择触发）：标签 OID 由系统托管，切入/切出时迁移 OID
 function onDesignerFieldTypeChange(nextType) {
+  const field = getSelectedFormField();
+  const inlineAllowed = canToggleInline({ ...field, field_definition: { field_type: nextType } });
+  const nextInlineMark = inlineAllowed && inlineLayoutRollback
+    ? inlineLayoutRollback.editor.inline_mark
+    : editProp.inline_mark;
+  if (!inlineLayoutAllowsEditorState(field.id, { ...editProp, field_type: nextType, inline_mark: nextInlineMark })) {
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return;
+  }
+  rememberInlineLayoutChange(nextType);
   const next = applyLabelOidTransition({
     variableName: editProp.variable_name,
     session: labelOidSession,
@@ -2054,6 +2200,8 @@ function onDesignerFieldTypeChange(nextType) {
   labelOidSession = next.session;
   editProp.variable_name = next.variableName;
   editProp.field_type = nextType;
+  editProp.inline_mark = inlineAllowed ? nextInlineMark : 0;
+  if (inlineAllowed) inlineLayoutRollback = null;
 }
 
 function getSelectedFormField(fieldId = selectedFieldId.value) {
@@ -2172,6 +2320,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   candidateOid.value = null;
   candidateBeforeDefinition = null;
   labelOidSession = buildLabelOidSession();
+  inlineLayoutRollback = null;
   if (!preserveEditor) {
     selectedFieldId.value = null;
     Object.assign(editProp, {
@@ -2288,6 +2437,14 @@ async function saveSelectedFieldProp() {
     return true;
   } catch (e) {
     if (e === 'cancel' || e === 'close') return false;
+    if (e?.message === INLINE_TABLE_LIMIT_MESSAGE) {
+      restoreInlineLayoutChange();
+      // 只恢复本次布局切换及依赖值，名称/颜色等其他输入不重载、不记成功。
+      const persisted = getSelectedFormField();
+      if (persisted) editProp.inline_mark = persisted.inline_mark || 0;
+      ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+      return false;
+    }
     ElMessage.error(e.message || '字段属性保存失败');
     return false;
   } finally {
@@ -2334,6 +2491,7 @@ watch(currentFieldPropDraftKey, (draftKey) => {
 
 function selectField(ff, { fromSave = false } = {}) {
   if (isSavingFieldProp.value && !fromSave) return;
+  inlineLayoutRollback = null;
   labelOidSession = buildLabelOidSession(resolveLabelOidSeedDefinition(ff));
   isHydratingFieldProp = true;
   selectedFieldId.value = ff.id;
@@ -2540,6 +2698,10 @@ async function saveFieldProp(snapshot, sessionId, commandArgs, candidateBeforePa
     ...commandArgs,
     editorState,
   });
+  // 单横向表格守卫：按提交终态（标记 + 提交类型归一）预检实际落库布局
+  if (!inlineLayoutAllowsEditorState(propEditFieldId, editorState)) {
+    throw new Error(INLINE_TABLE_LIMIT_MESSAGE);
+  }
   const result = await api.put(`/api/form-fields/${propEditFieldId}/binding-profile`, command);
   if (sessionId !== fieldPropSaveSession) throw new Error('字段属性保存上下文已变更');
   const settled = await reconcileAfterFieldPropSave({
@@ -2726,6 +2888,14 @@ async function saveDraftField() {
     return false;
   }
   if (isReordering.value) return false;
+  // 单横向表格守卫：按草稿既定落位（排序后的实际顺序）预检终态布局，
+  // 拒绝时不发请求、不建草稿快照之外的任何状态，草稿与其他输入原样保留
+  const persistedFields = formFields.value.filter((field) => !isDraftField(field));
+  const finalDraft = { ...draft, inline_mark: canToggleInline(draft) && draft.inline_mark ? 1 : 0 };
+  if (!inlineLayoutAllowsFields(persistedFields, [...persistedFields, finalDraft])) {
+    ElMessage.error(INLINE_TABLE_LIMIT_MESSAGE);
+    return false;
+  }
   const supportsDefaultValue = isDefaultValueSupported(fd.field_type, Boolean(draft.inline_mark));
   const editorState = {
     variable_name: draftVariableName,
@@ -2848,7 +3018,12 @@ async function saveDraftField() {
     });
     return true;
   } catch (e) {
+    // 业务拒绝只恢复布局切换；其他失败保留草稿，不重载、不记成功/历史。
     if (e === 'cancel' || e === 'close') return false;
+    if (e?.message === INLINE_TABLE_LIMIT_MESSAGE) {
+      restoreInlineLayoutChange();
+      applyEditorToDraft();
+    }
     ElMessage.error(e.message);
     return false;
   } finally {

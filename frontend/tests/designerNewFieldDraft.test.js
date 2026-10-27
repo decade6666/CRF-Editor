@@ -148,9 +148,13 @@ test('removeField 对草稿仅移除本地、不调 DELETE', () => {
 test('removeField 删除标签字段后可通过快照重建定义与实例', () => {
   const body = fnBody('removeField')
   assert.match(source, /function buildReplaySnapshot\(ff\) \{/)
-  assert.match(source, /function recreateFieldFromSnapshot\(formId, snapshot\) \{/)
-  assert.match(source, /if \(status !== 404\) throw error;/)
-  assert.match(source, /await api\.del\(`\/api\/field-definitions\/\$\{recreatedDefinition\.id\}`\);/)
+  // 10-26-single-table-guard：删除撤销走 restore-batch 原子端点，标签定义兜底在后端单事务内重建，
+  // 不再有多请求「建定义→建实例→失败清理」回退分支
+  assert.match(source, /function restoreFieldsFromSnapshots\(formId, snapshots\) \{/)
+  assert.match(source, /restore-batch/)
+  assert.match(source, /items: snapshots\.map\(\(snapshot\) => \(\{\s*form_field: snapshot\.formFieldPayload,\s*field_definition: isValidRequiredOid\(snapshot\.fieldDefinitionPayload\?\.variable_name\)\s*\? snapshot\.fieldDefinitionPayload\s*: null,\s*\}\)\)/)
+  assert.doesNotMatch(source, /status !== 404/)
+  assert.doesNotMatch(source, /await api\.del\(`\/api\/field-definitions\/\$\{recreatedDefinition\.id\}`\);/)
   assert.match(body, /const snapshot = buildReplaySnapshot\(ff\)/)
   assert.match(body, /const shouldReloadDefs = Boolean\(snapshot\.fieldDefinitionPayload\)/)
   assert.match(body, /const recreated = await recreateFieldFromSnapshot\(formId, snapshot\)/)
@@ -206,7 +210,13 @@ test('草稿存在时禁止排序', () => {
 test('batchDelete 删除标签字段后回放时可重建被清理的字段定义', () => {
   const body = fnBody('batchDelete')
   assert.match(body, /const shouldReloadDefs = snapshots\.some\(\(item\) => Boolean\(item\.snapshot\.fieldDefinitionPayload\)\)/)
-  assert.match(body, /const recreated = await recreateFieldFromSnapshot\(formId, snapshots\[i\]\.snapshot\)/)
+  // 10-26-single-table-guard：批量撤销一次 restore-batch 原子请求；全部成功才逐条 remap 新 id，
+  // 失败时零写入、不改写快照 id（不再逐条重建造成部分恢复）
+  assert.match(body, /const restored = await restoreFieldsFromSnapshots\(formId, snapshots\.map\(\(\{ snapshot \}\) => snapshot\)\)/)
+  assert.doesNotMatch(body, /for \(let i = 0;[\s\S]*?recreateFieldFromSnapshot/)
+  const restoreIdx = body.indexOf('restoreFieldsFromSnapshots(formId, snapshots.map(({ snapshot }) => snapshot))')
+  const remapIdx = body.indexOf('remapId(')
+  assert.ok(restoreIdx > -1 && remapIdx > -1 && remapIdx > restoreIdx, 'remap 必须发生在整批恢复成功之后')
   // undo/redo 均复用外层的 shouldReloadDefs，不再在 undo 闭包内重复计算
   assert.match(body, /reloadAfterReplay\(formId, \{ defs: shouldReloadDefs \}\)/)
 })

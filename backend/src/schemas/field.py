@@ -1,7 +1,7 @@
 from typing import Optional, List, Literal
 from typing_extensions import Annotated
 from datetime import datetime
-from pydantic import BaseModel, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from ._common import optional_oid_validator, required_oid_validator
 
@@ -158,3 +158,20 @@ class FormFieldResponse(BaseModel):
 
 class ReorderRequest(BaseModel):
     ordered_ids: List[int]
+
+
+class FormFieldRestoreItem(BaseModel):
+    """恢复批次单条：实例快照 + 可选的标签定义兜底快照（仅限标签，见 field_restore_service）。"""
+
+    model_config = {"extra": "forbid"}
+
+    form_field: FormFieldCreate
+    field_definition: Optional[FieldDefinitionCreate] = None
+
+
+class FormFieldRestoreBatchRequest(BaseModel):
+    """删除撤销的原子批量恢复请求：1..500 条，未知键拒绝（422）。"""
+
+    model_config = {"extra": "forbid"}
+
+    items: List[FormFieldRestoreItem] = Field(min_length=1, max_length=500)

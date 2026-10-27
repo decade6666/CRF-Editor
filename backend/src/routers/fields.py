@@ -47,6 +47,7 @@ from src.schemas.field import (
     FieldDefinitionResponse,
     FormFieldCreate,
     FormFieldResponse,
+    FormFieldRestoreBatchRequest,
     ReorderRequest,
 )
 
@@ -63,6 +64,8 @@ from src.services.field_cleanup_service import (
     batch_delete_form_fields_and_cleanup_label_definitions,
     delete_form_field_and_cleanup_label_definition,
 )
+from src.services.field_restore_service import restore_form_fields_batch
+from src.services.inline_table_guard import capture_inline_block_count, ensure_inline_block_limit
 from src.services.order_service import OrderService
 from src.services.unique_name import first_free_name
 
@@ -320,15 +323,19 @@ def add_form_field(
         if existing:
             raise HTTPException(409, "该字段已在表单中")
 
+    # 单横向表格守卫：插入前取基线，追加 / 显式位置两条路径统一在校验终态后返回
+    inline_blocks_before = capture_inline_block_count(session, form_id)
+
     payload = data.model_dump(exclude={"order_index"})
     form_field = FormField(form_id=form_id, **payload)
 
     if data.order_index is None:
         form_field.order_index = repo.get_max_order_index(form_id) + 1
-        return repo.create(form_field)
-
-    OrderService.insert_at(session, FormField, FormField.form_id == form_id, form_field, data.order_index)
+        session.add(form_field)
+    else:
+        OrderService.insert_at(session, FormField, FormField.form_id == form_id, form_field, data.order_index)
     session.flush()
+    ensure_inline_block_limit(session, form_id, inline_blocks_before)
     return form_field
 
 
@@ -397,7 +404,28 @@ def reorder_form_fields(
 
     verify_form_owner(form_id, current_user, session)
 
+    # 既有完整性 / 重复 / 越权校验保持不变（reorder 内部抛 ValueError → 400）
+    inline_blocks_before = capture_inline_block_count(session, form_id)
+
     FormFieldRepository(session).reorder(form_id, data.ordered_ids)
+    session.flush()
+    ensure_inline_block_limit(session, form_id, inline_blocks_before)
+
+
+@router.post("/forms/{form_id}/fields/restore-batch", response_model=List[FormFieldResponse], status_code=201)
+def restore_form_fields_batch_route(
+    form_id: int,
+    data: FormFieldRestoreBatchRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> List[FormField]:
+    """删除撤销的原子批量恢复：实例 / 顺序 / 缺失标签定义在单事务内全部成功或全部不落库。"""
+
+    form = verify_form_owner(form_id, current_user, session)
+
+    project = verify_project_owner(form.project_id, current_user, session)
+
+    return restore_form_fields_batch(session, project, form, current_user, data)
 
 
 @router.post("/forms/{form_id}/fields/batch-delete")

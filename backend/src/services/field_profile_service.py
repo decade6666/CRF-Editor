@@ -36,6 +36,7 @@ from src.services.field_normalization import (
     normalize_field_instance_default_value,
     normalize_field_instance_inline_mark,
 )
+from src.services.inline_table_guard import capture_inline_block_count, ensure_inline_block_limit
 from src.services.order_service import OrderService
 
 FORK_OID_CONFLICT_MSG = "该OID已在字段库中存在，请从候选中选择或修改OID"
@@ -222,6 +223,9 @@ def create_field_profile(
     if command.definition_operation.operation == "create_or_restore" and command.binding.mode != "operation_result":
         raise HTTPException(400, "新建定义必须绑定到新实例")
 
+    # 单横向表格守卫：定义创建/共享更新前取基线，实例落库后校验终态
+    inline_blocks_before = capture_inline_block_count(session, form.id)
+
     final_definition, created, restored = _resolve_definition_operation(session, project, current_user, command)
 
     if final_definition is None and command.binding.mode != "existing":
@@ -261,6 +265,7 @@ def create_field_profile(
     else:
         OrderService.insert_at(session, FormField, FormField.form_id == form.id, ff, command.order_index)
     session.flush()
+    ensure_inline_block_limit(session, form.id, inline_blocks_before)
     return _serialize_result(ff, final_definition_id, created, restored, None)
 
 
@@ -278,10 +283,14 @@ def update_binding_profile(
     original_definition_id = ff.field_definition_id
 
     if command.instance.mode == "delete":
+        # 删除不可能增加横向块数，不受新增限制
         delete_form_field_and_cleanup_label_definition(session, ff)
         session.flush()
         cleanup = _cleanup_previous_definition(session, command, original_definition_id, None)
         return _serialize_result(None, None, False, False, cleanup)
+
+    # 单横向表格守卫：定义/绑定变更前取基线；删除分支已提前返回
+    inline_blocks_before = capture_inline_block_count(session, ff.form_id)
 
     final_definition, created, restored = _resolve_definition_operation(session, project, current_user, command)
     target_definition = _resolve_binding(
@@ -306,6 +315,8 @@ def update_binding_profile(
         ff, command.instance.upsert if command.instance.mode == "upsert" else None, target_definition
     )
     session.flush()
+    # 按归一终态校验（含省略 inline_mark / 类型归一关闭标记的拆块场景）
+    ensure_inline_block_limit(session, ff.form_id, inline_blocks_before)
 
     cleanup = _cleanup_previous_definition(session, command, original_definition_id, final_definition_id)
     return _serialize_result(ff, final_definition_id, created, restored, cleanup)
