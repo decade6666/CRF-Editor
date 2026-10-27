@@ -1103,3 +1103,45 @@ FormPreviewOid 纸面标题徽章改为仅插值 displayCode（去 OID: 前缀�
 ### Next Steps
 
 - 已推送 main 并归档；本地服务已由用户停止，需要时按 local-serve-restart-recipe 重启
+
+
+## Session 31: 单表单横向表格限制验收与收尾
+<!-- trellis-session: v=2 fp=58f3d8234ba3ea68 -->
+
+**Date**: 2026-10-27
+**Task**: 单表单横向表格限制验收与收尾
+**Branch**: `feat/single-table-guard`
+
+### Summary
+
+完成横向表格编辑守卫、局部回退与删除撤销原子恢复；隔离浏览器及8888用户验收通过，任务已归档。
+
+### Main Changes
+
+- 前后端共享区块计数与渐进修复策略，导入和整表复制保持兼容。
+- 单删/批删撤销共用restore-batch，补齐归属校验、整批回滚与历史ID重映射。
+- 独立只读审查PASS，所有有效建议已处理；代码、上下文历史和跨栈规格独立提交。
+- 用户已授权main集成、推送和临时实例/任务树清理；另行确认保留基线依赖并调整其一个软链接，备份与日志保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `130fb0c` | feat(forms): 限制单表单横向表格并原子恢复删除字段 |
+| `c7727ab` | docs(context): 记录单横向表格限制验收归档 |
+| `c998655` | docs(spec): 记录单横向表格与原子恢复契约 |
+
+### Testing
+
+- [OK] 后端全量1432 passed；覆盖86.9588%（基线86.7557%，未下降），守卫100%、恢复98.97%。
+- [OK] 前端串行npm test -- --maxWorkers=1：1046 node + 188 mounted passed；lint 0 errors / 2720 warnings。
+- [OK] 7个Python文件格式检查通过；构建、gitleaks、真实隔离浏览器和8888部署复核通过；用户实测通过。
+- [OK] 默认并发测试仍有既有间歇波动；依赖审计0 Critical/12 High/1 Moderate/1 Low未修复，未改依赖或弱化测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无待修复的本任务验收项；默认并发波动与既有依赖告警保留为独立后续事项。

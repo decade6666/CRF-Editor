@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 30
-- **Last Active**: 2026-10-16
+- **Total Sessions**: 31
+- **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1105 | Active |
+| `journal-1.md` | ~1147 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 31 | 2026-10-27 | 单表单横向表格限制验收与收尾 | `130fb0c`, `c7727ab`, `c998655` | `feat/single-table-guard` |
 | 30 | 2026-10-16 | 模板导入后立即展示新表单并保护草稿 | `a539ad3`, `7a02d53` | `fix/template-import-refresh` |
 | 28 | 2026-10-16 | weekly-ai-release 每周 AI 辅助源码发布自动化 | `2afce01`, `f53e7b7` | `task/weekly-ai-release` |
 | 26 | 2026-10-15 | 表单 OID 徽章去前缀并统一红框样式 | `73e1597` | `worktree-form-title-oid-style` |
