@@ -112,9 +112,9 @@ def reorder_items(items: list[dict], target_id: int, new_index: int):
 ```
 
 **Contract Rules**:
-1. Frontend calls `/reorder` endpoint with item ID and new index
-2. Backend handles all collision avoidance
-3. Frontend receives updated order on success
+1. Form-field reorder sends the complete scoped permutation as `ordered_ids`; missing, duplicate or foreign IDs retain the existing rejection semantics.
+2. The backend handles collision avoidance through the existing two-phase ordering implementation and validates the horizontal-block edit limit (§15) in the same request transaction.
+3. Success is HTTP 204 with no body. The designer keeps its accepted optimistic order; failures restore the previous order. Do not expect an updated field list in the response.
 
 **API Contract**:
 
@@ -122,15 +122,10 @@ def reorder_items(items: list[dict], target_id: int, new_index: int):
 // Request
 POST /api/forms/{form_id}/fields/reorder
 {
-  "field_id": 123,
-  "new_index": 0
+  "ordered_ids": [123, 124, 125]
 }
 
-// Response
-{
-  "success": true,
-  "fields": [...]  // Updated field list in new order
-}
+// Response: HTTP 204 No Content
 ```
 
 ---
@@ -986,6 +981,54 @@ Precision resolution (`resolve_time_precision`): `ss` (case-insensitive) → sec
 
 ---
 
+### 15. Horizontal-Table Edit Guard and Atomic Restoration
+
+**Contract ID**: `single-inline-table-edit-guard`
+
+| Backend | Frontend | Shared fixture |
+|---------|----------|----------------|
+| `src/services/inline_table_guard.py`, `field_restore_service.py`, `field_profile_service.py`, `routers/fields.py`, `schemas/field.py` | `src/composables/formFieldPresentation.js`, `src/components/FormDesignerTab.vue` | `backend/tests/fixtures/inline_table_block_cases.json` |
+
+**Scope / trigger**: edits that create, normalize, reorder or restore form-field instances. This is an edit constraint, not a rendering algorithm or migration.
+
+**Policy**:
+
+- In actual `(order_index, numeric id)` order, count continuous runs of truthy/nonzero `inline_mark` values. Adjacent marked fields form one horizontal block. Ordinary two-column sections do not count; disabled label/log rows are separators.
+- Accept exactly `after_count <= max(1, before_count)`. The baseline is the current form at each edit/replay, never the old history snapshot. Legacy forms can retain/reduce their count, but cannot grow it again after repair.
+- Count noncanonical integer markers conservatively without rewriting them; canonical 0/1 grouping agrees with §5. Do not claim existing preview/export parity for noncanonical markers or revive inactive unified rendering.
+- Direct create, normalized profile create/update, reorder and restoration capture the count before mutations and validate the flushed final rows inside the caller's `get_session()` transaction. Services never commit. Final normalization matters even when `inline_mark` is omitted from the request.
+- Plain deletion, shared-definition-only updates, template/Word/project imports, whole-form copies and whole-project copies keep their existing behavior. No global ORM guard, migration, bypass flag or historical-count exemption.
+- Violation is HTTP 400 with `detail`: `单个表单最多允许一个横向表格，本次操作会新增横向表格，已取消操作`.
+
+**Atomic restoration API**:
+
+```typescript
+POST /api/forms/{form_id}/fields/restore-batch
+{
+  "items": [
+    { "form_field": /* FormFieldCreate */, "field_definition": /* FieldDefinitionCreate or null */ }
+  ]
+}
+// HTTP 201: FormFieldResponse[] in REQUEST order, with new instance IDs
+```
+
+- `items` has 1–500 entries; the envelope/item reject unknown sibling keys. Nested snapshots reuse existing field/OID/color validators.
+- Form/project ownership is checked before restoration. Existing definitions must belong to that same authorized project and are never rewritten. Null definitions are permitted only for log rows. Missing regular definitions return 404; only missing label definitions may be recreated from a label snapshot.
+- Label fallback cannot bypass an existing foreign definition ID. Recreated definitions' codelist/unit links are project-scoped; identity/OID/duplicate-binding conflicts return 409. Schema errors return 422; ownership follows existing 403/404 conventions.
+- Restore all instances, required labels and insertion-order shifts in one request transaction; check final layout once. Any failure persists none of these effects. Preserve snapshot instance attributes, including legacy markers. Return request order even when execution sorts by insertion position.
+
+**UI / history**:
+
+- Preflight marker, type/candidate, quick-edit, draft/copy and drag/Ctrl+arrow changes before accepting invalid local state. Check both persisted and visible editor projections: an unsaved type separator must not let a different field's toggle or reorder create an extra visible block. Evaluate copied drafts at their fractional/intended insertion position, not raw array append position; both previews use sorted projections. Reject invalid copies before save/discard prompts as well as rechecking afterwards.
+- Preserve the marker across an unsaved supported-type → structural-type → supported-type round trip; validate the prospective restored marker before accepting the return transition.
+- Reject only the offending operation and its dependent type/marker/OID/candidate state. Preserve earlier unrelated labels, colors/defaults, selection and other dirty input. Recheck on Save and handle the same remote reason without success/history pollution. Loading/canceling legacy data must not toast or repair it.
+- Single- and batch-delete undo share one restore request. Remap history IDs only after the entire response succeeds; batch mappings park old IDs at temporary tokens before assigning final IDs because SQLite may reuse rowids in a different order. Failure preserves stacks and IDs and skips the unnecessary generic reload; other history operations retain their existing guarded APIs/session checks.
+- The UI omits a label fallback snapshot whose OID fails existing create validation, allowing an existing imported/shared definition to be restored by ID without unnecessary revalidation. If that definition is already missing, its invalid OID still cannot be recreated (existing creation-validator limitation); this does not relax server snapshot validation.
+
+**Verification**: `backend/tests/test_inline_table_guard.py`, `test_field_restore.py`, `frontend/tests/inlineTableGuard.test.js`, `tests/component/SingleInlineTableGuard.spec.js`, existing reorder/history/draft/preview tests, and import/whole-copy regressions. Include split/expansion, truthy markers, legacy progressive repair, post-normalization rollback, cross-user/project/link isolation, mixed request-order restores, later-item zero-write failures, narrow dirty-input rollback, and repeated successful undo/redo ID remapping. Use disposable local state for browser acceptance; never inspect or mutate production data.
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code
@@ -1047,6 +1090,7 @@ When creating a new cross-stack contract:
 | API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 9 bypass call sites (`App.vue` 3 + `WordImportDialog.vue` 1 + `LoginView.vue` 1 + `ProjectInfoTab.vue` 3 + `DocxScreenshotPanel.vue` 1) | `frontend/tests/basePathDeployment.test.js` |
 | OID / Identifier Charset | `schemas/_common.py`, `schemas/codelist.py` | `composables/oidValidation.js` | None |
 | Reference Delete Guard | `services/field_definition_reference_service.py`, `routers/codelists.py`, `routers/units.py` (delete guards unchanged) | `composables/referenceDeleteGuard.js`, `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, `styles/main.css` | None (contract test `test_reference_delete_contract.py` + `referenceDeleteGuard.test.js`) |
+| Horizontal-Table Edit Guard | `services/inline_table_guard.py`, `services/field_restore_service.py`, `routers/fields.py` | `composables/formFieldPresentation.js`, `components/FormDesignerTab.vue` | `backend/tests/fixtures/inline_table_block_cases.json` |
 
 ---
 
@@ -1099,3 +1143,4 @@ When modifying cross-stack contracts, run:
 | Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_export_service.py`, `tests/test_width_planning.py`, `tests/test_word_table_parity.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js`, `tests/visitPreviewSplit.test.js`, `tests/component/VisitFormPreviewDialog.spec.js` + strict comparator + manual A4 side-by-side when available |
 | Form Paper Orientation | `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_project_copy.py` | `tests/visitPreviewLandscape.test.js`, `tests/wordPageGeometry.test.js` |
 | Reference Delete Guard | `tests/test_reference_delete_contract.py`, `tests/test_batch_delete_isolation.py` | `tests/referenceDeleteGuard.test.js`, `tests/referenceDeleteWiring.test.js` |
+| Horizontal-Table Edit Guard | `tests/test_inline_table_guard.py`, `tests/test_field_restore.py` | `tests/inlineTableGuard.test.js`, `tests/component/SingleInlineTableGuard.spec.js`, existing designer reorder/history/draft suites |
