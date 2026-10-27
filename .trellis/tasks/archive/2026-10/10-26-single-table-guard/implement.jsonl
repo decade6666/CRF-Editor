@@ -1,0 +1,12 @@
+{"file":".context/prefs/coding-style.md","reason":"Project coding conventions; no unrelated refactoring."}
+{"file":".context/prefs/workflow.md","reason":"TDD, verification, documentation and decision-record boundaries."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Business validation errors must reach the client as specific Chinese messages."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/applicable-spec-sections.md","reason":"Mandatory bounded source reads for transaction rules and cross-stack ordering/preview contracts, avoiding whole-file injection truncation."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Read ownership/input validation and Test Session Isolation; keep test data hermetic."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Read designer leave guards, history busy/session coordination, and refresh safety; preserve drafts and optimistic-order rollback."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Reuse domain helpers and useApi; preserve existing request/error boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Behavioral unit tests, real component mount conventions, Vue warning gate, lint/build."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/validation-environment.md","reason":"Verified local runtimes, exact worktree, environment safety and not-run boundaries."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/table-grouping-and-mutations.md","reason":"Verified grouping, current mutation/restore transaction boundaries, copy-order pitfall, and source/test anchors."}
+{"file":".trellis/spec/backend/auth-security.md","reason":"Read Authorization sections: form/definition ownership before writes and project-scoped codelist/unit links for the new restore endpoint."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/dependency-audit.md","reason":"Existing dependency audit is not clean but has no Critical entries; do not upgrade dependencies or confuse baseline audit/engine warnings with feature test failures."}

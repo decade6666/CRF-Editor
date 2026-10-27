@@ -1,0 +1,10 @@
+{"file":".context/prefs/workflow.md","reason":"Check actual diff, TDD/verification evidence, documentation sync, and no unauthorized commits."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Specific Chinese business errors must not be swallowed or turned into generic failures."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/applicable-spec-sections.md","reason":"Read the original bounded transaction/ordering/preview spec sections; verify current code instead of obsolete examples, without truncating injection."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Ownership order, immutable DTOs, hermetic tests, and >=80% new-logic target."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Read designer history/session, leave, draft and refresh contracts; failed operations must not pollute history or UI state."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Behavioral/component tests and Vue warning gate; source assertions alone do not establish UI rollback."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/validation-environment.md","reason":"Independently repeat real commands on the correct worktree and report environment-blocked checks honestly."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/table-grouping-and-mutations.md","reason":"Cross-check actual grouping/normalization and current ordering/history/atomic restore behavior against source anchors."}
+{"file":".trellis/spec/backend/auth-security.md","reason":"Read Authorization sections: new restore API must preserve form/definition ownership, link scoping and failure isolation."}
+{"file":".trellis/tasks/10-26-single-table-guard/research/dependency-audit.md","reason":"Keep the existing failed audit and engine warnings visible; dependency fixes are outside this authorized change."}
