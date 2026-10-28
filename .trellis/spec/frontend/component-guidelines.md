@@ -1410,7 +1410,7 @@ Reference implementation: `frontend/src/composables/useDesignerFormSelection.js`
 | Rule | Why |
 |---|---|
 | Regular Copy creates an `id='__draft__'`, `__draft:true` local row and sends no request | Users must be able to review/edit the copy before it changes the project |
-| The local copy keeps the full definition and instance presentation state, but replaces the definition OID with `X_copy`, `X_copy1`, ... | Preview and Save must start from the same copied values while preserving project-level uniqueness |
+| The local copy keeps the full definition and instance presentation state, but replaces the definition OID with the ASCII-uppercased source plus `_COPY`, `_COPY1`, ... (`buildCopyVariableName`, the same ladder as the backend field-copy endpoint — cross-stack §10); existing names are matched exactly and never case-folded or rewritten | Preview and Save must start from the same copied values while preserving project-level uniqueness |
 | OID collision checks include every `fieldDefs` entry, including hidden `标签` / `日志行` definitions | The backend uniqueness constraint is project-wide, not limited to visible autocomplete candidates |
 | The draft stores an integer `__draftOrderIndex` for Save and a fractional local `order_index` only for display | The UI can place the draft after its source without sending a non-integer persistence order |
 | Save labels the history entry `复制字段`; Cancel/discard paths remain local | Copy is one persisted history action only after explicit user confirmation |
@@ -1428,6 +1428,12 @@ Reference implementation: `frontend/src/composables/useDesignerFormSelection.js`
   branch.
 - `backend/tests/test_field_profile.py` locks insertion at a requested
   `order_index`; backend production code remains unchanged.
+- For mounted Copy/Save checks, verify the actual rendered control and emitted
+  field-profile command. `nextTick` / `flushPromises` and one passing
+  `--maxWorkers=1` run are not a determinism guarantee. If no request appears,
+  inspect enabled state, native click delivery and save guards; keep both full
+  and isolated failure evidence. Do not weaken assertions, patch production
+  logic, or change runner/timeouts merely to hide a timing-sensitive failure.
 
 ## Scenario: FormDesignerTab Label OID Is System-Managed
 

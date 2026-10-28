@@ -760,8 +760,62 @@ OID 字符集校验是一份**作用域契约**：只有「机器标识」类字
 
 - `field_definition.variable_name` for `标签` is a system placeholder; the frontend never sends a user-typed OID for a label (`formDesignerPropertyEditor.js`: `SYSTEM_FIELD_VARIABLE_NAME_RE`, `ensureLabelVariableName`, `buildLabelOidSession`, `applyLabelOidTransition`, wired in `FormDesignerTab.vue` via the controlled type selector).
 - Backend startup (`src/database.py::_normalize_label_variable_names`, called from `init_db()` after `_normalize_log_row_presentation`) re-mints every label OID that is not a placeholder: idempotent, label rows only, per-project unique through `generate_code("FIELD")` with collision retry.
-- Shared prefix rule (must stay identical on both sides): `^FIELD_\d{14}_[A-Z0-9]{6}` — matches `generate_code("FIELD")` / `genFieldVarName()` output plus system-derived suffixes (`_copy`, `_copy2`, `_IMP`).
+- Shared prefix rule (must stay identical on both sides): `^FIELD_\d{14}_[A-Z0-9]{6}` — matches `generate_code("FIELD")` / `genFieldVarName()` output plus system-derived suffixes (new field copies mint `_COPY`, `_COPY1`; legacy lowercase `_copy`, `_copy2` stay matched; `_IMP`).
 - Tests: `frontend/tests/designerLabelOid.test.js` (frontend rule, command routing, wiring) and `backend/tests/test_label_variable_name_migration.py` (backend rule, normalization). Labels imported from older templates / project `.db` files keep their source OIDs until the next backend restart runs the normalization.
+
+#### Uppercase OID authoring
+
+##### 1. Scope / Trigger
+
+Apply ASCII casing whenever users author a field, form, codelist, unit, or visit OID. The nine controls are the field-library card, designer field autocomplete, three designer form entries (create/edit/inline), codelist create/edit, unit card, and visit card. Codelist **option** codes remain free text even where the UI labels them OID. No migration, response/ORM interceptor, read-time alias, or import normalization is authorized by this contract.
+
+##### 2. Signatures
+
+- Frontend `oidValidation.js::toUpperAsciiOid(value) -> string` converts only `[a-z]`, preserving whitespace/non-ASCII; nullish input yields `''`.
+- Backend `schemas/_common.py::upper_ascii_oid(value: object) -> str | None` and `normalize_changed_oid(new_value: object, current_value: str | None) -> str | None` apply at actual authoring write branches, not shared snapshot validators.
+- Ordinary entity create/update routes use these helpers; forms share `_apply_form_update` for PUT/PATCH. New field-profile `create_or_restore` without `preferred_definition_id` normalizes before lookup/creation.
+
+##### 3. Contracts
+
+- New OIDs and genuinely changed updates store ASCII uppercase. An omitted update key is skipped by its caller; explicit `None` retains existing clear semantics; an exact echo preserves the existing identifier, including lowercase. Existing schema charset/blank handling is unchanged; unit/visit codes gain no new charset restrictions.
+- UI conversion changes actual bound state/DOM/payload only on user input. Loaded values and candidate hydration retain exact identity. The designer autocomplete uses `:model-value` plus `@update:model-value`: its `input` event precedes its model update, so an `@input` conversion alone can be overwritten. Its raw `fetch-suggestions` query may still carry the typed case; that is harmless because `searchRanking.js` case-folds and selecting a candidate restores the exact source identity.
+- Pure binding, profile `update_shared`, preferred-ID history replay/restoration, restore-batch snapshots, imports, whole-project clones, annotation keys, and reads/exports preserve source casing. Keep shared validators case-preserving because `FieldDefinitionCreate` / `DefinitionPayload` also validate exact historical snapshots (§15).
+- Identity stays case-sensitive (the per-project unique constraints use SQLite's default BINARY collation): a legacy lowercase `ae01` and a newly authored `AE01` are distinct identifiers. Typing `ae01` therefore authors `AE01` — a separate definition or code, not a conflict with the legacy row. Reusing the legacy field definition requires explicitly selecting it as a designer candidate, and editing that candidate's OID afterwards follows the existing fork path. There is no case-folded lookup, merge, migration, or silent rebinding; changing that policy is a separate product decision.
+- Newly minted field-copy OIDs use an uppercase source plus `_COPY`, `_COPY1`, etc., consistently in `fieldDefinitionAutocomplete.js::buildCopyVariableName` and the field-copy endpoint. Collision sets remain exact/case-sensitive; do not rewrite existing `_copy` values or human-readable names.
+- Keep Saimeisi maxlength/save caps and unchanged-value exemptions. Casing does not authorize bypassing ownership, transaction, fork/explicit-candidate, or horizontal-table guards.
+
+##### 4. Validation & Error Matrix
+
+| Input/state | Required outcome |
+| --- | --- |
+| New/changed `ae_01.a-b` | DOM and persisted authoring value `AE_01.A-B` |
+| Legacy `oldcl` echoed unchanged, or key omitted | Remains `oldcl`; unrelated edits do not rename it |
+| `ß` in an already charset-restricted OID | Existing 422/UI validation; never expand to ASCII `SS` |
+| Normalized new OID collides with an existing exact uppercase OID | Existing transactional conflict response; no overwrite, implicit bind, or case-folded merge |
+| Legacy lowercase `ae01` exists; user enters `ae01` as a new OID | Stored as a distinct `AE01`; the `ae01` row is unchanged (no conflict, merge, or rebind) |
+| Option `opt_a`, symbol `kg`, source snapshot/annotation key | Original value preserved |
+| Saimeisi manual field/form input beyond 8/10 | Existing entry/save limits; long unchanged baselines still load intact |
+
+##### 5. Good / Base / Bad Cases
+
+- **Good:** convert actual user input and new/changed write payloads, then use exact identity/uniqueness checks.
+- **Base:** metadata-only save of a loaded lowercase definition or selection of a lowercase candidate preserves its identity and existing history semantics.
+- **Bad:** CSS-only uppercase, Unicode-wide `.upper()`/`.toUpperCase()` on the entire input, global uppercase schema validators, or uppercasing all existing-name/candidate sets.
+
+##### 6. Tests Required
+
+`backend/tests/test_oid_uppercase.py` covers helpers, authoring writes, form PUT/PATCH, omitted/exact-echo legacy updates, non-ASCII rejection/preservation, profile conflicts/snapshots and copy ladders. Frontend `oidUppercase.test.js` / `component/OidUppercase.spec.js` cover helpers, nine-control wiring and real DOM/payload behavior, legacy hydration/candidate binding, and free-text exclusions. Keep `OidEditSave.spec.js`, `designerLabelOid.test.js`, copy/history tests and §15 guard/restore regressions green. Browser acceptance uses disposable data and checks actual DOM plus persisted API values; do not claim an OS clipboard test from a synthetic paste-style input event.
+
+##### 7. Wrong vs Correct
+
+Wrong: `return str(value).upper()` inside a reused snapshot validator silently renames legacy snapshots and can expand Unicode.
+
+Correct: keep the validator unchanged; normalize only an actually submitted authoring update:
+
+```python
+if "code" in payload:
+    payload["code"] = normalize_changed_oid(payload["code"], entity.code)
+```
 
 ---
 
@@ -1088,7 +1142,7 @@ When creating a new cross-stack contract:
 | Preview / Export Parity | `services/export_service.py`, `services/width_planning.py`, `services/word_table_parity.py` | `useCRFRenderer.js`, `formFieldPresentation.js`, preview components, `styles/main.css` | Strict comparator JSON + exported `.docx` |
 | Form Paper Orientation | `models/form.py`, `schemas/form.py`, `database.py`, `routers/forms.py`, `services/export_service.py` (+ clone/import) | `components/FormDesignerTab.vue`, `components/VisitFormPreviewDialog.vue` (visit preview; `VisitsTab.vue` is the bridge only) | None |
 | API Base Path | `main.py` (zero-aware; `/`-relative only) | `vite.config.js` (`VITE_BASE_PATH` → `base`), `composables/useApi.js` (`apiUrl` at fetch boundary), 9 bypass call sites (`App.vue` 3 + `WordImportDialog.vue` 1 + `LoginView.vue` 1 + `ProjectInfoTab.vue` 3 + `DocxScreenshotPanel.vue` 1) | `frontend/tests/basePathDeployment.test.js` |
-| OID / Identifier Charset | `schemas/_common.py`, `schemas/codelist.py` | `composables/oidValidation.js` | None |
+| OID / Identifier Charset + Uppercase Authoring | `schemas/_common.py`, `schemas/codelist.py`, `routers/fields.py`, `routers/forms.py`, `routers/codelists.py`, `routers/units.py`, `routers/visits.py`, `services/field_profile_service.py` | `composables/oidValidation.js`, `composables/fieldDefinitionAutocomplete.js`, `components/FieldsTab.vue`, `components/FormDesignerTab.vue`, `components/CodelistsTab.vue`, `components/UnitsTab.vue`, `components/VisitsTab.vue` | None |
 | Reference Delete Guard | `services/field_definition_reference_service.py`, `routers/codelists.py`, `routers/units.py` (delete guards unchanged) | `composables/referenceDeleteGuard.js`, `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, `styles/main.css` | None (contract test `test_reference_delete_contract.py` + `referenceDeleteGuard.test.js`) |
 | Horizontal-Table Edit Guard | `services/inline_table_guard.py`, `services/field_restore_service.py`, `routers/fields.py` | `composables/formFieldPresentation.js`, `components/FormDesignerTab.vue` | `backend/tests/fixtures/inline_table_block_cases.json` |
 
@@ -1142,5 +1196,6 @@ When modifying cross-stack contracts, run:
 | Auth Token | `tests/test_auth.py` | `tests/appSettingsShell.test.js`, `tests/useApiSessionRace.test.js` |
 | Preview / Export Parity | `tests/test_export_unified.py`, `tests/test_export_service.py`, `tests/test_width_planning.py`, `tests/test_word_table_parity.py` | `tests/columnWidthPlanning.test.js`, `tests/wordPageGeometry.test.js`, `tests/formFieldPresentation.test.js`, `tests/visitPreviewSplit.test.js`, `tests/component/VisitFormPreviewDialog.spec.js` + strict comparator + manual A4 side-by-side when available |
 | Form Paper Orientation | `tests/test_form_paper_orientation.py`, `tests/test_export_paper_orientation.py`, `tests/test_project_copy.py` | `tests/visitPreviewLandscape.test.js`, `tests/wordPageGeometry.test.js` |
+| OID / Identifier Charset + Uppercase Authoring | `tests/test_oid_validation.py`, `tests/test_oid_uppercase.py`, `tests/test_copy_name_ladders.py`, `tests/test_field_profile.py` | `tests/oidValidationWiring.test.js`, `tests/oidUppercase.test.js`, `tests/oidEditLengthPolicy.test.js`, `tests/component/OidUppercase.spec.js`, `tests/component/OidEditSave.spec.js` |
 | Reference Delete Guard | `tests/test_reference_delete_contract.py`, `tests/test_batch_delete_isolation.py` | `tests/referenceDeleteGuard.test.js`, `tests/referenceDeleteWiring.test.js` |
 | Horizontal-Table Edit Guard | `tests/test_inline_table_guard.py`, `tests/test_field_restore.py` | `tests/inlineTableGuard.test.js`, `tests/component/SingleInlineTableGuard.spec.js`, existing designer reorder/history/draft suites |
