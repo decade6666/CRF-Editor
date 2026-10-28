@@ -13,6 +13,7 @@ import ElementPlus, { ElMessage } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import { config, enableAutoUnmount } from '@vue/test-utils';
 import { assertNoVueWarnings, collectVueWarning, resetVueWarnings, spyConsoleVueWarnings } from './vueWarnGate.js';
+import { createNonDecreasingNow } from './testClock.js';
 
 // 与 src/main.js 保持一致的全局注册：每个 mount() 都能解析 el-* 组件（默认不带 CSS，DOM 环境无布局）。
 config.global.plugins = [[ElementPlus, { locale: zhCn }]];
@@ -39,6 +40,10 @@ enableAutoUnmount(afterEach);
 
 // 每个用例开始：清空残留 Vue 警告、开启 console 侧 Vue 警告拦截，并静默 ElMessage 的四个常用方法；用例断言直接引用同一个 ElMessage 对象。
 beforeEach(() => {
+  // WSL 墙钟回拨会让 VTU 的事件时间戳早于 Vue 监听器挂载时间，直接丢失点击。
+  // 仅钳制真实 Date.now 的倒退；显式 vi.useFakeTimers 仍接管 Date，afterEach 统一还原。
+  const realNow = Date.now.bind(Date);
+  vi.spyOn(Date, 'now').mockImplementation(createNonDecreasingNow(realNow));
   resetVueWarnings();
   spyConsoleVueWarnings();
   for (const method of ['success', 'error', 'warning', 'info']) {
