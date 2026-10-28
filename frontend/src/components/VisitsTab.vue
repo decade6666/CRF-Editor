@@ -5,6 +5,7 @@ import { api, genCode } from '../composables/useApi'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
+import { toUpperAsciiOid } from '../composables/oidValidation.js';
 import { CircleClose, Delete, DocumentCopy, Plus, View } from '@element-plus/icons-vue'
 import VisitFormPreviewDialog from './VisitFormPreviewDialog.vue'
 
@@ -403,7 +404,9 @@ async function toggleCell(visitId, formId) {
             <div v-if="!selectedVisit && !isCreatingVisit" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增访视</div>
             <div v-else style="flex:1;overflow-y:auto;padding:8px">
               <el-form :model="visitEditProp" label-width="70px" size="small">
-                <el-form-item v-if="editMode" label="OID"><el-input v-model="visitEditProp.code" /></el-form-item>
+                <el-form-item v-if="editMode" label="OID">
+                  <el-input v-model="visitEditProp.code" @input="visitEditProp.code = toUpperAsciiOid($event)" />
+                </el-form-item>
                 <el-form-item label="访视名称"><el-input v-model="visitEditProp.name" /></el-form-item>
               </el-form>
               <div style="display:flex;gap:8px;margin-top:4px">

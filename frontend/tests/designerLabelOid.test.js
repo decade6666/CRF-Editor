@@ -527,8 +527,8 @@ test('regular-field copy drafts carry the creation-time label OID seed', () => {
     field_definition: { id: 10, variable_name: 'TEST', field_type: '文本', label: '测试字段' },
   }
   const draft = buildCopyDraft(ff, [{ variable_name: 'TEST' }], 8, '__draft__', buildCopyVariableName, () => ({}))
-  assert.equal(draft.field_definition.variable_name, 'TEST_copy')
-  assert.deepEqual(draft.__labelOidSeed, { variable_name: 'TEST_copy', field_type: '文本' })
+  assert.equal(draft.field_definition.variable_name, 'TEST_COPY')
+  assert.deepEqual(draft.__labelOidSeed, { variable_name: 'TEST_COPY', field_type: '文本' })
 })
 
 test('selectAutocompleteCandidate never assigns the label OID session', () => {

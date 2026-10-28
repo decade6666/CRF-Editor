@@ -28,6 +28,7 @@ from src.dependencies import (
 from src.models.field_definition import FieldDefinition
 from src.models.form_field import FormField
 from src.models.user import User
+from src.schemas._common import upper_ascii_oid
 from src.schemas.field_profile import FieldProfileCommand
 from src.services.field_cleanup_service import (
     delete_form_field_and_cleanup_label_definition,
@@ -112,7 +113,15 @@ def _resolve_definition_operation(
     definition_snapshot = payload.definition
     _validate_definition_links(project, definition_snapshot, current_user, session)
 
-    existing = _find_project_definition_by_oid(session, project.id, definition_snapshot.variable_name)
+    # 新建（无 preferred）是「新写」：先 ASCII 大写归一再查重/落库，冲突不静默换绑；
+    # 带 preferred 的历史重放 / 恢复保持快照原值，不做大小写改写
+    authored_oid = (
+        definition_snapshot.variable_name
+        if payload.preferred_definition_id is not None
+        else upper_ascii_oid(definition_snapshot.variable_name)
+    )
+
+    existing = _find_project_definition_by_oid(session, project.id, authored_oid)
     if existing is not None:
         preferred = payload.preferred_definition_id
         if preferred is not None and existing.id == preferred:
@@ -121,6 +130,7 @@ def _resolve_definition_operation(
 
     fd = FieldDefinition(project_id=project.id)
     _apply_definition_payload(fd, definition_snapshot)
+    fd.variable_name = authored_oid
     fd.order_index = OrderService.get_next_order(session, FieldDefinition, FieldDefinition.project_id == project.id)
     session.add(fd)
     session.flush()

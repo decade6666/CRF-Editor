@@ -406,7 +406,7 @@ def test_copy_checkbox_field_definition_preserves_custom_text(
 
     assert copy_resp.status_code == 201, copy_resp.text
     copied = copy_resp.json()
-    assert copied["variable_name"] == "SIGNED_copy"
+    assert copied["variable_name"] == "SIGNED_COPY"
     assert copied["field_type"] == "复选"
     assert copied["checkbox_label"] == "受试者本人已签署"
     assert copied["codelist_id"] is None

@@ -25,6 +25,8 @@ from src.schemas.unit import UnitCreate, UnitUpdate, UnitResponse
 
 from src.schemas import BatchDeleteRequest
 
+from src.schemas._common import normalize_changed_oid, upper_ascii_oid
+
 from src.services.field_definition_reference_service import collect_field_definition_references
 
 from src.services.order_service import OrderService
@@ -59,6 +61,8 @@ def create_unit(
 
     dump = data.model_dump(exclude={"order_index"})
 
+    # 新写 OID 归一：ASCII 大写（仅 a-z；单位 code 无字符集校验，非 ASCII 原样保留）
+    dump["code"] = upper_ascii_oid(dump["code"])
     if not dump.get("code"):
         dump["code"] = generate_code("UNIT")
 
@@ -96,7 +100,13 @@ def update_unit(
 
     old_order = unit.order_index
 
-    for k, v in data.model_dump(exclude={"order_index"}, exclude_unset=True).items():
+    payload = data.model_dump(exclude={"order_index"}, exclude_unset=True)
+
+    # 人工改写 OID：省略 / exact echo 原样保留（含历史小写）；真正改值先归一
+    if "code" in payload:
+        payload["code"] = normalize_changed_oid(payload["code"], unit.code)
+
+    for k, v in payload.items():
         setattr(unit, k, v)
 
     if data.order_index is not None and data.order_index != old_order:

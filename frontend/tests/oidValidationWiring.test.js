@@ -40,7 +40,8 @@ test('FieldsTab no longer charset-guards inline codelist option codes', () => {
 })
 
 test('CodelistsTab imports shared OID helpers and guards codelist saves', () => {
-  assert.match(codelistsSource, /import \{ OID_ERROR, isValidOptionalOid \} from ['"]\.\.\/composables\/oidValidation\.js['"]/)
+  // 共享校验器必须仍从 oidValidation 导入；允许名单随功能扩展（如大写录入归一）新增导入名
+  assert.match(codelistsSource, /import \{[^}]*OID_ERROR[^}]*isValidOptionalOid[^}]*\} from ['"]\.\.\/composables\/oidValidation\.js['"]/)
   assert.match(codelistsSource, /async function addCl\(\) \{[\s\S]*?isValidOptionalOid\(clForm\.code\)[\s\S]*?ElMessage\.warning\(OID_ERROR\)[\s\S]*?api\.post/)
   assert.match(codelistsSource, /async function updateCl\(\) \{[\s\S]*?isValidOptionalOid\(editClForm\.code\)[\s\S]*?ElMessage\.warning\(OID_ERROR\)[\s\S]*?api\.put/)
 })

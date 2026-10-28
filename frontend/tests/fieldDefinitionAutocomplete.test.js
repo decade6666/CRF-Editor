@@ -217,11 +217,12 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
 
   test('buildCopyVariableName follows the backend copy suffix ladder', async () => {
     const { buildCopyVariableName } = await loadModule()
-    assert.equal(buildCopyVariableName([], 'TEST'), 'TEST_copy')
-    assert.equal(buildCopyVariableName(['TEST_copy'], 'TEST'), 'TEST_copy1')
+    // 新复制 OID 为大写源 + _COPY 梯子（10-27-uppercase-oids）
+    assert.equal(buildCopyVariableName([], 'TEST'), 'TEST_COPY')
+    assert.equal(buildCopyVariableName(['TEST_COPY'], 'TEST'), 'TEST_COPY1')
     assert.equal(
-      buildCopyVariableName(['TEST_copy', 'TEST_copy1', 'TEST_copy3'], 'TEST'),
-      'TEST_copy2',
+      buildCopyVariableName(['TEST_COPY', 'TEST_COPY1', 'TEST_COPY3'], 'TEST'),
+      'TEST_COPY2',
     )
   })
 
@@ -229,11 +230,11 @@ describe('fieldDefinitionAutocomplete pure logic', () => {
     const { buildCopyVariableName } = await loadModule()
     const definitions = [
       { variable_name: 'TEST' },
-      { variable_name: 'TEST_copy', field_type: '标签' },
+      { variable_name: 'TEST_COPY', field_type: '标签' },
     ]
     assert.equal(
       buildCopyVariableName(definitions.map((definition) => definition.variable_name), 'TEST'),
-      'TEST_copy1',
+      'TEST_COPY1',
     )
   })
 

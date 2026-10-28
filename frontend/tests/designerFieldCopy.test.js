@@ -246,7 +246,7 @@ test('buildCopyDraft copies complete definition and instance state while using a
   assert.equal(draft.label_override, regularField.label_override)
   assert.equal(draft.default_value, regularField.default_value)
   assert.equal(draft.inline_mark, regularField.inline_mark)
-  assert.equal(draft.field_definition.variable_name, 'TEST_copy')
+  assert.equal(draft.field_definition.variable_name, 'TEST_COPY')
   assert.equal(draft.field_definition.checkbox_label, '已确认')
   assert.equal(draft.field_definition.is_multi_record, 1)
   assert.equal(draft.field_definition.table_type, '动态行')
@@ -260,7 +260,7 @@ test('复制普通字段只创建本地草稿，不发请求、不入撤销栈�
     fields: [regularField],
     fieldDefs: [
       { variable_name: 'TEST' },
-      { variable_name: 'TEST_copy', field_type: '标签' },
+      { variable_name: 'TEST_COPY', field_type: '标签' },
     ],
     api: {
       post: async (...args) => {
@@ -279,7 +279,7 @@ test('复制普通字段只创建本地草稿，不发请求、不入撤销栈�
   assert.equal(runtime.history.undoStack.value.length, 0)
   assert.deepEqual(runtime.calls.selected, ['__draft__'])
   const draft = runtime.formFields.value.find((field) => field.__draft)
-  assert.equal(draft.field_definition.variable_name, 'TEST_copy1')
+  assert.equal(draft.field_definition.variable_name, 'TEST_COPY1')
   assert.equal(draft.order_index, 4.5)
   assert.equal(draft.__draftOrderIndex, 5)
 })

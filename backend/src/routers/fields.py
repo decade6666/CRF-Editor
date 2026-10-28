@@ -52,6 +52,7 @@ from src.schemas.field import (
 )
 
 from src.schemas import BatchDeleteRequest
+from src.schemas._common import normalize_changed_oid, upper_ascii_oid
 
 from src.schemas.field_profile import FieldProfileCommand, FieldProfileResponse
 
@@ -112,6 +113,9 @@ def create_field_definition(
 
     dump = data.model_dump(exclude={"order_index"})
 
+    # 新写 OID 归一：ASCII 大写（仅 a-z；字符集校验已在 schema 完成）
+    dump["variable_name"] = upper_ascii_oid(dump["variable_name"])
+
     fd = FieldDefinition(project_id=project_id, **dump)
 
     if data.order_index is None:
@@ -155,7 +159,13 @@ def update_field_definition(
 
     old_order = fd.order_index
 
-    for k, v in data.model_dump(exclude={"order_index"}, exclude_unset=True).items():
+    payload = data.model_dump(exclude={"order_index"}, exclude_unset=True)
+
+    # 人工改写 OID：省略 / exact echo 原样保留（含历史小写）；真正改值先归一
+    if "variable_name" in payload:
+        payload["variable_name"] = normalize_changed_oid(payload["variable_name"], fd.variable_name)
+
+    for k, v in payload.items():
         setattr(fd, k, v)
 
     if data.order_index is not None and data.order_index != old_order:
@@ -458,15 +468,15 @@ def batch_delete_form_fields(
 def copy_field_definition(
     fd_id: int, session: Session = Depends(get_session), current_user: User = Depends(get_current_user)
 ):
-    """复制字段定义，variable_name 加 _copy 后缀（冲突时追加数字）"""
+    """复制字段定义，variable_name 取源 OID 的 ASCII 大写形式加 _COPY 后缀（冲突时追加最小可用数字 1、2…）"""
 
     repo = FieldDefinitionRepository(session)
 
     src = verify_field_definition_owner(fd_id, current_user, session)
 
-    # 生成不冲突的 variable_name
+    # 生成不冲突的 variable_name（新写 OID：大写源 + _COPY 梯子，按精确值查重）
 
-    base = src.variable_name + "_copy"
+    base = f"{upper_ascii_oid(src.variable_name)}_COPY"
 
     candidate = first_free_name(
         base,

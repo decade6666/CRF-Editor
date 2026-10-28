@@ -14,6 +14,7 @@
  */
 
 import { rankFuzzyMatches } from './searchRanking.js'
+import { toUpperAsciiOid } from './oidValidation.js';
 
 export const CANDIDATE_STATE_CURRENT = 'current'
 export const CANDIDATE_STATE_ADDED = 'added'
@@ -92,14 +93,15 @@ export function hydrateEditorFromCandidate({
 }
 
 /**
- * 为字段复制生成与后端一致的最小可用 OID：X_copy、X_copy1、X_copy2……。
+ * 为字段复制生成与后端一致的最小可用 OID：大写源 + X_COPY、X_COPY1、X_COPY2……
+ * （大写 OID 录入：新复制 OID 归一大写；既有名称集合按精确值查重，不做大小写折叠改写）。
  * existingNames 应覆盖项目内全部字段定义，而不只是字段库可见候选。
  */
 export function buildCopyVariableName(existingNames = [], sourceVariableName = '') {
   const usedNames = new Set(
     existingNames.filter((name) => name !== null && name !== undefined).map((name) => String(name)),
   )
-  const baseName = `${String(sourceVariableName ?? '')}_copy`
+  const baseName = `${toUpperAsciiOid(sourceVariableName)}_COPY`
   if (!usedNames.has(baseName)) return baseName
 
   let suffix = 1

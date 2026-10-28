@@ -6,7 +6,7 @@ import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, formatFiel
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
-import { OID_ERROR, isValidOptionalOid } from '../composables/oidValidation.js'
+import { OID_ERROR, isValidOptionalOid, toUpperAsciiOid } from '../composables/oidValidation.js'
 import { Delete, DocumentCopy, EditPen, Plus } from '@element-plus/icons-vue'
 
 const props = defineProps({ projectId: { type: Number, required: true } })
@@ -424,7 +424,9 @@ function openAddCl() {
     <!-- 新增字典弹窗 -->
     <el-dialog v-model="showAddCl" title="新增字典" width="360px" :close-on-click-modal="false">
       <el-form :model="clForm" label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="clForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID">
+          <el-input v-model="clForm.code" @input="clForm.code = toUpperAsciiOid($event)" />
+        </el-form-item>
         <el-form-item label="名称"><el-input v-model="clForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="clForm.description" /></el-form-item>
       </el-form>
@@ -449,7 +451,9 @@ function openAddCl() {
     <!-- 编辑字典弹窗 -->
     <el-dialog v-model="showEditCl" title="编辑字典" width="360px" :close-on-click-modal="false">
       <el-form :model="editClForm" label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="editClForm.code" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID">
+          <el-input v-model="editClForm.code" @input="editClForm.code = toUpperAsciiOid($event)" />
+        </el-form-item>
         <el-form-item label="名称"><el-input v-model="editClForm.name" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="editClForm.description" /></el-form-item>
       </el-form>

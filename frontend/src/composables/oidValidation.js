@@ -43,6 +43,17 @@ export function oidMaxLength(dbType, kind) {
 export const OID_PATTERN = /^[A-Za-z0-9._-]+$/;
 export const OID_ERROR = 'OID 只允许由字母、数字、“-”、“_”和“.”组成';
 
+/**
+ * 录入层 ASCII 大写归一（大写 OID 录入）：仅转换 ASCII a-z 为 A-Z；
+ * 不动空白、数字、`.`/`_`/`-` 与非 ASCII 字符（如 ß 不得经 toUpperCase 膨胀为 SS）。
+ * 仅用于用户键入/粘贴事件的实际编辑，以及新复制 OID 的生成（buildCopyVariableName）；
+ * 程序化水合（加载、候选选择、回填既有复制草稿种子、恢复）不得调用。
+ * 与后端写入点 backend/src/schemas/_common.py::upper_ascii_oid 语义一致。
+ */
+export function toUpperAsciiOid(value) {
+  return String(value ?? '').replace(/[a-z]/g, (ch) => ch.toUpperCase());
+}
+
 // 可选 OID：null/空/纯空白放行；有值才校验字符集。
 export function isValidOptionalOid(value) {
   if (value == null) return true;

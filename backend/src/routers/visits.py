@@ -21,6 +21,8 @@ from src.schemas.visit import VisitCreate, VisitUpdate, VisitResponse, VisitForm
 
 from src.schemas import BatchDeleteRequest
 
+from src.schemas._common import normalize_changed_oid, upper_ascii_oid
+
 
 from src.services.order_service import OrderService
 from src.services.unique_name import first_free_name
@@ -58,6 +60,8 @@ def create_visit(
 
     dump = data.model_dump(exclude={"sequence"})
 
+    # 新写 OID 归一：ASCII 大写（仅 a-z；访视 code 无字符集校验，非 ASCII 原样保留）
+    dump["code"] = upper_ascii_oid(dump["code"])
     if not dump.get("code"):
         dump["code"] = generate_code("VISIT")
 
@@ -99,7 +103,13 @@ def update_visit(
 
     old_seq = visit.sequence
 
-    for k, v in data.model_dump(exclude={"sequence"}, exclude_unset=True).items():
+    payload = data.model_dump(exclude={"sequence"}, exclude_unset=True)
+
+    # 人工改写 OID：省略 / exact echo 原样保留（含历史小写）；真正改值先归一
+    if "code" in payload:
+        payload["code"] = normalize_changed_oid(payload["code"], visit.code)
+
+    for k, v in payload.items():
         setattr(visit, k, v)
 
     if data.sequence is not None and data.sequence != old_seq:

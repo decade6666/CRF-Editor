@@ -81,9 +81,10 @@ def test_field_definition_copy_name_ladder(client: TestClient, auth_token: str) 
     project_id = _create_project(client, auth_token)
     fd_id = _create_field_definition(client, project_id, auth_token, "AGE")
 
-    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_copy"
-    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_copy1"
-    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_copy2"
+    # 字段定义复制的是 OID：新写归一为大写源 + _COPY 梯子（名称/码表/访视复制仍为 _copy 名称）
+    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_COPY"
+    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_COPY1"
+    assert _copy_field_definition(client, fd_id, auth_token) == "AGE_COPY2"
 
 
 def _create_form(client: TestClient, project_id: int, token: str, name: str) -> int:

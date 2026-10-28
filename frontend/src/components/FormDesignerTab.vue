@@ -35,7 +35,7 @@ import {
 } from '../composables/referenceDeleteGuard';
 import { useSortableTable } from '../composables/useSortableTable';
 import { rankFuzzyMatches } from '../composables/searchRanking';
-import { editedOidLengthError, isValidOptionalOid, isValidRequiredOid, oidMaxLength, OID_ERROR } from '../composables/oidValidation';
+import { editedOidLengthError, isValidOptionalOid, isValidRequiredOid, oidMaxLength, OID_ERROR, toUpperAsciiOid } from '../composables/oidValidation';
 import {
   buildFieldDefinitionCreatePayload,
   isLabelFieldDefinition,
@@ -3747,7 +3747,7 @@ function openAddForm() {
                 :disabled="designerHistory.busy.value || isReordering || savingDraft || !selectedForm"
               >
                 <el-form-item v-if="editMode" label="OID">
-                  <el-input v-model="editFormProp.code" data-test="designer-form-property-code" :maxlength="oidMaxLength(projectDbType, 'form')" />
+                  <el-input v-model="editFormProp.code" data-test="designer-form-property-code" :maxlength="oidMaxLength(projectDbType, 'form')" @input="editFormProp.code = toUpperAsciiOid($event)" />
                 </el-form-item>
                 <el-form-item label="名称">
                   <el-input v-model="editFormProp.name" data-test="designer-form-property-name" />
@@ -3781,14 +3781,16 @@ function openAddForm() {
                 :disabled="designerHistory.busy.value || savingDraft || isSavingFieldProp"
               >
                 <el-form-item v-if="editMode && !['标签', '日志行'].includes(editProp.field_type)" label="OID">
+                  <!-- el-autocomplete 的 input 事件先于 update:modelValue，须用受控 setter 在模型写入点归一 -->
                   <el-autocomplete
-                    v-model="editProp.variable_name"
+                    :model-value="editProp.variable_name"
                     :fetch-suggestions="fetchFieldDefSuggestions"
                     :trigger-on-focus="false"
                     placeholder="输入OID搜索字段库"
                     style="width: 100%"
                     data-test="designer-field-oid-autocomplete"
                     :maxlength="oidMaxLength(projectDbType, 'field')"
+                    @update:model-value="editProp.variable_name = toUpperAsciiOid($event)"
                     @select="selectAutocompleteCandidate"
                   >
                     <template #default="{ item }">
@@ -4145,7 +4147,7 @@ function openAddForm() {
     />
     <el-dialog v-model="showAddForm" title="新建表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" @input="newFormCode = toUpperAsciiOid($event)" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item>
       </el-form>
       <template #footer>
@@ -4155,7 +4157,7 @@ function openAddForm() {
     </el-dialog>
     <el-dialog v-model="showEditForm" title="编辑表单" width="360px">
       <el-form label-width="80px">
-        <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" /></el-form-item>
+        <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" @input="editFormCode = toUpperAsciiOid($event)" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item>
         <el-form-item label="纸张方向">
           <el-radio-group v-model="editFormPaperOrientation" data-test="edit-form-paper-orientation">

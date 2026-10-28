@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, genCode, truncRefs } from '../composables/useApi'
 import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, formatFieldReference, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
+import { toUpperAsciiOid } from '../composables/oidValidation.js';
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
 import { rankFuzzyMatches } from '../composables/searchRanking'
@@ -261,7 +262,9 @@ const {
         <div v-if="!selectedUnitId && !isCreatingUnit" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增单位</div>
         <div v-else style="flex:1;overflow-y:auto;padding:8px">
           <el-form :model="unitEditProp" label-width="70px" size="small">
-            <el-form-item v-if="editMode" label="OID"><el-input v-model="unitEditProp.code" /></el-form-item>
+            <el-form-item v-if="editMode" label="OID">
+              <el-input v-model="unitEditProp.code" @input="unitEditProp.code = toUpperAsciiOid($event)" />
+            </el-form-item>
             <el-form-item label="单位符号"><el-input v-model="unitEditProp.symbol" placeholder="如 kg" /></el-form-item>
           </el-form>
           <div style="display:flex;gap:8px;margin-top:4px">

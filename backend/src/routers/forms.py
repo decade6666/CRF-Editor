@@ -14,6 +14,7 @@ from src.models.form_field import FormField
 from src.models.user import User
 from src.repositories.base_repository import BaseRepository
 from src.schemas import BatchDeleteRequest
+from src.schemas._common import normalize_changed_oid, upper_ascii_oid
 from src.schemas.form import (
     FormCreate,
     FormResponse,
@@ -54,6 +55,10 @@ def _apply_form_update(form: Form, data: FormUpdate, session: Session) -> Form:
     old_order = form.order_index
     payload = _normalize_form_payload(data.model_dump(exclude={"order_index"}, exclude_unset=True))
 
+    # 人工改写 OID：省略 / exact echo 原样保留（含历史小写）；真正改值先归一
+    if "code" in payload:
+        payload["code"] = normalize_changed_oid(payload["code"], form.code)
+
     for key, value in payload.items():
         setattr(form, key, value)
 
@@ -93,6 +98,9 @@ def create_form(
     from src.utils import generate_code
 
     dump = _normalize_form_payload(data.model_dump(exclude={"order_index"}))
+
+    # 新写 OID 归一：ASCII 大写（仅 a-z）；空值仍走既有生成兜底
+    dump["code"] = upper_ascii_oid(dump["code"])
     if not dump.get("code"):
         dump["code"] = generate_code("FORM")
 

@@ -21,6 +21,7 @@ from src.schemas.codelist import (
     CodeListOptionResponse,
 )
 from src.schemas import BatchDeleteRequest
+from src.schemas._common import normalize_changed_oid, upper_ascii_oid
 from src.services.field_definition_reference_service import collect_field_definition_references
 from src.services.order_service import OrderService
 from src.services.unique_name import first_free_name
@@ -83,6 +84,9 @@ def create_codelist(
     from src.utils import generate_code
 
     dump = data.model_dump()
+
+    # 新写 OID 归一：ASCII 大写；选项 code 保持自由文本（跨栈 §10），不在转换范围
+    dump["code"] = upper_ascii_oid(dump["code"])
     if not dump.get("code"):
         dump["code"] = generate_code("CL")
 
@@ -166,7 +170,13 @@ def update_codelist(
 
     old_order = cl.order_index
 
-    for k, v in data.model_dump(exclude={"order_index"}, exclude_unset=True).items():
+    payload = data.model_dump(exclude={"order_index"}, exclude_unset=True)
+
+    # 人工改写 OID：省略 / exact echo 原样保留（含历史小写）；真正改值先归一
+    if "code" in payload:
+        payload["code"] = normalize_changed_oid(payload["code"], cl.code)
+
+    for k, v in payload.items():
         setattr(cl, k, v)
 
     if data.order_index is not None and data.order_index != old_order:

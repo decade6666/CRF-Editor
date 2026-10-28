@@ -10,7 +10,7 @@ import { isVisibleInFieldLibrary } from '../composables/fieldDefinitionVisibilit
 import { syncFieldTypeSpecificProps } from '../composables/formDesignerPropertyEditor'
 import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact'
-import { editedOidLengthError, oidMaxLength, OID_ERROR, isValidRequiredOid } from '../composables/oidValidation.js'
+import { editedOidLengthError, oidMaxLength, OID_ERROR, isValidRequiredOid, toUpperAsciiOid } from '../composables/oidValidation.js'
 import { isChoiceField } from '../composables/useCRFRenderer'
 import { buildFieldTypeOptions, isMultiselectFieldType, allowsMultiselect } from '../composables/fieldTypeAvailability'
 import { DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS } from '../composables/dateFormatOptions.js'
@@ -327,7 +327,7 @@ async function afterCodelistDialogChange(kind, { codelist }) {
         <div v-if="!selectedFieldId && !isCreating" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-muted);font-size:12px">← 点击行或新增字段</div>
         <div v-else style="flex:1;overflow-y:auto;padding:8px">
         <el-form :model="editProp" label-width="70px" size="small">
-          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" :maxlength="oidMaxLength(projectDbType, 'field')" /></el-form-item>
+          <el-form-item v-if="editMode && !['标签'].includes(editProp.field_type)" label="OID"><el-input v-model="editProp.variable_name" :maxlength="oidMaxLength(projectDbType, 'field')" @input="editProp.variable_name = toUpperAsciiOid($event)" /></el-form-item>
           <el-form-item label="标签"><el-input v-model="editProp.label" /></el-form-item>
           <el-form-item label="字段类型">
             <el-select v-model="editProp.field_type" style="width:100%">
