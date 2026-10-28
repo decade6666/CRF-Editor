@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review backend normalization without weakening charset, ownership, snapshot checks, isolation, or transactional conflicts; verify real tests and coverage."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review actual state/DOM/payload behavior, mounted tests, existing maxlength/candidate semantics, and full frontend checks."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Read sections 3 and 5 for worktree isolation, single-writer ownership, exact diff inspection, and no worker commits."}
+{"file":".trellis/tasks/10-27-uppercase-oids/research/oid-boundaries.md","reason":"Verify the input/write coverage and deliberately preserved boundaries against source evidence, not worker claims."}
