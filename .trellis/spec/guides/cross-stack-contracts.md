@@ -417,7 +417,7 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Default text fill-line (normal table) | `renderCtrl(field, computeFillLineCharCount(controlFrac * availableCm))` | `_render_field_control(field_def, fill_line_chars=compute_fill_line_char_count(widths[1]))` | Underscore count is derived from the **control column width (cm)** via the shared estimator so it fills the column without wrapping. Both stacks MUST use identical constants `UNDERSCORE_CHAR_CM=0.19`, `CELL_HPAD_CM=0.4`, `FILL_LINE_SAFETY_CM=0.2`, `FILL_LINE_MIN_CHARS=6`, `FILL_LINE_MAX_CHARS=20` (user-set cap 2026-09-30 — widths whose raw count exceeds 20 clamp to 20, e.g. the old `8.77 → 43` boundary now exports 20), `FILL_LINE_EPSILON=1e-9`, and the same `available_cm` per paper orientation (portrait 14.66 / landscape 23.36). **Rounding MUST be `floor(usable / UNDERSCORE_CHAR_CM + FILL_LINE_EPSILON)`** — backend uses `math.floor` (NOT Python float `//`, which diverges from JS `Math.floor` at boundaries below the cap, e.g. `3.83 → 16` vs `17`); the epsilon absorbs ULP-level differences in `fraction × available_cm` between stacks. The frontend `renderCtrlHtml` path additionally caps the **auto-generated leading** fill-line span's visual width at `max-width:10.0em` inline (HTML-only: preview JSON cell text and exported `.docx` text stay at the shared 20-underscore count; direct `toHtml` user-authored underscores are never capped). **`available_cm` for the normal table is 23.36 when EITHER `paper_orientation === 'landscape'` (legacy `force_landscape`) OR the form is `mixed_landscape`; else 14.66.** This mirrors backend exactly: `_classify_form_layout` returns `mixed_landscape` when `has_regular && has_inline && max_inline_block_width > 4 && paper_orientation !== 'portrait'`, and the `mixed_landscape` branch renders BOTH inline AND normal groups at `LANDSCAPE_CONTENT_WIDTH_CM` (so `_add_field_row` fill-lines use 23.36 even under `auto`). The shared frontend resolver is `visitPreviewLandscape.js#resolveNormalTableAvailableCm(renderGroups, paperOrientation)` (with `isMixedLandscape` + exported `AVAILABLE_CM_PORTRAIT/LANDSCAPE` constants — single source for all preview paths). All preview paths that render normal control cells MUST thread the count via this resolver over the WHOLE form's render groups: `FormDesignerTab.vue` (`renderGroups`/`designerRenderGroups` + `selectedFormPaperOrientation`), `VisitFormPreviewDialog.vue` (`previewRenderGroups` + `formPreviewPaperOrientation`, moved out of `VisitsTab.vue` in `visits-preview-split`), `TemplatePreviewDialog.vue` (`previewRenderGroups` + the template form's real `paper_orientation` — the `import-template/form-fields` API now returns it via `ImportService.get_template_form_paper_orientation`, with `'auto'` fallback for legacy templates missing the column), `SimulatedCRFForm.vue` (`paperOrientation` prop → `buildFormDesignerRenderGroups(displayFields)` → resolver; `availableCm` prop overrides; `DocxCompareDialog.vue` passes `paper-orientation`). |
 | Default text fill-line (inline table whole-cell) | `renderCtrl(field, getInlineFillChars(fields)[col])` via `getInlineRows(fields, fillCharsByCol)` | `_render_field_control(field_def, fill_line_chars=compute_fill_line_char_count(col_widths[col_idx]))` in `_add_inline_table` | Each inline column's whole-cell text fill-line adapts to that column's planned cm width. Frontend per-column count = `planInlineColumnFractions(fields)[col] × resolveInlineTableAvailableCm(formGroups, group, paperOrientation)`; backend uses the column's actual `col_widths[col_idx]`. `resolveInlineTableAvailableCm` mirrors backend `_add_inline_table` available_cm: portrait→14.66, landscape→23.36, mixed_landscape→23.36, else per-group `>4 cols → 23.36 (needs_temporary_landscape) / ≤4 → 14.66`. Non-override case only; drag-overridden inline widths use planner fractions (minor gap). Only standalone inline groups; frontend unified-preview inline bands stay 16. |
 | Default text fill-line (no-width helper call / frontend `unified` preview) | `________________` | `"_" * 16` | The backend whole-form unified renderer was deleted (task `export-layer-cleanup`); production export call sites all pass an explicit `fill_line_chars`, so the 16-underscore fallback now survives only for direct no-width helper calls (tests) and the empty-choice placeholder. The frontend `unified` preview remains structurally different from the separate inline+normal export. Empty-choice placeholder also stays here (preview renders default `○是 ○否`, export renders underscores — pre-existing divergence). |
-| Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. |
+| Numeric placeholder | repeated boxes such as `|__||__||__|.|__|` | same | Each digit uses a standalone `|__|` box. Absent/NULL `decimal_digits` renders as **0** fractional places, with no decimal separator; explicit `0..15` precision and the unit suffix are preserved. This is a rendering default, not a write-back or definition migration. |
 | Datetime placeholder | date + two ASCII spaces + time | same | Date/time separator is exactly two spaces. |
 | Inline default fallback | repeat full `renderCtrl(field)` when no scoped default exists | same exported control text | Do not collapse fallback controls to six underscores. |
 | Inline scoped default | multiline defaults expand rows; missing later rows fall back to full control text | same row text model | Empty trailing default rows are trimmed before row expansion. |
@@ -427,6 +427,15 @@ def compare_table_field_forms(preview_forms, export_forms, max_mismatches=50) ->
 | Label font-size tiers | `LABEL_FONT_SIZE_PX = { large: '16px', small: '11px' }`; `default` writes no inline `font-size` and keeps the CSS baseline | `DEFAULT_LABEL_FONT_PT = 10.5`; `_LABEL_FONT_SIZE_PT = { 'large': 12.0, 'small': 9.0 }` | Changing any tier must update the counterpart mapping and the frontend/backend label-style tests together. |
 | Form section pagination | preview form order matches export form order | portrait forms use next-page section breaks | Do not replace portrait section breaks with plain page breaks. |
 | Title and table geometry | `.wp-form-title` left-aligned; `.word-page td` keeps 5.25pt / 1.0 rhythm | `python-docx` Heading-1 default left alignment and matching paragraph spacing | CSS geometry tests lock the visual baseline. |
+
+**Numeric rendering signatures**: frontend `renderCtrl(field, fillLineChars = null) -> string`; backend `ExportService._render_field_control(field_def, fill_line_chars: int | None = None) -> str`. Normal and inline export dispatch share the latter; preview consumers share the former. Input/database types stay nullable.
+
+**Good / Base / Bad Cases**:
+- **Good**: numeric field with three integer digits, NULL decimal digits and unit `岁` → `|__||__||__| 岁` in both preview and Word; stored NULL stays NULL.
+- **Base**: explicit two decimal digits → `|__||__||__|.|__||__| 岁`; explicit zero has no decimal separator; explicit maximum 15 remains supported.
+- **Bad**: silently substitute two places for unset precision, rewrite stored definitions to zero, special-case the AGE field, or update only one renderer.
+
+**Tests Required**: `backend/tests/test_export_service.py::test_export_numeric_precision_defaults_to_zero_without_mutating_definition` covers NULL/0/1/2/15 with units in normal and inline DOCX tables and verifies precision is unchanged. The `numeric precision ...` cases in `frontend/tests/columnWidthPlanning.test.js` cover omitted/NULL/0/1/2/15 in plain-text and HTML rendering with a frozen input. Run these alongside the existing parity matrix below.
 
 **Validation & Error Matrix**:
 
@@ -481,6 +490,14 @@ return { lines: ['______'], repeat: true, fallback: '______' }
 // Correct
 const ctrl = toHtml(renderCtrl(formField.field_definition))
 return { lines: [ctrl], repeat: true, fallback: ctrl }
+```
+
+```javascript
+// Wrong: an unset precision silently becomes two decimal places.
+const decimals = field.decimal_digits ?? 2
+
+// Correct: rendering-only fallback; explicit precision and stored NULL survive.
+const decimals = field.decimal_digits ?? 0
 ```
 
 **Common Pitfall** (recorded incidents):
@@ -1083,6 +1100,134 @@ POST /api/forms/{form_id}/fields/restore-batch
 
 ---
 
+### 16. Agent Tool Boundary and Owner Approval
+
+**Contract ID**: `agent-tool-boundary`
+
+#### 1. Scope / Trigger
+
+Changes to agent credentials, MCP tool DTOs/dispatch, fingerprints, shared proposals, export privacy, the stdio adapter or the owner dialog must be checked together. This boundary edits CRF **design metadata**, never participant records, SQL, arbitrary HTTP/files/system commands, imports/exports or administrator accounts. The first increment has exactly ten tools; dictionary/unit/form/visit writes are not implied by read access.
+
+This file is the project's canonical cross-stack contract registry (root `CLAUDE.md`); keep the executable contract here rather than duplicating it into a second layer spec or JSON fixture. The generated manifest is the shared schema source.
+
+#### 2. Signatures
+
+All HTTP paths below include the backend `/api` prefix. The browser owner uses JWT; agent endpoints accept only agent credentials, with no fallback between the two realms.
+
+| Surface | Signature |
+|---------|-----------|
+| Manifest | `GET /api/agent/tools` → `{contract_version, tools: [{name, description, permission, inputSchema, outputSchema}]}`; generated by `schemas/agent_tools.py::build_manifest()` |
+| Fixed dispatch | `POST /api/agent/tools/{tool_name}` with the registered input DTO; no arbitrary route or tool forwarding |
+| Result lookup | `POST /api/agent/operations/{request_id}`, closed body `{tool_name, arguments}` containing the original tool and input; scoped to the same credential/project/tool/canonical input |
+| Owner credentials | `GET/POST /api/projects/{project_id}/agent-access/credentials`; POST body `{name, permission?: "read" | "read_write", expires_hours?: number}`; HTTP201 is the only response containing the raw token |
+| Owner revoke | `POST /api/projects/{project_id}/agent-access/credentials/{credential_id}/revoke` |
+| Owner proposals | `GET /api/projects/{project_id}/agent-access/changes` (paged) and `GET .../changes/{change_id}` (complete immutable detail) |
+| Owner decision | `POST .../changes/{change_id}/approve` or `/reject`, body `{proposal_digest: string}` copied from the displayed detail; neither route applies a CRF edit |
+| Adapter | `agent_bridge/.venv/bin/python agent_bridge/server.py`; MCP over stdin/stdout, diagnostics to stderr, no network MCP listener |
+| Private DB state | `agent_credential`, `agent_operation`, `agent_audit_event`; registration in `models/__init__.py` uses the existing startup table creation |
+
+Tool signatures (all input objects reject unknown keys; the DTO registry defines nested fields):
+
+| Tool | Input | Permission |
+|------|-------|------------|
+| `crf_list_projects` | `{}`; returns only the granted project | `read` |
+| `crf_get_project_outline` | `{project_id}` | `read` |
+| `crf_get_form_detail` | `{project_id, form_id}` | `read` |
+| `crf_search_field_definitions` | `{project_id, query, limit?, offset?}` | `read` |
+| `crf_get_reference_impact` | `{project_id, resource_type: "definition" | "codelist" | "unit" | "form", resource_id}` | `read` |
+| `crf_add_form_field` | `{project_id, form_id, source: AddFormFieldSource, instance?: FormFieldInstancePatch, position?, expected_project_fingerprint, request_id}` | `read_write` |
+| `crf_update_form_field_instance` | `{project_id, form_field_id, patch: FormFieldInstancePatch, expected_project_fingerprint, request_id}` | `read_write` |
+| `crf_reorder_form_fields` | `{project_id, form_id, ordered_form_field_ids, expected_project_fingerprint, request_id}` | `read_write` |
+| `crf_preview_shared_definition_change` | `{project_id, definition_id, patch: SharedDefinitionPatch, expected_project_fingerprint, request_id}` | `read_write` |
+| `crf_apply_shared_definition_change` | `{project_id, change_id}`; identity is the saved proposal, not a new request ID | `read_write` |
+
+#### 3. Contracts
+
+- **Credential lifecycle**: one owner/project, default `read` and24h, `0 < expires_hours <= 168`, at most20 active grants. Return `crfag_` opaque token once and persist only its SHA-256 hash. Every request revalidates current owner, owner `auth_version`, project/recycle state, expiry and revocation before exposing a cached result. Check both directions of every referenced project link; reject corrupt foreign links instead of filtering them away and continuing a write.
+- **Physical transactions**: tool-dispatch reads begin a real SQLite `BEGIN` before authentication and design reads; agent writes and owner grant/decision mutations use `BEGIN IMMEDIATE` before current-state validation. Sessions join the physical connection with `join_transaction_mode="control_fully"`; one outer transaction owns design changes, operation result and audit. SQLAlchemy's logical autobegin alone is not the required SQLite snapshot/write lock.
+- **Fingerprint and identity**: SHA-256 canonical project design data covers all design tables and the fixed Project design-column list in `agent_state_service.py` (including `order_index`, `crf_version_date`, `screening_number_format`, `company_logo_path`, `data_management_unit`). Normalize date/time values deterministically; logo paths enter the hash, not tool projections. Exclude timestamps, ownership/lifecycle and private agent bookkeeping. Fingerprints are64 lowercase hex characters. `request_id` matches `^[A-Za-z0-9._:-]{1,64}$` except `.` and `..`; bind it to credential/project/tool and recursively canonicalized **explicit input**, preserving omitted versus explicit null. Same identity/input replays the original result/fingerprint before checking the now-current design fingerprint; a different tool or input is409 `IDENTITY_REUSED`. Current authorization is still mandatory on replay.
+- **Result lookup**: use the same64KiB bounded parser as dispatch, then run database work in `run_in_threadpool`. Revalidate credential/current scope, validate the closed lookup body and the registered tool DTO, require the granted `project_id` and matching path/argument `request_id`, then call `bind_or_reject(..., canonical_input_payload(dto))`. Only the four request-ID local-write/preview tools are eligible; read tools and shared apply are rejected. Never compare raw JSON or trust an adapter-computed digest. Return the original closed envelope (fingerprint at the top level), not today's fingerprint; an absent/non-done record is404 `UNKNOWN_OUTCOME`. Lookup creates no operation/audit rows and performs no edit; the former GET route is unsupported.
+- **Local edits**: reuse field-profile normalization, existing definition/project/OID rules and §15's final horizontal-block guard. A reorder is a complete unique permutation including log rows. Existing-definition binding, new-definition creation and shared-definition mutation are distinct. Newly authored ASCII OIDs uppercase and obey the Saimeisi field cap; unchanged legacy identities keep their compatibility behavior (§10).
+- **Shared proposal**: preview runs the real shared helper/derived effects and final per-instance validation in a savepoint, then rolls back design changes. Persist an immutable semantic diff, complete reference/impact set, base fingerprint, actor/credential/project, contract version, digest and10-minute expiry. Owner approval binds the displayed digest and unchanged baseline; it does not apply. First apply revalidates approval, same issuing credential, actor/project, contract version, expiry, baseline and references; apply/normalize/guard/audit/result commit atomically or all roll back. Duplicate successful apply under a still-valid credential returns the original result/fingerprint, without a second mutation. Explicit nonclearable null is rejected; choice→checkbox may derive codelist removal, but explicitly requesting checkbox+codelist is invalid. Untouched legacy incompatibilities are not silently rewritten.
+- **Wire output**: successful tools return closed `{data, project_fingerprint, warnings}` envelopes generated from `AgentToolSuccess[output_model]`. HTTP domain errors are `{detail, code}`; MCP errors are `isError=true` plus `structuredContent: {error: {message, code}}`, not a fake successful output. Agent responses and handled owner success/validation/domain-error responses use `Cache-Control: no-store`; owner framework422 errors redact input values, and429 preserves `Retry-After`. Proposal list/detail `applied` comes from persisted `after_fingerprint`, never the preview command's internal `status="done"`.
+- **Bounds before commit**:64KiB JSON input,1MiB complete tool result/adapter response,500 form fields,500 complete reference/option items, search limit1–100 (default20), and50,000 design rows per table and cumulatively for fingerprints. Do not truncate an impact/proposal and then approve/apply it; reject an over-limit complete operation. Output DTO/byte validation occurs before committing a write.
+- **Adapter configuration**: required `CRF_AGENT_API_URL` and `CRF_AGENT_TOKEN`; missing/invalid configuration fails before serving tools without printing values. The URL ends in `/api`, contains no embedded credentials/query/fragment, and requires HTTPS except literal `localhost` or a parsed loopback IP; a `127.` DNS prefix is not a loopback check. Fixed same-origin paths, verified TLS, `trust_env=False`, `follow_redirects=False`, bounded streaming responses, no automatic mutation retries. Only a request-ID write/preview timeout triggers at most one fixed POST result lookup with the original tool and arguments; unresolved outcomes keep that identity, while lookup `IDENTITY_REUSED` is a definitive rejection and is re-raised unchanged. Connection failures and HTTP5xx return `BACKEND_UNAVAILABLE` without lookup; retry an uncertain write only with its original identity. Apply timeouts keep the original `change_id`; never regenerate a proposal to guess recovery.
+- **Manifest/SDK boundary**: exactly the ten unique allowlisted names with dict input/output schemas; reject missing, malformed, nonlocal or unresolvable schemas before registration. References (`$ref`/`$dynamicRef`/`$recursiveRef`) are restricted to resolvable `#`/`#/...` targets. Use built-in `Draft202012Validator.check_schema` for both schemas, not just validator construction; no remote metaschema fetch. Keep SDK input validation and explicitly validate successful output before returning `CallToolResult` (the pinned SDK's fast path bypasses its usual output-schema check). Sanitize schema/library errors instead of echoing values or tracebacks.
+- **Export privacy**: `database_export_service.py::AGENT_PRIVATE_TABLES` is stripped child-before-parent from each exported SQLite **copy**, followed by VACUUM. Existing live-source state is untouched; imports/merges/project copies do not ingest/copy credentials, proposals, results or audit rows. Source rollback alone does not revoke a credential; explicit owner revocation remains an operator action.
+- **Owner UI**: `ProjectInfoTab.vue` lazily opens `AgentAccessDialog.vue`; use `useAgentAccess.js` through `useApi.js` (§3 token/session rules). Raw issued token is memory-only, masked initially, and cleared on close/project change/unmount; stale async responses cannot restore it. Clear selected proposal state on lifecycle changes. Show approval and actual execution separately, preserve stale-failure detail and wrap long digests. Pass `width="min(860px, calc(100vw - 24px))"` through the Element Plus width prop (the implementation binds `dialogWidth`); verify the real `.el-dialog` inline variable/style chain, not an unmatched scoped descendant selector.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Observable outcome |
+|-----------|--------------------|
+| Wrong credential realm, revoked/expired grant or changed owner/auth_version | HTTP401 `GRANT_DENIED`; unavailable grant project can be403; no browser-token fallback or cached-result bypass |
+| Read grant attempts a write, or explicit project differs from grant | HTTP403 `GRANT_DENIED`; no mutation |
+| Foreign/missing resource, or corrupt cross-project forward/reverse link | Resource404; linked-data422 `VALIDATION`, including foreign codelist/unit links in form detail; no foreign projection or partial write |
+| Extra keys, invalid JSON/ranges/null/OID | HTTP422 or existing400 validation; stable `VALIDATION` detail |
+| DTO-valid incomplete/duplicate/cross-form reorder, or splitting a permitted inline block into too many blocks | HTTP400 `VALIDATION`; unchanged order and no operation row; the inline guard follows §15 |
+| Expected/base fingerprint changed, including a real owner project-date edit | HTTP409 `STALE_STATE`; approval/apply does not advance |
+| Same request ID bound to a different tool or explicit input (including omitted↔null), in dispatch or lookup | HTTP409 `IDENTITY_REUSED`; old result/design remain intact |
+| Other unclassified conflict (e.g. binding the same definition twice in one form) | HTTP409 `CONFLICT`; do not mislabel it `STALE_STATE` |
+| Shared proposal pending / rejected | HTTP409 `APPROVAL_REQUIRED` / `APPROVAL_REJECTED`; no apply |
+| First approval/apply after proposal expiry | HTTP410 `PROPOSAL_EXPIRED`; require an explicit fresh preview, not relaxed TTL |
+| Bounded complete input/projection/result exceeds its size cap | HTTP413 `LIMIT_EXCEEDED`; no silent truncation or committed partial edit |
+| Rate limit | HTTP429 `RATE_LIMITED`, preserving `Retry-After` |
+| Lookup extra keys / ineligible tool / invalid tool DTO / mismatched path and argument request ID | HTTP422 `VALIDATION`; foreign `project_id` remains403 `GRANT_DENIED`; old GET returns405 |
+| Scoped result lookup finds no committed result | HTTP404 `UNKNOWN_OUTCOME`; absence is not proof the mutation failed |
+| Lookup malformed JSON or unexpected storage failure | HTTP422 `VALIDATION` or500 `INTERNAL`, respectively, both no-store; unexpected detail stays out of the response and the exception is logged server-side |
+| Adapter cannot confirm timed-out write | MCP `UNKNOWN_OUTCOME` with original request/change identity; no automatic replacement mutation |
+| Manifest names/schema/ref validation fails | Refuse startup before serving any tool; safe configuration diagnostic |
+| Successful-looking backend output fails schema/runtime validation | MCP `OUTPUT_INVALID`, `isError=true`; do not echo invalid data |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good**: a current `read_write` grant adds/binds a regular field with the current fingerprint and a new request ID, reads it back, then replays the exact input. The replay returns the original result even if the design fingerprint has since advanced, provided the grant is still valid. If its response is lost, a POST lookup with that original tool/input returns the same stored envelope, not an unrelated result sharing the ID.
+- **Base**: preview returns `{change_id, proposal_digest, impact, semantic_diff, expires_at}` without modifying CRF design; the owner approves that digest; `crf_apply_shared_definition_change({project_id, change_id})` applies once, and the same call replays. Owner detail then says approved **and** executed.
+- **Bad**: another credential applies that proposal, a project date changes before approval/apply, or a nonclearable patch key is null. Fail without any design/approval/result side effect. Likewise, a dict-shaped `{"type":42}` schema is invalid configuration, not an acceptable manifest.
+
+#### 6. Tests Required — Assertion Points
+
+- Backend `test_agent_access.py`, `test_agent_tools_read.py`, `test_agent_tools_edit.py`, `test_agent_shared_changes.py`: realm/scope/current-state denial; complete read/impact; explicit-null identities; exact replay; physical rollback; savepoint preview; derived semantic/instance effects; digest/expiry/version/reference/stale enforcement; actual executed status and no-store/429 validation/error paths.
+- Lookup regressions in `test_agent_tools_edit.py`: POST preserves the original envelope; different tool/input →409 `IDENTITY_REUSED` with unchanged operation count/fingerprint; body/DTO/path/scope validation; legacy GET →405. `test_operation_lookup_rejects_malformed_json` exercises the real parser→HTTPException→422/no-store path; `test_operation_lookup_logs_unexpected_failure_without_exposing_details` injects only a scoped database-connection failure and asserts generic500/no-store plus exactly one server exception log. Do not mock the handler/error formatter or leave the connection patched after the test.
+- Read/edit regressions: form detail rejects foreign codelist and unit links with422 and no foreign names/codes; the generic409 maps to `CONFLICT` while explicit `STALE_STATE` survives; duplicate/cross-form/inline-splitting reorder cases assert400, original order and no operation row.
+- `test_agent_access_concurrency.py`: real SQLite read/write ordering and `BEGIN IMMEDIATE` before authorization; concurrent stale or duplicate writes cannot both commit conflicting effects. `test_agent_access_exports.py`: all export forms strip private schema/data and vacuum the copy, live source unchanged, imports/copies do not propagate agent state. `test_agent_authoring_contract.py`: frontend authoring rules and backend registry/normalization agree; maintain existing profile/ordering/inline-guard/isolation regressions.
+- Adapter `test_config.py`, `test_client.py`, `test_server.py`: URL/TLS/no redirects, local-vs-remote refs, missing/duplicate tools, malformed input **and** output schemas (including nested invalid keywords), redacted diagnostics, explicit output validation, bounded streams and same-identity unknown-outcome recovery. `test_stdio_e2e.py` must run a real disposable backend + real adapter subprocess + official SDK `ClientSession`, with `BACKEND_PY` set; an SDK import alone is not E2E.
+- Frontend `agentAccessWiring.test.js`, component `AgentAccessDialog.spec.js` / `ProjectInfoAgentAccess.spec.js`: real API/Element Plus mounting, lazy entry, parent visibility round trip, token clear/reopen/project race/unmount, pending/approved/rejected/applied labels, digest-bound decisions, stale failures, long content and width-prop→real-dialog-style linkage. Happy-dom/source assertions do not prove browser geometry.
+- Real disposable browser: owner issue/revoke and preview→approve/reject→apply/readback/replay, stale project-date rejection, close/reopen/keyboard focus, long digest wrapping and light/dark390px controls reachable (dialog366px);1280px desktop remains860px. Scroll wide tables inside their bounded container; do not confuse source tests with touch-gesture evidence. Never use production config/database/accounts or systemd8888 for acceptance.
+
+#### 7. Wrong vs Correct
+
+```python
+# Wrong: request_id alone does not bind the original tool and explicit input.
+client.get(f"/api/agent/operations/{arguments['request_id']}")
+
+# Correct: the backend validates the original tool DTO and reuses bind_or_reject.
+client.post(
+    f"/api/agent/operations/{arguments['request_id']}",
+    json={"tool_name": tool_name, "arguments": arguments},
+)
+```
+
+```python
+# Wrong: construction is lazy; {"type": 42} can survive startup.
+validator = jsonschema.validators.validator_for(schema)(schema)
+
+# Correct: reject malformed schema before registration, then build the validator.
+jsonschema.Draft202012Validator.check_schema(schema)
+validator = jsonschema.validators.validator_for(schema)(schema)
+```
+
+```vue
+<!-- Wrong: a scoped descendant rule may not match Element Plus's real dialog root. -->
+<!-- Correct: send the responsive value through its public width prop; test actual DOM linkage. -->
+<el-dialog :width="dialogWidth" />
+<!-- dialogWidth = 'min(860px, calc(100vw - 24px))' -->
+```
+
+**Synchronization set**: `backend/src/agent_dependencies.py`, `models/agent_access.py`, both agent routers/schemas, the six `agent_*_service.py` services, `services/field_profile_service.py`, `services/database_export_service.py`, model/router registration; `agent_bridge/{config,client,server}.py` and its pinned environment/tests; frontend `ProjectInfoTab.vue`, `AgentAccessDialog.vue`, `useAgentAccess.js` and their tests; README zh/en, adapter README, root/module context and `.claude/index.json`. The generated manifest plus backend authoring-contract / real stdio E2E tests are the shared source; do not introduce a second hand-maintained schema fixture.
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code
@@ -1145,6 +1290,7 @@ When creating a new cross-stack contract:
 | OID / Identifier Charset + Uppercase Authoring | `schemas/_common.py`, `schemas/codelist.py`, `routers/fields.py`, `routers/forms.py`, `routers/codelists.py`, `routers/units.py`, `routers/visits.py`, `services/field_profile_service.py` | `composables/oidValidation.js`, `composables/fieldDefinitionAutocomplete.js`, `components/FieldsTab.vue`, `components/FormDesignerTab.vue`, `components/CodelistsTab.vue`, `components/UnitsTab.vue`, `components/VisitsTab.vue` | None |
 | Reference Delete Guard | `services/field_definition_reference_service.py`, `routers/codelists.py`, `routers/units.py` (delete guards unchanged) | `composables/referenceDeleteGuard.js`, `CodelistsTab.vue`, `UnitsTab.vue`, `FieldsTab.vue`, `FormDesignerTab.vue`, `styles/main.css` | None (contract test `test_reference_delete_contract.py` + `referenceDeleteGuard.test.js`) |
 | Horizontal-Table Edit Guard | `services/inline_table_guard.py`, `services/field_restore_service.py`, `routers/fields.py` | `composables/formFieldPresentation.js`, `components/FormDesignerTab.vue` | `backend/tests/fixtures/inline_table_block_cases.json` |
+| Agent Tool Boundary | `agent_dependencies.py`, agent routers/schemas/services, `database_export_service.py`; adapter `agent_bridge/` | `components/AgentAccessDialog.vue`, `composables/useAgentAccess.js`, `components/ProjectInfoTab.vue` | Generated manifest + lookup-identity / authoring-contract / real stdio E2E tests (§16); no duplicate fixture |
 
 ---
 
