@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/auth-security.md","reason":"Browser identity/version semantics, owner-first authorization, project membership, recycle-state caveat, and safe authentication errors; agent grants add a separate boundary."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Stable Chinese detail/machine codes, rollback and redacted API failures; do not swallow domain errors or expose private state."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Layering, Pydantic boundaries, TDD and hermetic test session contracts; locate relevant sections before ranged reads."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"useApi, Element Plus, real mount tests, v-model round trips, API spies and unchanged warning/clock gates."}
+{"file":".trellis/spec/guides/git-and-tooling-conventions.md","reason":"Ownership/isolation and section 5 collaboration contract; relay B never commits, merges, installs or broadens its reviewed allowlist."}
+{"file":".trellis/tasks/11-04-mcp-agent-tools/research/contracts-for-relay.md","reason":"Bounded navigation to oversized database/component/cross-stack specs, preserving required source-range reads instead of silently truncating their tails."}
+{"file":".trellis/tasks/11-04-mcp-agent-tools/research/sdk-and-integration.md","reason":"Versioned official MCP 1.30 stdio evidence, existing profile/SQLite/export/UI boundaries, and explicitly unverified dependency/coverage preparation."}
+{"file":".trellis/tasks/11-04-mcp-agent-tools/research/runtime-preflight.md","reason":"Approved and measured environments, exact passing baselines and A-owned dependency hashes; preserve the observed coverage timeout evidence and use the matching final serial coverage comparison."}
