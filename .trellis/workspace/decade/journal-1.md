@@ -1185,3 +1185,46 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 
 - 核对并备份main的14个相同部署覆盖，安全还原后快进合并，重建main前端并验证8888页面，推送main。
 - 只移除已合并的feat/uppercase-oids工作树和分支；保留其他工作树、规划任务及外部部署备份/审计日志。
+
+
+## Session 33: 受控MCP编辑验收与收尾
+<!-- trellis-session: v=2 fp=d64118ea57143119 -->
+
+**Date**: 2026-11-09
+**Task**: 受控MCP编辑验收与收尾
+**Branch**: `worktree-mcp-agent-tools`
+
+### Summary
+
+受控MCP十工具、属主审批和独立局域网验收通过；数值空精度显示0位，原文保留与真实提交门禁已闭环；本任务归档后记录合并前收尾交接。
+
+### Main Changes
+
+- 十个封闭工具经本地stdio适配器访问，按属主/项目/read或read_write授权；共享定义必须预览、属主审批后应用，私有Agent状态不进入导出/导入/复制。
+- 两处数值渲染默认值从2改0，显式精度及单位不变、不回写NULL；AGE公式已写help_text但该属性不参与Word导出，未扩大备注导出或工具范围。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6eefea69140b97a8f03165f80ae668d712c33b44` | feat(mcp): 新增受控表单编辑工具与属主审批 |
+| `4964fa62c3986c8694cac0a0343062741f8a0685` | docs(spec): 同步受控编辑与数值显示契约 |
+| `19905d271ddd3335b270fb844cc60e112921e9c1` | docs(context): 归档MCP开发决策记录 |
+
+### Testing
+
+- [OK] 后端 pytest tests --cov=src --cov=main --cov-fail-under=80：1658通过；总体10059/11390=88.314311%，Agent1566/1682=93.103448%，均不降低。
+- [OK] 前端 node --test tests/*.test.js：1078通过；npm run test:component：20文件232通过；共享renderer行/函数覆盖不变、分支覆盖提高。
+- [OK] 适配器 pytest agent_bridge/tests --cov=agent_bridge --cov-fail-under=80（BACKEND_PY明确指定）：62通过、0跳过，含真实stdio E2E；生产289/318=90.880503%。
+- [OK] Ruff后端197文件、适配器真实钩子式10文件/目录11文件通过；npm run lint为0错误/2819既有警告；隔离输出构建通过。
+- [OK] 真实桌面浏览器预览、真实aCRF导出及Windows HTTP验证通过，AGE整数占位符正确、恢复前后项目指纹一致；96份保留证据SHA验证通过。
+- [OK] 原文62337字节前缀/hash、C20报告原文前缀、JSON/JSONL/链接及真实暂存区空白/脱敏密钥检查通过，工作与任务提交真实门禁均通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按既有正式授权合并main并正常推送；停止仅已核实身份的5174测试进程，删除仅本任务已合并工作树和分支，保留所有/tmp证据及其他工作树。
+- 不部署8888；旧工作树绝对路径MCP入口在清理后失效，后续仅按主目录agent_bridge/README.md重新配置，未擅自改客户端设置或安装主目录依赖。
