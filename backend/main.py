@@ -36,6 +36,7 @@ from src.routers import (
     organization_presets,
     template_fields,
 )
+from src.routers import agent_access, agent_tools
 
 from src.routers.auth import router as auth_router
 
@@ -202,6 +203,10 @@ app.include_router(import_docx.router, prefix="/api")
 
 app.include_router(admin_router, prefix="/api")
 app.include_router(organization_presets.router, prefix="/api")
+
+app.include_router(agent_access.router, prefix="/api")
+
+app.include_router(agent_tools.router, prefix="/api")
 
 
 # 打包后由 app_launcher.py 注入 CRF_STATIC_DIR，开发时用前端构建产物目录

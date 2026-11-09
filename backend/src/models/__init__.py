@@ -11,6 +11,8 @@ class Base(DeclarativeBase):
 
 from .codelist import CodeList, CodeListOption
 
+from .agent_access import AgentAuditEvent, AgentCredential, AgentOperation
+
 from .field import Field
 
 from .field_definition import FieldDefinition
@@ -32,6 +34,9 @@ from .visit_form import VisitForm
 
 
 __all__ = [
+    "AgentAuditEvent",
+    "AgentCredential",
+    "AgentOperation",
     "Base",
     "CodeList",
     "CodeListOption",

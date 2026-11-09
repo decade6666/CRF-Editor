@@ -13,6 +13,23 @@ import tempfile
 
 from src.services.export_service import ExportError, _EXPORT_ERROR_CODES
 
+# Agent 访问私有状态（服务器授权数据，非 CRF 设计资产）：所有导出变体
+# 必须从导出副本剥离这三张表并 VACUUM，使其不可经导出携带流转。
+AGENT_PRIVATE_TABLES = ("agent_audit_event", "agent_operation", "agent_credential")
+
+
+def _strip_agent_private_tables(db_path: str) -> None:
+    """从导出副本删除 agent 私有表（子表先删，容错旧库无这些表）。"""
+    conn = sqlite3.connect(db_path)
+    try:
+        existing = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for table in AGENT_PRIVATE_TABLES:  # 子表（audit）→ 操作 → 凭据 的顺序
+            if table in existing:
+                conn.execute(f'DROP TABLE IF EXISTS "{table}"')
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def _validate_form_field_schema(db_path: str) -> None:
     """验证 form_field 表结构兼容性。
@@ -87,6 +104,10 @@ def export_full_database(db_path: str) -> str:
         dst_conn.close()
 
         src_conn.close()
+
+    # 剥离 agent 私有状态（完整导出同样不得携带凭据/提案/审计）
+    _strip_agent_private_tables(tmp_path)
+    _vacuum_sqlite_file(tmp_path)
 
     return tmp_path
 

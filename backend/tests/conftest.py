@@ -137,8 +137,14 @@ def client(engine):
         with Session(engine) as session:
             yield session
 
+    def _override_agent_engine():
+        yield engine
+
+    from src.agent_dependencies import get_agent_engine
+
     app.dependency_overrides[get_session] = _override
     app.dependency_overrides[get_plain_session] = _override_plain
+    app.dependency_overrides[get_agent_engine] = _override_agent_engine
 
     with (
         patch("main.get_config", return_value=_TEST_CONFIG),

@@ -318,6 +318,47 @@ def test_render_field_control_defaults_to_legacy_sixteen_underscores(
     assert rendered == "________________"
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("inline_mark", [0, 1], ids=["normal", "inline"])
+@pytest.mark.parametrize(
+    ("decimal_digits", "expected_control"),
+    [
+        (None, "|__||__||__| 岁"),
+        (0, "|__||__||__| 岁"),
+        (1, "|__||__||__|.|__| 岁"),
+        (2, "|__||__||__|.|__||__| 岁"),
+        (15, "|__||__||__|." + "|__|" * 15 + " 岁"),
+    ],
+)
+def test_export_numeric_precision_defaults_to_zero_without_mutating_definition(
+    session: Session,
+    tmp_path: Path,
+    decimal_digits: int | None,
+    expected_control: str,
+    inline_mark: int,
+) -> None:
+    from src.models.unit import Unit
+
+    project = create_project(session)
+    form = create_form(session, project.id, name="数值精度", order_index=1)
+    unit = Unit(project_id=project.id, symbol="岁", code="YEAR")
+    session.add(unit)
+    session.flush()
+    numeric = create_field_definition(session, project.id, variable_name="AGE", label="年龄", field_type="数值")
+    numeric.integer_digits = 3
+    numeric.decimal_digits = decimal_digits
+    numeric.unit_id = unit.id
+    instance = create_form_field(session, form.id, numeric.id, order_index=1)
+    instance.inline_mark = inline_mark
+    session.flush()
+
+    doc = export_document(session, project.id, tmp_path)
+
+    control_cell = doc.tables[2].cell(1, 0) if inline_mark else doc.tables[2].cell(0, 1)
+    assert control_cell.text == expected_control
+    assert numeric.decimal_digits == decimal_digits
+
+
 @pytest.mark.parametrize(
     ("checkbox_label", "expected_control"),
     [

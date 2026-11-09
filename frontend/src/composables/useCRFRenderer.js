@@ -540,7 +540,7 @@ export function renderCtrl(field, fillLineChars = null) {
 
   if (field.field_type === '数值') {
     const ints = field.integer_digits || 10
-    const decs = field.decimal_digits ?? 2
+    const decs = field.decimal_digits ?? 0
     return boxes(ints, true) + (decs > 0 ? '.' + boxes(decs, true) : '') + unit
   }
 

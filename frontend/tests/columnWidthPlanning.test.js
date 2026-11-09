@@ -250,6 +250,27 @@ test('9.4a numeric_placeholder_matches_word_export_literal_boxes', () => {
   assert.equal(text, '|__||__||__|.|__|')
 })
 
+for (const [name, precision, expected] of [
+  ['omitted', {}, '|__||__||__| 岁'],
+  ['null', { decimal_digits: null }, '|__||__||__| 岁'],
+  ['zero', { decimal_digits: 0 }, '|__||__||__| 岁'],
+  ['one', { decimal_digits: 1 }, '|__||__||__|.|__| 岁'],
+  ['two', { decimal_digits: 2 }, '|__||__||__|.|__||__| 岁'],
+  ['maximum', { decimal_digits: 15 }, '|__||__||__|.' + '|__|'.repeat(15) + ' 岁'],
+]) {
+  test(`numeric precision ${name} renders literal boxes and units without changing the input`, () => {
+    const field = Object.freeze({
+      field_type: '数值',
+      integer_digits: 3,
+      unit_symbol: '岁',
+      ...precision,
+    })
+
+    assert.equal(renderCtrl(field), expected)
+    assert.equal(renderCtrlHtml(field), expected)
+  })
+}
+
 
 test('9.4a2 datetime_placeholder_matches_word_export_spacing', () => {
   const text = renderCtrl({ field_type: '日期时间', date_format: 'yyyy-MM-dd HH:mm' })

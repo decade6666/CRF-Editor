@@ -2286,7 +2286,7 @@ class ExportService:
         elif field_type == "数值":
             integers = field_def.integer_digits or 10
 
-            decimals = field_def.decimal_digits if field_def.decimal_digits is not None else 2
+            decimals = field_def.decimal_digits if field_def.decimal_digits is not None else 0
 
             # 生成 |__|__| 格式
 

@@ -330,3 +330,147 @@ def update_binding_profile(
 
     cleanup = _cleanup_previous_definition(session, command, original_definition_id, final_definition_id)
     return _serialize_result(ff, final_definition_id, created, restored, cleanup)
+
+
+# ── 共享定义变更的单一执行阶梯（agent 共享变更预览/应用共用） ────────────────
+
+SHARED_DEFINITION_PATCH_KEYS = (
+    "label",
+    "field_type",
+    "checkbox_label",
+    "integer_digits",
+    "decimal_digits",
+    "date_format",
+    "codelist_id",
+    "unit_id",
+)
+
+
+# 类型默认日期格式（与前端 dateFormatOptions.js::DEFAULT_DATE_FORMATS 逐项对齐，
+# backend/tests/test_agent_authoring_contract.py 解析前端文件校验）
+DEFAULT_DATE_FORMATS_BY_TYPE = {
+    "日期": "yyyy-MM-dd",
+    "日期时间": "yyyy-MM-dd HH:mm",
+    "时间": "HH:mm",
+}
+
+
+def normalize_date_format_for_type(field_type: str, value):
+    """normalizeDateFormat（formDesignerPropertyEditor.js）的后端镜像。
+
+    非日期类 → None；显式 '' → ''；大小写不敏感命中 canonical 选项 → canonical
+    写法；其余（含缺省 None）→ 该类型默认格式。
+    """
+    from src.database import _DATE_FORMAT_CANONICALS
+    from src.schemas.agent_tools import DATE_FORMAT_FIELD_TYPES
+
+    if field_type not in DATE_FORMAT_FIELD_TYPES:
+        return None
+    if value == "":
+        return ""
+    canonical = _DATE_FORMAT_CANONICALS.get(field_type, {}).get(str(value).lower()) if value is not None else None
+    if canonical is not None:
+        return canonical
+    return DEFAULT_DATE_FORMATS_BY_TYPE.get(field_type)
+
+
+def derive_shared_definition_changes(fd: FieldDefinition, changes: dict) -> dict:
+    """类型切换与显式不适用键的派生适用性归一（浏览器 syncFieldTypeSpecificProps 同语义）。
+
+    - 类型切换（field_type 在补丁中）时，未触及的不适用键派生清空；日期类
+      缺省按 normalizeDateFormat 补目标类型默认格式，非日期类清空。
+    - 显式提供但不适用于最终类型的键同样派生清空（预览披露、应用照此执行）。
+    - 类型未切换且键未触及的遗留/导入值一律不动（不重写历史数据）。
+    显式提供的适用值不被派生覆盖；复选 + 显式字典由调用方校验先行拒绝。
+    """
+    derived: dict = {}
+    new_type = changes.get("field_type", fd.field_type)
+    type_switched = "field_type" in changes
+    from src.schemas.agent_tools import CHOICE_FIELD_TYPES, DATE_FORMAT_FIELD_TYPES, UNIT_FIELD_TYPES
+
+    def _clear_inapplicable(key: str, current_value, applicable: bool) -> None:
+        if applicable:
+            return
+        if key in changes:
+            if changes[key] is not None:
+                derived[key] = None  # 显式提供但不适用 → 派生清空（披露）
+        elif type_switched and current_value is not None:
+            derived[key] = None  # 类型切换后遗留的不适用值 → 派生清空
+
+    _clear_inapplicable("codelist_id", fd.codelist_id, new_type in CHOICE_FIELD_TYPES)
+    _clear_inapplicable("unit_id", fd.unit_id, new_type in UNIT_FIELD_TYPES)
+    _clear_inapplicable("checkbox_label", fd.checkbox_label, new_type == "复选")
+    _clear_inapplicable("integer_digits", fd.integer_digits, new_type == "数值")
+    _clear_inapplicable("decimal_digits", fd.decimal_digits, new_type == "数值")
+
+    if new_type not in DATE_FORMAT_FIELD_TYPES:
+        _clear_inapplicable("date_format", fd.date_format, False)
+    elif "date_format" not in changes and type_switched:
+        normalized = normalize_date_format_for_type(new_type, fd.date_format)
+        if normalized != fd.date_format:
+            derived["date_format"] = normalized
+    return derived
+
+
+def apply_shared_definition_changes(
+    session: Session,
+    fd: FieldDefinition,
+    changes: dict,
+    forms,
+    inline_baseline: dict,
+) -> dict:
+    """共享定义变更的单一执行阶梯（预览试算与审批应用共用，调用方管事务）。
+
+    写入显式 + 派生定义变更 → 归一全部引用实例（记录前后差异）→
+    每个受影响表单按整表 inline 基线校验终态（同/降允许，增长拒绝）。
+    返回 {"derived": dict, "instance_changes": list}。
+    """
+    from src.services.field_normalization import (
+        normalize_field_instance_default_value,
+        normalize_field_instance_inline_mark,
+    )
+    from src.services.inline_table_guard import capture_inline_block_count, is_block_count_allowed
+
+    derived = derive_shared_definition_changes(fd, changes)
+    for key, value in {**changes, **derived}.items():
+        setattr(fd, key, value)
+    # 仅在本补丁实际切到 复选 时兜底清字典链接；不动未涉及的遗留值
+    if "field_type" in changes and fd.field_type == "复选":
+        fd.codelist_id = None
+    session.flush()
+
+    form_ids = [form.id for form in forms]
+    instances = (
+        list(
+            session.scalars(
+                select(FormField).where(
+                    FormField.field_definition_id == fd.id,
+                    FormField.form_id.in_(form_ids),
+                )
+            ).all()
+        )
+        if form_ids
+        else []
+    )
+    instance_changes: list[dict] = []
+    for ff in instances:
+        before_inline = ff.inline_mark
+        before_default = ff.default_value
+        ff.inline_mark = normalize_field_instance_inline_mark(fd.field_type, bool(ff.is_log_row), ff.inline_mark)
+        ff.default_value = normalize_field_instance_default_value(fd.field_type, ff.inline_mark, ff.default_value)
+        row_changes = []
+        if ff.inline_mark != before_inline:
+            row_changes.append({"key": "inline_mark", "before": bool(before_inline), "after": bool(ff.inline_mark)})
+        if ff.default_value != before_default:
+            row_changes.append({"key": "default_value", "before": before_default, "after": ff.default_value})
+        if row_changes:
+            instance_changes.append({"instance_id": ff.id, "changes": row_changes})
+    session.flush()
+
+    for form in forms:
+        after_count = capture_inline_block_count(session, form.id)
+        before_count = inline_baseline.get(form.id, 0)
+        if not is_block_count_allowed(before_count, after_count):
+            raise HTTPException(400, "单个表单最多允许一个横向表格，本次操作会新增横向表格，已取消操作")
+
+    return {"derived": derived, "instance_changes": instance_changes}
