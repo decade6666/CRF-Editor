@@ -93,6 +93,19 @@ test('settings dialog shows self password button only for ordinary users', () =>
   );
 });
 
+test('settings dialog shows the current-project Agent entry for ordinary users only', () => {
+  const settingsSection = appSource.match(/<el-dialog v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] || '';
+  const projectRow =
+    settingsSection.match(/<el-form-item v-if="!isAdmin" label="当前项目">([\s\S]*?)<\/el-form-item>/)?.[1] || '';
+  assert.match(projectRow, /selectedProject\?\.name \|\| '请先选择项目'/);
+  assert.match(projectRow, /data-test="agent-access-entry"[\s\S]*:disabled="agentAccessProjectId === null"/);
+  assert.match(projectRow, /@click="openAgentAccess"/);
+  assert.match(
+    appSource,
+    /const agentAccessProjectId = computed\(\(\) => \{[\s\S]*isLoggedIn\.value && !isAdmin\.value && Number\.isInteger\(projectId\)/,
+  );
+});
+
 test('self password dialog includes three fields and submits backend contract only', () => {
   assert.match(appSource, /<el-dialog[\s\S]*v-model="showSelfPasswordDialog"[\s\S]*title="修改密码"/);
   assert.match(appSource, /<el-form-item label="当前密码">[\s\S]*v-model="selfPasswordForm\.current_password"/);

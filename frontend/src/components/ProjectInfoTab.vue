@@ -4,7 +4,6 @@ import { ElMessage } from 'element-plus'
 import { UploadFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 import { api, getAuthHeaders, apiUrl } from '../composables/useApi'
 import { rankFuzzyMatches } from '../composables/searchRanking'
-import AgentAccessDialog from './AgentAccessDialog.vue'
 
 const DEFAULT_SCREENING_NUMBER_FORMAT = 'S|__|__||__|__|__|'
 const FILE_ACCEPT = '.jpg,.jpeg,.png,.gif,.bmp,.webp'
@@ -16,15 +15,6 @@ const form = reactive({})
 const logoInput = ref(null)
 const skipFormReset = ref(false)
 const screeningNumberFormatTouched = ref(false)
-
-// Agent 访问入口：懒挂载（首次打开才渲染对话框），关闭后保持挂载仅隐藏
-const showAgentAccess = ref(false)
-const agentAccessMounted = ref(false)
-
-function openAgentAccess() {
-  agentAccessMounted.value = true
-  showAgentAccess.value = true
-}
 
 // 单位预设候选（普通用户只读：id/单位/has_logo，不含机构名称）
 const unitCandidates = ref([])
@@ -238,13 +228,6 @@ onMounted(() => {
     </el-form-item>
     <el-form-item>
       <el-button type="primary" @click="save">保存</el-button>
-      <el-button data-test="agent-access-entry" @click="openAgentAccess">Agent 访问</el-button>
     </el-form-item>
   </el-form>
-  <AgentAccessDialog
-    v-if="agentAccessMounted"
-    :model-value="showAgentAccess"
-    :project-id="project.id"
-    @update:model-value="showAgentAccess = $event"
-  />
 </template>

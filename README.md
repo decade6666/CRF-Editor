@@ -490,14 +490,14 @@ sudo bash deploy/install-service.sh uninstall
 - 只读工具：`crf_list_projects` / `crf_get_project_outline` / `crf_get_form_detail` / `crf_search_field_definitions` / `crf_get_reference_impact`
 - 写工具：`crf_add_form_field` / `crf_update_form_field_instance` / `crf_reorder_form_fields` / `crf_preview_shared_definition_change` / `crf_apply_shared_definition_change`
 
-**凭据发放（属主操作）**：在项目编辑页「项目信息 → Agent 访问」弹窗中发放 agent 凭据（只读 / 读写，有效期 1–168 小时，每项目同时最多 20 个）。令牌只在发放时显示一次，支持复制；凭据可随时软吊销。agent 凭据（`crfag_` 前缀）与浏览器登录令牌互不通用，且只对发放它的项目生效。
+**凭据发放（属主操作）**：普通用户选中项目后打开顶栏「设置」，在「当前项目」一行点击「Agent 授权」，在弹出的「Agent 访问」窗口中发放 agent 凭据（只读 / 读写，有效期 1–168 小时，每项目同时最多 20 个）。未选择项目时入口禁用，管理员设置中不提供该入口；关闭设置、切换或删除项目、退出登录或会话过期时「Agent 访问」窗口随即关闭并清除一次性令牌。令牌只在发放时显示一次，支持复制；凭据可随时软吊销。agent 凭据（`crfag_` 前缀）与浏览器登录令牌互不通用，且只对发放它的项目生效。
 
 **写操作安全机制**：
 
 - 本地写工具（新增/实例补丁/重排/共享预览）携带 `request_id` 幂等身份：同一 `request_id` + 相同参数只会重放既有结果，绝不二次写入；同一 `request_id` 携带不同参数 → 409 `IDENTITY_REUSED`（必须换新 `request_id`）。响应超时后适配器至多做一次固定查询：`POST /api/agent/operations/{request_id}` 携带原工具名与参数——命中返回原结果信封；`IDENTITY_REUSED` 表示该调用未执行（换新 `request_id`）；`UNKNOWN_OUTCOME`（无结果）不是失败证明，用同一 `request_id` 重试即可。共享变更的「应用」以服务端 `change_id` 为幂等身份，超时未知时用同一 `change_id` 重试该工具，不新建提案。适配器绝不自动换新身份重做。
 - 写入前校验 `expected_project_fingerprint`（项目内容指纹）；浏览器侧并发修改会让指纹失效并拒绝写入（409）。
 - 共享字段定义的批量变更走「预览 → 属主审批 → 应用」三步：提案 10 分钟内有效，批准绑定展示内容摘要，字段被浏览器侧再修改后旧提案自动失效；每项目凭据只能应用自己创建的提案。属主列表与详情中的执行状态来自服务端持久化应用证据（未执行 / 已执行），不把内部命令完成误标为已应用。
-- 「Agent 访问」弹窗宽度上限跟随视口（桌面保持 860px 上限，窄屏不越出屏幕），长摘要/影响内容在自身区域内换行或滚动。
+- 「Agent 访问」窗口宽度上限跟随视口（桌面保持 860px 上限，窄屏不越出屏幕），长摘要/影响内容在自身区域内换行或滚动。
 - Agent 经 MCP 修改数据后，已打开的网页工作台不会自动更新（无推送/轮询），需点击顶栏「刷新数据」。
 
 **stdio 适配器**：`agent_bridge/` 提供官方 MCP SDK 的 stdio 适配器（封闭工具白名单、启动即做工具 schema 格式与本地引用校验、1 MiB 响应限长、HTTPS 强制、无自动重试），安装与客户端接线说明见 `agent_bridge/README.md`。

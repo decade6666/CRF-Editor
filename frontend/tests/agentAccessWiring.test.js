@@ -1,10 +1,12 @@
 // agent-access 父/子接线守卫（先例 visitPreviewSplit.test.js）：
-//   - ProjectInfoTab.vue 只保留小型懒挂载入口（按钮 + showAgentAccess/agentAccessMounted），
-//     按 v-model + project-id 转发渲染一个 <AgentAccessDialog>，不转发 @close；
+//   - App.vue 在设置弹窗提供普通用户的当前项目入口（showAgentAccess/agentAccessMounted），
+//     在设置弹窗之外按 v-model + 已校验 project-id 渲染一个 <AgentAccessDialog>，不转发 @close；
+//   - ProjectInfoTab.vue 不再承载入口或弹窗；
 //   - AgentAccessDialog.vue 自持两段式 UI（凭据 / 共享提案），令牌遮罩 + 一次性显示，
 //     复制走唯一剪贴板入口 clipboardCopy.js，API 一律走 useApi.js 的 api；
 //   - useAgentAccess.js 是每次调用独立的无模块级可变状态工厂（effectScope 可释放）；
-//   - 四个相关源文件都不含裸 fetch(、不触碰 localStorage。
+//   - 相关源文件不新增裸 fetch(，也不持久化任何 agent 状态。
+// 宿主生命周期行为由 tests/component/AppAgentAccess.spec.js 真实挂载验证。
 // 组件缺失时读文件降级为空串，让存在性断言先失败，而不是抛出 ENOENT 导入错误。
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const appPath = path.resolve(currentDir, '../src/App.vue');
 const projectInfoTabPath = path.resolve(currentDir, '../src/components/ProjectInfoTab.vue');
 const dialogPath = path.resolve(currentDir, '../src/components/AgentAccessDialog.vue');
 const composablePath = path.resolve(currentDir, '../src/composables/useAgentAccess.js');
@@ -26,35 +29,44 @@ function readSourceOrNull(filePath) {
   }
 }
 
+const appSource = readSourceOrNull(appPath) ?? '';
 const tabSource = readSourceOrNull(projectInfoTabPath) ?? '';
 const dialogCode = readSourceOrNull(dialogPath) ?? '';
 const composableSource = readSourceOrNull(composablePath) ?? '';
 const wiringSource = readSourceOrNull(wiringPath) ?? '';
+const settingsDialogSource = appSource.match(/<el-dialog v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] ?? '';
 
 function countMatches(source, pattern) {
   const global = pattern.flags.includes('g') ? pattern : new RegExp(pattern, pattern.flags + 'g');
   return [...source.matchAll(global)].length;
 }
 
-test('ProjectInfoTab imports and renders exactly one AgentAccessDialog', () => {
-  assert.match(tabSource, /import AgentAccessDialog from '\.\/AgentAccessDialog\.vue'/);
-  assert.equal(countMatches(tabSource, /<AgentAccessDialog/), 1, 'AgentAccessDialog 应只渲染一次');
+test('App imports and renders exactly one AgentAccessDialog outside the settings dialog', () => {
+  assert.match(appSource, /import AgentAccessDialog from '\.\/components\/AgentAccessDialog\.vue'/);
+  assert.equal(countMatches(appSource, /<AgentAccessDialog/), 1, 'AgentAccessDialog 应只渲染一次');
+  assert.ok(settingsDialogSource, '应能定位设置弹窗模板');
+  assert.doesNotMatch(settingsDialogSource, /<AgentAccessDialog/, '授权弹窗必须是设置弹窗的兄弟节点');
 });
 
-test('ProjectInfoTab dialog wiring forwards model-value and project-id only', () => {
-  const call = tabSource.match(/<AgentAccessDialog([\s\S]*?)\/>/)?.[1] ?? '';
-  assert.match(call, /v-if="agentAccessMounted"/, '对话框必须懒挂载（首次打开才渲染）');
+test('App dialog wiring forwards model-value and the validated project id only', () => {
+  const call = appSource.match(/<AgentAccessDialog([\s\S]*?)\/>/)?.[1] ?? '';
+  assert.match(call, /v-if="[^"]*agentAccessMounted[^"]*agentAccessProjectId[^"]*"/, '首次有效打开才挂载');
   assert.match(call, /:model-value="showAgentAccess"/);
-  assert.match(call, /:project-id="project\.id"/);
+  assert.match(call, /:project-id="agentAccessProjectId"/);
   assert.match(call, /@update:model-value/);
   assert.doesNotMatch(call, /@close/, '不得转发 @close（Element Plus afterLeave/beforeLeave 双触发陷阱）');
 });
 
-test('ProjectInfoTab lazy entry button opens the dialog once', () => {
-  assert.match(tabSource, /data-test="agent-access-entry"/);
-  assert.match(tabSource, /agentAccessMounted/);
-  assert.match(tabSource, /function openAgentAccess\(/);
-  assert.match(tabSource, /showAgentAccess/);
+test('settings dialog hosts the current-project Agent authorization entry', () => {
+  assert.match(settingsDialogSource, /data-test="agent-access-entry"/);
+  assert.match(settingsDialogSource, /@click="openAgentAccess"/);
+  assert.match(settingsDialogSource, />\s*Agent 授权\s*</);
+  assert.match(appSource, /agentAccessMounted/);
+  assert.match(appSource, /function openAgentAccess\(/);
+});
+
+test('ProjectInfoTab no longer hosts the Agent entry or dialog', () => {
+  assert.doesNotMatch(tabSource, /AgentAccessDialog|agent-access-entry|showAgentAccess|agentAccessMounted/);
 });
 
 test('AgentAccessDialog uses the composable and clipboard helper', () => {
@@ -89,21 +101,18 @@ test('composable coordinates project switch with a stale-response guard', () => 
 });
 
 test('agent-access sources route every request through useApi (no bare fetch)', () => {
-  // ProjectInfoTab 的 3 处 fetch( 是 §9 既有 apiUrl() 边界（Logo/资料保存），保持数量不变
+  // App 与 ProjectInfoTab 各 3 处 fetch( 是 §9 既有 apiUrl() 边界，迁移入口不得增减
   for (const [name, source] of [
     ['AgentAccessDialog', dialogCode],
     ['useAgentAccess', composableSource],
   ]) {
     assert.ok(!/\bfetch\(/.test(source), `${name} 不得绕过 useApi 直接 fetch`);
   }
-  assert.equal(
-    countMatches(tabSource, /\bfetch\(/),
-    3,
-    'ProjectInfoTab 不得因 agent 入口新增裸 fetch 边界'
-  );
+  assert.equal(countMatches(appSource, /\bfetch\(/), 3, 'App 不得因 agent 入口新增裸 fetch 边界');
+  assert.equal(countMatches(tabSource, /\bfetch\(/), 3, 'ProjectInfoTab 的既有 fetch 边界保持不变');
 });
 
-test('agent-access sources never touch localStorage', () => {
+test('agent-access sources never persist agent state in localStorage', () => {
   for (const [name, source] of [
     ['ProjectInfoTab', tabSource],
     ['AgentAccessDialog', dialogCode],
@@ -111,6 +120,8 @@ test('agent-access sources never touch localStorage', () => {
   ]) {
     assert.ok(!/localStorage/.test(source), `${name} 不得持久化任何 agent 状态`);
   }
+  // App 的既有 localStorage 只用于会话/界面偏好；任何一行都不得涉及 agent 状态
+  assert.doesNotMatch(appSource, /localStorage[^\n]*agent/i, 'App 不得持久化任何 agent 状态');
 });
 
 test('composable hits every owner endpoint', () => {

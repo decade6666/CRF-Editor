@@ -38,6 +38,7 @@ import AdminView from './components/AdminView.vue';
 import OrganizationManagementView from './components/OrganizationManagementView.vue';
 import SessionTimer from './components/SessionTimer.vue';
 import WordImportDialog from './components/WordImportDialog.vue';
+import AgentAccessDialog from './components/AgentAccessDialog.vue';
 import { useOrderableList } from './composables/useOrderableList';
 import { confirmFinalProjectDelete } from './composables/projectDeleteConfirmation';
 
@@ -557,6 +558,27 @@ async function testAiConnection() {
   }
 }
 
+// Agent 授权：设置弹窗内的当前项目入口，首次有效打开才挂载复用窗口；
+// 关闭设置、项目 id 变化（切换/删除）、退出或会话过期即卸载，在途响应随实例作废。
+const showAgentAccess = ref(false);
+const agentAccessMounted = ref(false);
+const agentAccessProjectId = computed(() => {
+  const projectId = selectedProject.value?.id;
+  return isLoggedIn.value && !isAdmin.value && Number.isInteger(projectId) ? projectId : null;
+});
+
+function openAgentAccess() {
+  agentAccessMounted.value = true;
+  showAgentAccess.value = true;
+}
+
+function resetAgentAccess() {
+  showAgentAccess.value = false;
+  agentAccessMounted.value = false;
+}
+
+watch([showSettings, agentAccessProjectId], resetAgentAccess);
+
 // 导入模板
 const showImport = ref(false);
 const importLoading = ref(false);
@@ -1075,6 +1097,19 @@ function startResize(e) {
           <el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码</el-button>
         </div>
       </el-form-item>
+      <el-form-item v-if="!isAdmin" label="当前项目">
+        <div class="settings-current-project-row">
+          <span class="settings-current-project-name">{{ selectedProject?.name || '请先选择项目' }}</span>
+          <el-button
+            link
+            type="primary"
+            data-test="agent-access-entry"
+            :disabled="agentAccessProjectId === null"
+            @click="openAgentAccess"
+            >Agent 授权</el-button
+          >
+        </div>
+      </el-form-item>
       <el-form-item v-if="!isAdmin" label="编辑模式">
         <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
         <span style="margin-left: 8px; color: var(--color-text-muted); font-size: 12px"
@@ -1170,6 +1205,14 @@ function startResize(e) {
       </div>
     </template>
   </el-dialog>
+
+  <!-- Agent 授权（由设置中的当前项目入口打开；与设置弹窗并列而非嵌套） -->
+  <AgentAccessDialog
+    v-if="agentAccessMounted && agentAccessProjectId !== null"
+    :model-value="showAgentAccess"
+    :project-id="agentAccessProjectId"
+    @update:model-value="showAgentAccess = $event"
+  />
 
   <el-dialog
     v-model="showSelfPasswordDialog"
@@ -1291,12 +1334,18 @@ function startResize(e) {
   margin-left: auto;
 }
 
-.settings-current-user-row {
+.settings-current-user-row,
+.settings-current-project-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+}
+
+.settings-current-project-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-transfer-actions {

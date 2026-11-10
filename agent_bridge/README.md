@@ -22,24 +22,31 @@ input/output schema 在服务任何工具之前都要通过 Draft 2020-12 元 sc
 | 变量 | 说明 |
 | --- | --- |
 | `CRF_AGENT_API_URL` | 后端 API 基址，必须 HTTPS（仅回环地址允许 HTTP）且以 `/api` 结尾；禁止内嵌凭据、查询串与片段 |
-| `CRF_AGENT_TOKEN` | 项目属主在「项目信息 → Agent 访问」发放的 agent 凭据令牌（`crfag_` 前缀），与浏览器登录令牌互不通用 |
+| `CRF_AGENT_TOKEN` | 项目属主在「设置 → 当前项目 → Agent 授权」发放的 agent 凭据令牌（`crfag_` 前缀），与浏览器登录令牌互不通用 |
 
-MCP 客户端接线示例（以 Claude Code 为例，路径与令牌按实际替换）：
+适配器环境（一次性）：在仓库主目录按锁定文件创建独立环境——不要指向临时 worktree 或 `/tmp`
+路径（清理后入口即失效），与后端环境分离，不升级依赖：
 
-```json
-{
-  "mcpServers": {
-    "crf-editor": {
-      "command": "/path/to/agent_bridge/.venv/bin/python",
-      "args": ["/path/to/agent_bridge/server.py"],
-      "env": {
-        "CRF_AGENT_API_URL": "https://crf.example.com/api",
-        "CRF_AGENT_TOKEN": "<在 UI 发放的一次性令牌>"
-      }
-    }
-  }
-}
+```bash
+cd /path/to/CRF-Editor
+uv venv --python 3.12 agent_bridge/.venv
+uv pip install --python agent_bridge/.venv/bin/python -r agent_bridge/requirements.lock
 ```
+
+MCP 客户端接线（以 Claude Code 为例，2.1.319 实测）：在仓库主目录用 local 作用域登记——只对本机
+该项目目录生效，写入个人 `~/.claude.json`，不进仓库。`env` 只写 `${VAR}` 变量引用，令牌既不出现在
+命令参数里，也不落进配置文件；外层单引号必须保留，防止 shell 提前展开：
+
+```bash
+cd /path/to/CRF-Editor
+claude mcp add-json crf-editor '{"type":"stdio","command":"/path/to/CRF-Editor/agent_bridge/.venv/bin/python","args":["/path/to/CRF-Editor/agent_bridge/server.py"],"env":{"CRF_AGENT_API_URL":"${CRF_AGENT_API_URL}","CRF_AGENT_TOKEN":"${CRF_AGENT_TOKEN}"}}' -s local
+```
+
+- `${VAR}` 取自启动该服务器的 Claude Code 进程环境：先在同一 shell 导出两个变量（建议存放在仅本人
+  可读的 0600 文件中再 `source`），再启动 Claude Code；已在运行的会话拿不到之后才导出的变量，需新开会话。
+- `claude mcp get crf-editor` 只检查这一个条目，只回显 `${VAR}` 引用、不回显令牌：`✔ Connected`
+  表示变量已展开且令牌有效；缺变量或令牌无效时适配器拒绝启动，显示 `✘ Failed to connect`。
+- 其他 MCP 客户端：stdio 命令与参数相同，两个变量须注入服务器进程环境；不要把令牌写进会同步或共享的配置文件。
 
 ## 安全属性
 
