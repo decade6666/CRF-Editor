@@ -1,0 +1,4 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Preserve lazy dialog mounting, model-value round trips and Element Plus public width contract."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Keep startup auth, ordinary-user role and logout/project state boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Use real App/Element Plus mounting, API-object spies and the existing Vue-warning gate."}
+{"file":".trellis/spec/guides/cross-stack-contracts.md","reason":"Section 16 governs unchanged Agent credential/proposal lifecycle and MCP environment boundaries."}
