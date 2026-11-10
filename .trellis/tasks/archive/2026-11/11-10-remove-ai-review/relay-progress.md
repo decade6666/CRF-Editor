@@ -1,0 +1,7 @@
+Updated: 2026-11-10T20:10:00+08:00
+State: ready_for_review
+Step: fix round 2 complete, final handback (no third round)
+Completed: F1 - RED reproduced one-based log (字段#2 for preview index 1) then GREEN via per-field current_index zero-based capture in _create_form, error propagation unchanged, no logger/loop mocking; F2 - compare spec now asserts fill-line min-width from the planNormalColumnFractions→computeFillLineCharCount chain (portrait/explicit-10cm/landscape), choice/checkbox markers isolated to control cells vs label cells, teleported-root AI absence incl. legacy ai_suggestions form shape + deterministic-props pinning; F3 - caplog non-echo on both stale-input boundaries, five-key null/empty settings parametrization, foreign/missing-project identical sanitized 422 + unauthenticated 401, unit/integration marks on task-introduced tests; F4 - disposal-hook comment corrected to the no-AI observable, Testing Focus entry for DocxCompareDialog.spec.js added
+Verification: backend FULL pytest 1660 pass / cov 88.989053% (floor 88.314310…); ruff format 194 ok; contract/permission/config 82 pass; npm test 1075+378 exit 0; lint 0 errors/2803 warnings; build pass; serial coverage all gates PASS (App 99.60/98.60, Wizard 93.54/91.66, useWordImport 100/100, compare 85.71/86.66, simulated 100/97.43, total 68.41/64.12)
+Blocker: none
+Next: A acceptance + requested-opus read-only review; no further B writes

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review backend TDD, isolation, validation and non-decreasing coverage evidence."}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Security pass for retired network/config surfaces and preserved admin/project ownership boundaries."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify behavior-level mount coverage, real warning gate, API and dialog lifecycle conventions."}
+{"file": ".trellis/tasks/11-10-remove-ai-review/research/frontend-removal-boundary.md", "reason": "Review actual frontend deletion against evidence and preserved Word/settings/Agent contracts, accounting for upstream settings layout."}

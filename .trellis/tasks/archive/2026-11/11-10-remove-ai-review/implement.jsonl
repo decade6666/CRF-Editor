@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test isolation, incremental TDD, and required verification conventions."}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Preserve admin-only settings and owner-bound Word-import authorization while retiring AI endpoints."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Real component mount tests, Vue warning gate, API spies, and v-model reset contracts."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Track request/response, configuration, preview and lifecycle boundaries end to end."}
+{"file": ".trellis/tasks/11-10-remove-ai-review/research/frontend-removal-boundary.md", "reason": "Verified frontend AI call graph, retained behavior, scope candidates, and validation entry points; follow its upstream-base caveat."}
