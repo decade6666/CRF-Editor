@@ -193,3 +193,28 @@ def test_recycle_bin_rejects_zero_value(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="大于等于 1"):
         load_config(config_file)
+
+
+@pytest.mark.unit
+def test_legacy_ai_yaml_section_is_inert_and_survives_template_update(tmp_path: Path) -> None:
+    """AI 复核移除后：存量 ai: 区块不进入运行时配置，模板保存保持其原样惰性。"""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "app:\n  title: 自定义标题\n"
+        "ai:\n  enabled: true\n  api_key: synthetic-legacy-key\n"
+        "template:\n  template_path: ./old.db\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file)
+
+    assert not hasattr(config, "ai"), "运行时配置不得再暴露 ai 配置"
+    assert config.template_path == "./old.db"
+
+    updated = update_config({"template": {"template_path": "./new.db"}}, path=config_file)
+
+    assert updated.template_path == "./new.db"
+    content = config_file.read_text(encoding="utf-8")
+    assert "ai:" in content, "模板保存不得清除存量 ai: 原始数据（保持惰性）"
+    assert "synthetic-legacy-key" in content
+    assert "自定义标题" in content

@@ -849,9 +849,6 @@ def _classify_column(header: str) -> str:
     return "value"
 
 
-# ── AI覆盖后的字段配置清理 ──
-
-
 def _option_decodes(field: dict) -> List[str]:
     """从解析字段的 options 中提取 decode 文本，过滤空值。"""
 
@@ -965,35 +962,6 @@ def _split_multiselect_fields(fields: List[dict]) -> List[dict]:
     return out
 
 
-def _cleanup_field_config(field_info: dict, new_type: str) -> None:
-    """覆盖字段类型后，清理不一致的配置属性
-
-
-
-    例如：类型从"数值"改为"文本"时，需移除 integer_digits 等数值属性。
-
-    """
-
-    # 非数值类型：清除数值相关属性
-
-    if new_type not in ("数值",):
-        field_info.pop("integer_digits", None)
-
-        field_info.pop("decimal_digits", None)
-
-        field_info.pop("unit_symbol", None)
-
-    # 非选择类型：清除选项
-
-    if new_type not in ("单选", "多选", "单选（纵向）", "多选（纵向）"):
-        field_info.pop("options", None)
-
-    # 非日期/时间类型：清除日期格式
-
-    if new_type not in ("日期", "时间"):
-        field_info.pop("date_format", None)
-
-
 # ── 主服务类 ──
 
 
@@ -1078,26 +1046,24 @@ class DocxImportService:
 
     @staticmethod
     def discard_upload(temp_id: str) -> None:
-        """丢弃一次上传及其全部衍生资源：临时文件、截图缓存、AI 复核任务。
+        """丢弃一次上传及其全部衍生资源：临时文件、截图缓存。
 
         路由（预览失败、执行导入收尾）与过期清扫共用。
         """
         if not _TEMP_ID_RE.fullmatch(temp_id):
             return
         DocxImportService.cleanup_temp(temp_id)
-        from src.services.ai_review_service import remove_ai_task
         from src.services.docx_screenshot_service import DocxScreenshotService
 
         DocxScreenshotService.cleanup(temp_id)
-        remove_ai_task(temp_id)
 
     @staticmethod
     def purge_expired_uploads(*, max_age_hours: int = UPLOAD_TTL_HOURS, now: Optional[float] = None) -> int:
         """删除超过 max_age_hours 的上传文件，返回删除的文件数。
 
-        新格式（32 位编号开头）连同截图缓存与 AI 复核任务一并丢弃；
+        新格式（32 位编号开头）连同截图缓存一并丢弃；
         旧格式（12 位编号）无法归属，仅删文件本身——其截图缓存会在每次
-        服务关停时被 cleanup_old_caches 清空，AI 任务只在内存中。
+        服务关停时被 cleanup_old_caches 清空。
         """
         temp_dir = Path(DocxImportService.TEMP_DIR)
         if not temp_dir.exists():
@@ -1286,17 +1252,8 @@ class DocxImportService:
         target_project_id: int,
         file_path: str,
         form_indices: List[int],
-        ai_overrides: Optional[list] = None,
     ) -> dict:
-        """将解析出的表单写入数据库
-
-
-
-        Args:
-
-            ai_overrides: AI建议覆盖列表，每项含 form_index 和 overrides
-
-        """
+        """将解析出的表单写入数据库（确定性解析结果原样导入）"""
 
         project = self.session.get(Project, target_project_id)
         allow_multi = allows_multiselect(project.db_type if project else None)
@@ -1306,49 +1263,6 @@ class DocxImportService:
         selected = [all_forms[i] for i in valid_indices]
         if not selected:
             return {"imported_form_count": 0, "detail": []}
-
-        # 构建 AI 覆盖映射：{form_index: {field_index: field_type | list[dict]}}
-
-        override_map: Dict[int, Dict[int, Any]] = {}
-
-        if ai_overrides:
-            for fo in ai_overrides:
-                fi = fo.form_index if hasattr(fo, "form_index") else fo.get("form_index")
-
-                overrides = fo.overrides if hasattr(fo, "overrides") else fo.get("overrides", [])
-
-                field_map: Dict[int, Any] = {}
-
-                for o in overrides:
-                    idx = o.index if hasattr(o, "index") else o.get("index")
-
-                    suggested_fields = (
-                        o.suggested_fields if hasattr(o, "suggested_fields") else o.get("suggested_fields")
-                    )
-
-                    if suggested_fields:
-                        seq = []
-
-                        for sf in suggested_fields:
-                            if hasattr(sf, "model_dump"):
-                                entry = sf.model_dump(exclude_none=True)
-
-                            elif isinstance(sf, dict):
-                                entry = {k: v for k, v in sf.items() if v is not None}
-
-                            else:
-                                continue
-
-                            seq.append(entry)
-
-                        field_map[idx] = seq
-
-                    else:
-                        ft = o.field_type if hasattr(o, "field_type") else o.get("field_type")
-
-                        field_map[idx] = ft
-
-                override_map[fi] = field_map
 
         s = self.session
 
@@ -1368,8 +1282,7 @@ class DocxImportService:
             for fd in s.scalars(select(FieldDefinition).where(FieldDefinition.project_id == target_project_id)).all()
         }
 
-        for form_index, form_data in zip(valid_indices, selected):
-            field_overrides = override_map.get(form_index, {})
+        for form_data in selected:
             result = self._create_form(
                 s,
                 target_project_id,
@@ -1378,7 +1291,6 @@ class DocxImportService:
                 existing_units,
                 existing_codelists,
                 existing_vars,
-                field_overrides=field_overrides,
             )
             summary["imported_form_count"] += 1
             summary["detail"].append(result)
@@ -1396,7 +1308,6 @@ class DocxImportService:
         existing_units: Dict[str, int],
         existing_codelists: Dict[str, int],
         existing_vars: set,
-        field_overrides: Optional[Dict[int, Any]] = None,
     ) -> dict:
         """创建单个表单及其字段"""
 
@@ -1435,68 +1346,12 @@ class DocxImportService:
 
         order_index = 0
 
-        # 先按 real_index 应用 AI 覆盖（含一对多），再统一建库，避免边遍历边插入打乱索引
-
-        expanded_fields: List[dict] = []
+        # real_index 按非日志行解析字段零基计数，与预览 fields[].index 对齐；
+        # current_index 是当前字段的定位序号，用于字段创建失败的日志。
 
         real_index = 0
 
         for field_info in form_data["fields"]:
-            if field_info.get("type") == "log_row":
-                expanded_fields.append(field_info)
-
-                continue
-
-            current_real_index = real_index
-
-            real_index += 1
-
-            override = field_overrides.get(current_real_index) if field_overrides else None
-
-            if override is None:
-                expanded_fields.append(field_info)
-
-                continue
-
-            if isinstance(override, list):
-                logger.info(
-                    "AI一对多覆盖: 表单=%s 字段#%d '%s' -> %d 个字段",
-                    form_name,
-                    current_real_index,
-                    field_info.get("field_type"),
-                    len(override),
-                )
-
-                for entry in override:
-                    item = dict(entry)
-
-                    # 内联标记：若原字段为内联且替换项未显式指定，则继承
-
-                    if field_info.get("inline_mark") and "inline_mark" not in item:
-                        item["inline_mark"] = True
-
-                    _cleanup_field_config(item, item.get("field_type") or "文本")
-
-                    expanded_fields.append(item)
-
-            else:
-                logger.info(
-                    "AI覆盖: 表单=%s 字段#%d '%s' -> %s",
-                    form_name,
-                    current_real_index,
-                    field_info.get("field_type"),
-                    override,
-                )
-
-                item = dict(field_info)
-
-                item["field_type"] = override
-
-                _cleanup_field_config(item, override)
-
-                expanded_fields.append(item)
-
-        for field_info in expanded_fields:
             order_index += 1
 
             # log 行
@@ -1512,6 +1367,10 @@ class DocxImportService:
                 )
 
                 continue
+
+            current_index = real_index
+
+            real_index += 1
 
             # 创建字段定义
 
@@ -1532,7 +1391,7 @@ class DocxImportService:
                 logger.error(
                     "创建字段定义失败: 表单=%s 字段#%d label='%s' type=%s, 错误: %s",
                     form_name,
-                    current_real_index,
+                    current_index,
                     field_info.get("label"),
                     field_info.get("field_type"),
                     str(e),

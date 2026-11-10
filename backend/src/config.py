@@ -108,15 +108,6 @@ class TemplateConfig(BaseModel):
     template_path: str = ""
 
 
-class AIConfig(BaseModel):
-    enabled: bool = False
-    api_url: str = ""
-    api_key: str = ""
-    model: str = ""
-    timeout: int = 30
-    api_format: str = ""  # openai / anthropic，测试连接时自动探测
-
-
 class AuthConfig(BaseModel):
     secret_key: str = ""
     algorithm: str = "HS256"
@@ -226,7 +217,6 @@ class AppConfig(BaseModel):
     storage: StorageConfig = StorageConfig()
     server: ServerConfig = ServerConfig()
     template: TemplateConfig = TemplateConfig()
-    ai: AIConfig = AIConfig()
     auth: AuthConfig = AuthConfig()
     admin: AdminConfig = AdminConfig()
     docx_screenshot: DocxScreenshotConfig = DocxScreenshotConfig()
@@ -245,10 +235,6 @@ class AppConfig(BaseModel):
     @property
     def template_path(self) -> str:
         return self.template.template_path
-
-    @property
-    def ai_config(self) -> "AIConfig":
-        return self.ai
 
 
 def load_config(path: Path | None = None) -> AppConfig:

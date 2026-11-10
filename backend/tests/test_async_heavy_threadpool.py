@@ -126,14 +126,10 @@ def _patch_docx_heavy_fns(monkeypatch) -> list:
     def _fake_parse_full(_path, **_kw):
         return [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}]
 
-    async def _fake_start_ai_review(*_args, **_kwargs):
-        return None
-
     def _fake_start(*_args, **_kwargs):
         return SimpleNamespace(status="running")
 
     monkeypatch.setattr("src.routers.import_docx.DocxImportService.parse_full", _fake_parse_full)
-    monkeypatch.setattr("src.routers.import_docx.start_ai_review", _fake_start_ai_review)
     monkeypatch.setattr("src.routers.import_docx.DocxScreenshotService.start", _fake_start)
     return [_fake_parse_full, _fake_start]
 

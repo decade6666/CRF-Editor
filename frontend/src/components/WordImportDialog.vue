@@ -20,19 +20,9 @@ const {
   selectedFormsToImport,
   tempDocxId,
   importWordErrorMessage,
-  importWordAiReviewStatus,
-  importWordAiReviewError,
   showDocxCompare,
   compareFormData,
   importedResults,
-  hasAnyAiSuggestions,
-  allAiSuggestionsAccepted,
-  allAiSuggestionsIndeterminate,
-  compareFormAcceptedSuggestions,
-  toggleAiSuggestionAcceptance,
-  toggleAiSuggestionsForForm,
-  toggleAiSuggestionsForAll,
-  clearAllAiSuggestions,
   goBackToImportWordStep1,
   beforeDocxUpload,
   handleDocxUploadSuccess,
@@ -87,45 +77,8 @@ const {
         />
       </div>
       <div v-if="importWordStep === 2">
-        <el-alert
-          v-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
-          type="info"
-          show-icon
-          :closable="false"
-          title="AI 复核进行中，建议会自动补充到表单预览，不影响继续导入。"
-          style="margin-bottom: 12px"
-        />
-        <el-alert
-          v-else-if="importWordAiReviewStatus === 'failed'"
-          type="warning"
-          show-icon
-          :closable="false"
-          :title="importWordAiReviewError || 'AI复核不可用，不影响继续导入。'"
-          style="margin-bottom: 12px"
-        />
         <div class="form-select-header">
-          <div class="form-select-meta">
-            <p class="form-select-prompt">请勾选要导入的表单：</p>
-            <div class="docx-ai-global-actions">
-              <span class="docx-ai-global-label">全部表单：</span>
-              <el-checkbox
-                :model-value="allAiSuggestionsAccepted"
-                :indeterminate="allAiSuggestionsIndeterminate"
-                :disabled="!hasAnyAiSuggestions"
-                @change="toggleAiSuggestionsForAll"
-              >
-                全接受
-              </el-checkbox>
-              <el-button
-                link
-                size="small"
-                :disabled="!allAiSuggestionsAccepted && !allAiSuggestionsIndeterminate"
-                @click="clearAllAiSuggestions"
-              >
-                全取消
-              </el-button>
-            </div>
-          </div>
+          <p class="form-select-prompt">请勾选要导入的表单：</p>
           <el-button
             size="small"
             :disabled="importedFormsPreview.length === 0"
@@ -160,18 +113,6 @@ const {
                 <span class="docx-form-name">{{ f.name }} ({{ f.field_count }}个字段)</span>
               </el-tooltip>
               <span class="docx-form-actions">
-                <el-tag v-if="Array.isArray(f.ai_suggestions) && f.ai_suggestions.length" size="small" type="warning">
-                  AI建议 {{ f.ai_suggestions.length }} 条
-                </el-tag>
-                <el-tag
-                  v-else-if="importWordAiReviewStatus === 'pending' || importWordAiReviewStatus === 'running'"
-                  size="small"
-                  type="info"
-                >
-                  <el-icon class="is-loading" style="margin-right: 4px"><Loading /></el-icon>
-                  AI复核中
-                </el-tag>
-                <el-tag v-else-if="importWordAiReviewStatus === 'failed'" size="small" type="info">AI不可用</el-tag>
                 <el-button size="small" link type="primary" @click="openDocxCompare(f)">预览</el-button>
               </span>
             </div>
@@ -249,44 +190,20 @@ const {
     :project-id="projectId || 0"
     :all-form-names="importedFormsPreview.map((f) => f.name)"
     :all-forms-data="importedFormsPreview"
-    :ai-review-status="importWordAiReviewStatus"
-    :ai-review-error="importWordAiReviewError"
-    :accepted-suggestions="compareFormAcceptedSuggestions"
-    @toggle-suggestion="toggleAiSuggestionAcceptance"
-    @toggle-form="toggleAiSuggestionsForForm"
   />
 </template>
 
 <style scoped>
 .form-select-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
 }
 
-.form-select-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
 .form-select-prompt {
   margin: 0;
-}
-
-.docx-ai-global-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.docx-ai-global-label {
-  color: var(--color-text-secondary);
-  font-size: 13px;
 }
 
 /* 导入Word弹窗 - 表单项布局 */

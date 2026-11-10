@@ -51,46 +51,67 @@ test('screenshot panel removes temporary console debugging noise', () => {
   assert.doesNotMatch(screenshotSource, /console\.warn\(/);
 });
 
-test('docx compare dialog previews only the accepted AI suggestion subset and exposes accept controls', () => {
-  assert.match(compareSource, /acceptedSuggestions: \{ type: Array, default: \(\) => \[\] \}/);
-  assert.match(compareSource, /defineEmits\(\['update:modelValue', 'toggle-suggestion', 'toggle-form'\]\)/);
-  assert.match(compareSource, /<el-checkbox[\s\S]*本表单全接受/);
-  assert.match(compareSource, /@click="clearFormAcceptance"/);
-  assert.match(compareSource, /function clearFormAcceptance\(\) \{[\s\S]*accepted: false[\s\S]*\}/);
-  assert.match(compareSource, /@change="toggleSuggestion\(item, \$event\)"/);
-  assert.match(compareSource, /:ai-suggestions="acceptedSuggestions"/);
-  assert.match(compareSource, /view-mode="ai"/);
-  assert.doesNotMatch(compareSource, /view-mode="direct"/);
+test('compare dialog renders the deterministic simulated preview with no AI surfaces', () => {
+  // AI 复核移除：比较弹窗只剩确定性模拟预览，无建议状态、接受控件或专用事件。
+  assert.match(compareSource, /<SimulatedCRFForm/);
+  assert.match(compareSource, /@field-click="handleFieldClick"/);
+  for (const forbidden of [
+    'acceptedSuggestions',
+    'aiReviewStatus',
+    'aiReviewError',
+    'toggle-suggestion',
+    'toggle-form',
+    'ai-review-card',
+    'ai_suggestions',
+    'view-mode="ai"',
+    'AI 复核',
+  ]) {
+    assert.ok(!compareSource.includes(forbidden), `DocxCompareDialog should not contain ${forbidden}`);
+  }
 });
 
-test('useWordImport wires accepted AI overrides through reconcile, step resets and the execute payload', () => {
-  assert.match(wordImportSource, /const acceptedAiOverrides = ref\(\{\}\);/);
-  // 可见性 watcher：打开分支做整段会话重置（回到第 1 步），关闭分支只清对比数据与已接受建议；
-  // immediate:true 让初始 true 也走打开重置（R6：初始 false 走幂等的关闭分支）。
+test('useWordImport keeps the wizard session machine without AI review state', () => {
+  // 可见性 watcher：打开分支做整段会话重置（回到第 1 步），关闭分支只清对比数据；
+  // immediate:true 让初始 true 也走打开重置。
   assert.match(wordImportSource, /watch\(\s*visible,[\s\S]*\{ immediate: true \}/);
   assert.match(
     wordImportSource,
-    /function resetImportWordSession\(\) \{[\s\S]*importWordStep\.value = 1;[\s\S]*resetAcceptedAiOverrides\(\);\s*\}/,
+    /function resetImportWordSession\(\) \{[\s\S]*importWordStep\.value = 1;[\s\S]*\}/,
   );
-  assert.match(wordImportSource, /resetAcceptedAiOverrides\(\);\s*\},\s*\{ immediate: true \}/);
-  assert.match(wordImportSource, /function goBackToImportWordStep1\(\) \{[\s\S]*resetAcceptedAiOverrides\(\);[\s\S]*\}/);
-  assert.match(
-    wordImportSource,
-    /function handleDocxUploadSuccess\(response\) \{[\s\S]*resetAcceptedAiOverrides\(\);[\s\S]*replaceImportedFormsPreview\(response\.forms\);/,
-  );
-  assert.match(wordImportSource, /\.acceptedAiOverrides\.value = reconcileAcceptedOverrides\(nextForms, [\w.]*acceptedAiOverrides\.value\);/);
-  assert.match(wordImportSource, /const aiOverrides = buildAiOverridesPayload\(/);
-  assert.match(wordImportSource, /payload\.ai_overrides = aiOverrides;/);
-  assert.match(wordImportSource, /function clearAllAiSuggestions\(\) \{[\s\S]*resetAcceptedAiOverrides\(\);[\s\S]*\}/);
+  assert.match(wordImportSource, /function handleDocxUploadSuccess\(response\) \{[\s\S]*replaceImportedFormsPreview\(response\.forms\);/);
+  assert.match(wordImportSource, /function executeImportWord\(\) \{/);
+  // AI 复核移除：无轮询状态、无接受覆盖、无 ai_overrides 载荷。
+  for (const forbidden of [
+    'ai-review/status',
+    'ai_task_id',
+    'ai_overrides',
+    'acceptedAiOverrides',
+    'ai_suggestions',
+    'AI_REVIEW_POLL_INTERVAL_MS',
+    'docxAiSuggestionOverrides',
+  ]) {
+    assert.ok(!wordImportSource.includes(forbidden), `useWordImport should not contain ${forbidden}`);
+  }
+  assert.doesNotMatch(wordImportSource, /setTimeout\(/);
 });
 
-test('WordImportDialog renders the AI acceptance controls and binds the compare dialog', () => {
-  assert.match(wordImportDialogSource, /全部表单：/);
-  assert.match(wordImportDialogSource, /全接受/);
-  assert.match(wordImportDialogSource, /@click="clearAllAiSuggestions"/);
-  assert.match(wordImportDialogSource, /:accepted-suggestions="compareFormAcceptedSuggestions"/);
-  assert.match(wordImportDialogSource, /@toggle-suggestion="toggleAiSuggestionAcceptance"/);
-  assert.match(wordImportDialogSource, /@toggle-form="toggleAiSuggestionsForForm"/);
+test('WordImportDialog renders selection controls and binds the compare dialog without AI controls', () => {
+  assert.match(wordImportDialogSource, /@click="toggleSelectAllImportWordForms"/);
+  assert.match(wordImportDialogSource, /@click="openDocxCompare\(f\)"/);
+  assert.match(wordImportDialogSource, /:all-forms-data="importedFormsPreview"/);
+  for (const forbidden of [
+    '全部表单：',
+    '全接受',
+    '全取消',
+    'AI复核',
+    'AI建议',
+    'acceptedSuggestions',
+    'toggle-suggestion',
+    'toggle-form',
+    'ai-review-status',
+  ]) {
+    assert.ok(!wordImportDialogSource.includes(forbidden), `WordImportDialog should not contain ${forbidden}`);
+  }
 });
 
 test('App no longer owns the wizard state machine and keeps only the entry visibility ref', () => {
@@ -100,10 +121,9 @@ test('App no longer owns the wizard state machine and keeps only the entry visib
   for (const symbol of [
     'const importWordStep = ref(',
     'const tempDocxId = ref(',
-    'const acceptedAiOverrides = ref(',
     'function executeImportWord(',
     'function openDocxCompare(',
-    'defineAsyncComponent(() => import(\'./components/DocxCompareDialog.vue\'))',
+    "defineAsyncComponent(() => import('./components/DocxCompareDialog.vue'))",
   ]) {
     assert.ok(!appSource.includes(symbol), `App.vue should not own ${symbol}`);
   }

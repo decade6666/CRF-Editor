@@ -83,7 +83,7 @@ def _dummy_request() -> Request:
 
 
 def _patch_preview_collaborators(monkeypatch) -> None:
-    """预览端点在保存之后的协作对象：项目归属、解析、AI 与截图启动全部打桩。"""
+    """预览端点在保存之后的协作对象：项目归属、解析与截图启动全部打桩。"""
     monkeypatch.setattr(
         "src.routers.import_docx.verify_project_owner",
         lambda _project_id, _user, _session: SimpleNamespace(db_type=None),
@@ -92,11 +92,6 @@ def _patch_preview_collaborators(monkeypatch) -> None:
         "src.routers.import_docx.DocxImportService.parse_full",
         lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
     )
-
-    async def _fake_start_ai_review(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr("src.routers.import_docx.start_ai_review", _fake_start_ai_review)
     monkeypatch.setattr(
         "src.routers.import_docx.DocxScreenshotService.start",
         lambda *_args, **_kwargs: SimpleNamespace(status="running"),

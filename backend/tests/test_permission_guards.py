@@ -1,5 +1,6 @@
 """关键路由权限门禁测试。"""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -123,18 +124,18 @@ def _create_visit_with_forms(session: Session, owner_id: int) -> tuple[int, list
 
 
 def test_settings_endpoints_require_login(client: TestClient) -> None:
-    payload = {
-        "template_path": "D:/templates/library.db",
-        "ai_enabled": False,
-        "ai_api_url": "",
-        "ai_api_key": "",
-        "ai_model": "",
-        "ai_api_format": "",
-    }
+    payload = {"template_path": "D:/templates/library.db"}
 
     assert client.get("/api/settings").status_code == 401
     assert client.put("/api/settings", json=payload).status_code == 401
-    assert client.post("/api/settings/ai/test", json={}).status_code == 401
+
+
+@pytest.mark.integration
+def test_retired_ai_endpoints_are_gone(client: TestClient) -> None:
+    """AI 复核移除后，两个退役端点按普通 404 处理（认证检查不再可达）。"""
+
+    assert client.post("/api/settings/ai/test", json={}).status_code == 404
+    assert client.get("/api/projects/1/import-docx/" + "a" * 32 + "/ai-review/status").status_code == 404
 
 
 def test_authenticated_admin_can_read_settings(
@@ -147,42 +148,82 @@ def test_authenticated_admin_can_read_settings(
     template_dir.mkdir(parents=True, exist_ok=True)
     template_path = template_dir / "library.db"
     template_path.write_bytes(b"")
-    fake_config = SimpleNamespace(
-        template_path=str(template_path),
-        ai_config=SimpleNamespace(
-            enabled=False,
-            api_url="",
-            api_key="secret-key",
-            model="",
-            api_format="",
-            timeout=30,
-        ),
-    )
+    fake_config = SimpleNamespace(template_path=str(template_path))
     monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
 
     resp = client.get("/api/settings", headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
     payload = resp.json()
     assert payload["template_path"] == str(template_path)
-    assert payload["ai_api_key"].endswith("-key")
-    assert payload["ai_api_key"] != "secret-key"
+    assert set(payload) == {"template_path"}, "AI 复核移除后设置读取只暴露模板路径"
 
 
 def test_non_admin_cannot_access_global_settings_or_full_export(client: TestClient) -> None:
     token = login_as(client, "alice")
-    payload = {
-        "template_path": "D:/templates/library.db",
-        "ai_enabled": False,
-        "ai_api_url": "",
-        "ai_api_key": "",
-        "ai_model": "",
-        "ai_api_format": "",
-    }
+    payload = {"template_path": "D:/templates/library.db"}
 
     assert client.get("/api/settings", headers=auth_headers(token)).status_code == 403
     assert client.put("/api/settings", json=payload, headers=auth_headers(token)).status_code == 403
-    assert client.post("/api/settings/ai/test", json={}, headers=auth_headers(token)).status_code == 403
     assert client.get("/api/export/database", headers=auth_headers(token)).status_code == 403
+
+
+@pytest.mark.integration
+def test_admin_update_settings_with_legacy_ai_fields_returns_sanitized_422(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """已退役的 ai_* 写入参数必须 422 拒绝：给出刷新指引、不回显提交值（响应与日志）、不写配置。"""
+    token = login_as(client, "admin")
+    from src.routers import settings as settings_router
+
+    def _fail_update(_updates):
+        raise AssertionError("携带 ai_* 字段的设置保存不得写配置")
+
+    monkeypatch.setattr(settings_router, "update_config", _fail_update)
+    fake_credential = "fake-credential-marker-9f3a"
+
+    with caplog.at_level(logging.DEBUG):
+        resp = client.put(
+            "/api/settings",
+            json={
+                "template_path": "/srv/templates/base.db",
+                "ai_enabled": True,
+                "ai_api_url": "https://ai.example.test/v1",
+                "ai_api_key": fake_credential,
+                "ai_model": "demo-model",
+                "ai_api_format": "openai",
+            },
+            headers=auth_headers(token),
+        )
+
+    assert resp.status_code == 422, resp.text
+    assert "刷新" in resp.text
+    assert fake_credential not in resp.text, "错误响应不得回显提交的密钥值"
+    assert fake_credential not in caplog.text, "错误路径不得把提交值写入日志"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("stale_key", ["ai_enabled", "ai_api_url", "ai_api_key", "ai_model", "ai_api_format"])
+@pytest.mark.parametrize("stale_value", [None, ""])
+def test_admin_update_settings_rejects_null_or_empty_legacy_ai_fields(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    stale_key: str,
+    stale_value,
+) -> None:
+    """全部五个退役 ai_* 键即使为 null / 空值也按退役输入拒绝，且不写配置。"""
+    token = login_as(client, "admin")
+    from src.routers import settings as settings_router
+
+    def _fail_update(_updates):
+        raise AssertionError("携带 ai_* 字段的设置保存不得写配置")
+
+    monkeypatch.setattr(settings_router, "update_config", _fail_update)
+
+    payload = {"template_path": "/srv/templates/base.db", stale_key: stale_value}
+    resp = client.put("/api/settings", json=payload, headers=auth_headers(token))
+
+    assert resp.status_code == 422, (stale_key, stale_value, resp.text)
+    assert "刷新" in resp.text
 
 
 def test_admin_update_settings_rejects_template_path_outside_allowlist(
@@ -203,27 +244,12 @@ def test_admin_update_settings_rejects_template_path_outside_allowlist(
     fake_config = SimpleNamespace(
         db_path=str(db_dir / "crf_editor.db"),
         upload_path=str(upload_dir),
-        ai_config=SimpleNamespace(
-            enabled=False,
-            api_url="",
-            api_key="secret-key",
-            model="",
-            api_format="",
-            timeout=30,
-        ),
     )
     monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
 
     resp = client.put(
         "/api/settings",
-        json={
-            "template_path": str(outside_template),
-            "ai_enabled": False,
-            "ai_api_url": "",
-            "ai_api_key": "",
-            "ai_model": "",
-            "ai_api_format": "",
-        },
+        json={"template_path": str(outside_template)},
         headers=auth_headers(token),
     )
     assert resp.status_code == 400, resp.text
@@ -246,39 +272,22 @@ def test_admin_update_settings_accepts_db_file_inside_db_parent(
     fake_config = SimpleNamespace(
         db_path=str(db_dir / "crf_editor.db"),
         upload_path=str(upload_dir),
-        ai_config=SimpleNamespace(
-            enabled=False,
-            api_url="",
-            api_key="secret-key",
-            model="",
-            api_format="",
-            timeout=30,
-        ),
     )
     monkeypatch.setattr(settings_router, "get_config", lambda: fake_config)
     monkeypatch.setattr(
         settings_router,
         "update_config",
-        lambda updates: SimpleNamespace(
-            template_path=updates["template"]["template_path"],
-            ai_config=fake_config.ai_config,
-        ),
+        lambda updates: SimpleNamespace(template_path=updates["template"]["template_path"]),
     )
 
     resp = client.put(
         "/api/settings",
-        json={
-            "template_path": str(template_path),
-            "ai_enabled": False,
-            "ai_api_url": "",
-            "ai_api_key": "",
-            "ai_model": "",
-            "ai_api_format": "",
-        },
+        json={"template_path": str(template_path)},
         headers=auth_headers(token),
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["template_path"] == str(template_path)
+    assert set(resp.json()) == {"template_path"}
 
 
 def test_copy_visit_duplicates_associated_forms(client: TestClient, engine) -> None:

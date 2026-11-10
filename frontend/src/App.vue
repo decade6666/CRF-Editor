@@ -445,14 +445,7 @@ const themeOptions = [
 ];
 const settingsForm = reactive({
   template_path: '',
-  ai_enabled: false,
-  ai_api_url: '',
-  ai_api_key: '',
-  ai_model: '',
-  ai_api_format: '',
 });
-const aiTestLoading = ref(false);
-const aiTestResult = ref(null); // { ok, latency_ms, model, error }
 const showSelfPasswordDialog = ref(false);
 const selfPasswordSaving = ref(false);
 const selfPasswordForm = reactive({
@@ -502,27 +495,16 @@ async function submitSelfPasswordChange() {
 
 function resetSettingsForm() {
   settingsForm.template_path = '';
-  settingsForm.ai_enabled = false;
-  settingsForm.ai_api_url = '';
-  settingsForm.ai_api_key = '';
-  settingsForm.ai_model = '';
-  settingsForm.ai_api_format = '';
 }
 
 async function openSettings() {
   showSettings.value = true;
-  aiTestResult.value = null;
   closeSelfPasswordDialog();
   resetSettingsForm();
   if (!isAdmin.value) return;
   try {
     const data = await api.get('/api/settings');
     settingsForm.template_path = data.template_path || '';
-    settingsForm.ai_enabled = data.ai_enabled || false;
-    settingsForm.ai_api_url = data.ai_api_url || '';
-    settingsForm.ai_api_key = data.ai_api_key || '';
-    settingsForm.ai_model = data.ai_model || '';
-    settingsForm.ai_api_format = data.ai_api_format || '';
   } catch (e) {
     ElMessage.error('加载设置失败: ' + e.message);
   }
@@ -536,37 +518,11 @@ async function saveSettings() {
   try {
     await api.put('/api/settings', {
       template_path: settingsForm.template_path,
-      ai_enabled: settingsForm.ai_enabled,
-      ai_api_url: settingsForm.ai_api_url,
-      ai_api_key: settingsForm.ai_api_key,
-      ai_model: settingsForm.ai_model,
-      ai_api_format: settingsForm.ai_api_format,
     });
     ElMessage.success('设置已保存');
     showSettings.value = false;
   } catch (e) {
     ElMessage.error('保存失败: ' + e.message);
-  }
-}
-
-async function testAiConnection() {
-  aiTestLoading.value = true;
-  aiTestResult.value = null;
-  try {
-    const res = await api.post('/api/settings/ai/test', {
-      ai_api_url: settingsForm.ai_api_url,
-      ai_api_key: settingsForm.ai_api_key,
-      ai_model: settingsForm.ai_model,
-    });
-    aiTestResult.value = res;
-    // 测试成功时自动记录探测到的API格式
-    if (res.ok && res.api_format) {
-      settingsForm.ai_api_format = res.api_format;
-    }
-  } catch (e) {
-    aiTestResult.value = { ok: false, error: e.message };
-  } finally {
-    aiTestLoading.value = false;
   }
 }
 
@@ -1219,55 +1175,6 @@ function startResize(e) {
             </el-form-item>
           </div>
         </section>
-        <section class="settings-section" aria-labelledby="settings-ai-title">
-          <h3 id="settings-ai-title" class="settings-section-title">AI 复核</h3>
-          <div class="settings-card settings-config-card">
-            <el-form-item label="启用AI复核">
-              <el-switch v-model="settingsForm.ai_enabled" />
-            </el-form-item>
-            <el-form-item label="API URL">
-              <el-input
-                v-model="settingsForm.ai_api_url"
-                placeholder="如：https://api.openai.com/v1"
-                :disabled="!settingsForm.ai_enabled"
-                clearable
-              />
-            </el-form-item>
-            <el-form-item label="API Key">
-              <el-input
-                v-model="settingsForm.ai_api_key"
-                type="password"
-                show-password
-                :disabled="!settingsForm.ai_enabled"
-                clearable
-              />
-            </el-form-item>
-            <el-form-item label="模型">
-              <el-input
-                v-model="settingsForm.ai_model"
-                placeholder="如：gpt-4o, deepseek-chat"
-                :disabled="!settingsForm.ai_enabled"
-                clearable
-              />
-            </el-form-item>
-            <el-form-item v-if="settingsForm.ai_enabled">
-              <el-button
-                :loading="aiTestLoading"
-                :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model"
-                @click="testAiConnection"
-              >
-                测试连接
-              </el-button>
-              <span v-if="aiTestResult" class="settings-ai-result">
-                <span v-if="aiTestResult.ok" style="color: var(--color-success)">
-                  连接成功 ({{ aiTestResult.latency_ms }}ms,
-                  {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
-                </span>
-                <span v-else style="color: var(--color-danger)"> 连接失败: {{ aiTestResult.error }} </span>
-              </span>
-            </el-form-item>
-          </div>
-        </section>
       </template>
 
       <input
@@ -1611,12 +1518,6 @@ function startResize(e) {
 
 .settings-config-card :deep(.el-form-item:last-child) {
   margin-bottom: 0;
-}
-
-.settings-ai-result {
-  margin-left: 10px;
-  font-size: var(--font-base);
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 480px) {

@@ -8,7 +8,7 @@
         <tr
           v-for="field in displayFields"
           :key="field.id"
-          :class="{ 'ai-row': field._aiModified && viewMode === 'ai', 'field-row': true }"
+          class="field-row"
           :style="getRowStyle(field)"
           @click="$emit('field-click', field)"
         >
@@ -23,12 +23,6 @@
           <template v-else-if="field.field_type === '标签'">
             <td colspan="2" class="crf-label-only" :style="getLabelCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
-              <el-tag
-                v-if="field._aiModified && viewMode === 'ai'"
-                size="small"
-                type="warning"
-                class="ai-badge"
-              >AI</el-tag>
             </td>
           </template>
 
@@ -36,12 +30,6 @@
           <template v-else>
             <td class="crf-label-cell" :style="getLabelCellStyle(field)">
               <span class="crf-label">{{ field.label }}</span>
-              <el-tag
-                v-if="field._aiModified && viewMode === 'ai'"
-                size="small"
-                type="warning"
-                class="ai-badge"
-              >AI</el-tag>
             </td>
             <td class="crf-control-cell" :style="getCellStyle(field)" v-html="controlCellHtml(field)"></td>
           </template>
@@ -73,14 +61,11 @@ import {
   buildFormDesignerRenderGroups,
 } from '../composables/formFieldPresentation'
 import { resolveNormalTableAvailableCm } from '../composables/visitPreviewLandscape'
-import { expandFieldsWithAcceptedSuggestions } from '../composables/docxAiSuggestionOverrides'
 import { readColumnWidthRatiosWithFallback } from '../composables/useColumnResize'
 import { buildTableInstanceId } from '../composables/useRowResize'
 
 const props = defineProps({
   fields: { type: Array, default: () => [] },
-  aiSuggestions: { type: Array, default: () => [] },
-  viewMode: { type: String, default: 'direct' }, // 'direct' | 'ai'
   // 可选：宿主组件传入 formId 后，优先读取设计器保存的列宽
   formId: { type: [Number, String], default: null },
   // 表单纸张方向（'auto' | 'portrait' | 'landscape'）。normal 表填写线宽度经
@@ -94,7 +79,7 @@ const props = defineProps({
 
 defineEmits(['field-click'])
 
-// 当前展示的字段列表（根据 viewMode 决定是否应用 AI 建议）
+// 当前展示的字段列表（预览默认值归一化后的解析字段）
 function applyPreviewDefaultValue(field) {
   const inlineMark = Boolean(field.inline_mark)
   if (!field.default_value) return field
@@ -123,14 +108,7 @@ function getLabelCellStyle(field) {
 const displayFields = computed(() => {
   if (!props.fields?.length) return []
 
-  if (props.viewMode === 'ai') {
-    return expandFieldsWithAcceptedSuggestions(props.fields, props.aiSuggestions).map((f) =>
-      applyPreviewDefaultValue(f),
-    )
-  }
-
-  // direct 模式：原始字段
-  return props.fields.map(f => applyPreviewDefaultValue({ ...f, _aiModified: false }))
+  return props.fields.map(f => applyPreviewDefaultValue({ ...f }))
 })
 
 // 可用内容宽度（cm）：显式 availableCm 优先；否则按整张表单 render groups + paperOrientation
@@ -203,14 +181,6 @@ const columnFractions = computed(() => {
   background-color: var(--crf-paper-hover) !important;
 }
 
-/* AI 修改行高亮 */
-.ai-row {
-  background-color: #fef9e7 !important;
-}
-.ai-row td {
-  border-left: 3px solid #e6a23c;
-}
-
 /* 日志行（Task 3.2） */
 .crf-log-row {
   padding: 8px 10px;
@@ -233,12 +203,6 @@ const columnFractions = computed(() => {
 .crf-label-only {
   padding: 6px 10px;
   background: var(--crf-paper-structure-bg);
-}
-
-.ai-badge {
-  margin-left: 6px;
-  vertical-align: middle;
-  font-size: 10px !important;
 }
 
 /* 控件列 */

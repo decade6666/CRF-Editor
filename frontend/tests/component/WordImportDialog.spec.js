@@ -1,6 +1,6 @@
 // WordImportDialog 挂载测试：导入Word 向导从 App.vue 外移到组件 + useWordImport 后的 UI 契约。
-// 覆盖 design.md D1/D2/D7/D8：打开重置、上传 → 第 2 步、AI 复核轮询（3 秒、ai_task_id、合并与对账、
-// done/failed/关闭停止、404 文案）、S2 卸载后迟到响应不再排程、执行导入的精确载荷、第 3 步与打开设计页事件。
+// 覆盖：打开重置、上传 → 第 2 步、执行导入的精确载荷、第 3 步与打开设计页事件；
+// AI 复核移除后：无 AI 状态轮询、无 AI 文案、遗留 ai_task_id/ai_suggestions 响应字段被忽略。
 // DocxCompareDialog 只以 vi.mock 替换（其异步图片面板不属本次契约），未使用 DOMWrapper(document.body)：
 // 主弹窗未启用 append-to-body，teleport 被 Element Plus 关闭，内容直接位于组件子树内。
 import { describe, expect, it, vi } from 'vitest';
@@ -12,7 +12,7 @@ import { useWordImport } from '../../src/composables/useWordImport.js';
 import { api, apiUrl, getAuthHeaders } from '../../src/composables/useApi.js';
 
 const TEMP_ID = '0f1e2d3c4b5a69788796a5b4c3d2e1f0';
-const AI_TASK_ID = 'task-9c1d';
+const STALE_AI_TASK_ID = 'task-9c1d';
 const TEN_MIB = 10 * 1024 * 1024;
 
 vi.mock('../../src/components/DocxCompareDialog.vue', async () => {
@@ -32,11 +32,8 @@ vi.mock('../../src/components/DocxCompareDialog.vue', async () => {
         projectId: { type: Number, default: 0 },
         allFormNames: { type: Array, default: () => [] },
         allFormsData: { type: Array, default: () => [] },
-        aiReviewStatus: { type: String, default: 'idle' },
-        aiReviewError: { type: String, default: '' },
-        acceptedSuggestions: { type: Array, default: () => [] },
       },
-      emits: ['update:modelValue', 'toggle-suggestion', 'toggle-form'],
+      emits: ['update:modelValue'],
       setup() {
         return () => h('div', { 'data-test': 'compare-stub' });
       },
@@ -46,13 +43,12 @@ vi.mock('../../src/components/DocxCompareDialog.vue', async () => {
 
 function makeForms() {
   return [
-    { index: 0, name: '知情同意', field_count: 3, fields: [{ index: 0, field_type: '文本' }], ai_suggestions: [] },
+    { index: 0, name: '知情同意', field_count: 3, fields: [{ index: 0, field_type: '文本' }] },
     {
       index: 1,
       name: '访视日期',
       field_count: 2,
       fields: [{ index: 0, field_type: '文本' }],
-      ai_suggestions: [],
     },
   ];
 }
@@ -142,8 +138,9 @@ function settleDialogTransition() {
   });
 }
 
-// 直接用真实 useWordImport + 独立 effectScope 驱动「卸载后迟到响应」：不挂组件、不 mock 被测代码，
-// scope.stop() 触发 composable 的 onScopeDispose，模拟组件卸载（visible 与 task id 均保持不变）。
+// 直接用真实 useWordImport + 独立 effectScope 驱动「卸载后迟到响应」：不挂组件、不 mock 被测代码。
+// AI 复核移除后 composable 没有任何轮询/定时器或卸载守卫可断言；这里 scope.stop() 只释放 visible
+// watcher、模拟组件卸载（visible 保持不变），用例保证的真实行为是：卸载前后都不存在任何轮询请求。
 function setupImportScope() {
   const projectId = ref(1);
   const visible = ref(true);
@@ -151,16 +148,6 @@ function setupImportScope() {
   const scope = effectScope();
   const wordImport = scope.run(() => useWordImport({ projectId, visible, refreshKey }));
   return { scope, wordImport };
-}
-
-function snapshotAiReviewState(wordImport) {
-  return {
-    status: wordImport.importWordAiReviewStatus.value,
-    error: wordImport.importWordAiReviewError.value,
-    preview: wordImport.importedFormsPreview.value,
-    accepted: wordImport.acceptedAiOverrides.value,
-    compare: wordImport.compareFormData.value,
-  };
 }
 
 describe('WordImportDialog', () => {
@@ -211,6 +198,68 @@ describe('WordImportDialog', () => {
     expect(wrapper.text()).toContain('访视日期');
   });
 
+  it('上传响应缺少表单或编号时提示解析失败并弹错误', async () => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+
+    await uploadDocx(wrapper, { temp_id: TEMP_ID });
+
+    expect(wrapper.text()).toContain('文件解析失败或响应格式不正确。');
+    expect(ElMessage.error).toHaveBeenCalledWith('文件解析失败或响应格式不正确。');
+    expect(uploadComponent(wrapper).exists()).toBe(true);
+  });
+
+  it.each([
+    ['{"detail":"文件类型不允许"}', '文件上传失败。 错误: 文件类型不允许'],
+    ['服务器开小差了', '文件上传失败。 错误: 服务器开小差了'],
+  ])('上传失败回调解析后端错误并展示（%#）', async (rawMessage, expected) => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+
+    uploadComponent(wrapper).props('onError')(new Error(rawMessage));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(expected);
+    expect(ElMessage.error).toHaveBeenCalledWith(expected);
+    expect(uploadComponent(wrapper).props('beforeUpload')({ size: TEN_MIB - 1 })).toBe(true);
+    expect(wrapper.text()).not.toContain('文件上传失败。 错误: undefined');
+  });
+
+  it('空表单清单进入第 2 步时展示无表单占位', async () => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+
+    await uploadDocx(wrapper, { forms: [], temp_id: TEMP_ID });
+
+    expect(wrapper.text()).toContain('Word文档中没有发现表单');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
+  });
+
+  it('上传处理中展示加载占位且取消按钮禁用', async () => {
+    let resolvePost;
+    vi.spyOn(api, 'post').mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = resolve;
+      }),
+    );
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
+    await selectAllForms(wrapper);
+
+    const confirmPromise = buttonByText(wrapper, '确认导入').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('加载中...');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
+    const cancelButton = buttonByText(wrapper, '取消');
+    expect(cancelButton.isDisabled()).toBe(true);
+
+    resolvePost({ imported_form_count: 2, detail: [] });
+    await confirmPromise;
+    await flushPromises();
+  });
+
   it('上传请求使用 apiUrl 与 getAuthHeaders', async () => {
     localStorage.setItem('crf_token', 'dialog-token');
     const { wrapper } = mountDialog({ projectId: 42 });
@@ -223,160 +272,48 @@ describe('WordImportDialog', () => {
     expect(upload.props('headers')).toEqual({ Authorization: 'Bearer dialog-token' });
   });
 
-  it('AI 复核状态轮询使用 ai_task_id 并每 3 秒请求一次', async () => {
+  it('上传成功后不再发起任何 AI 复核状态轮询（含遗留 ai_task_id 响应）', async () => {
     vi.useFakeTimers();
-    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ status: 'running', suggestions: {} });
+    const getSpy = vi.spyOn(api, 'get');
     const { wrapper } = mountDialog();
     await openDialog(wrapper);
 
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-    expect(getSpy).not.toHaveBeenCalled();
-
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: STALE_AI_TASK_ID });
     await vi.advanceTimersByTimeAsync(3000);
-
-    expect(getSpy).toHaveBeenCalledTimes(1);
-    expect(getSpy).toHaveBeenCalledWith(
-      `/api/projects/1/import-docx/${encodeURIComponent(AI_TASK_ID)}/ai-review/status`,
-    );
-
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(getSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('轮询合并 AI 建议并在建议消失时对账已接受状态', async () => {
-    vi.useFakeTimers();
-    const suggestion = { index: 0, suggested_type: '日期', reason: '日期格式' };
-    const getSpy = vi
-      .spyOn(api, 'get')
-      .mockResolvedValueOnce({ status: 'running', suggestions: { 1: [suggestion] } })
-      .mockResolvedValueOnce({ status: 'running', suggestions: { 1: [] } });
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(wrapper.text()).toContain('AI建议 1 条');
-
-    await openPreviewForForm(wrapper, '访视日期');
-    const stub = compareStub(wrapper);
-    expect(stub.props('acceptedSuggestions')).toHaveLength(0);
-
-    stub.vm.$emit('toggle-suggestion', { formIndex: 1, fieldIndex: 0, suggestedType: '日期', accepted: true });
-    await flushPromises();
-    expect(compareStub(wrapper).props('acceptedSuggestions')).toEqual([suggestion]);
-
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(getSpy).toHaveBeenCalledTimes(2);
-    expect(compareStub(wrapper).props('acceptedSuggestions')).toHaveLength(0);
-  });
-
-  it('AI 复核 done 后停止轮询', async () => {
-    vi.useFakeTimers();
-    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ status: 'done', suggestions: {} });
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(getSpy).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(9000);
-    expect(getSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('AI 复核 404 时展示中断提示并停止轮询', async () => {
-    vi.useFakeTimers();
-    const notFound = Object.assign(new Error('missing'), { status: 404 });
-    const getSpy = vi.spyOn(api, 'get').mockRejectedValue(notFound);
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-
-    await vi.advanceTimersByTimeAsync(3000);
-
-    expect(wrapper.text()).toContain('AI复核任务已中断，请重新上传文档。');
-    await vi.advanceTimersByTimeAsync(9000);
-    expect(getSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('关闭对话框后停止轮询', async () => {
-    vi.useFakeTimers();
-    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ status: 'running', suggestions: {} });
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-
-    await wrapper.setProps({ modelValue: false });
     await vi.advanceTimersByTimeAsync(9000);
 
     expect(getSpy).not.toHaveBeenCalled();
   });
 
-  it('卸载后迟到的 AI 响应不再触发新的轮询（S2）', async () => {
-    vi.useFakeTimers();
-    let resolveStatus;
-    const getSpy = vi.spyOn(api, 'get').mockReturnValue(
-      new Promise((resolve) => {
-        resolveStatus = resolve;
-      }),
-    );
-    const wrapper = mount(hostComponent(), { global: { provide: { refreshKey: ref(0) } } });
-    await flushPromises();
+  it('第 2 步界面不再出现 AI 复核文案或状态标签', async () => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
 
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(getSpy).toHaveBeenCalledTimes(1);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: STALE_AI_TASK_ID });
 
-    wrapper.vm.alive = false;
-    await nextTick();
-
-    resolveStatus({ status: 'running', suggestions: {} });
-    await flushPromises();
-    await vi.advanceTimersByTimeAsync(9000);
-
-    expect(getSpy).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).not.toContain('AI复核');
+    expect(wrapper.text()).not.toContain('AI 复核');
+    expect(wrapper.text()).not.toContain('AI建议');
+    expect(wrapper.text()).not.toContain('AI不可用');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(2);
   });
 
-  it('执行导入发送精确的 temp_id 与 form_indices，无接受建议时不带 ai_overrides', async () => {
+  it('执行导入发送精确的 temp_id 与 form_indices，遗留 ai_suggestions 不产生 ai_overrides 载荷', async () => {
     const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ imported_form_count: 2, detail: [] });
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
-
-    await selectAllForms(wrapper);
-    await confirmImport(wrapper);
-
-    expect(postSpy).toHaveBeenCalledWith('/api/projects/1/import-docx/execute', {
-      temp_id: TEMP_ID,
-      form_indices: [0, 1],
-    });
-  });
-
-  it('仅有接受建议时才在载荷中携带 ai_overrides', async () => {
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ imported_form_count: 1, detail: [] });
     const forms = makeForms();
     forms[1].ai_suggestions = [{ index: 0, suggested_type: '日期', reason: '日期格式' }];
     const { wrapper } = mountDialog();
     await openDialog(wrapper);
     await uploadDocx(wrapper, { forms, temp_id: TEMP_ID });
 
-    await openPreviewForForm(wrapper, '访视日期');
-    compareStub(wrapper).vm.$emit('toggle-suggestion', {
-      formIndex: 1,
-      fieldIndex: 0,
-      suggestedType: '日期',
-      accepted: true,
-    });
-    await flushPromises();
-
     await selectAllForms(wrapper);
     await confirmImport(wrapper);
 
     expect(postSpy).toHaveBeenCalledWith('/api/projects/1/import-docx/execute', {
       temp_id: TEMP_ID,
       form_indices: [0, 1],
-      ai_overrides: [{ form_index: 1, overrides: [{ index: 0, field_type: '日期' }] }],
     });
+    expect(postSpy.mock.calls[0][1]).not.toHaveProperty('ai_overrides');
   });
 
   it('导入成功进入第 3 步、清空缓存并递增 refreshKey', async () => {
@@ -426,12 +363,10 @@ describe('WordImportDialog', () => {
     expect(wrapper.emitted('open-designer')).toEqual([[7]]);
   });
 
-  it('预览对话框收到精确 temp-id 与当前表单的已接受建议', async () => {
-    const forms = makeForms();
-    forms[1].ai_suggestions = [{ index: 0, suggested_type: '日期', reason: '日期格式' }];
+  it('预览对话框收到精确 temp-id 与当前表单数据', async () => {
     const { wrapper } = mountDialog();
     await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms, temp_id: TEMP_ID });
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
 
     await openPreviewForForm(wrapper, '访视日期');
 
@@ -439,11 +374,39 @@ describe('WordImportDialog', () => {
     expect(stub.props('tempId')).toBe(TEMP_ID);
     expect(stub.props('formData').index).toBe(1);
     expect(stub.props('allFormsData')).toHaveLength(2);
+    expect(stub.props('projectId')).toBe(1);
+  });
 
-    stub.vm.$emit('toggle-form', { formIndex: 1, accepted: true });
+  it('预览打开时再次上传替换预览列表会同步比较数据（composable 级）', async () => {
+    const { wordImport } = setupImportScope();
+    wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID });
+    wordImport.openDocxCompare(wordImport.importedFormsPreview.value[1]);
+    expect(wordImport.compareFormData.value?.name).toBe('访视日期');
+
+    const renamed = [
+      { index: 0, name: '知情同意', field_count: 3, fields: [{ index: 0, field_type: '文本' }] },
+      { index: 1, name: '访视日期（已更新）', field_count: 2, fields: [{ index: 0, field_type: '日期' }] },
+    ];
+    wordImport.handleDocxUploadSuccess({ forms: renamed, temp_id: TEMP_ID });
+
+    expect(wordImport.compareFormData.value?.name).toBe('访视日期（已更新）');
+    expect(wordImport.importedFormsPreview.value[1].name).toBe('访视日期（已更新）');
+  });
+
+  it('上一步返回第 1 步并清空预览与选择', async () => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
+    await selectAllForms(wrapper);
+    await openPreviewForForm(wrapper, '知情同意');
+    expect(compareStub(wrapper).exists()).toBe(true);
+
+    await buttonByText(wrapper, '上一步').trigger('click');
     await flushPromises();
 
-    expect(compareStub(wrapper).props('acceptedSuggestions')).toEqual(forms[1].ai_suggestions);
+    expect(wrapper.text()).toContain('将文件拖拽至此区域');
+    expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
+    expect(compareStub(wrapper).exists()).toBe(false);
   });
 
   it('底部取消按钮向上抛出 update:modelValue=false', async () => {
@@ -451,6 +414,15 @@ describe('WordImportDialog', () => {
     await openDialog(wrapper);
 
     await buttonByText(wrapper, '取消').trigger('click');
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
+  });
+
+  it('对话框自身发出 update:modelValue=false 时向上转发', async () => {
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+
+    wrapper.findComponent({ name: 'ElDialog' }).vm.$emit('update:modelValue', false);
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
   });
@@ -509,100 +481,56 @@ describe('WordImportDialog', () => {
     expect(wrapper.findAll('.docx-form-checkbox')).toHaveLength(0);
   });
 
-  it('AI 复核 failed 后展示错误并停止轮询', async () => {
-    vi.useFakeTimers();
-    const getSpy = vi
-      .spyOn(api, 'get')
-      .mockResolvedValue({ status: 'failed', error: '模型服务不可用', suggestions: {} });
-    const { wrapper } = mountDialog();
-    await openDialog(wrapper);
-    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-
-    await vi.advanceTimersByTimeAsync(3000);
-
-    expect(wrapper.text()).toContain('模型服务不可用');
-    await vi.advanceTimersByTimeAsync(9000);
-    expect(getSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('卸载后成功的迟到响应不写入状态也不再续排（effectScope + 真实 composable）', async () => {
-    vi.useFakeTimers();
-    let resolveStatus;
-    const getSpy = vi.spyOn(api, 'get').mockReturnValue(
-      new Promise((resolve) => {
-        resolveStatus = resolve;
-      }),
-    );
-    const { scope, wordImport } = setupImportScope();
-    try {
-      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-      await vi.advanceTimersByTimeAsync(3000);
-      expect(getSpy).toHaveBeenCalledTimes(1);
-
-      const compareForm = wordImport.importedFormsPreview.value.find((form) => form.index === 1);
-      wordImport.openDocxCompare(compareForm);
-      const before = snapshotAiReviewState(wordImport);
-      expect(before.status).toBe('pending');
-      expect(before.preview).toHaveLength(2);
-      expect(before.compare).not.toBeNull();
-
-      scope.stop();
-
-      resolveStatus({ status: 'running', suggestions: { 1: [{ index: 0, suggested_type: '日期' }] } });
-      await flushPromises();
-      await vi.advanceTimersByTimeAsync(9000);
-
-      expect(snapshotAiReviewState(wordImport)).toEqual(before);
-      expect(getSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      scope.stop();
-    }
-  });
-
-  it('卸载后失败的迟到响应不写入状态也不再续排（effectScope + 真实 composable）', async () => {
-    vi.useFakeTimers();
-    let rejectStatus;
-    const getSpy = vi.spyOn(api, 'get').mockReturnValue(
-      new Promise((resolve, reject) => {
-        rejectStatus = reject;
-      }),
-    );
-    const { scope, wordImport } = setupImportScope();
-    try {
-      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
-      await vi.advanceTimersByTimeAsync(3000);
-      expect(getSpy).toHaveBeenCalledTimes(1);
-
-      const before = snapshotAiReviewState(wordImport);
-      expect(before.status).toBe('pending');
-      expect(before.error).toBe('');
-
-      scope.stop();
-
-      rejectStatus(Object.assign(new Error('gateway timeout'), { status: 504 }));
-      await flushPromises();
-      await vi.advanceTimersByTimeAsync(9000);
-
-      expect(snapshotAiReviewState(wordImport)).toEqual(before);
-      expect(getSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      scope.stop();
-    }
-  });
-
-  it('卸载后到达的上传成功响应不会再排起 AI 复核轮询', async () => {
+  it('卸载后到达的上传成功响应不会再排起任何轮询', async () => {
     vi.useFakeTimers();
     const getSpy = vi.spyOn(api, 'get');
     const { scope, wordImport } = setupImportScope();
     try {
       scope.stop();
 
-      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: AI_TASK_ID });
+      wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID, ai_task_id: STALE_AI_TASK_ID });
       await vi.advanceTimersByTimeAsync(9000);
 
       expect(getSpy).not.toHaveBeenCalled();
     } finally {
       scope.stop();
     }
+  });
+
+  it('未选择表单时确认导入只给警告且不发起请求', async () => {
+    const postSpy = vi.spyOn(api, 'post');
+    const { wordImport } = setupImportScope();
+
+    await wordImport.executeImportWord();
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('请选择要导入的表单。');
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it('选择表单但缺少编号时确认导入只给警告且不发起请求', async () => {
+    const postSpy = vi.spyOn(api, 'post');
+    const { wordImport } = setupImportScope();
+
+    wordImport.handleDocxUploadSuccess({ forms: makeForms(), temp_id: TEMP_ID });
+    wordImport.selectedFormsToImport.value = [0];
+    wordImport.tempDocxId.value = null;
+
+    await wordImport.executeImportWord();
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('请选择要导入的表单。');
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it('关闭对话框不触发额外请求', async () => {
+    vi.useFakeTimers();
+    const getSpy = vi.spyOn(api, 'get');
+    const { wrapper } = mountDialog();
+    await openDialog(wrapper);
+    await uploadDocx(wrapper, { forms: makeForms(), temp_id: TEMP_ID });
+
+    await wrapper.setProps({ modelValue: false });
+    await vi.advanceTimersByTimeAsync(9000);
+
+    expect(getSpy).not.toHaveBeenCalled();
   });
 });

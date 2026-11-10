@@ -1,4 +1,4 @@
-// 真实 App + Element Plus：设置弹窗内的既有功能——普通用户改密、管理员全局设置与 AI 连接测试、
+// 真实 App + Element Plus：设置弹窗内的既有功能——普通用户改密、管理员全局设置、
 // 主题切换、数据库导出与项目导入。只替换外部边界：api 对象、fetch / 浏览器下载、ElMessageBox；不消音 Vue 警告。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -55,13 +55,18 @@ describe('App 设置 · 分组卡片布局', () => {
     const wrapper = await mountApp({ admin: true });
     const settings = await openSettings(wrapper);
 
-    expect(settings.findAll('section > h3').map((node) => node.text())).toEqual(['账号', '界面', '全局设置', 'AI 复核']);
+    expect(settings.findAll('section > h3').map((node) => node.text())).toEqual(['账号', '界面', '全局设置']);
     expect(settings.find('[aria-label="编辑模式"]').exists()).toBe(false);
     expect(settings.find('[data-test="agent-access-entry"]').exists()).toBe(false);
     expect(settings.find('.settings-transfer-actions').exists()).toBe(false);
     expect(settings.findAll('button').some((node) => node.text() === '修改密码')).toBe(false);
     expect(settings.get('.settings-current-user-row').text()).toContain('退出登录');
     expect(settings.get('.el-dialog__footer').findAll('button').map((node) => node.text())).toEqual(['关闭', '保存']);
+    // AI 复核移除：管理员设置不再有 AI 卡片、连接测试入口或 AI 字段。
+    expect(settings.text()).not.toContain('AI 复核');
+    expect(settings.text()).not.toContain('启用AI复核');
+    expect(settings.text()).not.toContain('测试连接');
+    expect(settings.findAll('button').some((node) => node.text() === '测试连接')).toBe(false);
   });
 
   it('两种选择器都提供具名单选组，并保留两个命名选项及模式说明', async () => {
@@ -217,25 +222,10 @@ describe('App 设置 · 普通用户修改密码', () => {
 describe('App 设置 · 管理员全局设置', () => {
   const SAVED = {
     template_path: '/srv/templates/base.db',
-    ai_enabled: false,
-    ai_api_url: '',
-    ai_api_key: '',
-    ai_model: '',
-    ai_api_format: '',
   };
-  const AI = { url: 'https://ai.example.test/v1', key: 'test-key', model: 'test-model' };
 
   function settingsRoute(url) {
     return url === '/api/settings' ? { ...SAVED } : undefined;
-  }
-
-  async function enableAi(settings, fields = AI) {
-    await formItem(settings, '启用AI复核').get('.el-switch').trigger('click');
-    await settle();
-    await formItem(settings, 'API URL').get('input').setValue(fields.url);
-    await formItem(settings, 'API Key').get('input').setValue(fields.key);
-    await formItem(settings, '模型').get('input').setValue(fields.model);
-    await settle();
   }
 
   it('设置加载失败时提示原因', async () => {
@@ -258,6 +248,7 @@ describe('App 设置 · 管理员全局设置', () => {
     await settle();
 
     expect(api.put).toHaveBeenCalledWith('/api/settings', { ...SAVED, template_path: '/srv/templates/next.db' });
+    expect(api.put.mock.calls[0][1]).not.toHaveProperty('ai_enabled');
     expect(ElMessage.success).toHaveBeenCalledWith('设置已保存');
     expect(settings.props('modelValue')).toBe(false);
   });
@@ -275,60 +266,6 @@ describe('App 设置 · 管理员全局设置', () => {
 
     expect(ElMessage.error).toHaveBeenCalledWith('保存失败: 只读文件系统');
     expect(settings.props('modelValue')).toBe(true);
-  });
-
-  it('URL、Key、模型齐全前测试连接保持禁用', async () => {
-    const wrapper = await mountApp({ admin: true, get: settingsRoute });
-    const settings = await openSettings(wrapper);
-
-    await enableAi(settings, { ...AI, model: '' });
-    expect(buttonByText(settings, '测试连接').isDisabled()).toBe(true);
-    await formItem(settings, '模型').get('input').setValue(AI.model);
-    await settle();
-
-    expect(buttonByText(settings, '测试连接').isDisabled()).toBe(false);
-  });
-
-  it.each([
-    ['anthropic', 'Anthropic', 'anthropic'],
-    [undefined, 'OpenAI', ''],
-  ])('连接测试成功（格式 %s）时显示延迟与格式，并随保存记录探测结果', async (apiFormat, label, savedFormat) => {
-    const wrapper = await mountApp({
-      admin: true,
-      get: settingsRoute,
-      post: (url) =>
-        url === '/api/settings/ai/test' ? { ok: true, latency_ms: 123, api_format: apiFormat } : undefined,
-    });
-    const settings = await openSettings(wrapper);
-    await enableAi(settings);
-
-    await buttonByText(settings, '测试连接').trigger('click');
-    await settle();
-    expect(settings.text()).toMatch(new RegExp(`连接成功 \\(123ms,\\s*${label}格式\\)`));
-    await buttonByText(settings, '保存').trigger('click');
-    await settle();
-
-    expect(api.post).toHaveBeenCalledWith('/api/settings/ai/test', {
-      ai_api_url: AI.url,
-      ai_api_key: AI.key,
-      ai_model: AI.model,
-    });
-    expect(api.put.mock.calls[0][1]).toMatchObject({ ai_enabled: true, ai_api_format: savedFormat });
-  });
-
-  it('连接测试失败时显示失败原因', async () => {
-    const wrapper = await mountApp({
-      admin: true,
-      get: settingsRoute,
-      post: () => Promise.reject(new Error('网关超时')),
-    });
-    const settings = await openSettings(wrapper);
-    await enableAi(settings);
-
-    await buttonByText(settings, '测试连接').trigger('click');
-    await settle();
-
-    expect(settings.text()).toContain('连接失败: 网关超时');
   });
 });
 
@@ -493,6 +430,42 @@ describe('App 设置 · 数据库导出', () => {
     expect(ElMessage.error).toHaveBeenCalledWith(message);
     expect(downloads.clicks).toEqual([]);
   });
+
+  it('无项目时导出当前项目守卫直接返回，不弹确认也不发请求', async () => {
+    const confirm = confirmWith('confirm');
+    const fetchSpy = scriptFetch({});
+    const downloads = captureDownloads();
+    const wrapper = await mountApp({ select: false });
+
+    await wrapper.vm.exportProjectDatabase();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(downloads.clicks).toEqual([]);
+  });
+});
+
+describe('App · 保留行为守卫', () => {
+  it('管理员刷新不加载常规项目列表', async () => {
+    const wrapper = await mountApp({ admin: true });
+    const loadsBefore = requestedUrls('get').filter((url) => url === '/api/projects').length;
+
+    await wrapper.vm.loadProjects();
+
+    const loadsAfter = requestedUrls('get').filter((url) => url === '/api/projects').length;
+    expect(loadsAfter).toBe(loadsBefore);
+  });
+
+  it('未选择导入表单时执行导入守卫直接返回，不发起请求', async () => {
+    const wrapper = await mountApp();
+    const postsBefore = requestedUrls('post').length;
+
+    await wrapper.vm.executeImport();
+
+    expect(requestedUrls('post').length).toBe(postsBefore);
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
 });
 
 describe('App 设置 · 导入项目', () => {
@@ -577,7 +550,34 @@ describe('App 设置 · 导入项目', () => {
   });
 });
 
+describe('App · 侧边栏宽度拖拽', () => {
+  it('拖拽手柄按下进入宽度调整并按位移持久化', async () => {
+    const wrapper = await mountApp();
+    localStorage.removeItem('crf_sidebarWidth');
+
+    await wrapper.get('.sidebar-resizer').trigger('mousedown', { clientX: 0 });
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 10 }));
+    document.dispatchEvent(new MouseEvent('mouseup'));
+    await settle();
+
+    expect(parseInt(localStorage.getItem('crf_sidebarWidth'), 10)).toBe(230);
+  });
+});
+
 describe('App 设置 · 弹窗', () => {
+  it('非管理员触发保存只关闭设置，不写配置也不提示成功', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    await wrapper.vm.saveSettings();
+    await settle();
+
+    expect(settings.props('modelValue')).toBe(false);
+    expect(api.put).not.toHaveBeenCalled();
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
   it('管理员点击关闭只隐藏设置，不保存配置', async () => {
     const wrapper = await mountApp({ admin: true });
     const settings = await openSettings(wrapper);

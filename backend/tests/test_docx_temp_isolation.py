@@ -19,12 +19,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-import src.services.ai_review_service as ai_review_service
+import src.services.docx_import_service as dis
 from helpers import auth_headers, login_as, seed_user
 from src.models.form import Form
-from src.services import docx_import_service as dis
 from src.services import docx_screenshot_service as dss
-from src.services.ai_review_service import AIReviewTask
 from src.services.docx_import_service import DocxImportService
 from src.services.docx_screenshot_service import DocxScreenshotService, ScreenshotTask
 
@@ -34,11 +32,9 @@ def _isolated_temp_dirs(tmp_path, monkeypatch):
     """上传目录与截图缓存都指到临时目录；清空进程内任务注册表防跨测试泄漏。"""
     monkeypatch.setattr(DocxImportService, "TEMP_DIR", str(tmp_path / "docx_temp"))
     monkeypatch.setattr(DocxScreenshotService, "BASE_DIR", str(tmp_path / "docx_temp"))
-    ai_review_service._ai_tasks.clear()
     with dss._tasks_lock:
         dss._tasks.clear()
     yield
-    ai_review_service._ai_tasks.clear()
     with dss._tasks_lock:
         dss._tasks.clear()
 
@@ -118,7 +114,6 @@ def test_should_treat_malformed_temp_id_as_missing():
 # （execute）中通过 Pydantic pattern 断言 422。
 
 _PATH_ENDPOINTS = [
-    "ai-review/status",
     "screenshots/start",
     "screenshots/status",
     "screenshots/pages/1",
@@ -162,12 +157,11 @@ def test_should_answer_foreign_temp_id_like_missing_one_on_every_endpoint(client
     missing_id = uuid.uuid4().hex
     assert missing_id != temp_id
 
-    # A 的截图任务已完成、AI 任务已结束：B 不允许借 A 的编号看到其中任何内容。
+    # A 的截图任务已完成：B 不允许借 A 的编号看到其中任何内容。
     # 攻击面是 B 在自己的项目下引用 A 的编号（项目归属校验对 B 的项目放行）。
     page_png = file_path.parent / "page.png"
     page_png.write_bytes(b"\x89PNG fake")
     DocxScreenshotService._set_task(temp_id, ScreenshotTask(status="done", pages=[str(page_png)], page_count=1))
-    ai_review_service._ai_tasks[temp_id] = AIReviewTask(status="done", total=2, completed=2)
 
     for endpoint in _PATH_ENDPOINTS:
         foreign = _call_path_endpoint(client, token_b, project_b, temp_id, endpoint)
@@ -289,8 +283,6 @@ def test_should_purge_expired_uploads_with_their_artifacts(monkeypatch):
 
     screenshot_calls: list[str] = []
     monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid)))
-    ars = ai_review_service
-    monkeypatch.setattr(ars, "_ai_tasks", {old_id: object()}, raising=False)
 
     purged = DocxImportService.purge_expired_uploads(max_age_hours=24, now=time.time())
 
@@ -300,7 +292,6 @@ def test_should_purge_expired_uploads_with_their_artifacts(monkeypatch):
     assert not legacy_upper_format.exists(), "大写扩展名的遗留文件同样必须被清扫"
     assert fresh_new_format.exists(), "未过期的上传必须保留"
     assert screenshot_calls == [old_id], "新格式过期上传必须连带清理截图缓存"
-    assert old_id not in ars._ai_tasks, "新格式过期上传必须连带清理 AI 复核任务"
 
 
 def test_should_purge_nothing_when_temp_dir_missing():
@@ -329,8 +320,6 @@ def test_should_purge_expired_db_upload_together_with_same_id_artifacts(monkeypa
     # 同编号衍生文件保持新鲜：清扫按编号整体丢弃，而不是逐个文件比对 mtime
     screenshot_calls: list[str] = []
     monkeypatch.setattr(DocxScreenshotService, "cleanup", classmethod(lambda cls, tid: screenshot_calls.append(tid)))
-    ars = ai_review_service
-    monkeypatch.setattr(ars, "_ai_tasks", {old_id: object()}, raising=False)
 
     purged = DocxImportService.purge_expired_uploads(max_age_hours=24)
 
@@ -339,7 +328,6 @@ def test_should_purge_expired_db_upload_together_with_same_id_artifacts(monkeypa
     assert not artifact.exists(), "同编号衍生文件必须随编号一起丢弃"
     assert fresh_db.exists(), "未过期的 .db 必须保留"
     assert screenshot_calls == [old_id], "新格式过期上传必须连带清理截图缓存"
-    assert old_id not in ars._ai_tasks, "新格式过期上传必须连带清理 AI 复核任务"
 
 
 def test_should_purge_expired_legacy_db_file_only():

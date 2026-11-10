@@ -31,15 +31,6 @@ template:
   # 模板库 .db 路径；必须位于白名单目录内且后缀为 .db，默认空（不启用）
   template_path: ./database/通用表单_template.db
 
-# AI 辅助（导入建议 / 连通性测试）
-ai:
-  enabled: false                       # 是否启用 AI，默认 false
-  api_url: https://api.example.com/v1  # 接口地址，默认空
-  api_key: sk-xxx                      # 接口密钥，默认空（请勿提交真实密钥）
-  model: deepseek-chat                 # 模型名，默认空
-  api_format: openai                   # 接口格式 openai / anthropic，留空则测试连接时自动探测
-  timeout: 30                          # 请求超时（秒），默认 30
-
 # 保留管理员
 admin:
   username: admin                      # 保留管理员用户名，默认 admin

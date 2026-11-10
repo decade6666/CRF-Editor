@@ -123,7 +123,6 @@ def _create_owned_project(engine) -> int:
                     lambda _path, **_kw: [{"name": "表单A", "fields": [{"label": "字段1", "field_type": "文本"}]}],
                 ),
                 monkeypatch.setattr("src.routers.import_docx.DocxScreenshotService.start", lambda **_kwargs: None),
-                monkeypatch.setattr("src.routers.import_docx.start_ai_review", _fake_start_ai_review),
             ),
         ),
         (
@@ -202,7 +201,3 @@ def test_docx_import_rate_limits_return_429_in_production(
 
 async def _fake_stream_upload(_reader, _dest, **_kwargs):
     return 0
-
-
-async def _fake_start_ai_review(_temp_id, _forms, **_kwargs):
-    return None

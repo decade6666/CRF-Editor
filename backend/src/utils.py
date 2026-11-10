@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-import ipaddress
 import random
 import string
 from pathlib import Path
-from urllib.parse import urlparse
 
 
 def generate_code(prefix: str) -> str:
@@ -20,42 +18,6 @@ def generate_code(prefix: str) -> str:
     ts = now.strftime("%Y%m%d%H%M%S")
     rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"{prefix}_{ts}_{rand}"
-
-
-def is_safe_url(url: str) -> tuple[bool, str]:
-    """
-    校验 URL 是否安全（防止 SSRF）
-
-    Returns:
-        (is_safe, error_message)
-    """
-    if not url:
-        return False, "URL 不能为空"
-
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False, "仅支持 http/https 协议"
-
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "无效的 URL 格式"
-
-        # 阻止私网地址
-        try:
-            ip = ipaddress.ip_address(hostname)
-            if ip.is_private or ip.is_loopback or ip.is_link_local:
-                return False, "不允许访问私网地址"
-        except ValueError:
-            # 域名，检查常见的内网域名
-            if hostname in ("localhost", "metadata.google.internal"):
-                return False, "不允许访问本地或元数据地址"
-            if hostname.endswith((".local", ".internal")):
-                return False, "不允许访问内网域名"
-
-        return True, ""
-    except Exception as e:
-        return False, f"URL 解析失败: {str(e)}"
 
 
 def is_safe_path(path: str, allowed_dirs: list[str] = None) -> tuple[bool, str]:
@@ -97,24 +59,6 @@ def is_safe_path(path: str, allowed_dirs: list[str] = None) -> tuple[bool, str]:
         return True, ""
     except Exception as e:
         return False, f"路径解析失败: {str(e)}"
-
-
-def mask_secret(secret: str, show_last: int = 4) -> str:
-    """
-    脱敏处理密钥
-
-    Args:
-        secret: 原始密钥
-        show_last: 显示最后几位
-
-    Returns:
-        脱敏后的字符串
-    """
-    if not secret:
-        return ""
-    if len(secret) <= show_last:
-        return "*" * len(secret)
-    return "*" * (len(secret) - show_last) + secret[-show_last:]
 
 
 def is_safe_file_upload(

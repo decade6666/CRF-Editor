@@ -28,53 +28,8 @@
       <div class="compare-panel compare-right">
         <div class="panel-header">导入效果</div>
         <div class="panel-body panel-body-scroll preview-paper-canvas">
-          <div v-if="showAiReviewState" class="ai-review-card" :class="`ai-review-card--${aiReviewTone}`">
-            <div class="ai-review-title">
-              <el-icon v-if="isAiReviewActive" class="is-loading"><Loading /></el-icon>
-              <span>AI 复核</span>
-            </div>
-            <p v-if="isAiReviewActive" class="ai-review-text">AI 正在复核当前文档，建议会自动补充到本表单。</p>
-            <p v-else-if="props.aiReviewStatus === 'failed'" class="ai-review-text">
-              {{ props.aiReviewError || 'AI复核不可用，不影响继续导入。' }}
-            </p>
-            <p v-else class="ai-review-text">AI 已返回 {{ suggestions.length }} 条建议，请在导入前确认。</p>
-            <div class="ai-review-actions">
-              <el-checkbox
-                :model-value="formAccepted"
-                :indeterminate="formIndeterminate"
-                :disabled="suggestions.length === 0"
-                @change="toggleForm"
-              >
-                本表单全接受
-              </el-checkbox>
-              <el-button
-                link
-                size="small"
-                :disabled="suggestions.length === 0 || props.acceptedSuggestions.length === 0"
-                @click="clearFormAcceptance"
-              >
-                本表单全取消
-              </el-button>
-            </div>
-            <ul v-if="suggestions.length" class="ai-suggestion-list">
-              <li v-for="item in suggestions" :key="`${item.index}-${item.suggested_type}`" class="ai-suggestion-item">
-                <div class="ai-suggestion-head">
-                  <div class="ai-suggestion-main">
-                    <el-checkbox :model-value="isSuggestionAccepted(item)" @change="toggleSuggestion(item, $event)">
-                      接受
-                    </el-checkbox>
-                    <span class="ai-suggestion-label">{{ getFieldLabel(item.index) }}</span>
-                  </div>
-                  <span class="ai-suggestion-type">{{ formatSuggestionTransition(item) }}</span>
-                </div>
-                <p class="ai-suggestion-reason">{{ item.reason || 'AI 建议调整字段类型。' }}</p>
-              </li>
-            </ul>
-          </div>
           <SimulatedCRFForm
             :fields="formData.fields || []"
-            :ai-suggestions="acceptedSuggestions"
-            view-mode="ai"
             :paper-orientation="formData.paper_orientation || 'auto'"
             @field-click="handleFieldClick"
           />
@@ -91,96 +46,27 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
-import { Loading } from '@element-plus/icons-vue';
+import { ref } from 'vue';
 import DocxScreenshotPanel from './DocxScreenshotPanel.vue';
 import SimulatedCRFForm from './SimulatedCRFForm.vue';
 
-const props = defineProps({
+defineProps({
   modelValue: { type: Boolean, default: false },
   formData: { type: Object, default: null },
   tempId: { type: String, default: '' },
   projectId: { type: Number, default: 0 },
   allFormNames: { type: Array, default: () => [] },
   allFormsData: { type: Array, default: () => [] }, // 所有表单的完整数据
-  aiReviewStatus: { type: String, default: 'idle' },
-  aiReviewError: { type: String, default: '' },
-  acceptedSuggestions: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['update:modelValue', 'toggle-suggestion', 'toggle-form']);
+defineEmits(['update:modelValue']);
 
 const dialogWidth = 'min(92vw, 1200px)';
 const highlightedField = ref(null);
-const suggestions = computed(() => props.formData?.ai_suggestions || []);
-const acceptedSuggestionMap = computed(() => {
-  const map = {};
-  for (const suggestion of props.acceptedSuggestions || []) {
-    map[`${suggestion.index}:${suggestion.suggested_type}`] = true;
-  }
-  return map;
-});
-const isAiReviewActive = computed(() => props.aiReviewStatus === 'pending' || props.aiReviewStatus === 'running');
-const showAiReviewState = computed(
-  () => isAiReviewActive.value || props.aiReviewStatus === 'failed' || suggestions.value.length > 0,
-);
-const aiReviewTone = computed(() => {
-  if (isAiReviewActive.value) return 'loading';
-  if (props.aiReviewStatus === 'failed') return 'failed';
-  return 'done';
-});
-const formAccepted = computed(
-  () => suggestions.value.length > 0 && props.acceptedSuggestions.length === suggestions.value.length,
-);
-const formIndeterminate = computed(
-  () => props.acceptedSuggestions.length > 0 && props.acceptedSuggestions.length < suggestions.value.length,
-);
 
 // 处理字段点击
 function handleFieldClick(field) {
   highlightedField.value = field;
-}
-
-function toggleForm(accepted) {
-  emit('toggle-form', { formIndex: props.formData?.index, accepted });
-}
-
-function clearFormAcceptance() {
-  emit('toggle-form', { formIndex: props.formData?.index, accepted: false });
-}
-
-function isSuggestionAccepted(suggestion) {
-  return !!acceptedSuggestionMap.value[`${suggestion.index}:${suggestion.suggested_type}`];
-}
-
-function toggleSuggestion(suggestion, accepted) {
-  emit('toggle-suggestion', {
-    formIndex: props.formData?.index,
-    fieldIndex: suggestion.index,
-    suggestedType: suggestion.suggested_type,
-    accepted,
-  });
-}
-
-function getField(index) {
-  return props.formData?.fields?.find((field) => field.index === index) || null;
-}
-
-function getFieldLabel(index) {
-  return getField(index)?.label || `字段 ${index + 1}`;
-}
-
-function formatSuggestionTransition(item) {
-  const from = getFieldType(item.index)
-  if (Array.isArray(item?.suggested_fields) && item.suggested_fields.length) {
-    const to = item.suggested_fields.map((sf) => sf.field_type).join('+')
-    return `${from} → ${to}`
-  }
-  return `${from} → ${item.suggested_type}`
-}
-
-function getFieldType(index) {
-  return getField(index)?.field_type || '未知';
 }
 </script>
 
@@ -239,91 +125,6 @@ function getFieldType(index) {
 :global(html[data-theme='dark']) .preview-paper-canvas :deep(.crf-form-wrap) {
   border-color: color-mix(in srgb, #fff 16%, transparent);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
-}
-
-.ai-review-card {
-  margin: 0 0 12px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--el-fill-color-light, #f5f7fa);
-}
-
-.ai-review-card--loading {
-  border-color: var(--el-color-info-light-5, #b3d8ff);
-}
-
-.ai-review-card--failed {
-  border-color: var(--el-color-warning-light-5, #f3d19e);
-}
-
-.ai-review-card--done {
-  border-color: var(--el-color-success-light-5, #b3e19d);
-}
-
-.ai-review-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.ai-review-text {
-  margin: 8px 0 0;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-}
-
-.ai-review-actions {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.ai-suggestion-list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.ai-suggestion-item {
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
-}
-
-.ai-suggestion-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-}
-
-.ai-suggestion-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ai-suggestion-label {
-  font-weight: 600;
-}
-
-.ai-suggestion-type {
-  color: var(--color-text-secondary);
-}
-
-.ai-suggestion-reason {
-  margin: 6px 0 0;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
 }
 
 /* 底部布局 */
