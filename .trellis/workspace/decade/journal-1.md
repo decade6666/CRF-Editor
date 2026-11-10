@@ -1228,3 +1228,49 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 
 - 按既有正式授权合并main并正常推送；停止仅已核实身份的5174测试进程，删除仅本任务已合并工作树和分支，保留所有/tmp证据及其他工作树。
 - 不部署8888；旧工作树绝对路径MCP入口在清理后失效，后续仅按主目录agent_bridge/README.md重新配置，未擅自改客户端设置或安装主目录依赖。
+
+
+## Session 34: Agent授权入口迁入设置与MCP入口恢复收尾
+<!-- trellis-session: v=2 fp=d133cb2f7dc2725a -->
+
+**Date**: 2026-11-10
+**Task**: Agent授权入口迁入设置与MCP入口恢复收尾
+**Branch**: `feat/agent-access-settings`
+
+### Summary
+
+「Agent 授权」入口从项目信息页迁入设置窗口「当前项目」行，复用原弹窗并在关闭设置、切换/删除项目、退出登录或会话过期时卸载并清除一次性令牌；按锁定文件恢复主目录适配器环境，本机 local 作用域登记 crf-editor（仅 ${VAR} 引用）；隔离浏览器与标准 MCP 验收通过，用户确认测试通过后收尾。
+
+### Main Changes
+
+- App.vue 设置窗新增「当前项目」行与「Agent 授权」入口（无项目禁用、管理员不显示），按需挂载一个 AgentAccessDialog，上下文结束即卸载；ProjectInfoTab 移除旧入口，弹窗与组合式函数未改。
+- 新增 App/ProjectInfo 真实挂载测试与共享夹具 appTestHarness.js；四文件覆盖率 行98.07%/语句96.40%/函数97.98%/分支92.49%（基线 53.60/50.80/51.45/51.67），未改测试配置。
+- README 中英、两份 CLAUDE.md、index.json、跨栈契约 §16 同步新宿主；agent_bridge/README 改为主目录 uv 环境 + local 作用域 ${VAR} 接线，删除把令牌写进配置的示例。
+- 主目录 agent_bridge/.venv 按 requirements.lock 用 uv 创建（mcp 1.30.0 / httpx 0.27.2）；~/.claude.json 仅新增本项目 crf-editor 条目，其他 MCP、模型、代理、权限未改。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `52d8901` | feat(agent): 将授权入口迁入设置并更新MCP接线说明 |
+| `9402d14` | docs(spec): 同步Agent授权入口宿主契约 |
+| `a645ad1` | docs(context): 归档Agent授权入口决策记录 |
+
+### Testing
+
+- [OK] [OK] node --test tests/*.test.js：1080 通过；npm run test:component -- --maxWorkers=4：24 文件 347 通过；lint 0 错误，私有目录构建通过。
+- [OK] [WARN] 默认并行 npm test 时 4 个未改动的设计器挂载用例在本机超过 5s（--maxWorkers=4 或 --testTimeout=30000 全过），未改配置。
+- [OK] [OK] 适配器 pytest 62 通过、覆盖率 95.22%；git diff --check 干净；gitleaks 候选 23 文件与更新文档 3 文件 0 发现；提交门禁均通过。
+- [OK] [OK] 隔离浏览器验收（回环 39577、私有库，桌面/390px × 浅色/深色）：禁用、按需加载、项目绑定、关闭/Esc/关设置卸载、切项目、退出、管理员隐藏均符合，控制台无错误。
+- [OK] [OK] 标准 MCP：初始化、恰好十工具、仅见授权项目、大纲指纹两次一致、跨项目 GRANT_DENIED；claude mcp get 带变量 Connected，无变量与未知令牌均 Failed；用户确认测试通过。
+- [OK] [NOT RUN] 独立审查（仅自审）；后端全量 pytest（本任务无后端改动）。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 可另立任务修复设置窗固定 560px：390px 窄屏下「修改密码」与「Agent 授权」需横向滚动才可见。
+- 既有观察未修：Agent 访问窗口过期时间显示原始 ISO 格式；项目信息预设 Logo 降级慢一次按键；默认并行前端测试在本机易超时。
+- 正式使用：在真实服务「设置 → 当前项目 → Agent 授权」发放凭据，导出 CRF_AGENT_API_URL / CRF_AGENT_TOKEN 后新开 Claude Code 会话。

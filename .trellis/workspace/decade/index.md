@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 33
-- **Last Active**: 2026-11-09
+- **Total Sessions**: 34
+- **Last Active**: 2026-11-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1230 | Active |
+| `journal-1.md` | ~1276 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 34 | 2026-11-10 | Agent授权入口迁入设置与MCP入口恢复收尾 | `52d8901`, `9402d14`, `a645ad1` | `feat/agent-access-settings` |
 | 33 | 2026-11-09 | 受控MCP编辑验收与收尾 | `6eefea69140b97a8f03165f80ae668d712c33b44`, `4964fa62c3986c8694cac0a0343062741f8a0685`, `19905d271ddd3335b270fb844cc60e112921e9c1` | `worktree-mcp-agent-tools` |
 | 32 | 2026-10-28 | OID 自动大写验收与时钟回拨排障收尾 | `2b82644`, `41a3a7d`, `7ae30c0` | `feat/uppercase-oids` |
 | 31 | 2026-10-27 | 单表单横向表格限制验收与收尾 | `130fb0c`, `c7727ab`, `c998655` | `feat/single-table-guard` |
