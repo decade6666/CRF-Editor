@@ -132,7 +132,7 @@ async function clickStandInButton(wrapper, name, label) {
 
 async function toggleEditMode(wrapper) {
   const settings = await openSettings(wrapper);
-  await formItem(settings, '编辑模式').get('.el-switch').trigger('click');
+  await settings.get('[role="radiogroup"][aria-label="编辑模式"] input:not(:checked)').setValue(true);
   await settle();
 }
 
@@ -638,6 +638,32 @@ describe('App 模板导入弹窗', () => {
     expect(standInProps(wrapper, 'TemplatePreviewDialog').modelValue).toBe('false');
   });
 
+  it('勾选模板表单后沿既有导入链路提交并展示新表单', async () => {
+    const wrapper = await mountApp({
+      post: (url) => {
+        if (url === '/api/projects/5/import-template') return TEMPLATE_LIBRARY;
+        if (url === '/api/projects/5/import-template/execute') {
+          return { imported_form_count: 1, imported_form_ids: [81] };
+        }
+        return undefined;
+      },
+    });
+    const dialog = await openImport(wrapper);
+    expect(buttonByText(dialog, '确认导入').isDisabled()).toBe(true);
+
+    await dialog.get('input[type="checkbox"]').setValue(true);
+    await settle();
+    await buttonByText(dialog, '确认导入').trigger('click');
+    await settle();
+
+    expect(api.post).toHaveBeenCalledWith('/api/projects/5/import-template/execute', {
+      source_project_id: 21,
+      form_ids: [31],
+    });
+    expect(dialog.props('modelValue')).toBe(false);
+    expect(designer.selectedFormIds).toEqual([81]);
+  });
+
   it('模板加载失败时提示原因并关闭弹窗', async () => {
     const wrapper = await mountApp({ post: () => Promise.reject(new Error('模板库不可用')) });
 
@@ -703,7 +729,7 @@ describe('App 模板字段查询', () => {
 describe('App 导入 Word', () => {
   async function openWordImport(wrapper) {
     const settings = await openSettings(wrapper);
-    await buttonByText(settings, '导入Word').trigger('click');
+    await settings.get('[aria-label="导入 Word 文档"]').trigger('click');
     await settle();
     return wrapper.findComponent(WordImportDialog);
   }

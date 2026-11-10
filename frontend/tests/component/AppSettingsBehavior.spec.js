@@ -23,6 +23,117 @@ import {
 const OLD_PW = 'old-pw-1';
 const NEW_PW = 'new-pw-2';
 
+async function chooseSetting(settings, name, label) {
+  const group = settings.get(`[role="radiogroup"][aria-label="${name}"]`);
+  const option = group.findAll('label').find((node) => node.text() === label);
+  expect(option, `应显示选项「${label}」`).toBeTruthy();
+  await option.get('input[type="radio"]').setValue(true);
+  await settle();
+}
+
+describe('App 设置 · 分组卡片布局', () => {
+  it('普通用户依次看到账号、界面、项目与数据，项目操作与当前项目在同一卡片', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    expect(settings.findAll('section > h3').map((node) => node.text())).toEqual(['账号', '界面', '项目与数据']);
+    const account = settings.get('section[aria-labelledby="settings-account-title"]');
+    expect(account.text()).toContain('temporary-owner');
+    expect(buttonByText(account, '修改密码').exists()).toBe(true);
+    expect(buttonByText(account, '退出登录').exists()).toBe(true);
+    const data = settings.get('section[aria-labelledby="settings-data-title"]');
+    expect(data.text()).toContain('授权测试项目');
+    expect(data.get('[data-test="agent-access-entry"]').text()).toBe('Agent 授权');
+    expect(data.findAll('.settings-transfer-actions button').map((node) => node.text())).toEqual([
+      '当前项目', '所有项目', '项目文件', 'Word 文档',
+    ]);
+    expect(settings.find('.el-dialog__footer').exists()).toBe(false);
+    expect(settings.find('.el-divider').exists()).toBe(false);
+  });
+
+  it('管理员只显示账号、主题与全局配置卡片，保留关闭和保存', async () => {
+    const wrapper = await mountApp({ admin: true });
+    const settings = await openSettings(wrapper);
+
+    expect(settings.findAll('section > h3').map((node) => node.text())).toEqual(['账号', '界面', '全局设置', 'AI 复核']);
+    expect(settings.find('[aria-label="编辑模式"]').exists()).toBe(false);
+    expect(settings.find('[data-test="agent-access-entry"]').exists()).toBe(false);
+    expect(settings.find('.settings-transfer-actions').exists()).toBe(false);
+    expect(settings.findAll('button').some((node) => node.text() === '修改密码')).toBe(false);
+    expect(settings.get('.settings-current-user-row').text()).toContain('退出登录');
+    expect(settings.get('.el-dialog__footer').findAll('button').map((node) => node.text())).toEqual(['关闭', '保存']);
+  });
+
+  it('两种选择器都提供具名单选组，并保留两个命名选项及模式说明', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    expect(settings.get('[role="radiogroup"][aria-label="编辑模式"]').findAll('label').map((node) => node.text()))
+      .toEqual(['基础', '完全']);
+    expect(settings.get('[role="radiogroup"][aria-label="主题"]').findAll('label').map((node) => node.text()))
+      .toEqual(['浅色', '深色']);
+    expect(settings.text()).toContain('基础：仅保留浏览与设计入口');
+    expect(settings.text()).toContain('完全：显示全部编辑能力');
+    expect(settings.text()).not.toContain('跟随系统');
+  });
+
+  it('当前项目缺失时禁用项目导出和Word导入，账号级数据操作仍可用', async () => {
+    const wrapper = await mountApp({ select: false });
+    const settings = await openSettings(wrapper);
+
+    expect(settings.text()).toContain('请先选择项目');
+    expect(settings.get('[aria-label="导出当前项目"]').isDisabled()).toBe(true);
+    expect(settings.get('[aria-label="导入 Word 文档"]').isDisabled()).toBe(true);
+    expect(settings.get('[aria-label="导出所有项目"]').isDisabled()).toBe(false);
+    expect(settings.get('[aria-label="导入项目"]').isDisabled()).toBe(false);
+  });
+
+  it.each([['decade', 'D'], ['', '?']])('用户名为「%s」时头像和用户信息安全回显', async (username, initial) => {
+    const wrapper = await mountApp({ username });
+    const settings = await openSettings(wrapper);
+
+    expect(settings.get('.settings-avatar').text()).toBe(initial);
+    expect(settings.get('.settings-current-user-row').text()).toContain(username || '未登录');
+  });
+
+  it('用户名中的HTML形状文本只作为文字展示', async () => {
+    const username = 'owner <img src=x>';
+    const wrapper = await mountApp({ username });
+    const settings = await openSettings(wrapper);
+
+    expect(settings.get('.settings-current-user-row .settings-value').text()).toBe(username);
+    expect(settings.find('img').exists()).toBe(false);
+  });
+
+  it('编辑模式分段选择即时生效，持久化后关闭重开仍保留选择', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    await chooseSetting(settings, '编辑模式', '完全');
+    expect(localStorage.getItem('crf_edit_mode')).toBe('true');
+    expect(wrapper.text()).toContain('字段');
+    settings.vm.$emit('update:modelValue', false);
+    await settle();
+    const reopened = await openSettings(wrapper);
+    expect(reopened.get('[aria-label="编辑模式"] .is-selected').text()).toBe('完全');
+    await chooseSetting(reopened, '编辑模式', '基础');
+
+    expect(localStorage.getItem('crf_edit_mode')).toBe('false');
+    expect(wrapper.findAll('.el-tabs__item').some((node) => node.text() === '字段')).toBe(false);
+  });
+
+  it('弹窗宽度通过公开属性绑定到真实根元素，背景点击不会关闭', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    expect(settings.props('width')).toBe('min(560px, calc(100vw - 24px))');
+    expect(settings.get('.el-dialog').element.style.getPropertyValue('--el-dialog-width'))
+      .toBe('min(560px, calc(100vw - 24px))');
+    expect(settings.props('closeOnClickModal')).toBe(false);
+    expect(settings.get('.el-dialog__headerbtn').attributes('aria-label')).toBeTruthy();
+  });
+});
+
 async function openPasswordDialog(wrapper) {
   const settings = await openSettings(wrapper);
   await buttonByText(settings, '修改密码').trigger('click');
@@ -235,17 +346,29 @@ describe('App 设置 · 主题', () => {
     };
   }
 
-  it('设置中的主题开关切换深浅色并持久化', async () => {
+  it('设置中的主题分段选择切换深浅色并持久化', async () => {
     const wrapper = await mountApp();
     const settings = await openSettings(wrapper);
 
-    await formItem(settings, '主题模式').get('.el-switch').trigger('click');
-    await settle();
+    await chooseSetting(settings, '主题', '深色');
     expect(theme()).toEqual({ dark: true, attribute: 'dark', saved: 'dark' });
-    await formItem(settings, '主题模式').get('.el-switch').trigger('click');
-    await settle();
+    await chooseSetting(settings, '主题', '浅色');
 
     expect(theme()).toEqual({ dark: false, attribute: 'light', saved: 'light' });
+  });
+
+  it('头部主题切换同步已打开设置中的选中项，重开设置仍一致', async () => {
+    const wrapper = await mountApp();
+    const settings = await openSettings(wrapper);
+
+    await wrapper.get('[aria-label="切换到暗色模式"]').trigger('click');
+    await settle();
+    expect(settings.get('[aria-label="主题"] .is-selected').text()).toBe('深色');
+    settings.vm.$emit('update:modelValue', false);
+    await settle();
+    const reopened = await openSettings(wrapper);
+
+    expect(reopened.get('[aria-label="主题"] .is-selected').text()).toBe('深色');
   });
 
   it.each([
@@ -282,7 +405,7 @@ describe('App 设置 · 数据库导出', () => {
 
   async function exportFromSettings(wrapper, label) {
     const settings = await openSettings(wrapper);
-    await buttonByText(settings, label).trigger('click');
+    await settings.get(`[aria-label="${label}"]`).trigger('click');
     await settle();
   }
 
@@ -393,7 +516,7 @@ describe('App 设置 · 导入项目', () => {
     const input = settings.get('input[aria-label="导入项目数据库文件"]');
     const click = vi.spyOn(input.element, 'click').mockImplementation(() => {});
 
-    await buttonByText(settings, '导入项目').trigger('click');
+    await settings.get('[aria-label="导入项目"]').trigger('click');
 
     expect(click).toHaveBeenCalledTimes(1);
   });
@@ -441,7 +564,7 @@ describe('App 设置 · 导入项目', () => {
     const settings = await chooseImportFile(wrapper, [databaseFile()]);
 
     expect(ElMessage.error).toHaveBeenCalledWith(message);
-    expect(buttonByText(settings, '导入项目').classes()).not.toContain('is-loading');
+    expect(settings.get('[aria-label="导入项目"]').classes()).not.toContain('is-loading');
   });
 
   it('未选择文件时不发起导入', async () => {
@@ -455,6 +578,17 @@ describe('App 设置 · 导入项目', () => {
 });
 
 describe('App 设置 · 弹窗', () => {
+  it('管理员点击关闭只隐藏设置，不保存配置', async () => {
+    const wrapper = await mountApp({ admin: true });
+    const settings = await openSettings(wrapper);
+
+    await buttonByText(settings, '关闭').trigger('click');
+    await settle();
+
+    expect(settings.props('modelValue')).toBe(false);
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
   it('对话框自身关闭时同步隐藏设置', async () => {
     const wrapper = await mountApp();
     const settings = await openSettings(wrapper);

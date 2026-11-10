@@ -14,8 +14,10 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   Delete,
   DocumentCopy,
+  Download,
   Expand,
   Files,
+  Folder,
   Loading,
   Monitor,
   Moon,
@@ -25,6 +27,7 @@ import {
   Search,
   Setting,
   Sunny,
+  Upload,
 } from '@element-plus/icons-vue';
 import draggable from 'vuedraggable';
 import { api, getAuthHeaders, apiUrl } from './composables/useApi';
@@ -431,6 +434,15 @@ async function handleImportProject(e) {
 
 // 设置弹窗
 const showSettings = ref(false);
+const settingsUserInitial = computed(() => Array.from(currentUser.value.username || '?')[0].toUpperCase());
+const editModeOptions = [
+  { label: '基础', value: false },
+  { label: '完全', value: true },
+];
+const themeOptions = [
+  { label: '浅色', value: false },
+  { label: '深色', value: true },
+];
 const settingsForm = reactive({
   template_path: '',
   ai_enabled: false,
@@ -1088,96 +1100,174 @@ function startResize(e) {
   </template>
 
   <!-- 设置弹窗（全局可用） -->
-  <el-dialog v-model="showSettings" title="设置" width="560px" :close-on-click-modal="false">
-    <el-form label-width="100px">
-      <el-divider>账号与界面</el-divider>
-      <el-form-item label="当前用户">
-        <div class="settings-current-user-row">
-          <span>{{ currentUser.username || '未登录' }}</span>
-          <el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码</el-button>
+  <el-dialog
+    v-model="showSettings"
+    title="设置"
+    class="settings-dialog"
+    width="min(560px, calc(100vw - 24px))"
+    :close-on-click-modal="false"
+  >
+    <el-form label-width="100px" class="settings-form">
+      <section class="settings-section" aria-labelledby="settings-account-title">
+        <h3 id="settings-account-title" class="settings-section-title">账号</h3>
+        <div class="settings-card">
+          <div class="settings-row settings-current-user-row">
+            <div class="settings-identity">
+              <span class="settings-avatar" aria-hidden="true">{{ settingsUserInitial }}</span>
+              <div class="settings-identity-copy">
+                <span class="settings-caption">当前用户</span>
+                <span class="settings-value">{{ currentUser.username || '未登录' }}</span>
+              </div>
+            </div>
+            <div class="settings-account-actions">
+              <el-button v-if="!isAdmin" @click="openSelfPasswordDialog">修改密码</el-button>
+              <el-button text type="danger" @click="logout">退出登录</el-button>
+            </div>
+          </div>
         </div>
-      </el-form-item>
-      <el-form-item v-if="!isAdmin" label="当前项目">
-        <div class="settings-current-project-row">
-          <span class="settings-current-project-name">{{ selectedProject?.name || '请先选择项目' }}</span>
-          <el-button
-            link
-            type="primary"
-            data-test="agent-access-entry"
-            :disabled="agentAccessProjectId === null"
-            @click="openAgentAccess"
-            >Agent 授权</el-button
-          >
-        </div>
-      </el-form-item>
-      <el-form-item v-if="!isAdmin" label="编辑模式">
-        <el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要" />
-        <span style="margin-left: 8px; color: var(--color-text-muted); font-size: 12px"
-          >关闭时保留基础浏览与设计入口，开启后显示完整编辑能力</span
-        >
-      </el-form-item>
-      <el-form-item label="主题模式">
-        <el-switch :model-value="isDark" inline-prompt active-text="深色" inactive-text="浅色" @change="setTheme" />
-      </el-form-item>
+      </section>
 
-      <el-divider v-if="!isAdmin" />
-      <div v-if="!isAdmin" class="settings-transfer-actions">
-        <el-button @click="exportFullDatabase">导出所有项目</el-button>
-        <el-button :disabled="!selectedProject" @click="exportProjectDatabase">导出当前项目</el-button>
-        <el-button :loading="importProjectLoading" @click="triggerImportProject">导入项目</el-button>
-        <el-button :disabled="!selectedProject" @click="openImportWordDialog">导入Word</el-button>
-      </div>
+      <section class="settings-section" aria-labelledby="settings-interface-title">
+        <h3 id="settings-interface-title" class="settings-section-title">界面</h3>
+        <div class="settings-card">
+          <div v-if="!isAdmin" class="settings-row">
+            <div class="settings-row-copy">
+              <span class="settings-label">编辑模式</span>
+              <p id="settings-edit-mode-help" class="settings-description">
+                <span>基础：仅保留浏览与设计入口</span>
+                <span>完全：显示全部编辑能力</span>
+              </p>
+            </div>
+            <el-segmented
+              v-model="editMode"
+              :options="editModeOptions"
+              class="settings-segmented"
+              aria-label="编辑模式"
+              aria-describedby="settings-edit-mode-help"
+            />
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">主题</span>
+            <el-segmented
+              :model-value="isDark"
+              :options="themeOptions"
+              class="settings-segmented"
+              aria-label="主题"
+              @change="setTheme"
+            >
+              <template #default="{ item }">
+                <span class="settings-theme-option">
+                  <el-icon aria-hidden="true"><Moon v-if="item.value" /><Sunny v-else /></el-icon>
+                  <span>{{ item.label }}</span>
+                </span>
+              </template>
+            </el-segmented>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="!isAdmin" class="settings-section" aria-labelledby="settings-data-title">
+        <h3 id="settings-data-title" class="settings-section-title">项目与数据</h3>
+        <div class="settings-card">
+          <div class="settings-row settings-current-project-row">
+            <div class="settings-identity">
+              <span class="settings-project-icon" aria-hidden="true"
+                ><el-icon><Folder /></el-icon
+              ></span>
+              <div class="settings-identity-copy">
+                <span class="settings-caption">当前项目</span>
+                <span class="settings-value">{{ selectedProject?.name || '请先选择项目' }}</span>
+              </div>
+            </div>
+            <el-button data-test="agent-access-entry" :disabled="agentAccessProjectId === null" @click="openAgentAccess"
+              >Agent 授权</el-button
+            >
+          </div>
+          <div class="settings-row">
+            <span class="settings-transfer-label"
+              ><el-icon aria-hidden="true"><Upload /></el-icon>导出</span
+            >
+            <div class="settings-transfer-actions">
+              <el-button aria-label="导出当前项目" :disabled="!selectedProject" @click="exportProjectDatabase"
+                >当前项目</el-button
+              >
+              <el-button aria-label="导出所有项目" @click="exportFullDatabase">所有项目</el-button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <span class="settings-transfer-label"
+              ><el-icon aria-hidden="true"><Download /></el-icon>导入</span
+            >
+            <div class="settings-transfer-actions">
+              <el-button aria-label="导入项目" :loading="importProjectLoading" @click="triggerImportProject"
+                >项目文件</el-button
+              >
+              <el-button aria-label="导入 Word 文档" :disabled="!selectedProject" @click="openImportWordDialog"
+                >Word 文档</el-button
+              >
+            </div>
+          </div>
+        </div>
+      </section>
 
       <template v-if="isAdmin">
-        <el-divider>全局设置</el-divider>
-        <el-form-item label="模板路径">
-          <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
-        </el-form-item>
-        <el-divider>AI 复核配置</el-divider>
-        <el-form-item label="启用AI复核">
-          <el-switch v-model="settingsForm.ai_enabled" />
-        </el-form-item>
-        <el-form-item label="API URL">
-          <el-input
-            v-model="settingsForm.ai_api_url"
-            placeholder="如：https://api.openai.com/v1"
-            :disabled="!settingsForm.ai_enabled"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="API Key">
-          <el-input
-            v-model="settingsForm.ai_api_key"
-            type="password"
-            show-password
-            :disabled="!settingsForm.ai_enabled"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-input
-            v-model="settingsForm.ai_model"
-            placeholder="如：gpt-4o, deepseek-chat"
-            :disabled="!settingsForm.ai_enabled"
-            clearable
-          />
-        </el-form-item>
-        <el-form-item v-if="settingsForm.ai_enabled">
-          <el-button
-            :loading="aiTestLoading"
-            :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model"
-            @click="testAiConnection"
-          >
-            测试连接
-          </el-button>
-          <span v-if="aiTestResult" style="margin-left: 10px; font-size: 13px">
-            <span v-if="aiTestResult.ok" style="color: var(--color-success)">
-              连接成功 ({{ aiTestResult.latency_ms }}ms,
-              {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
-            </span>
-            <span v-else style="color: var(--color-danger)"> 连接失败: {{ aiTestResult.error }} </span>
-          </span>
-        </el-form-item>
+        <section class="settings-section" aria-labelledby="settings-global-title">
+          <h3 id="settings-global-title" class="settings-section-title">全局设置</h3>
+          <div class="settings-card settings-config-card">
+            <el-form-item label="模板路径">
+              <el-input v-model="settingsForm.template_path" placeholder="请输入模板 .db 文件的绝对路径" clearable />
+            </el-form-item>
+          </div>
+        </section>
+        <section class="settings-section" aria-labelledby="settings-ai-title">
+          <h3 id="settings-ai-title" class="settings-section-title">AI 复核</h3>
+          <div class="settings-card settings-config-card">
+            <el-form-item label="启用AI复核">
+              <el-switch v-model="settingsForm.ai_enabled" />
+            </el-form-item>
+            <el-form-item label="API URL">
+              <el-input
+                v-model="settingsForm.ai_api_url"
+                placeholder="如：https://api.openai.com/v1"
+                :disabled="!settingsForm.ai_enabled"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="API Key">
+              <el-input
+                v-model="settingsForm.ai_api_key"
+                type="password"
+                show-password
+                :disabled="!settingsForm.ai_enabled"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="模型">
+              <el-input
+                v-model="settingsForm.ai_model"
+                placeholder="如：gpt-4o, deepseek-chat"
+                :disabled="!settingsForm.ai_enabled"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item v-if="settingsForm.ai_enabled">
+              <el-button
+                :loading="aiTestLoading"
+                :disabled="!settingsForm.ai_api_url || !settingsForm.ai_api_key || !settingsForm.ai_model"
+                @click="testAiConnection"
+              >
+                测试连接
+              </el-button>
+              <span v-if="aiTestResult" class="settings-ai-result">
+                <span v-if="aiTestResult.ok" style="color: var(--color-success)">
+                  连接成功 ({{ aiTestResult.latency_ms }}ms,
+                  {{ aiTestResult.api_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}格式)
+                </span>
+                <span v-else style="color: var(--color-danger)"> 连接失败: {{ aiTestResult.error }} </span>
+              </span>
+            </el-form-item>
+          </div>
+        </section>
       </template>
 
       <input
@@ -1189,20 +1279,15 @@ function startResize(e) {
         @change="handleImportProject"
       />
     </el-form>
-    <template #footer>
-      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
-        <el-button type="danger" plain @click="logout">退出登录</el-button>
-        <div style="display: flex; gap: 8px">
-          <el-button
-            @click="
-              closeSelfPasswordDialog();
-              showSettings = false;
-            "
-            >关闭</el-button
-          >
-          <el-button v-if="isAdmin" type="primary" @click="saveSettings">保存</el-button>
-        </div>
-      </div>
+    <template v-if="isAdmin" #footer>
+      <el-button
+        @click="
+          closeSelfPasswordDialog();
+          showSettings = false;
+        "
+        >关闭</el-button
+      >
+      <el-button type="primary" @click="saveSettings">保存</el-button>
     </template>
   </el-dialog>
 
@@ -1249,6 +1334,27 @@ function startResize(e) {
     </template>
   </el-dialog>
 </template>
+
+<style>
+/* 根元素尺寸与滚动只作用于设置弹窗；不依赖无法命中传送根节点的 scoped 深层选择器。 */
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  margin: 24px auto;
+}
+
+.settings-dialog .el-dialog__header,
+.settings-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+
+.settings-dialog .el-dialog__body {
+  min-height: 0;
+  padding: 18px 8px 8px;
+  overflow-y: auto;
+}
+</style>
 
 <style scoped>
 .auth-loading {
@@ -1334,30 +1440,206 @@ function startResize(e) {
   margin-left: auto;
 }
 
-.settings-current-user-row,
-.settings-current-project-row {
+.settings-section + .settings-section {
+  margin-top: 24px;
+}
+
+.settings-section-title {
+  margin: 0 0 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  line-height: var(--leading-normal);
+}
+
+.settings-card {
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+}
+
+.settings-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  width: 100%;
+  padding: 12px 0;
 }
 
-.settings-current-project-name {
+.settings-row + .settings-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.settings-identity {
+  display: flex;
+  flex: 1 1 120px;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
+}
+
+.settings-avatar,
+.settings-project-icon {
+  display: inline-flex;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.settings-avatar {
+  border-radius: 50%;
+  color: var(--color-header-text);
+  background: var(--color-primary);
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.settings-project-icon {
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+  font-size: var(--font-lg);
+}
+
+.settings-identity-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-caption {
+  color: var(--color-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.settings-value,
+.settings-label {
+  color: var(--color-text-primary);
+  font-size: var(--font-base);
+  line-height: var(--leading-normal);
   overflow-wrap: anywhere;
 }
 
-.settings-transfer-actions {
+.settings-account-actions {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
 }
 
-.settings-transfer-actions :deep(.el-button) {
-  width: 100%;
+.settings-card :deep(.el-button) {
+  min-height: 40px;
   margin-left: 0;
+  border-radius: var(--radius-md);
+}
+
+.settings-row-copy {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.settings-description {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-sm);
+  line-height: var(--leading-normal);
+}
+
+.settings-segmented {
+  --el-segmented-color: var(--color-text-secondary);
+  --el-segmented-bg-color: var(--color-bg-hover);
+  --el-segmented-item-selected-color: var(--color-primary);
+  --el-segmented-item-selected-bg-color: var(--color-bg-card);
+  --el-segmented-item-hover-bg-color: var(--color-bg-subtle);
+  --el-segmented-padding: 3px;
+  --el-border-radius-base: 10px;
+  flex-shrink: 0;
+  min-height: 40px;
+  margin-left: auto;
+}
+
+.settings-segmented :deep(.el-segmented__item) {
+  box-sizing: border-box;
+  min-width: 56px;
+  padding: 0 12px;
+}
+
+.settings-segmented :deep(.el-segmented__item-selected) {
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+}
+
+.settings-segmented :deep(.el-segmented__item-selected.is-focus-visible::before) {
+  outline-color: var(--color-primary);
+}
+
+.settings-theme-option,
+.settings-transfer-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-transfer-label {
+  color: var(--color-text-primary);
+}
+
+.settings-transfer-label .el-icon {
+  color: var(--color-text-secondary);
+  font-size: 16px;
+}
+
+.settings-transfer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 232px;
+  max-width: 100%;
+}
+
+.settings-config-card {
+  padding-block: 16px;
+}
+
+.settings-config-card :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+
+.settings-ai-result {
+  margin-left: 10px;
+  font-size: var(--font-base);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .settings-row-copy {
+    flex-basis: 100%;
+  }
+
+  .settings-account-actions {
+    margin-left: auto;
+  }
+
+  .settings-transfer-actions {
+    width: 100%;
+  }
+
+  .settings-config-card :deep(.el-form-item) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-config-card :deep(.el-form-item__label) {
+    justify-content: flex-start;
+  }
 }
 
 .main-content-tabs {

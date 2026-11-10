@@ -34,7 +34,7 @@ const tabSource = readSourceOrNull(projectInfoTabPath) ?? '';
 const dialogCode = readSourceOrNull(dialogPath) ?? '';
 const composableSource = readSourceOrNull(composablePath) ?? '';
 const wiringSource = readSourceOrNull(wiringPath) ?? '';
-const settingsDialogSource = appSource.match(/<el-dialog v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] ?? '';
+const settingsDialogSource = appSource.match(/<el-dialog\s+v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] ?? '';
 
 function countMatches(source, pattern) {
   const global = pattern.flags.includes('g') ? pattern : new RegExp(pattern, pattern.flags + 'g');
