@@ -1,0 +1,3 @@
+{"file":".trellis/tasks/archive/2026-11/11-10-settings-dialog-layout/research/settings-ui-contracts.md","reason":"Bounded excerpts and exact source pointers for dialog width/styling/accessibility, unchanged Agent host lifecycle and real-mount versus browser acceptance; avoids truncating the 98 KiB component spec."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Preserve the existing boolean editMode and binary theme persistence; no new global state or storage format."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Follow existing real App/Element Plus mount tests, API-boundary spies, Vue warning gate and test-first validation without test infrastructure changes."}
