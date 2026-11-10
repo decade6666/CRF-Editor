@@ -1298,3 +1298,26 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: 删除AI复核功能并双重独立审查
+<!-- trellis-session: v=2 fp=f4e39da74c50fcd5 -->
+
+**Date**: 2026-11-10
+**Task**: 删除AI复核功能并双重独立审查
+**Branch**: `worktree-remove-ai-review`
+
+### Summary
+
+端到端移除 Word 导入 AI 复核：退役端点 404、遗留 ai_overrides/ai_* 参数固定 422 且不回显、确定性导入/截图对照/设置布局/Agent/MCP/每周发布保留；后端 1660 通过 88.99%，前端 1075+378 通过，双重独立只读审查 PASS；保留两项非阻塞测试不足，实际 Opus 路由未核实。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `da87e0e` | feat(word-import): 移除AI复核功能并拒绝遗留AI参数 |
+| `a7ab6d8` | docs(spec): 固化确定性导入与退役AI写入契约 |
+
+### Status
+
+[OK] **Completed**
