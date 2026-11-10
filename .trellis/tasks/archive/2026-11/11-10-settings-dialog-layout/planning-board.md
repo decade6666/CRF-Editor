@@ -20,7 +20,7 @@ Implementation approved by the user on 2026-11-10 (「按此方案实施」), fo
 | Done | User browser acceptance | User confirmed 「没有问题了，收尾」; no additional UI change requested. The sudo-blocked restart remains a recorded limitation, not a successful restart. |
 | Done | Work commits | ca9dbb1: product code/tests/docs; 0380184: frontend spec; 55a2d7b: context evidence. All three normal pre-commit checks passed without bypasses. |
 | Done | Task archive | Archived only settings-dialog-layout under archive/2026-11; task status is completed and both context manifests point to the archived research file. |
-| Next | Journal | Record journal referencing ca9dbb1, 0380184 and 55a2d7b, then complete main delivery. |
+| Done | Journal | Session 35 recorded in decade/journal-1.md, referencing ca9dbb1, 0380184 and 55a2d7b; committed separately after task archive. |
 | Pending | Main delivery and cleanup | Merge to main, rebuild the served frontend from main, verify served assets, push main and recoverably remove only this task's worktree/branch. |
 
 ## Expected Implementation Scope
