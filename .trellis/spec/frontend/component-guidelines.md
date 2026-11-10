@@ -141,6 +141,21 @@ Contracts:
 
 ---
 
+### Settings Cards and Binary Preferences
+
+`App.vue` settings use 账号 / 界面 / 项目与数据 cards for regular users. Keep current-project context beside Agent and data actions; preserve the Agent host lifecycle from cross-stack §16 instead of embedding its dialog. Logout belongs in the account row and remains immediate. Only admins have a 关闭 / 保存 footer and global/AI configuration; password change, edit mode and project/data actions retain their regular-user gates.
+
+Named preference choices use the existing boolean state, not new string-valued storage:
+
+```vue
+<el-segmented v-model="editMode" :options="editModeOptions" aria-label="编辑模式" />
+<!-- editModeOptions: [{ label: '基础', value: false }, { label: '完全', value: true }] -->
+```
+
+Theme options similarly map 浅色 / 深色 to `isDark: false / true` and call the existing `setTheme`; do not add system-theme semantics as a restyle. Compact transfer labels (当前项目 / 所有项目, 项目文件 / Word 文档) need full accessible action names. Use existing theme variables and the dialog-root styling contract below; constrain width through the public width prop and let only the body scroll in short viewports so header × and admin footer stay reachable.
+
+Validation: `appSettingsShell.test.js` and `AppSettingsBehavior.spec.js` cover grouping, role/no-project gates, boolean persistence, accessible groups, safe text and width binding; `AppWorkspaceBehavior.spec.js` keeps advanced-tab/template-search leave and import handoffs; `AppAgentAccess.spec.js` preserves context disposal. Mount tests can emit the public close-model event but cannot prove header × transitions or geometry: browser checks must cover actual × close/unmount, keyboard selection/focus, light/dark, 320/390px widths, long names and short-height scrolling. Do not broaden a UI restyle into backend/auth/import logic changes.
+
 ### Shared Toolbar / Top-Slot Contract
 
 `main.css` provides two semantic classes for list toolbars and pane title rows:
