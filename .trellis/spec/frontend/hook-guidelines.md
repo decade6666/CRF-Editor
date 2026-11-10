@@ -513,26 +513,29 @@ export function useCRFRenderer() {
 
 ## Ignoring Late Responses After Scope Disposal
 
-Disposal does not cancel a request already in flight — it only suppresses later
-state writes and rescheduling. Guard per invocation:
+Disposal does not cancel a request already in flight — it suppresses later state
+writes and follow-up requests. Keep invalidation state local to each invocation
+of an asynchronous composable that still needs it.
 
-```javascript
-// useWordImport.js — `disposed` lives in the per-invocation factory, never at module level
-function createWordImportSession({ projectId, visible, refreshKey }) {
-  let disposed = false
-  const state = createImportWordState()
-  const aiReview = createAiReviewControls({ state, projectId, visible, isDisposed: () => disposed })
-  function dispose() { disposed = true; aiReview.stopAiReviewPolling() }
-  return { state, aiReview, dispose }
-}
-// useWordImport(...) wires it up: onScopeDispose(session.dispose)
-```
+- Current reference: `frontend/src/composables/useAgentAccess.js`. Its credential,
+  change-list and detail loaders capture the invocation generation plus a stream
+  ticket before awaiting; they check `disposed`, generation and ticket before
+  assigning results. Their `finally` loading-state updates use the same guards.
+- Its `onScopeDispose` marks the invocation disposed, invalidates the generation
+  and clears the one-time token. Closing/switching contexts also uses the existing
+  invalidation path; see cross-stack §16 for the Agent boundary, not a new protocol
+  defined here.
+- Wrong: only clearing a timer at disposal — an in-flight response can still write
+  state or start a follow-up request. Correct: guard the settled response and each
+  actual follow-up boundary, including error/finally state updates where present.
+- Behavior references: the delayed-issuance-after-context-leave and stale-list
+  cases in `frontend/tests/component/AppAgentAccess.spec.js`, plus project-switch
+  response coverage in `frontend/tests/component/AgentAccessDialog.spec.js`.
+  See `quality-guidelines.md` → Component Mount Tests for lifecycle observables.
 
-- In `createReviewPolling`, check `isDisposed()` before the request, again after it settles on **both** the success and error paths (before any state write or reschedule), and in the scheduler that queues the next poll.
-- Wrong: only clearing the timer in `dispose()` — an in-flight response then writes state and reschedules after unmount.
-- Source-level tests cannot prove this: see `quality-guidelines.md` → Component Mount Tests (`effectScope()` + `scope.stop()`).
-
-Reference: `frontend/src/composables/useWordImport.js` (`createReviewPolling`, `createWordImportSession`); tests: `frontend/tests/component/WordImportDialog.spec.js`.
+Word import no longer has review polling or the old review/session factories.
+Its late-upload no-request regression proves the absence of that removed branch;
+it is not evidence of post-disposal state-write suppression.
 
 ---
 

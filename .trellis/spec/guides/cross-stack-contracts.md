@@ -174,7 +174,7 @@ POST /api/forms/{form_id}/fields/reorder
 
 | Aspect | Backend | Frontend |
 |--------|---------|----------|
-| **File** | `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` | `frontend/src/components/WordImportDialog.vue` (wizard + async `DocxCompareDialog` mount), `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue`, `frontend/src/composables/useWordImport.js` (upload / AI poll / execute state machine) |
+| **File** | `backend/src/routers/import_docx.py`, `backend/src/services/docx_screenshot_service.py` | `frontend/src/components/WordImportDialog.vue` (wizard + async `DocxCompareDialog` mount), `frontend/src/components/DocxCompareDialog.vue`, `frontend/src/components/DocxScreenshotPanel.vue`, `frontend/src/composables/useWordImport.js` (upload / deterministic execute state machine) |
 | **Purpose** | Start screenshot job, expose status/page payload, fail fast on unsupported runtime | Show left evidence panel, poll status, and react to field clicks |
 
 **Status Payload**:
@@ -195,9 +195,9 @@ POST /api/forms/{form_id}/fields/reorder
 3. Field click uses `field_pages[currentFormName][field.index]` as the primary evidence locator
 4. If a field has no concrete page mapping, frontend shows a gentle `未定位到原文页` hint and must not force-jump to the form's first page
 5. On unsupported runtime (missing `pythoncom` / no Windows Word COM, or missing LibreOffice on Linux/macOS), backend task status must transition to `failed` with a user-visible Chinese error message instead of remaining stuck at `starting`. The auto-mode no-backend message is platform-aware (`_no_backend_message`): non-Windows names LibreOffice and never suggests the Word backend; Windows keeps the original text. Both variants start with 「无可用的文档渲染后端」. Startup runs a non-blocking self-check (`DocxScreenshotService.log_render_backend_status` from `main.py` lifespan): WARNING with an install hint when missing, INFO with the selected backend when ready.
-6. Temp-id format and ownership: `temp_id` is a 32-lowercase-hex string minted on upload (`TEMP_ID_PATTERN = ^[0-9a-f]{32}$` in `docx_import_service.py`). The stored filename encodes the upload owner: `{temp_id}_u{user_id}_p{project_id}_{original}.docx`. Every temp-id surface (the `execute` request body plus the four `{temp_id}` path routes) validates the pattern and returns 422 on a malformed id. A temp id may only be used by the uploading user inside the uploading project.
+6. Temp-id format and ownership: `temp_id` is a 32-lowercase-hex string minted on upload (`TEMP_ID_PATTERN = ^[0-9a-f]{32}$` in `docx_import_service.py`). The stored filename encodes the upload owner: `{temp_id}_u{user_id}_p{project_id}_{original}.docx`. Every temp-id surface (the `execute` request body plus the three screenshot `{temp_id}` path routes) validates the pattern and returns 422 on a malformed id. A temp id may only be used by the uploading user inside the uploading project.
 7. Existence non-disclosure: a foreign id (another user's, or the same user's other project) MUST be answered byte-identically to a nonexistent id — the project convention of 403 for foreign projects is deliberately NOT followed here, because upload ids are 128-bit unguessable values and confirming existence would leak information. A frontend client therefore never needs to distinguish these cases.
-8. Upload expiry: uploads older than 24 h (`UPLOAD_TTL_HOURS`) are purged together with their screenshot cache and AI-review task by an in-process sweep (`background_jobs.py`: once at startup, then hourly; disabled with `CRF_DISABLE_BACKGROUND_JOBS`). Legacy pre-fix filenames (12-hex ids) are un-attributable and are file-unlinked only.
+8. Upload expiry: uploads older than 24 h (`UPLOAD_TTL_HOURS`) are purged together with their screenshot cache by an in-process sweep (`background_jobs.py`: once at startup, then hourly; disabled with `CRF_DISABLE_BACKGROUND_JOBS`). Legacy pre-fix filenames (12-hex ids) are un-attributable and are file-unlinked only.
 
 **Validation**:
 - Backend: `backend/tests/test_docx_screenshot_service.py`, `backend/tests/test_docx_temp_isolation.py`
@@ -246,8 +246,8 @@ class ScreenshotStatusResponse(BaseModel):
 | No screenshot backend / render failure | Status transitions to `failed` with a Chinese error message; non-Windows auto mode names LibreOffice (never the Word backend), and startup logged a WARNING with install guidance |
 | Field has no concrete page mapping | Frontend shows `未定位到原文页` and MUST NOT force-jump |
 | Malformed temp id (execute body or any `{temp_id}` path) | 422 via Pydantic/FastAPI pattern validation; frontend never sends one (it echoes the server-minted id) |
-| Foreign temp id (not the caller's own upload in this project) | Byte-identical to a missing id: `execute` 400 「临时文件已过期，请重新上传」; `screenshots/start` 400 「临时文件不存在，请重新上传」; `screenshots/status` 200 `idle`; `screenshots/pages/{n}` 404 「截图不存在或尚未生成」; `ai-review/status` 404 「AI复核任务不存在或已过期」 |
-| Upload older than 24 h | Hourly sweep removes the file, its screenshot cache dir, and its AI task; in-flight clients then see the same missing-id responses |
+| Foreign temp id (not the caller's own upload in this project) | Byte-identical to a missing id: `execute` 400 「临时文件已过期，请重新上传」; `screenshots/start` 400 「临时文件不存在，请重新上传」; `screenshots/status` 200 `idle`; `screenshots/pages/{n}` 404 「截图不存在或尚未生成」 |
+| Upload older than 24 h | Hourly sweep removes the file and its screenshot cache dir; in-flight clients then see the same missing-id responses |
 
 #### 5. Good / Base / Bad Cases
 - **Good**: outline has `1. 知情同意 -> p7`, `2. 访视日期 -> p8`; `page_ranges` starts at 7/8 even if pages 4-6 are compact index pages.
@@ -280,6 +280,61 @@ if 2 <= hit_count <= 4:
     return len(text) < 500
 ```
 Decide TOC/index status from independent matched-form density, using length only as a gray-zone tiebreaker.
+
+#### Deterministic Word Import and Retired AI Writes
+
+##### 1. Scope / Trigger
+- Trigger: Word preview/execute DTOs, import state/preview rendering, global template settings, or compatibility with old AI-review callers. This retirement does not remove weekly-release AI or Agent access/MCP.
+
+##### 2. Signatures
+- `POST /api/projects/{project_id}/import-docx/preview` returns `{forms, temp_id}`; forms retain parsed field metadata and no `ai_suggestions`. No `ai_task_id` / `ai_error` is returned.
+- `DocxExecuteRequest`: `temp_id` (32-lowercase-hex), `form_indices: List[int]`; `DocxImportService.import_forms(target_project_id, file_path, form_indices)` applies only deterministic parsing.
+- Admin-only `GET /api/settings` / `PUT /api/settings` read/save `{template_path}`; the update retains path-whitelist validation.
+- `POST /api/settings/ai/test` and `GET .../import-docx/{temp_id}/ai-review/status` are removed routes (404), not compatibility shims.
+
+##### 3. Contracts
+- Reject presence of execute `ai_overrides` or the old settings keys `ai_enabled`, `ai_api_url`, `ai_api_key`, `ai_model`, `ai_api_format`, including null/empty values, with sanitized 422 and `AI 复核功能已移除，请刷新页面后重试`. No import/config write, upload consumption or submitted-value echo; authorization and unrelated unknown-field behavior remain unchanged.
+- Wizard requests send `{temp_id, form_indices}` only. No review tasks, timers, acceptance state, AI renderer mode or override helper remains. Comparison retains screenshot evidence, deterministic `SimulatedCRFForm`, paper orientation and field-click evidence mapping; initial-open/reset/result/designer handoff stays intact.
+- Runtime config no longer models AI settings. Legacy raw YAML `ai:` sections remain inert: do not expose them through settings or erase them during template-only updates. Preserve atomic unknown-key-retaining config updates and independent `RELEASE_AI_*`/`httpx` behavior; no database migration or rewrite of imported fields.
+
+##### 4. Validation & Error Matrix
+
+| Input / state | Expected |
+| --- | --- |
+| Valid owned deterministic upload/execute | Existing parsed fields, selected forms and result `detail[].form_id`; no AI metadata/calls |
+| Legacy AI write key, even null/empty | 422 with fixed refresh guidance, no values echoed or mutation; a valid upload stays available |
+| Settings request without required auth/admin role | Existing 401/403 behavior, including an old settings body from a non-admin |
+| Removed AI route | 404 |
+| Synthetic old YAML has `ai:` plus custom/auth sections | Runtime ignores AI; template-only save preserves unknown/custom sections without exposing them |
+
+##### 5. Good / Base / Bad Cases
+- **Good**: refreshed client uploads, compares screenshot/parsed fields and imports selected forms without AI parameters.
+- **Base**: old stored YAML loads and unrelated configuration remains intact, without activating review.
+- **Bad**: remove a DTO field and silently ignore stale `ai_overrides`; the caller believes field-type changes were applied when they were not.
+
+##### 6. Tests Required
+- `backend/tests/test_docx_import_contract.py`: no preview AI fields, stale execute input rejected before `import_forms`, no value echo/consumption/rows, null/empty rejection, deterministic log-row/choice persistence and result IDs.
+- `backend/tests/test_permission_guards.py`: removed routes 404, settings template-only response/save, admin/auth/path guards and sanitized stale-settings rejection. `test_config.py`: inert legacy raw YAML survives template update.
+- Frontend `docxBimodalPreview.test.js`, `component/WordImportDialog.spec.js`, `component/DocxCompareDialog.spec.js` and `component/AppSettingsBehavior.spec.js`: no AI UI/poll/payload, real deterministic preview, screenshot props/click mapping, normal wizard/settings lifecycle. Browser check: actual screenshot/effect panels, import/designer handoff and no AI network calls.
+
+##### 7. Wrong vs Correct
+
+```python
+# Wrong: deleting only the declared field leaves Pydantic's extra-ignore behavior,
+# so an old client may silently import different types than it expected.
+class DocxExecuteRequest(BaseModel):
+    temp_id: str
+    form_indices: List[int]
+
+# Correct: reject retired input at the actual request-model boundary; retain
+# pattern/length validation on temp_id and never return the raw submitted body.
+@model_validator(mode="before")
+@classmethod
+def reject_legacy_ai_overrides(cls, data: object) -> object:
+    if isinstance(data, dict) and "ai_overrides" in data:
+        raise HTTPException(422, "AI 复核功能已移除，请刷新页面后重试")
+    return data
+```
 
 #### Managed Import Temporary Resources (temp-resource-lifecycle extension)
 
@@ -344,7 +399,7 @@ Managed routes (the "six async routes" referenced below):
 | Read/write raises or caller is cancelled during a chunk | Close and remove only this call's partial file, then propagate the original failure |
 | Request cancellation arrives while a Session/file-sharing worker runs | Drain until that worker finishes, then re-raise the first cancellation; dependency teardown does not overlap the worker |
 | Request cancellation arrives during preview post-save processing (parse / screenshot start) | Saved upload discarded, cancellation propagates unchanged |
-| Stale owned `.db` / `.docx` upload is older than 24 h | Existing sweep removes the file; owned Word uploads also drop screenshot cache and AI task |
+| Stale owned `.db` / `.docx` upload is older than 24 h | Existing sweep removes the file; owned Word uploads also drop screenshot cache |
 | Hard kill leaves `.db-wal` / `.db-shm` / `.db-journal` sidecars | Sweep's suffix filter and `cleanup_temp` globs cover the sidecar suffixes: owned ids purged whole, legacy ids file-only |
 
 ##### 5. Good / Base / Bad Cases
@@ -705,7 +760,7 @@ computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FI
 - A checkbox renders as a normal two-column field (`label | □text`), including preview and eCRF Word export. aCRF remains field-variable annotation only.
 - Default values are forbidden even when `inline_mark` is true. The inline shortcut must not override the checkbox exclusion, or preview/export and planner text drift.
 - Both planners use the marker-plus-resolved-text choice-atom weight and retain `FILL_LINE_WEIGHT` as the minimum. Add/change shared cases only in `frontend/scripts/generatePlannerFixtures.mjs`, then regenerate `backend/tests/fixtures/planner_cases.json`.
-- `复选` is created only in the field library / form designer for manual authoring; DOCX import may synthesize `复选` only when project `db_type` is 「其他」 via parse-time multiselect split. The shared 9-item `ai_review_service.VALID_FIELD_TYPES` (and frontend `docxAiSuggestionOverrides.js` lock) MUST stay byte-aligned and still excludes `复选` as a *suggested_type*. Project-scoped `VALID_FIELD_TYPES_NO_MULTISELECT` is a derived filter for 「其他」 mode and deliberately does **not** participate in that byte-alignment lock. It MUST stay out of bare `ai_review_service.VALID_FIELD_TYPES` (9 non-checkbox types), which both filters AI suggestions and validates `ai_overrides` at `routers/import_docx.py`; the frontend `docxAiSuggestionOverrides.js` `VALID_FIELD_TYPES` MUST stay byte-aligned with that list (locked by `frontend/tests/docxAiSuggestionAcceptance.test.js`). A `复选` override therefore fails closed with `400 不支持的字段类型`.
+- `复选` is created in the field library / form designer for manual authoring; DOCX import may synthesize it only when project `db_type` is 「其他」 through deterministic parse-time multiselect splitting. Word-import type overrides and AI type allowlists no longer exist; retired write-input rejection is defined in §4, not a second admissible-type list here.
 - Type-switch cleanup is enforced on BOTH stacks, not only the editor: the model `@validates("field_type")` clears `codelist_id` when switching to `复选` and clears `checkbox_label` when switching away, mirroring frontend `syncFieldTypeSpecificProps`. A partial `PUT` that changes only `field_type` must not leave stale type-specific data server-side.
 
 #### 4. Validation & Error Matrix
@@ -718,7 +773,7 @@ computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FI
 | Checkbox has `default_value`, including an inline field | Ignore it; default-value editor/renderer/weight must remain unavailable. |
 | Short checkbox text | Planner demand is at least `FILL_LINE_WEIGHT` on both stacks. |
 | Preview/export data adapter omits `label` or `checkbox_label` | Contract violation: fallback text or width becomes incorrect; pass both fields to the renderer. |
-| DOCX import `ai_overrides` sends `field_type="复选"` | Fail closed with `400 不支持的字段类型`; `复选` is not a DOCX-admissible type on either stack. |
+| DOCX parser splits a multiselect for project `db_type="其他"` | Deterministic synthesis may create `复选`; preserve parsed labels, field order and codelist-free behavior. |
 | `PUT /field-definitions/{id}` switches `复选` → other type | Model validator clears `checkbox_label` server-side even when the payload omits it. |
 
 #### 5. Good / Base / Bad Cases
@@ -730,7 +785,7 @@ computeFieldControlWeight(field) // max(computeChoiceAtomWeight(text, false), FI
 #### 6. Tests Required
 
 - Backend: field-definition API rejects/clears a codelist for `复选`, enforces nullable/max-255 `checkbox_label`, and preserves it through copy/import.
-- Backend: `test_docx_import_contract.py` asserts a `复选` `ai_overrides` is rejected with `400`, and that legal overrides still map to the real field index after a log row.
+- Backend: `test_db_type_field_policy.py` preserves deterministic multiselect splitting for 「其他」; `test_docx_import_contract.py` preserves log-row positions and parsed choice fields/options without type overrides.
 - Backend: `test_width_planning.py` asserts fallback/custom choice-atom weight and ignores inline default text; export tests assert literal `□` plus resolved text and no option OID annotation.
 - Frontend: `frontend/tests/checkboxFieldType.test.js` asserts rendering/HTML escaping, `isChoiceField === false`, default-value exclusion with `inlineMark=true`, type-switch cleanup, preview adapters, and the fixture generator case.
 - Shared planner: regenerate with `node frontend/scripts/generatePlannerFixtures.mjs`; run `backend/tests/test_width_planning.py` and `frontend/tests/columnWidthPlanning.test.js`.

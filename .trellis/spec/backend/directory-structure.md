@@ -38,8 +38,7 @@ backend/
 │   │   ├── options.py         # Option dictionary
 │   │   ├── import_docx.py     # Word import
 │   │   ├── export.py          # Export endpoints
-│   │   ├── settings.py        # User settings
-│   │   └── ai_config.py       # AI configuration
+│   │   └── settings.py        # Admin template-path settings
 │   ├── services/              # Business logic (13 files)
 │   │   ├── auth_service.py    # Authentication logic
 │   │   ├── user_admin_service.py

@@ -143,7 +143,7 @@ Contracts:
 
 ### Settings Cards and Binary Preferences
 
-`App.vue` settings use 账号 / 界面 / 项目与数据 cards for regular users. Keep current-project context beside Agent and data actions; preserve the Agent host lifecycle from cross-stack §16 instead of embedding its dialog. Logout belongs in the account row and remains immediate. Only admins have a 关闭 / 保存 footer and global/AI configuration; password change, edit mode and project/data actions retain their regular-user gates.
+`App.vue` settings use 账号 / 界面 / 项目与数据 cards for regular users. Keep current-project context beside Agent and data actions; preserve the Agent host lifecycle from cross-stack §16 instead of embedding its dialog. Logout belongs in the account row and remains immediate. Only admins have a 关闭 / 保存 footer and the global template-path configuration; password change, edit mode and project/data actions retain their regular-user gates.
 
 Named preference choices use the existing boolean state, not new string-valued storage:
 
@@ -580,9 +580,9 @@ const visible = computed({
 ```
 
 ```vue
-<!-- Child: translating @close into update:modelValue(false) when the parent cleans up on close
-     (WordImportDialog.vue's parent stops AI-review polling and clears compare state when
-     modelValue goes false — that cleanup would fire in beforeLeave, at leave-transition start). -->
+<!-- Child: translating @close into update:modelValue(false) when the state machine cleans up on close
+     (WordImportDialog.vue's useWordImport clears compare state when modelValue goes false —
+     that cleanup would fire in beforeLeave, at leave-transition start). -->
 <el-dialog
   :model-value="modelValue"
   @update:model-value="emit('update:modelValue', $event)"
