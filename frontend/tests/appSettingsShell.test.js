@@ -8,10 +8,14 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8');
 const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8');
 const loginSource = readFileSync(path.resolve(currentDir, '../src/components/LoginView.vue'), 'utf8');
+const settingsSection = appSource.match(/<el-dialog\s+v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] || '';
 
-test('settings dialog provides logout entry and only saves admin settings', () => {
-  assert.match(appSource, /<el-button type="danger" plain @click="logout">退出登录<\/el-button>/);
-  assert.match(appSource, /<el-button v-if="isAdmin" type="primary" @click="saveSettings">保存<\/el-button>/);
+test('settings keeps logout in the account row and restricts the footer to admins', () => {
+  assert.ok(/class="[^"]*settings-current-user-row/.test(settingsSection));
+  assert.ok(/<el-button\s+text type="danger" @click="logout">退出登录<\/el-button>/.test(settingsSection));
+  const footer = settingsSection.match(/<template v-if="isAdmin" #footer>([\s\S]*?)<\/template>/)?.[1] || '';
+  assert.ok(/@click="saveSettings">保存<\/el-button>/.test(footer));
+  assert.ok(!/logout/.test(footer));
   assert.match(appSource, /if \(!isAdmin\.value\) return/);
 });
 
@@ -34,10 +38,12 @@ test('word export uses a single loading guard without rate-limit workaround', ()
   assert.doesNotMatch(appSource, /setTimeout\(resolve, 1000\)/);
 });
 
-test('settings dialog uses inline prompt edit mode copy', () => {
-  assert.match(appSource, /<el-switch v-model="editMode" inline-prompt active-text="完全" inactive-text="简要"\s*\/>/);
-  assert.match(appSource, /关闭时保留基础浏览与设计入口，开启后显示完整编辑能力/);
-  assert.doesNotMatch(appSource, /开启后显示选项\/单位\/字段标签及表单编辑按钮/);
+test('settings names both edit modes explicitly and preserves the advanced-tab leave rule', () => {
+  assert.ok(/<el-segmented[\s\S]*?v-model="editMode"[\s\S]*?aria-label="编辑模式"/.test(settingsSection));
+  assert.ok(/基础：仅保留浏览与设计入口/.test(settingsSection));
+  assert.ok(/完全：显示全部编辑能力/.test(settingsSection));
+  assert.ok(!/<el-switch[^>]*v-model="editMode"/.test(settingsSection));
+  assert.ok(!/简要/.test(settingsSection));
   assert.match(appSource, /const ADVANCED_EDIT_TABS = new Set\(\['codelists', 'units', 'fields'\]\)/);
   assert.match(
     appSource,
@@ -66,40 +72,40 @@ test('header keeps word export only (template import moved to form list)', () =>
   assert.match(appSource, /function onExportCommand\(command\)\s*\{[\s\S]*command === 'ecrf'[\s\S]*exportWord\(\)[\s\S]*command === 'acrf'[\s\S]*exportWord\(true\)/);
 });
 
-test('settings dialog moves import word below project import and keeps scoped layout hooks', () => {
+test('settings groups current-project context and compact transfer actions in one card', () => {
+  const dataSection = settingsSection.match(/<section v-if="!isAdmin"[\s\S]*?<\/section>/)?.[0] || '';
+  assert.ok(/项目与数据/.test(dataSection));
+  for (const action of ['导出当前项目', '导出所有项目', '导入项目', '导入 Word 文档']) {
+    assert.ok(dataSection.includes(`aria-label="${action}"`), `${action} needs a complete accessible name`);
+  }
+  assert.ok(dataSection.indexOf('agent-access-entry') < dataSection.indexOf('aria-label="导出当前项目"'));
+  assert.ok(dataSection.indexOf('aria-label="导入项目"') < dataSection.indexOf('aria-label="导入 Word 文档"'));
+  assert.ok(/:loading="importProjectLoading"/.test(dataSection));
+  assert.ok(/:disabled="!selectedProject"[\s\S]*?@click="openImportWordDialog"/.test(dataSection));
   assert.match(appSource, /<el-tabs[\s\S]*class="main-content-tabs"[\s\S]*v-model="activeTab"/);
-  assert.doesNotMatch(appSource, /<el-divider>数据导出<\/el-divider>/);
-  assert.match(appSource, /<el-divider v-if="!isAdmin" \/>\s*<div v-if="!isAdmin" class="settings-transfer-actions">/);
-  const actionsSection =
-    appSource.match(/<div v-if="!isAdmin" class="settings-transfer-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-  assert.match(actionsSection, /导出所有项目/);
-  assert.match(actionsSection, /导出当前项目/);
-  assert.match(actionsSection, /:loading="importProjectLoading"[\s\S]*导入项目/s);
-  assert.match(actionsSection, /:disabled="!selectedProject" @click="openImportWordDialog">导入Word<\/el-button>/);
-  assert.ok(actionsSection.indexOf('导入项目') < actionsSection.indexOf('导入Word'));
-  assert.match(appSource, /\.settings-transfer-actions\s*\{[\s\S]*width:\s*100%/);
-  assert.match(appSource, /\.settings-transfer-actions\s*:deep\(\.el-button\)\s*\{[\s\S]*width:\s*100%/);
   assert.match(appSource, /\.main-content-tabs[\s\S]*padding-left:\s*20px/);
 });
 
+test('settings bounds the real dialog width and keeps scroll rules local to this dialog', () => {
+  assert.ok(/width="min\(560px, calc\(100vw - 24px\)\)"/.test(settingsSection));
+  assert.ok(/class="settings-dialog"/.test(settingsSection));
+  assert.ok(/\.settings-dialog\s*\{[^}]*max-height:/.test(appSource));
+  assert.ok(/\.settings-dialog \.el-dialog__body\s*\{[^}]*overflow-y:\s*auto/.test(appSource));
+});
+
 test('settings dialog shows self password button only for ordinary users', () => {
-  assert.match(
-    appSource,
-    /<div class="settings-current-user-row">[\s\S]*<span>\{\{ currentUser\.username \|\| '未登录' \}\}<\/span>[\s\S]*<el-button v-if="!isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/,
-  );
+  assert.ok(/<el-button v-if="!isAdmin" @click="openSelfPasswordDialog">修改密码<\/el-button>/.test(settingsSection));
   assert.doesNotMatch(
     appSource,
-    /<el-button v-if="isAdmin" link type="primary" @click="openSelfPasswordDialog">修改密码<\/el-button>/,
+    /<el-button v-if="isAdmin"[^>]*@click="openSelfPasswordDialog">修改密码<\/el-button>/,
   );
 });
 
 test('settings dialog shows the current-project Agent entry for ordinary users only', () => {
-  const settingsSection = appSource.match(/<el-dialog v-model="showSettings"[\s\S]*?<\/el-dialog>/)?.[0] || '';
-  const projectRow =
-    settingsSection.match(/<el-form-item v-if="!isAdmin" label="当前项目">([\s\S]*?)<\/el-form-item>/)?.[1] || '';
-  assert.match(projectRow, /selectedProject\?\.name \|\| '请先选择项目'/);
-  assert.match(projectRow, /data-test="agent-access-entry"[\s\S]*:disabled="agentAccessProjectId === null"/);
-  assert.match(projectRow, /@click="openAgentAccess"/);
+  const projectSection = settingsSection.match(/<section v-if="!isAdmin"[\s\S]*?<\/section>/)?.[0] || '';
+  assert.match(projectSection, /selectedProject\?\.name \|\| '请先选择项目'/);
+  assert.match(projectSection, /data-test="agent-access-entry"[\s\S]*:disabled="agentAccessProjectId === null"/);
+  assert.match(projectSection, /@click="openAgentAccess"/);
   assert.match(
     appSource,
     /const agentAccessProjectId = computed\(\(\) => \{[\s\S]*isLoggedIn\.value && !isAdmin\.value && Number\.isInteger\(projectId\)/,

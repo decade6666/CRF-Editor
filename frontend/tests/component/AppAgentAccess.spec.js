@@ -60,7 +60,8 @@ function mountApp({ admin = false, select = true, get } = {}) {
 
 async function leaveContext(wrapper, reason) {
   if (reason === '关闭设置') {
-    await buttonByText(settingsDialog(wrapper), '关闭').trigger('click');
+    // 普通用户不再有底部关闭按钮；公开 v-model 关闭事件覆盖宿主清理，真实 × 交互另做浏览器验收。
+    settingsDialog(wrapper).vm.$emit('update:modelValue', false);
   } else if (reason === '切换项目') {
     await selectProject(wrapper, PROJECTS[1].name);
   } else if (reason === '删除项目') {
