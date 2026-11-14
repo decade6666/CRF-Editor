@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Synthetic isolation, RED-first job/barrier/failure suites and real coverage/security evidence"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Non-admin/Agent/role-revoked denial and privacy for admin backup/settings/download APIs"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Review sections 5,6,7,9,10,16 for paired full-run originals and no Agent/schema/fingerprint regression"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/research/evidence.md", "reason": "Check exact D8 schedule/origin/cleanup/full-data contract and no unsupported runtime claims"}

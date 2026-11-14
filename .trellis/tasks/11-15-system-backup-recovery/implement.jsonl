@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Current-admin recovery, token/auth-version semantics and no resurrection after DB rewind"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Physical SQLite/session/worker lifecycle, no live WAL/main transplant or DB-only file atomicity claim"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Review authentication/session write-back and Agent realms/replay/bounds (sections 3,9,16)"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/research/evidence.md", "reason": "Whole-system versus project-repair boundaries and unimplemented crash/auth-control proposals"}

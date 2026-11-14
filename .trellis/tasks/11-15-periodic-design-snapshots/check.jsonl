@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Current-administrator history/policy/preview/repair gates, non-admin negative cases and scoped other-owner project management without altering normal ownership"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "RED-first real-command tests, synthetic data isolation, failure/coverage/security verification"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Check sections 2, 6, 7, 10, 15, 16 for atomic restore, legacy values, reference remapping and unchanged Agent wire guarantees"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/research/evidence.md", "reason": "Distinguish actual source facts, proposed restore contracts and unmeasured capacity/browser claims"}

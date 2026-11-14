@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Verify non-admin denial, old JWT/Agent revocation, fresh admin login and preserved auth realm"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Hermetic subprocess crash injection, rollback/fault tests and no production/private-data testing"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Review sections 3,9,16 for maintenance/relogin compatibility without Agent tool/fingerprint/replay changes"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/research/evidence.md", "reason": "Check selected full-set recovery/exclusions/external audit and distinguish static evidence from runtime proof"}

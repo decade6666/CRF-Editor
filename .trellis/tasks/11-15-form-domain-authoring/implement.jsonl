@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/prd.md", "reason": "Approved parent requirements, D1-D6 decisions and explicit implementation boundary"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Domain dirty/leave/session and API cache behavior"}

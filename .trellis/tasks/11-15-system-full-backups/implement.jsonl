@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Faithful SQLite capture versus product exchange, worker-owned sessions, transaction/file publication and cleanup"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Current admin management and safe read/download/replay boundary without global owner bypass"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Preserve frozen Word parity, annotations/orientation, API prefix, identifiers and unchanged Agent contracts (sections 5,6,7,9,10,16)"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/research/evidence.md", "reason": "D8 source evidence and confirmed choices; distinguish full fidelity backup from private-stripped export"}
