@@ -114,13 +114,14 @@ export function buildFormPropState(form) {
   return {
     name: form?.name || '',
     code: form?.code || '',
+    domain: form?.domain ?? '',
     paper_orientation: form?.paper_orientation || 'auto',
   }
 }
 
 export function sameFormPropState(a, b) {
   if (!a || !b) return false
-  return a.name === b.name && a.code === b.code && a.paper_orientation === b.paper_orientation
+  return a.name === b.name && a.code === b.code && a.domain === b.domain && a.paper_orientation === b.paper_orientation
 }
 
 // ── 字段 profile 原子命令构造（field-profile / binding-profile 共用）────────

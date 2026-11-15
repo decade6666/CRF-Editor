@@ -42,24 +42,35 @@ function functionBody(name) {
 }
 
 test('buildFormPropState defaults empty form fields and orientation', () => {
-  assert.deepEqual(buildFormPropState(null), { name: '', code: '', paper_orientation: 'auto' })
+  assert.deepEqual(buildFormPropState(null), { name: '', code: '', domain: '', paper_orientation: 'auto' })
   assert.deepEqual(buildFormPropState({ name: '禁食记录', code: 'FAST', paper_orientation: 'landscape' }), {
     name: '禁食记录',
     code: 'FAST',
+    domain: '',
     paper_orientation: 'landscape',
   })
-  assert.deepEqual(buildFormPropState({ name: 'X', code: null }), {
+  assert.deepEqual(buildFormPropState({ name: 'X', code: null, domain: null }), {
     name: 'X',
     code: '',
+    domain: '',
     paper_orientation: 'auto',
   })
 })
 
-test('sameFormPropState compares the three editable form fields', () => {
-  const a = { name: 'A', code: 'C1', paper_orientation: 'auto' }
+test('buildFormPropState preserves free-text domain case, delimiters and legacy whitespace', () => {
+  const source = Object.freeze({ name: 'A', code: 'old_code', domain: '  dM / Vs；自定义 <域>  ' })
+  assert.equal(buildFormPropState(source).domain, source.domain)
+  assert.equal(buildFormPropState({ domain: '   ' }).domain, '   ')
+})
+
+test('sameFormPropState compares all editable form fields including domain', () => {
+  const a = { name: 'A', code: 'C1', domain: 'dM / Vs', paper_orientation: 'auto' }
   assert.equal(sameFormPropState(a, { ...a }), true)
   assert.equal(sameFormPropState(a, { ...a, name: 'B' }), false)
   assert.equal(sameFormPropState(a, { ...a, code: 'C2' }), false)
+  assert.equal(sameFormPropState(a, { ...a, domain: 'DM / VS' }), false)
+  assert.equal(sameFormPropState(a, { ...a, domain: '' }), false)
+  assert.equal(sameFormPropState(a, { ...a, domain: ' dM / Vs ' }), false)
   assert.equal(sameFormPropState(a, { ...a, paper_orientation: 'portrait' }), false)
   assert.equal(sameFormPropState(null, a), false)
 })

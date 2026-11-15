@@ -279,6 +279,12 @@ The desktop entry launches the local backend, opens the browser automatically, a
 7. **Import Data**: Run template import, project database import, or Word compare-based import when needed
 8. **Export Results**: Export the project as a Word document or database template
 
+### Form Domain (domain)
+
+- In Complete edit mode, the create-form dialog, edit-form dialog and designer's Form Properties pane expose an optional Form Domain input. It holds one free-text value: `dM / Vs` keeps its case and punctuation, is not split into multiple domains, and has no standards lookup or OID validation.
+- Domain uses the same explicit save as name, OID and paper orientation. Cancel makes no write; failures preserve input. Inline edits participate in the existing save/discard/stay leave prompts. Switching to Basic mode only hides the input and does not discard unsaved changes.
+- An authored clear or whitespace-only change saves as `null`. Nonblank text keeps its case and whitespace; editing another property does not rewrite an existing domain, including legacy empty values or spaces. After saving, designer and visits aCRF previews and aCRF Word use the same stored text, trimming its outer whitespace for display and omitting blank annotations. Ordinary eCRF output is unchanged.
+
 ### One Horizontal Table per Form
 
 - Consecutive fields with the horizontal-table marker enabled form one horizontal table. Ordinary two-column field sections do not count and may appear before or after it.
@@ -524,6 +530,8 @@ node --test tests/*.test.js # run only the node:test source-level suite
 The two suites are disjoint and can run independently:
 - `tests/*.test.js`: `node --test` source-level regression checks (flat in the `tests/` root)
 - `tests/component/**/*.spec.js`: vitest + @vue/test-utils + happy-dom component mount tests (real component rendering with interaction assertions, sharing the `tests/component/setup.js` global registration and mock conventions; includes a Vue-warning gate — any Vue warning during a test, including during unmount, fails that test, implemented in `tests/component/vueWarnGate.js`)
+
+Component tests also cover login, admin user/project/recycle-bin and organization management, codelist/field/unit list editing, and designer form management and field quick edit. They drive real component clicks and inputs while mocking external boundaries such as APIs, confirmation dialogs, and sorting; they do not replace real-browser or backend authorization checks.
 
 Component tests also use `tests/component/testClock.js` to prevent host wall-clock rollback from making Vue discard synthetic clicks. Only backward movement of real `Date.now` within tests is clamped; explicit fake-timer tests retain control of time, and application runtime and runner configuration are unchanged. Regression cases live in `tests/component/testClock.spec.js`.
 

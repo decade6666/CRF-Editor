@@ -198,15 +198,17 @@ const showEditForm = ref(false);
 const showDesigner = ref(false);
 const newFormName = ref('');
 const newFormCode = ref('');
+const newFormDomain = ref('');
 // 赛美斯 OID 长度限制基线：新建弹窗打开时生成的表单 OID / 编辑弹窗打开时的原表单 OID
 const newFormBaselineCode = ref('');
 const editFormName = ref('');
 const editFormCode = ref('');
+const editFormDomain = ref('');
 const editFormPaperOrientation = ref('auto');
 const editFormTarget = ref(null);
 const editFormBaselineCode = ref('');
 // 全屏设计器右侧「表单属性」编辑缓冲（与左侧弹窗 editForm* 双入口；显式保存，镜像字段属性脏态模式）
-const editFormProp = reactive({ name: '', code: '', paper_orientation: 'auto' });
+const editFormProp = reactive({ name: '', code: '', domain: '', paper_orientation: 'auto' });
 const formPropBaseline = ref(null);
 const isSavingFormProp = ref(false);
 const dragSrcId = ref(null);
@@ -518,10 +520,12 @@ async function addForm() {
     const created = await api.post(`/api/projects/${props.projectId}/forms`, {
       name: newFormName.value,
       code: newFormCode.value,
+      domain: newFormDomain.value.trim() ? newFormDomain.value : null,
     });
     showAddForm.value = false;
     newFormName.value = '';
     newFormCode.value = '';
+    newFormDomain.value = '';
     await loadForms();
     invalidateFormSelectionSession();
     selectedForm.value = forms.value.find((f) => f.id === created.id) || created;
@@ -598,6 +602,7 @@ async function copyForm(f) {
 function openEditForm(f) {
   editFormName.value = f.name;
   editFormCode.value = f.code || '';
+  editFormDomain.value = f.domain ?? '';
   editFormPaperOrientation.value = f.paper_orientation || 'auto';
   // 行对象会被 reload 替换，打开时冻结原 OID 快照，不信任可变的 targetForm 引用
   editFormBaselineCode.value = f.code || '';
@@ -616,6 +621,7 @@ const isFormPropDirty = computed(() => {
   return !sameFormPropState(formPropBaseline.value, {
     name: editFormProp.name,
     code: editFormProp.code,
+    domain: editFormProp.domain,
     paper_orientation: editFormProp.paper_orientation,
   });
 });
@@ -624,7 +630,7 @@ const isFormPropDirty = computed(() => {
  * Shared form-property PUT path for the edit dialog and the designer side pane.
  * Returns true on success, false on validation/cancel/error.
  */
-async function persistFormProps({ name, code, paper_orientation, targetForm, baselineCode }) {
+async function persistFormProps({ name, code, domain, paper_orientation, targetForm, baselineCode }) {
   if (!targetForm?.id) return false;
   if (!String(name ?? '').trim()) {
     ElMessage.warning('表单名称不能为空');
@@ -667,6 +673,8 @@ async function persistFormProps({ name, code, paper_orientation, targetForm, bas
       name,
       code,
       paper_orientation,
+      // 未改动的历史域不回写；仅用户清空/改为空白时转 null，非空文本原样保存。
+      ...(domain === (targetForm.domain ?? '') ? {} : { domain: domain.trim() ? domain : null }),
     });
     await reloadForms();
     if (selectedForm.value?.id === targetForm.id) {
@@ -683,6 +691,7 @@ async function updateForm() {
   const ok = await persistFormProps({
     name: editFormName.value,
     code: editFormCode.value,
+    domain: editFormDomain.value,
     paper_orientation: editFormPaperOrientation.value,
     targetForm: editFormTarget.value,
     baselineCode: editFormBaselineCode.value,
@@ -698,6 +707,7 @@ async function saveFormProp() {
     return await persistFormProps({
       name: editFormProp.name,
       code: editFormProp.code,
+      domain: editFormProp.domain,
       paper_orientation: editFormProp.paper_orientation,
       targetForm: selectedForm.value,
       baselineCode: formPropBaseline.value?.code ?? '',
@@ -3355,6 +3365,7 @@ defineExpose({
 function openAddForm() {
   newFormCode.value = genCode('FORM');
   newFormBaselineCode.value = newFormCode.value;
+  newFormDomain.value = '';
   showAddForm.value = true;
 }
 </script>
@@ -3751,6 +3762,9 @@ function openAddForm() {
                 </el-form-item>
                 <el-form-item label="名称">
                   <el-input v-model="editFormProp.name" data-test="designer-form-property-name" />
+                </el-form-item>
+                <el-form-item v-if="editMode" label="表单域">
+                  <el-input v-model="editFormProp.domain" data-test="designer-form-property-domain" placeholder="可选，自由文本（如 DM / VS）" />
                 </el-form-item>
                 <el-form-item label="纸张方向">
                   <el-radio-group
@@ -4149,6 +4163,9 @@ function openAddForm() {
       <el-form label-width="80px">
         <el-form-item v-if="editMode" label="OID"><el-input v-model="newFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" @input="newFormCode = toUpperAsciiOid($event)" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="newFormName" /></el-form-item>
+        <el-form-item v-if="editMode" label="表单域">
+          <el-input v-model="newFormDomain" placeholder="可选，自由文本（如 DM / VS）" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAddForm = false">取消</el-button>
@@ -4159,6 +4176,9 @@ function openAddForm() {
       <el-form label-width="80px">
         <el-form-item v-if="editMode" label="OID"><el-input v-model="editFormCode" :maxlength="oidMaxLength(projectDbType, 'form')" @input="editFormCode = toUpperAsciiOid($event)" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="editFormName" /></el-form-item>
+        <el-form-item v-if="editMode" label="表单域">
+          <el-input v-model="editFormDomain" placeholder="可选，自由文本（如 DM / VS）" />
+        </el-form-item>
         <el-form-item label="纸张方向">
           <el-radio-group v-model="editFormPaperOrientation" data-test="edit-form-paper-orientation">
             <el-radio label="auto">自动</el-radio>
