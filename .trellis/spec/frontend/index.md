@@ -17,7 +17,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | ✅ Filled |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition, grouped settings | ✅ Filled |
 | [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | ✅ Filled |
-| [State Management](./state-management.md) | Local state, global state, server state | ✅ Filled |
+| [State Management](./state-management.md) | Local/global/server state, designer leave guards and existing form-domain authoring | ✅ Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | ✅ Filled |
 | [Type Safety](./type-safety.md) | Type patterns, validation | ✅ Filled |
 

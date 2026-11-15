@@ -472,6 +472,36 @@ async function reload() {
 
 ---
 
+## Scenario: Existing Form Domain Authoring
+
+### 1. Scope / Trigger
+Form create/edit/inline, dirty/leave state and annotations. Existing free text; no new model/lookup/OID rules.
+
+### 2. Signatures
+- `buildFormPropState(form)` → `{name, code, domain, paper_orientation}`; `sameFormPropState(a,b)` compares all four.
+- `persistFormProps({name,code,domain,paper_orientation,targetForm,baselineCode})` serves dialog/inline `api.put('/api/forms/{id}', payload)`.
+- Existing `FormCreate`/`FormUpdate`/`FormResponse.domain: str | None`.
+
+### 3. Contracts
+Full-mode inputs only. Hydrate `domain ?? ''` verbatim. Unchanged PUT value → omit key; authored blank → null; nonblank → preserve case/spacing. Create follows blank→null. Backend preserves supplied legacy text. Mode switch hides, never clears drafts. Saved responses feed previews; annotation display trims/omits blanks via [cross-stack §6](../guides/cross-stack-contracts.md#6-acrf-annotation-geometry), not a new renderer. Owner guards unchanged.
+
+### 4. Validation & Error Matrix
+- `dM / Vs <域>` → one safely displayed string, no OID validation.
+- Cancel/discard → no write, restore baseline.
+- Rejected validation/confirmation/request → retain input/dirty state, report error, block leave.
+- Inline domain edits use existing form/project/tab/window save/discard/stay guards.
+
+### 5. Good/Base/Bad
+Good: saved domain agrees across reopen/previews/Word. Base: Basic-mode rename preserves legacy domain. Bad: uppercase/split hydration or clear failed-save state.
+
+### 6. Tests Required
+`formDesignerFormPropertyEditor.test.js`: hydration/equality. `component/FormDomainAuthoring.spec.js`: three controls, null/cancel/error/leave/mode and visits agreement. `backend/tests/test_form_domain_authoring.py`: CRUD/copy/permissions/real DOCX parity. Browser: disposable resources and separately authorized credentials, never production/8888.
+
+### 7. Wrong vs Correct
+Wrong: always PUT `domain.trim() || null` on rename. Correct: omit if equal to `targetForm.domain ?? ''`; normalize only authored clears.
+
+---
+
 ## Server State
 
 ### API Cache Strategy
