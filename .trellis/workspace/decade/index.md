@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 36
-- **Last Active**: 2026-11-10
+- **Total Sessions**: 37
+- **Last Active**: 2026-11-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1323 | Active |
+| `journal-1.md` | ~1381 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 37 | 2026-11-15 | C1表单域编辑与组件补测提交收尾 | `c4ce7e2`, `ea5a1ad` | `task/crf-c1` |
 | 36 | 2026-11-10 | 删除AI复核功能并双重独立审查 | `da87e0e`, `a7ab6d8` | `worktree-remove-ai-review` |
 | 35 | 2026-11-10 | 设置弹窗布局验收与收尾 | `ca9dbb1`, `0380184`, `55a2d7b` | `feat/settings-dialog-layout` |
 | 34 | 2026-11-10 | Agent授权入口迁入设置与MCP入口恢复收尾 | `52d8901`, `9402d14`, `a645ad1` | `feat/agent-access-settings` |
