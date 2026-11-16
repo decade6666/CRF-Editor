@@ -1410,16 +1410,21 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 
 - [OK] 合并树后端pytest --cov=src --cov=main：1756 passed，覆盖率89.2444%；ruff format --check通过。
 - [OK] node --test tests/*.test.js：1109/1109；npm run test:component -- --maxWorkers=1：596/596（188.52秒）；npm run lint 0 errors/2919 warnings；npm run build通过。
-- [OK] 默认并行npm test两次分别3/9个5000ms超时，不报告通过；单进程统计覆盖语句/分支/函数/行79.74/70.89/84.44/84.41%，高于基线但语句/分支未达80%。详见待办F3/F4。
-- [OK] 实际diff自审、安全检查、任务validate、diff --check、gitleaks及提交门禁通过；额外只读独立审查未返回可用报告后停止，不计作独立通过；bandit未安装未运行。
+- [FAILED / UNMET] 默认并行npm test两次分别3/9个5000ms超时；单进程统计覆盖语句/分支/函数/行79.74/70.89/84.44/84.41%，高于基线但语句/分支未达80%。详见待办F3/F4。
+- [OK] 实际diff自审、安全检查、任务validate、diff --check、gitleaks及提交门禁通过。
+- [NOT RUN / INCOMPLETE] 额外只读独立审查未返回可用报告后停止，不计作独立通过；bandit未安装未运行。
 - [OK] 此前隔离浏览器验证包含双页冲突/取消/覆盖/第三次写入、旧撤销不重放、同页连续写入、外部变化仍审阅及390px窄屏；收尾没有重启浏览器或接触真实数据。
 
 ### Status
 
-[OK] **Completed**
+**部分完成：本地提交、C4归档和会话记录完成；远端推送被网络阻断，未宣称完整验收通过。**
+
+- 本地main已于`9bb2f4e`合入经验证的C4；主工作区干净，文件树与已测试任务分支一致，待推送10个提交的gitleaks扫描无命中。
+- 第一次push返回HTTP408；随后远端查询一度TLS异常。改为单次HTTP/1.1查询成功，确认远端main仍是`8ecc5a9`，未收到本次提交；第二次push仍被Connection reset by peer阻断。未强推、未改远端/仓库配置、未换发布方式。
+- 按原授权继续本地清理；已合并提交完整保存在本地main，删除C4工作树/分支不丢失已提交内容。临时文件采用回收站方式，其他任务资源保留。
 
 ### Next Steps
 
-- 按已授权流程合入并推送main，清理仅C4工作树/分支和已识别的临时文件；临时文件采用回收站方式，保留其他任务资源。
+- 网络恢复后重试 `git -C /home/decade/CRF-Editor -c http.version=HTTP/1.1 push origin main`，并查询远端main提交号确认；当前不能报告已同步。
 - 后续另行审阅并授权11-16-edit-conflict-followups的技术方案后再启动；本次不实施遗留项。
 - 生产服务、真实配置/数据库/上传文件和8888均禁止触碰；跳过生产构建、重启及上线验证。
