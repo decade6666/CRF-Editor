@@ -1,6 +1,21 @@
 # C4 Design — Project Revision Preconditions
 
-## Proposed Approach for Review
+## Confirmed Technical Decisions — 2026-11-15
+
+The user approved all three technical gates via AskUserQuestion in the C4 worktree session:
+
+- A private `project_design_state` record carries a per-project incarnation and monotonic revision. Online-only SQLite triggers cover all ten design tables, including legacy `field`. Bookkeeping and Agent fingerprint bytes stay unchanged. Counters represent invalidation, not operation counts; two-phase ordering can increment more than once. Exact no-change column updates and timestamp-only updates do not invalidate. Product exports strip revision triggers before dropping state/pruning/VACUUM; imports and copies get fresh state.
+- Nineteen core browser mutations require the loaded `If-Match` tag, including field-definition copy. Missing: HTTP428 `PRECONDITION_REQUIRED`; stale: HTTP409 `STALE_STATE`; metadata: `X-CRF-Design-Revision`, including HTTP204. Whole-form copy and independent management/import writers remain invalidation-only. Reauthorize current login, owner and non-recycled project within the physical transaction; do not change global ownership helpers. Backend/frontend must update together; no silent fallback, auto-refresh or automatic mutation retry.
+- Reuse the existing binding-profile command for atomic `update_shared` + instance deletion. The existing service currently returns before executing the definition operation in delete mode. Correct this narrowly, retaining validation/impact/cleanup and all-or-nothing behavior; no generic replay API. Reviewed coherent latest state bound to the accepted revision supplies the actual pre-commit before-image. A third write re-conflicts.
+
+These approvals authorize only C4 implementation/testing, not credentials, destructive restore/cleanup, deployment, commits, merge, push, archival or another task. Existing D8 product decisions stand.
+
+Two further decisions were confirmed via AskUserQuestion later on 2026-11-15 (both the recommended option):
+
+- **Stale history is not replayed.** After any revision change an old undo/redo closure never executes, even after review; the review only shows the latest state. The user reloads via 「重新载入设计」, and only a complete coherent reload clears the in-memory stacks. Ordinary (non-history) edits keep reviewed, explicitly confirmed overwrite.
+- **No new persistent entity identity in C4.** Same-project delete-and-recreate that reuses ID/OID/binding is indistinguishable; ordinary overwrite relies on showing the latest state plus explicit confirmation, a changed project incarnation is always refused, and docs state the limitation. Any later identity column needs its own decision (migration/export/import impact).
+
+## Approved Approach
 
 Introduce an online-only per-project monotonic design revision, separate from business version fields and the existing Agent fingerprint. Recommend a `project_design_state` record and migration-managed SQLite triggers for invalidation on all relevant design-table mutations. This avoids full-project fingerprint scans/caps on every browser write and missed invalidation by raw SQL/import/copy writers. It is a proposed storage/API change requiring final review, not implemented schema.
 
@@ -35,9 +50,11 @@ The implementation must expand this family matrix into concrete endpoints and re
 
 ## Conflict and Confirmed Overwrite
 
-Keep editor input and command intent. Fetch latest authorized state without overwriting the local editor; show old/local/latest values and affected shared references. Cancel writes nothing. Confirmation reapplies only the reviewed command against that exact latest revision, recomputing current business/reference checks. If another update occurs, return to conflict review. Deleted/rebound targets cannot be silently recreated or redirected.
+Keep editor input and command intent. Fetch latest authorized state without overwriting the local editor; show old/local/latest values and affected shared references. Cancel writes nothing. Confirmation reapplies only the reviewed command against that exact latest revision, recomputing current business/reference checks. If another update occurs, return to conflict review. A target missing from the latest state is refused, never silently recreated or redirected; a same-project recreation with identical ID/OID/binding cannot be detected (no persistent identity, see decisions above), so only the review protects that case, while history is never replayed after a revision change.
 
 Record an accepted command once with the actual pre-commit before-image so undo reverses the overwrite correctly. Rejected attempts do not advance history, remap IDs or retry automatically. Composite replay must be atomic or explicitly reported failed without a hidden committed prefix. Session/project switch, logout and late responses cannot restore stale drafts in a new context.
+
+Implementation notes (actual): coherent reads return independent clones. Own-write continuity replaced the first `createOwnRevisionTracker` after browser acceptance found own sequential writes (notes → field drag, form props → form props/field props, field reorder → form props) falsely reviewed: each host records its accepted `baselineRevision → revision` links in a bounded own chain, advances a loaded snapshot only when it sits exactly on that baseline and the effect is exactly derivable, and upgrades frozen editor/history baselines only along its own chain (cross-stack §17). External writes are never on the chain and still review; a reviewed accept never blesses reviewed data into an older snapshot — drag/reorder hosts reload. Invalidation-only own writes (quick-add dictionary/unit, whole-form copy) carry no pre-write tag, so the next protected save reviews once (documented limitation; needs a separate contract decision). Queued drags are `detached` writes that keep their own project/baseline, are flushed once on form/project switch, close or unmount, and are refused with a message (`DETACHED_STALE`) when review would be needed but the host no longer shows that form. Drag/reorder review cancel is labelled 「放弃本次拖动」/「放弃本次排序」 and restores the saved position/order; closing a review is a cancellation, not an error. Non-conflict failures keep the pre-C4 toast + reload.
 
 ## Migration, Exchange and Compatibility
 

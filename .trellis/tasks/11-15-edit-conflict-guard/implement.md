@@ -1,4 +1,20 @@
-# C4 Execution Plan — Not Started
+# C4 Execution Plan — Authorized 2026-11-15
+
+## Current Board
+
+- [x] Read parent/child manifests and artifacts; supplement original large-spec sections.
+- [x] Verify C1 completed (`c4ce7e2`) and present in local main and task/crf-c4.
+- [x] Source inventory and user approval of revision/triggers, nineteen strict browser gates, and narrow atomic existing-command undo.
+- [x] Activate only C4; record baseline coverage before product edits (1683 passed; 9675/10871 = 88.99825223070555%).
+- [x] RED: eight retained real-connection API failures (two stale writes both 200; missing precondition 200; auth SELECT before physical BEGIN; delete-mode definition operation ignored), plus seventeen not-yet-implemented storage cases.
+- [x] GREEN: online state, coherent reads/atomic writes, explicit frontend loaded/reviewed state, minimal composite undo (backend 1756 passed, 89.24% total; frontend node:test + vitest green).
+- [x] Actual diff, security, full comparable coverage, regression/lint/build and permitted disposable browser acceptance. Browser acceptance found own sequential writes falsely reviewed (notes → field drag, form props → form/field props, field reorder → form props); fixed by the own-write chain (cross-stack §17), with RED component/unit tests first and re-verified in the disposable browser. External changes still review; reviewed drags reload.
+- [x] Report evidence and blockers; leave uncommitted/unmerged/unarchived in this worktree (reported 2026-11-16; final frontend node:test 1109/1109, vitest 596/596, serial coverage 79.74/70.89/84.44/84.41 vs baseline 76.87/67.9/82.02/81.41, lint 0 errors, build OK; backend 1756 passed 89.24%).
+
+Open decision (not implemented, outside this fix): invalidation-only own writers (codelist/unit quick-add, whole-form copy) return no pre-write tag, so the next protected save on that page reviews once. Removing it needs a separate contract change (e.g. an additive pre-write revision header or optional If-Match on those endpoints) and user confirmation.
+
+The user separately approved isolated temporary test/browser credentials (no secret output, real data or 8888) and the existing fixtures' cleanup of this run's own temporary test resources via AskUserQuestion. Browser data/evidence, other temporary directories and destructive isolated restore/cleanup remain unapproved. No deployment/Git lifecycle authority is implied.
+
 
 ## Preconditions
 
@@ -29,6 +45,8 @@ cd frontend && npm run build
 
 Verify interpreter/test isolation first. New revision/concurrency/component test filenames are implementation deliverables, not existing commands; append them after creation. Capture pre-change coverage and verify no decrease/at least 80%; if inherited baseline prevents this, report the blocker rather than waive it. Adapter tests are required if its contract is touched, not assumed from backend tests.
 
+Created C4 suites (append to the commands above): backend `tests/test_design_revision.py`, `tests/test_design_revision_boundary.py`, `tests/test_design_revision_storage.py`; frontend `tests/designRevision.test.js`, `tests/useApiDesignRevision.test.js`, `tests/designAtomicUndo.test.js`, `tests/component/DesignConflictGuard.spec.js`, `tests/component/CoreEditorConflict.spec.js` (scripted server `tests/component/designServerFixture.js`).
+
 ## Gates and Rollback
 
 - G1: explicit endpoint/trigger/invalidation matrix; every source/template/exchange path remains safe.
@@ -37,4 +55,14 @@ Verify interpreter/test isolation first. New revision/concurrency/component test
 - G4: DevTools proof via C5 with independently established editing states; API tests alone are not browser evidence.
 - Rollback: coordinate backend/frontend state enforcement; retain source/db recovery guidance and do not auto-drop revision schema or silently accept old clients. Migration rollback requires separate approval/backup, not an ad hoc destructive command.
 
-No product mutation, credential provisioning, tests or browser are run by this plan itself. No commit/merge/deploy without explicit authorization.
+## Closeout Authorization — 2026-11-16
+
+The user explicitly requested: create a follow-up task for the remaining issues, then commit, clean up and finish. This supersedes the earlier instruction to leave C4 uncommitted/unmerged/unarchived, but does not authorize implementing the new backlog or touching production/8888. Follow-up: `.trellis/tasks/11-16-edit-conflict-followups/` (planning only; no start). C4's whole-frontend coverage requirement remains unmet (statements/branches below 80%) and the known limitations are carried there, not reported as passed acceptance.
+
+- [x] Reconcile the 86 original C4 paths, current local main and other worktrees; no unrelated edits included.
+- [x] Record F1–F6 limitations and verification debt in the new unstarted backlog.
+- [x] Product commit `b6c4a8f` contains code/tests/docs only, no `.trellis/` paths; pre-commit gitleaks, whitespace, Python syntax and ruff-format checks passed. Trellis work is a separate commit.
+- [ ] Archive only C4 and record journal, then merge/push main and remove only the C4 worktree/branch.
+- [ ] Move identified C4 `/tmp` artifacts to trash; existing temporary backend/browser processes are already absent.
+
+Do not rebuild deployed main-checkout assets, restart services, access real configuration/database/uploads or contact port 8888. Preserve other task worktrees.

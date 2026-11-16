@@ -1283,6 +1283,105 @@ validator = jsonschema.validators.validator_for(schema)(schema)
 
 ---
 
+### 17. Browser Design-Revision Preconditions
+
+**Contract ID**: `browser-design-revision` (C4; normal owner editing, not administrator history/backup)
+
+#### 1. Scope / Trigger
+
+Touching core form/field writers, metadata reads/cache, conflict review/overwrite, undo/redo, online migrations or product DB exchange requires both stacks and the Agent regressions. The revision is an online invalidation marker, NOT a business CRF version, design hash, operation count or Agent fingerprint. Coarse project scope intentionally conflicts on independent dictionary/unit/visit/import changes too.
+
+#### 2. Signatures
+
+- `backend/src/services/design_revision_service.py`: `initialize_design_state(engine)`, `read_design_revision(session, project_id) -> str`, `assert_design_revision(session, project_id, expected)`, `invalidate_project_design(session, project_id)`; services never commit the caller's transaction.
+- Online-only SQLite `project_design_state(project_id PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE, incarnation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)`; 32-hex incarnation and nonnegative integer revision, fixed `crf_design_v1_<table>_<insert|update|delete>` triggers. Not registered as a design column or copied into external files.
+- HTTP response `X-CRF-Design-Revision` carries the opaque quoted tag `"crf-design-v1:p<project>:<incarnation>:r<revision>"`; browser write request uses that exact value as `If-Match`. Never count/increment/construct it client-side or use wildcard matching. The only permitted client inspection is an equality check of the fixed `crf-design-v1:p<project>:<incarnation>` prefix (`projectDesignIdentity`) to refuse overwrite after project re-creation; the revision suffix is never interpreted.
+- `backend/src/design_dependencies.py::CORE_MUTATIONS` is the executable nineteen-entry registry; `COHERENT_READS` enumerates nine reads, including POST preflight reads. `DesignRoute` is installed only on forms, fields, codelists and units routers; nonlisted operations remain unchanged.
+
+| Gated writer family (all paths `/api`) | Concrete routes |
+|---|---|
+| Form authoring (6) | POST `/projects/{project_id}/forms`; PUT/PATCH/DELETE `/forms/{form_id}`; POST `/projects/{project_id}/forms/{batch-delete|reorder}` |
+| Definition library (6) | POST `/projects/{project_id}/field-definitions`; PUT `/projects/{project_id}/field-definitions/{fd_id}`; DELETE `/field-definitions/{fd_id}`; POST `/projects/{project_id}/field-definitions/{batch-delete|reorder}`; POST `/field-definitions/{fd_id}/copy` |
+| Instances/profiles/history (7) | POST `/forms/{form_id}/fields`; POST `/forms/{form_id}/field-profile`; PUT `/form-fields/{ff_id}/binding-profile`; DELETE `/form-fields/{ff_id}`; POST `/forms/{form_id}/fields/{reorder|restore-batch|batch-delete}` |
+
+#### 3. Contracts
+
+- The original request `get_session` remains transaction owner. Its scoped design dependency emits a real connection `BEGIN` for coherent reads or `BEGIN IMMEDIATE` for covered mutations BEFORE `get_current_user`'s first SELECT. Do not open another Session/connection after authentication or mistake SQLAlchemy logical autobegin for a SQLite snapshot. Nested definition/codelist/option/unit loads and response validation belong to that same physical transaction; no file/network work inside the writer lock.
+- Reauthorize current JWT username/auth_version, actual resource/project ownership and, for the nineteen protected writers, `deleted_at IS NULL` under the lock before checking state. Global owner helpers and unrelated management behavior are not widened. Authorization/resource errors precede state disclosure; no tag is returned on failed attempts.
+- Successful covered responses carry the tag staged before commit and published only after successful dependency teardown, including DELETE form/definition/instance and field reorder HTTP204. Preserve existing 200/201/204 bodies/status and non-stale 400/403/404/409/422 semantics. `Cache-Control: no-store` on metadata success and coded precondition failures; same-origin/subpath deployment needs no unused CORS changes.
+- Coherent reads: project forms, project field definitions, form fields, form/definition references, both batch-reference POST reads, project codelists (with options) and units. POST reference reads do not require If-Match or invalidate state. Multi-read editable projections must use matching tags; bounded re-read failure preserves existing input instead of combining unrelated body/token generations.
+- Triggers cover `project`, `form`, `field_definition`, `form_field`, legacy `field`, `codelist`, `codelist_option`, `unit`, `visit`, `visit_form`, old/new membership and referenced parent project scopes; BEFORE DELETE retains cascade parent lookup. Timestamp-only/exact same-value updates, owner/recycle/auth and private bookkeeping do not invalidate. Two-phase reorders may advance more than once even if their final order is unchanged. Agent simulated design mutations in rolled-back savepoints also roll back revision effects; approval/credential/result/audit-only work does not advance state. Agent wire/fingerprint/replay ordering/caps are unchanged.
+- `init_db()` conservatively advances existing counters before suspending triggers for canonical upgrades/normalization, then installs idempotently at the end. Form-field rebuild removes/reinstalls fixed triggers in its transaction; do not leave other tables' triggers pointing at a temporarily absent table. Existing-project initialization never resets counters; hard-deleted/recreated project IDs get a new incarnation.
+- All three product DB export variants strip the fixed revision triggers from the COPY before dropping `project_design_state`, pruning or VACUUM. Never alter the live source. Explicit graph import/merge/clone ignores source online state/schema and creates fresh target state; external templates remain query-only, migration-free and compatible without this table. Administrator full-system backup/recovery is a separate future boundary, not this stripping helper.
+- Browser commands retain their loaded baseline and local intent. Do not use an unrelated successful load/write to bless an older open buffer; do not auto-fetch a fresh token before writing or automatically retry a mutation. On conflict, fetch latest authorized state separately, display base/local/latest and current reference impact, and require explicit confirmation against precisely reviewed state. Third writes re-conflict; deletion, rebind, incarnation change or graph replacement must not redirect old commands/undo. Rejected/cancelled attempts are write-free/history-free; accepted overwrite history uses actual coherent pre-commit before-images.
+- Stale history (user decision 2026-11-15): once the revision changed, an old undo/redo closure is never replayed, even after review. The review shows the latest state; the user must explicitly reload the design (`designer-reload-context`), which clears the in-memory history only after a complete coherent read. C4 adds NO persistent per-entity identity (user decision 2026-11-15): a same-project delete-and-recreate that reuses ID/OID/binding is indistinguishable, so ordinary overwrite relies on the latest-state review plus explicit confirmation, while a different project incarnation is always refused without a dialog.
+- Coherent read results are independent clones; hosts may mutate them optimistically without altering a cached body that is still paired with an older tag.
+- Own-write continuity (`designRevision.js`: `createOwnDesignChain`, `applyOwnDesignWrite`, `advanceOwnSnapshot`, `upgradeOwnBaseline`; wired in `FormDesignerTab.vue`, `FieldsTab.vue`, `VisitFormPreviewDialog.vue`): a host never adopts an unseen external revision. Every accepted write records `accepted.baselineRevision → accepted.revision` (the tag the server actually accepted — the reviewed tag after review) in a bounded per-host chain. A loaded snapshot advances only when it sits exactly on that `baselineRevision` and the committed effect is exactly derivable (form PUT/PATCH merges the returned `FormResponse`; single delete shifts later rows −1, batch delete compacts 1..n; full-membership reorder writes 1..n; field/definition commands leave a forms-only snapshot unchanged); an unknown effect (e.g. NULL order self-heal) keeps the old snapshot, so the next write reviews instead of guessing. Editor and history baselines frozen at an older tag are upgraded only to a same-project (same-form) snapshot of that host reachable along its own chain, so sequential own saves/drags/reorders/undo never self-conflict while external writes (never on the chain) still review. A write accepted after review links only reviewed→new and never blesses the reviewed data into an older snapshot; drag/reorder hosts reload instead (`reloadAfterReviewedWrite`, `loadPreviewForm`). Known limitation: invalidation-only writers (codelist/unit quick-add, whole-form copy) return no pre-write tag and cannot extend the chain, so the host's next protected save reviews once; removing it needs a separate contract decision (e.g. an additive pre-write revision header), not client-side tag inference.
+- Queued aCRF drags carry their own project/baseline and are flushed once on form/project switch, dialog close or unmount (`detached` writes); conflict review is offered only while the host still shows that form, otherwise the write is refused (`DETACHED_STALE`) with a message. Discarding in review or any non-conflict failure keeps the pre-C4 toast + reload of the saved position; nothing is retried automatically.
+- The conflict dialog cancel label states what happens: editors `保留我的输入`; drag/reorder hosts `放弃本次拖动` / `放弃本次排序` (their local order/position is restored from the saved state). Closing the dialog (`close`) is a cancellation, never an error toast.
+- Minimal compound undo reuses binding-profile: `definition_operation.update_shared` + `binding.keep` + `instance.delete`; target must equal original binding. Reject creation/changed-binding combinations. Restore and delete/compact are atomic; a restored preexisting definition (including an unplaced label) survives unless explicit original-binding `cleanup_definition_id` applies. Plain `none + delete` retains normal orphan-label cleanup. No generic replay DSL or Agent force flag.
+- C6 handoff: current-admin authorization, current-revision/preview binding, actual pre-state protection and graph reconciliation must occur in ONE physical writer transaction. Never restore the stored online revision or incarnation from a snapshot. Call `invalidate_project_design` for successful replacement even when ordinary row triggers see no changed rows; rollback also rolls back this increment. Capture/review/protection bookkeeping alone must not call it. Reset editor caches/history only after successful repair. C8 DB rewind additionally needs its own external auth/recovery generation; C4 does not implement system restore.
+- Compatibility: old clients lacking state fail closed with an update notice, not a silent bypass. Deploy frontend/backend together; code-only rollback does not keep these protections. Do not automatically drop schema or attempt database rollback without separate authorization/recoverable protection.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Result |
+|---|---|
+| Missing If-Match on covered, authorized write | 428 `{detail, code: PRECONDITION_REQUIRED}`, no mutation/new tag |
+| Different/malformed/wildcard/foreign project tag | 409 `{detail, code: STALE_STATE}`, no mutation/new tag |
+| Another owner, invalidated login, missing/recycled protected project | Existing 403/401/404 before precondition disclosure |
+| Competing writes from one state | At most one conflicting commit; loser is stale, not last-write-wins |
+| Failed business/output/storage validation | Entire command/revision rolls back; preserve original domain error semantics |
+| Third write after review | New conflict; no automatic overwrite/retry |
+| Sequential own writes on one page (no external change) | Next write continues from the own accepted tag via the own chain; no review |
+| Own invalidation-only write (quick-add, whole-form copy), then a protected save | One review (known limitation); confirming saves normally |
+| Definition copy vs whole-form copy | Definition copy is gated; whole-form copy is invalidation-only and returns metadata |
+| Agent design write / rolled-back preview / bookkeeping | Invalidate / no persisted revision effect / unchanged respectively |
+| Product export/import/clone | No online schema in export; no imported counter/trigger identity; live source unchanged |
+
+#### 5. Good / Base / Bad Cases
+
+Good: two pages read one state; one saves; the other's input remains available for review, confirmation binds the latest state and undo restores that reviewed pre-state. Base: an ordinary save uses the tag paired with the loaded editable body; a later drag/save on the same page continues from the tag returned by that page's own accepted write (own chain — e.g. notes save → field drag → form-property save → undo). Bad: refresh a global token and attach it to old cached values, let an independent buffer's write authorize a stale draft, bless reviewed data into an older snapshot, treat an invalidation-only response as a chain link, apply old history after graph replacement or any external change, re-queue a drag the user discarded in review, or drop only the state table while exported triggers still reference it.
+
+#### 6. Tests Required — Assertion Points
+
+- `backend/tests/test_design_revision.py`: raw-client file/WAL/two-connection stale sequential and parallel writes, BEGIN before user SELECT, body/tag interleaving, missing/third-state errors, invalid compound rollback and existing label before-image preservation.
+- `test_design_revision_boundary.py`: exact nineteen registry matrix, all four 204 metadata responses, read-only preflight POSTs, ownership/auth/recycle no-disclosure, business rollback, Agent/browser mixed writes and original result/fingerprint replay.
+- `test_design_revision_storage.py`: idempotence, all design-table families, old/new parent moves, timestamps/no-ops/bookkeeping, savepoint rollback, replacement monotonicity, reused project identity, startup/rebuild and three private-safe export variants. Preserve Agent/access, profile/restore, inline/reference, ordering, import/copy and C1 regressions.
+- Legacy business tests may use `tests/editor_client.py`: seed actor state once, advance only acknowledged own writes, explicitly reload after external seed changes; never silently refresh/retry per write. Protocol/concurrency tests use `raw_client`. A 409 business test must not pass because it accidentally hit STALE_STATE first.
+- Frontend API/unit/component tests and real DevTools evidence must independently establish input retention, cache body/tag pairing, cancel/confirmed overwrite/third write, actual-before-image undo, atomic composite replay, annotations/notes, OID/domain/inline/reference guards and session/project late-response safety. `frontend/tests/component/CoreEditorConflict.spec.js` drives real `useApi.js` against `designServerFixture.js` (scripted fetch with real response headers; it never hands out a newer tag automatically) for frozen baselines, incarnation refusal, explicit overwrite, second review, before-image undo, stale-history non-replay, committed-but-unreadable undo/draft, own consecutive annotation drags, detached close, and cancel/close-is-not-an-error paths; its own-write block covers notes→drag, notes→form props, two form-prop saves, form props→field props, field reorder→form props, field save→form save→undo, FieldsTab ordinal reorder/copy→save, external changes after own writes still reviewed, and reviewed designer/visits drags reloading. `frontend/tests/designRevision.test.js` covers chain reachability/bounds, exact versus unknown effects, exact-tag-only advance (no reviewed blessing) and baseline upgrade. Source/happy-dom tests are not real-browser evidence.
+
+#### 7. Wrong vs Correct
+
+```python
+# Wrong: auth read already happened, then check state on a second connection.
+current = get_latest_tag(other_session, project_id)
+apply_edit(request_session, data)
+
+# Correct: the same physical writer transaction covers auth, check and edit.
+conn.exec_driver_sql("BEGIN IMMEDIATE")
+# Reauthorize within its Session, assert_design_revision(...), validate/flush,
+# stage committed metadata, then commit; failure publishes neither data nor tag.
+```
+
+```javascript
+// Wrong: latest tag + old editor data silently bypasses conflict review.
+await save(oldDraft, (await loadLatest()).revision);
+// Correct: ordinary save uses loaded.revision; only explicit reviewed
+// confirmation may use reviewed.revision with the frozen original intent.
+
+// Wrong: adopt whatever tag the last response carried (blesses reviewed or
+// external state into an older snapshot).
+snapshot = { revision: accepted.revision, data: accepted.before };
+// Correct: record the own link, advance only an exact-tag snapshot with an
+// exactly derivable effect, and upgrade older baselines along the own chain.
+chain.record(accepted.baselineRevision, accepted.revision);
+snapshot = advanceOwnSnapshot(snapshot, accepted, { method, url, body });
+const baseline = upgradeOwnBaseline(frozenBaseline, [snapshot], chain);
+```
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code
