@@ -13,7 +13,7 @@ test('FormDesignerTab delays auxiliary datasets until designer opens', () => {
   assert.match(formDesignerSource, /const designerAuxiliaryLoading = ref\(false\)/)
   assert.match(formDesignerSource, /const designerAuxiliaryLoadError = ref\(''\)/)
   assert.match(formDesignerSource, /async function ensureDesignerAuxiliaryDataLoaded\(\{ refreshFieldDefs = false \} = \{\}\)/)
-  assert.match(formDesignerSource, /await Promise\.all\(\[loadFieldDefinitions\(projectId\), loadCodelists\(projectId\), loadUnits\(projectId\)\]\)/)
+  assert.match(formDesignerSource, /const snapshot = await readProjectDesign\(projectId, \{ formId, auxiliary: true, isCurrent: \(\) => !isStaleLoad\(\) \}\)/)
   assert.match(formDesignerSource, /onMounted\(async \(\) => \{[\s\S]*await loadForms\(\)[\s\S]*nextTick\(\(\) => initFormsSortable\(\)\)[\s\S]*\}\)/)
   assert.match(formDesignerSource, /@click="openDesigner"/)
   assert.match(formDesignerSource, /await ensureDesignerAuxiliaryDataLoaded\(\{ refreshFieldDefs: true \}\)/)
@@ -21,22 +21,10 @@ test('FormDesignerTab delays auxiliary datasets until designer opens', () => {
 
 
 test('FormDesignerTab refreshes field definitions cache when designer opens', () => {
-  assert.match(
-    formDesignerSource,
-    /async function refreshDesignerFieldDefinitions\(projectId = props\.projectId\) \{[\s\S]*api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);[\s\S]*return loadFieldDefs\(projectId\);[\s\S]*\}/,
-  )
-  assert.match(
-    formDesignerSource,
-    /async function ensureDesignerAuxiliaryDataLoaded\(\{ refreshFieldDefs = false \} = \{\}\)/,
-  )
-  assert.match(
-    formDesignerSource,
-    /if \(designerAuxiliaryLoaded\.value\) \{[\s\S]*if \(!refreshFieldDefs\) return;[\s\S]*await refreshDesignerFieldDefinitions\(projectId\);[\s\S]*return;[\s\S]*\}/,
-  )
-  assert.match(
-    formDesignerSource,
-    /const loadFieldDefinitions = refreshFieldDefs \? refreshDesignerFieldDefinitions : loadFieldDefs[\s\S]*await Promise\.all\(\[loadFieldDefinitions\(projectId\), loadCodelists\(projectId\), loadUnits\(projectId\)\]\)/,
-  )
+  assert.match(formDesignerSource, /if \(refreshFieldDefs\) api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);/)
+  assert.match(formDesignerSource, /async function ensureDesignerAuxiliaryDataLoaded\(\{ refreshFieldDefs = false \} = \{\}\)/)
+  assert.match(formDesignerSource, /if \(designerAuxiliaryLoaded\.value && !refreshFieldDefs\) return;/)
+  assert.match(formDesignerSource, /readProjectDesign\(projectId, \{ formId, auxiliary: true, isCurrent: \(\) => !isStaleLoad\(\) \}\)/)
   assert.match(formDesignerSource, /await ensureDesignerAuxiliaryDataLoaded\(\{ refreshFieldDefs: true \}\)/)
 })
 
@@ -65,10 +53,10 @@ test('FormDesignerTab guards in-flight designer auxiliary loads against project 
     formDesignerSource,
     /async function loadCodelists\(projectId = props\.projectId\) \{[\s\S]*if \(projectId !== props\.projectId\) return false;[\s\S]*codelists\.value = loadedCodelists;[\s\S]*return true;[\s\S]*\}/,
   )
-  assert.match(
-    formDesignerSource,
-    /if \(loaded\.some\(\(item\) => item === false\) \|\| isStaleLoad\(\)\) throw new Error\('项目已切换，请重新打开设计器'\)/,
-  )
+  assert.match(formDesignerSource, /if \(isStaleLoad\(\)\) throw new Error\('项目已切换，请重新打开设计器'\)/)
+  assert.match(formDesignerSource, /fieldDefs\.value = snapshot\.data\.definitions/)
+  assert.match(formDesignerSource, /codelists\.value = snapshot\.data\.codelists/)
+  assert.match(formDesignerSource, /units\.value = snapshot\.data\.units/)
 })
 
 

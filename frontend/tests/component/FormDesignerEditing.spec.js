@@ -7,6 +7,8 @@ import { nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 import { body } from './appTestHarness.js';
 
 vi.mock('sortablejs', () => ({
@@ -244,7 +246,7 @@ describe('FormDesigner 编辑 · 横向标记与 log 行', () => {
       label_override: '以下为log行',
     });
     expect(api.invalidateCache).toHaveBeenCalledWith(FIELDS_URL);
-    expect(api.cachedGet.mock.calls.filter(([url]) => url === FIELDS_URL).length).toBe(2);
+    expect(api.cachedGet.mock.calls.filter(([url]) => url === FIELDS_URL).length).toBe(3);
   });
 
   it('log 行添加失败时提示', async () => {
@@ -274,7 +276,7 @@ describe('FormDesigner 编辑 · 删除与批量删除', () => {
 
     expect(api.del).toHaveBeenCalledWith('/api/form-fields/101');
     expect(api.invalidateCache).toHaveBeenCalledWith(FIELDS_URL);
-    expect(api.cachedGet.mock.calls.filter(([url]) => url === FIELDS_URL).length).toBe(2);
+    expect(api.cachedGet.mock.calls.filter(([url]) => url === FIELDS_URL).length).toBe(3);
   });
 
   it('表单被访视引用时先确认，取消则不删除', async () => {

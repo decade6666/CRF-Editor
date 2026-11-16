@@ -132,6 +132,7 @@ def test_field_update_changed_oid_is_normalized(client, project_id, auth_token) 
 
 def test_field_update_exact_echo_keeps_legacy_lowercase(client, project_id, auth_token, engine) -> None:
     fd_id = _seed_legacy_lower_field(engine, project_id, "oldfld")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.put(
         f"{FIELD.format(pid=project_id)}/{fd_id}",
         json={"variable_name": "oldfld", "label": "改名不改OID"},
@@ -143,6 +144,7 @@ def test_field_update_exact_echo_keeps_legacy_lowercase(client, project_id, auth
 
 def test_field_update_omitted_oid_keeps_legacy_lowercase(client, project_id, auth_token, engine) -> None:
     fd_id = _seed_legacy_lower_field(engine, project_id, "oldfld")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.put(
         f"{FIELD.format(pid=project_id)}/{fd_id}",
         json={"label": "只改标签"},
@@ -156,6 +158,7 @@ def test_field_update_non_ascii_code_is_not_expanded(client, project_id, auth_to
     """非 ASCII 不得经大写转换变成合法 ASCII；字符集校验保持拒绝语义。"""
 
     fd_id = _seed_legacy_lower_field(engine, project_id, "oldfld")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.put(
         f"{FIELD.format(pid=project_id)}/{fd_id}",
         json={"variable_name": "ß"},
@@ -198,6 +201,7 @@ def test_form_update_exact_echo_keeps_legacy_lowercase(client, project_id, auth_
         session.commit()
         form_id = form.id
 
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = getattr(client, method)(
         f"/api/forms/{form_id}", json={"code": "oldfrm", "name": "改名"}, headers=auth_headers(auth_token)
     )
@@ -214,6 +218,7 @@ def test_form_update_omitted_code_keeps_legacy_lowercase(client, project_id, aut
         session.commit()
         form_id = form.id
 
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.put(f"/api/forms/{form_id}", json={"name": "只改名称"}, headers=auth_headers(auth_token))
     assert resp.status_code == 200, resp.text
     assert resp.json()["code"] == "oldfrm"
@@ -373,6 +378,8 @@ def profile_context(client, project_id, auth_token, engine):
         session.add(form)
         session.commit()
         form_id = form.id
+    # 仅在外部种子完成后加载一次，不在每次写入前自动刷新。
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     return {"form_id": form_id}
 
 
@@ -413,13 +420,15 @@ def test_profile_create_without_preferred_normalizes_lowercase_oid(
 def test_profile_create_normalized_collision_conflicts_without_silent_bind(
     client, project_id, auth_token, profile_context
 ) -> None:
-    _create_field(client, auth_token, project_id, "AE01")
+    created = _create_field(client, auth_token, project_id, "AE01")
+    assert created.status_code == 201, created.text
     resp = client.post(
         PROFILE.format(fid=profile_context["form_id"]),
         json=_new_definition_command("ae01"),
         headers=auth_headers(auth_token),
     )
     assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == "该OID已在字段库中存在，请从候选中选择或修改OID"
 
 
 def test_profile_update_shared_echo_keeps_legacy_lowercase(
@@ -434,6 +443,7 @@ def test_profile_update_shared_echo_keeps_legacy_lowercase(
         session.commit()
         ff_id = ff.id
 
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.put(
         f"/api/form-fields/{ff_id}/binding-profile",
         json={
@@ -461,6 +471,7 @@ def test_profile_restore_with_preferred_keeps_snapshot_oid(
     client, project_id, auth_token, engine, profile_context
 ) -> None:
     fd_id = _seed_legacy_lower_field(engine, project_id, "oldfld")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     resp = client.post(
         PROFILE.format(fid=profile_context["form_id"]),
         json=_new_definition_command("oldfld", preferred=fd_id),
@@ -477,6 +488,7 @@ def test_profile_restore_with_preferred_keeps_snapshot_oid(
 
 def test_field_copy_mints_uppercase_copy_ladder(client, project_id, auth_token, engine) -> None:
     fd_id = _seed_legacy_lower_field(engine, project_id, "age01")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     first = client.post(f"/api/field-definitions/{fd_id}/copy", headers=auth_headers(auth_token))
     assert first.status_code == 201, first.text
     assert first.json()["variable_name"] == "AGE01_COPY"
@@ -492,6 +504,7 @@ def test_field_copy_ladder_skips_taken_exact_names(client, project_id, auth_toke
 
     fd_id = _seed_legacy_lower_field(engine, project_id, "age01")
     _seed_legacy_lower_field(engine, project_id, "AGE01_COPY")
+    client.reload_design(project_id, headers=auth_headers(auth_token))
     copy_resp = client.post(f"/api/field-definitions/{fd_id}/copy", headers=auth_headers(auth_token))
     assert copy_resp.status_code == 201, copy_resp.text
     assert copy_resp.json()["variable_name"] == "AGE01_COPY1"

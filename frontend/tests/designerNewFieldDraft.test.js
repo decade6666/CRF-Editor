@@ -55,7 +55,7 @@ test('saveDraftField 一次 field-profile 原子保存并替换草稿、入撤�
   assert.ok(profilePost > -1, '应 POST field-profile 原子接口')
   // 原子命令：创建/绑定定义 + 实例 upsert（不再分两次请求）
   assert.match(body, /const command = buildFieldProfileCommand\(\{/)
-  assert.match(body, /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\)/)
+  assert.match(body, /const result = await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command, \{[\s\S]*baseline: draftDesignBaseline/)
   assert.match(body, /const createdFfId = result\.form_field_id \?\? result\.form_field\?\.id/)
   assert.match(body, /const createdFdId = result\.final_definition_id/)
   assert.match(body, /const definitionCreated = Boolean\(result\.definition_created\)/)
@@ -105,17 +105,14 @@ test('链接候选且改了定义级属性时：命令携带候选快照、保�
   assert.match(body, /if \(e === 'cancel' \|\| e === 'close'\) return false/)
 })
 
-test('链接候选修改定义的保存：undo 先 PUT 恢复共享定义内容再删实例', () => {
+test('链接候选修改定义的保存：undo 用一次原子 binding-profile 恢复共享定义并删除实例', () => {
   const body = fnBody('saveDraftField')
-  assert.match(
-    body,
-    /const restoreDefinitionPayload = definitionChanged \? candidateBeforeDefinition : null/,
-  )
-  // undo 闭包：先恢复定义内容（其他表单同引用的定义保持内容一致），再删除实例；随后走回放刷新
-  assert.match(
-    body,
-    /if \(restoreDefinitionPayload\) \{[\s\S]*?await api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ids\.fdId\}`, restoreDefinitionPayload\)[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\)[\s\S]*?\}[\s\S]*?const deleteCommand = buildDeleteProfileCommand/,
-  )
+  assert.match(body, /let restoreDefinitionPayload = definitionChanged \? cloneDesignState\(candidateBeforeDefinition\) : null/)
+  assert.match(body, /onAccepted: \(\{ before \}\) => \{[\s\S]*restoreDefinitionPayload = buildDefinitionPayload\(actual\)/)
+  const undo = body.slice(body.indexOf('undo: async'), body.indexOf('redo: async'))
+  assert.match(undo, /buildDeleteProfileCommand\(\{[\s\S]*restoreDefinitionId: restoreDefinitionPayload \? ids\.fdId : null,[\s\S]*restoreDefinition: restoreDefinitionPayload/)
+  assert.match(undo, /await replayBindingProfile\(historyContext, ids\.ffId, deleteCommand\)/)
+  assert.doesNotMatch(undo, /field-definitions\//, '复合撤销不得先提交共享定义写入再单独删除实例')
 })
 
 test('链接候选修改定义的保存：redo 原样重放捕获命令（existing 绑定 + 共享更新），不重建定义', () => {
@@ -155,7 +152,8 @@ test('removeField 删除标签字段后可通过快照重建定义与实例', ()
   assert.match(source, /items: snapshots\.map\(\(snapshot\) => \(\{\s*form_field: snapshot\.formFieldPayload,\s*field_definition: isValidRequiredOid\(snapshot\.fieldDefinitionPayload\?\.variable_name\)\s*\? snapshot\.fieldDefinitionPayload\s*: null,\s*\}\)\)/)
   assert.doesNotMatch(source, /status !== 404/)
   assert.doesNotMatch(source, /await api\.del\(`\/api\/field-definitions\/\$\{recreatedDefinition\.id\}`\);/)
-  assert.match(body, /const snapshot = buildReplaySnapshot\(ff\)/)
+  assert.match(body, /let snapshot = buildReplaySnapshot\(ff\)/)
+  assert.match(body, /onAccepted: \(\{ before \}\) => \{[\s\S]*snapshot = buildReplaySnapshot\(actual\)/)
   assert.match(body, /const shouldReloadDefs = Boolean\(snapshot\.fieldDefinitionPayload\)/)
   assert.match(body, /const recreated = await recreateFieldFromSnapshot\(formId, snapshot\)/)
   assert.match(body, /reloadAfterReplay\(formId, \{ defs: shouldReloadDefs \}\)/)

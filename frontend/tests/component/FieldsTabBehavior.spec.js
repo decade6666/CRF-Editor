@@ -7,6 +7,8 @@ import { nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import FieldsTab from '../../src/components/FieldsTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 import { OID_ERROR } from '../../src/composables/oidValidation.js';
 import { body } from './appTestHarness.js';
 

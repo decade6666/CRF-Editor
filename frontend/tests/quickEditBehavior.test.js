@@ -69,8 +69,9 @@ test('property editor previews live edits and design notes use explicit dialog s
   assert.match(formDesignerSource, /const designerPreviewFields = computed\(\(\) => \{[\s\S]*const liveSnapshot = liveEditSnapshot\.value\?\.fieldId === field\.id \? liveEditSnapshot\.value : null;[\s\S]*return applyPreviewSnapshot\(field, liveSnapshot\)/)
   // 备注保存失败提示已随弹窗组件隔离；设计器只保留弹窗接线
   const notesDialogSource = readFileSync(path.resolve(currentDir, '../src/components/DesignNotesDialog.vue'), 'utf8')
-  assert.match(notesDialogSource, /ElMessage\.error\(`设计备注保存失败：\$\{e\.message\}`\)/)
-  assert.match(notesDialogSource, /await api\.put\(`\/api\/forms\/\$\{props\.form\.id\}`, \{ design_notes: draft\.value \}\)/)
+  assert.match(notesDialogSource, /设计备注保存失败：\$\{e\.message\}/)
+  assert.match(notesDialogSource, /await executeDesignMutation\(\{[\s\S]*method: 'put',\s*url: `\/api\/forms\/\$\{formId\}`,\s*body: \{ design_notes: designNotes \},\s*baseline/)
+  assert.match(notesDialogSource, /confirm: confirmDesignOverwrite/)
   assert.match(formDesignerSource, /async function selectForm\(nextForm\)/)
   assert.match(formDesignerSource, /formsTableRef\.value\?\.setCurrentRow\(currentForm\)/)
   assert.match(formDesignerSource, /@current-change="onFormsTableCurrentChange"/)
@@ -199,7 +200,7 @@ test('selectField keeps regular fields editable and resets log rows to readonly 
   )
   assert.match(
     formDesignerSource,
-    /const result = await api\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command\)/,
+    /const result = await protectedApi\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command, \{/,
   )
   assert.doesNotMatch(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ff\.id\}\/colors`/)
   assert.doesNotMatch(formDesignerSource, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions\/\$\{ff\.field_definition_id\}`/)
@@ -216,7 +217,7 @@ test('field list exposes inline toggle backed by binding-profile instance update
   assert.match(formDesignerSource, /await confirmFormChange\(\)/)
   assert.match(
     formDesignerSource,
-    /api\.put\(\s*`\/api\/form-fields\/\$\{ff\.id\}\/binding-profile`,[\s\S]*buildInstanceOnlyProfileCommand\(\{ instance: \{ inline_mark: nextInlineMark \} \}\)/,
+    /protectedApi\.put\(\s*`\/api\/form-fields\/\$\{ff\.id\}\/binding-profile`,[\s\S]*buildInstanceOnlyProfileCommand\(\{ instance: \{ inline_mark: nextInlineMark \} \}\)/,
   )
   assert.match(formDesignerSource, /api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
   assert.match(formDesignerSource, /if \(selectedFieldId\.value === ff\.id && !isFieldPropDirty\.value\) \{[\s\S]*if \(refreshed\) selectField\(refreshed\)/)
@@ -331,10 +332,10 @@ test('property editor save uses shared multi-form impact warning and context gua
 
 test('api helpers preserve HTTP status on thrown errors', () => {
   const apiSource = readFileSync(path.resolve(currentDir, '../src/composables/useApi.js'), 'utf8')
-  assert.match(apiSource, /function _createHttpError\(message, status\) \{[\s\S]*error\.status = status/)
+  assert.match(apiSource, /function _createHttpError\(message, status, code\) \{[\s\S]*error\.status = status/)
   assert.match(apiSource, /throw _createHttpError\('登录已过期，请重新登录', r\.status\)/)
-  assert.match(apiSource, /if \(r\.status === 429\) \{[\s\S]*throw _createHttpError\(detail \|\| '操作过于频繁，请稍后重试', r\.status\)/)
-  assert.match(apiSource, /if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)/)
+  assert.match(apiSource, /r\.status === 429 \? '操作过于频繁，请稍后重试'/)
+  assert.match(apiSource, /if \(!r\.ok\) \{[\s\S]*const \{ message, code \} = await _parseError\(r\);[\s\S]*r\.status, code\)/)
 })
 
 
@@ -443,7 +444,8 @@ test('form switch only lets latest field load commit', () => {
   assert.match(formDesignerSource, /let formFieldsLoadSession = 0/)
   assert.match(formDesignerSource, /async function loadFormFields\(formId = selectedForm\.value\?\.id \?\? null\) \{[\s\S]*const sessionId = \+\+formFieldsLoadSession/)
   assert.match(formDesignerSource, /if \(!formId\) \{[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*return/)
-  assert.match(formDesignerSource, /const loadedFields = await api\.cachedGet\(`\/api\/forms\/\$\{formId\}\/fields`\)/)
+  assert.match(formDesignerSource, /snapshot = await readProjectDesign\(projectId, \{[\s\S]*formId, auxiliary: designerAuxiliaryLoaded\.value/)
+  assert.match(formDesignerSource, /isCurrent: \(\) => sessionId === formFieldsLoadSession && selectedForm\.value\?\.id === formId && props\.projectId === projectId/)
   assert.match(formDesignerSource, /if \(sessionId !== formFieldsLoadSession \|\| selectedForm\.value\?\.id !== formId\) return/)
   assert.match(formDesignerSource, /watch\(selectedForm,[\s\S]*form[\s\S]*=> \{[\s\S]*void loadFormFields\(form\?\.id \?\? null\)[\s\S]*\}\)/)
 })

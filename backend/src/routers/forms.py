@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.database import get_session
+from src.design_dependencies import DesignRoute
 from src.dependencies import get_current_user, verify_form_owner, verify_project_owner
 from src.models.form import Form
 from src.models.form_field import FormField
@@ -27,7 +28,7 @@ from src.services.form_field_copy import copy_form_field
 from src.services.unique_name import first_free_name
 
 
-router = APIRouter(tags=["forms"])
+router = APIRouter(tags=["forms"], route_class=DesignRoute)
 
 
 def _build_invalid_annotation_positions_http_error(form: Form, exc: Exception) -> HTTPException:

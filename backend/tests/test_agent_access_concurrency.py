@@ -449,10 +449,11 @@ def test_agent_write_threadpool_keeps_loop_live_while_browser_lock_held(file_eng
 def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, monkeypatch, reset_agent_limiter):
     """同一事件循环并发真实的浏览器/agent ASGI 写请求（文件/WAL 引擎）。
 
-    浏览器 PUT /api/form-fields/{ff_id}/binding-profile 在真实 update_binding_profile
-    （内部 flush 取 SQLite 写锁）之后于其请求事务内短暂持锁，锁由 get_session 的
-    真实 yield-session 事务终结器（session.begin 上下文提交）释放——不是手工 SQL
-    持有者（底层对照见 test_agent_write_threadpool_keeps_loop_live_while_browser_lock_held）。
+    浏览器先从一致读取获得 If-Match，再 PUT /api/form-fields/{ff_id}/binding-profile。
+    C4 在鉴权前真实 BEGIN IMMEDIATE；真实 update_binding_profile flush 后于请求事务内
+    短暂持锁，锁仍由 get_session 的真实 yield-session 事务终结器（session.begin 上下文
+    提交）释放——不是手工 SQL 持有者（底层对照见
+    test_agent_write_threadpool_keeps_loop_live_while_browser_lock_held）。
     agent 写经线程池 BEGIN IMMEDIATE 只能在浏览器提交后进入；其写事务内重校验的
     指纹已因浏览器提交而变化 → 预期浏览器 200、agent 409 STALE_STATE。
     被拒 agent 不留部分变更/结果；依赖覆盖、监听器与事件不外泄。
@@ -472,7 +473,10 @@ def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, mo
     from src.models.form import Form
     from src.routers import fields as fields_router
     from src.services.auth_service import create_access_token
+    from src.services.design_revision_service import REVISION_HEADER, initialize_design_state
 
+    # 此测试使用独立文件引擎，显式安装线上状态与触发器，而非共享内存夹具。
+    initialize_design_state(file_engine)
     user_id, project_id, fd_id = _seed(file_engine)
     with Session(file_engine) as session:
         form = Form(project_id=project_id, name="同循环表单", code="F_LOOP", order_index=1)
@@ -484,6 +488,7 @@ def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, mo
             session, session.get(Project, project_id), session.get(User, user_id), "同循环凭据", "read_write", 24
         )
         session.commit()
+        form_id = form.id
         form_field_id = ff.id
         credential_id = credential.id
         fingerprint_before = compute_project_fingerprint(session, project_id)
@@ -537,15 +542,19 @@ def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, mo
             with session.begin():
                 yield session
 
-    # G1：有界测试本地信号——before_cursor_execute 观测 agent 线程池连接真实执行
-    # BEGIN IMMEDIATE 的时刻（浏览器事务不发 IMMEDIATE，不会误触）；finally 中移除
+    # G1：两个写者都发 IMMEDIATE；浏览器先到 held_then_wait，只有随后启动的 Agent
+    # 才能在 reached 之后尝试写锁。分别计数并记录实际 DBAPI 连接，避免浏览器误放行。
     agent_begin_attempted = threading.Event()
-    begin_attempts = {"count": 0}
+    begin_attempts = {"browser": 0, "agent": 0}
+    begin_connections = {}
 
     def _on_before_cursor_execute(_conn, _cursor, statement, _parameters, _context, _executemany):
         if "BEGIN IMMEDIATE" in statement:
-            begin_attempts["count"] += 1
-            agent_begin_attempted.set()
+            writer = "agent" if reached.is_set() else "browser"
+            begin_attempts[writer] += 1
+            begin_connections[writer] = id(_conn.connection.driver_connection)
+            if writer == "agent":
+                agent_begin_attempted.set()
 
     event.listens_for(file_engine, "before_cursor_execute")(_on_before_cursor_execute)
     previous_session = app.dependency_overrides.get(get_session)
@@ -564,18 +573,25 @@ def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, mo
 
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                # 浏览器在竞争前仅加载一次；不得在 Agent/浏览器写之间刷新或重试。
+                loaded = await ac.get(f"/api/forms/{form_id}/fields", headers=browser_headers)
+                assert loaded.status_code == 200, loaded.text
+                assert [row["id"] for row in loaded.json()] == [form_field_id]
+                loaded_browser_headers = {**browser_headers, "If-Match": loaded.headers[REVISION_HEADER]}
                 beat_task = asyncio.create_task(beat())
                 try:
                     browser_task = asyncio.create_task(
                         ac.put(
                             f"/api/form-fields/{form_field_id}/binding-profile",
                             json=browser_command,
-                            headers=browser_headers,
+                            headers=loaded_browser_headers,
                         )
                     )
                     # 等浏览器真实操作在请求事务内拿到写锁（wrapper 已调真实函数）
                     await asyncio.wait_for(asyncio.to_thread(reached.wait, 10), timeout=12)
                     assert reached.is_set()
+                    assert begin_attempts == {"browser": 1, "agent": 0}
+                    assert not agent_begin_attempted.is_set(), "浏览器 BEGIN IMMEDIATE 不得触发 Agent 放行信号"
                     agent_task = asyncio.create_task(
                         ac.post(
                             "/api/agent/tools/crf_update_form_field_instance",
@@ -624,7 +640,8 @@ def test_same_event_loop_browser_write_wins_agent_gets_stale_409(file_engine, mo
     assert app.dependency_overrides.get(get_session) is previous_session
     assert app.dependency_overrides.get(get_agent_engine) is previous_agent_engine
     assert reached.is_set() and release.is_set()
-    assert begin_attempts["count"] == 1, f"agent 写应恰好尝试一次 BEGIN IMMEDIATE（观测 {begin_attempts['count']} 次）"
+    assert begin_attempts == {"browser": 1, "agent": 1}, f"两个写者应各尝试一次 BEGIN IMMEDIATE：{begin_attempts}"
+    assert begin_connections["browser"] != begin_connections["agent"], "持锁竞争必须发生于两个真实 SQLite 连接"
 
     # 预期顺序：浏览器 200，agent 409 STALE_STATE；持锁窗口内 loop 保持调度
     assert browser_resp.status_code == 200, browser_resp.text

@@ -6,13 +6,15 @@
 // 纯策略取值矩阵见 tests/oidEditLengthPolicy.test.js；本文件证明各保存面接线。
 //
 // 用法：npx vitest run tests/component/OidEditSave.spec.js
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import FieldsTab from '../../src/components/FieldsTab.vue';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 // 两侧宿主都经 useSortableTable 使用 SortableJS；happy-dom 下无可拖拽布局。
 vi.mock('sortablejs', () => ({

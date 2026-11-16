@@ -50,6 +50,9 @@ def engine():
         dbapi_conn.execute("PRAGMA foreign_keys = ON")
 
     Base.metadata.create_all(_engine)
+    from src.services.design_revision_service import initialize_design_state
+
+    initialize_design_state(_engine)
     yield _engine
     _engine.dispose()
 
@@ -73,7 +76,9 @@ def client(engine):
         patch("main.init_db"),
     ):
         with TestClient(app, raise_server_exceptions=False) as c:
-            yield c
+            from editor_client import EditorClient
+
+            yield EditorClient(c)
     app.dependency_overrides.clear()
 
 
@@ -488,6 +493,7 @@ def test_reorder_form_fields_persists_dense_order_in_readback(
     auth_token: str,
 ) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
     reordered_ids = [field_ids[2], field_ids[0], field_ids[1]]
 
     resp = client.post(
@@ -514,6 +520,7 @@ def test_export_service_reads_same_field_order_after_reorder(
     auth_token: str,
 ) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
     reordered_ids = [field_ids[1], field_ids[2], field_ids[0]]
 
     resp = client.post(
@@ -541,6 +548,7 @@ def test_add_form_field_with_explicit_order_compacts_existing_rows(
     auth_token: str,
 ) -> None:
     form_id, _ = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     create_fd_resp = client.post(
         f"/api/projects/{target_project_id}/field-definitions",
@@ -570,6 +578,7 @@ def test_delete_form_field_compacts_remaining_order(
     client: TestClient, engine, target_project_id: int, auth_token: str
 ) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     delete_resp = client.delete(
         f"/api/form-fields/{field_ids[1]}",
@@ -859,6 +868,7 @@ def test_project_copy_preserves_order_index(
     from src.config import StorageConfig
 
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
     reorder_ids = [field_ids[1], field_ids[2], field_ids[0]]
 
     reorder_resp = client.post(
@@ -939,6 +949,7 @@ def test_reorder_form_fields_returns_400_when_ordered_ids_are_incomplete(
     auth_token: str,
 ) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     resp = client.post(
         f"/api/forms/{form_id}/fields/reorder",
@@ -965,6 +976,7 @@ def test_quick_edit_updates_list_readback_and_export_consistently(
     auth_token: str,
 ) -> None:
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
     target_field_id = field_ids[1]
 
     update_resp = client.put(
@@ -1031,6 +1043,7 @@ def test_consecutive_reorder_keeps_dense_order(
 ) -> None:
     """连续两次 reorder 后顺序仍为 1..n 稠密，刷新读回一致。"""
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     # 第一次 reorder：[C, A, B]
     first_order = [field_ids[2], field_ids[0], field_ids[1]]
@@ -1077,6 +1090,7 @@ def test_reorder_then_add_field_compacts_correctly(
 ) -> None:
     """reorder 后在指定位置插入字段，整体顺序仍稠密。"""
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     # reorder 为 [A, C, B]
     reordered = [field_ids[0], field_ids[2], field_ids[1]]
@@ -1120,6 +1134,7 @@ def test_reorder_then_delete_compacts_remaining(
 ) -> None:
     """reorder 后删除中间字段，剩余字段自动压实。"""
     form_id, field_ids = _create_ordered_form_fields(engine, target_project_id)
+    client.reload_design(target_project_id, headers=auth_headers(auth_token))
 
     # reorder 为 [C, A, B]
     reordered = [field_ids[2], field_ids[0], field_ids[1]]

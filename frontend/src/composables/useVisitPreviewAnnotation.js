@@ -16,7 +16,16 @@ import { useAcrfAnnotationDrag } from './useAcrfAnnotationDrag';
 //   formState    — 弹窗自持的权威表单对象 ref（浅拷贝缓存返回体，写回一律整体替换，绝不改缓存对象）
 //   isEnabled    — () => boolean，aCRF 标注是否可交互（弹窗的 showAcrfAnnotations）
 //   onError      — (error, snapshot) => void，PATCH 失败时弹窗自行 toast / 失效缓存 / 重解析
-export function useVisitPreviewAnnotation({ apiClient, projectId, formId, formState, isEnabled, onError } = {}) {
+export function useVisitPreviewAnnotation({
+  apiClient,
+  projectId,
+  formId,
+  formState,
+  isEnabled,
+  onError,
+  getDesignBaseline,
+  persistSnapshot,
+} = {}) {
   const currentFormId = () => formId?.value ?? null;
   const currentFormState = () => formState?.value ?? null;
   const canEdit = () => Boolean(isEnabled?.() && currentFormState()?.id != null);
@@ -43,6 +52,8 @@ export function useVisitPreviewAnnotation({ apiClient, projectId, formId, formSt
 
   const annotationDrag = useAcrfAnnotationDrag({
     apiClient,
+    getDesignBaseline,
+    persistSnapshot,
     getCurrentPositions: (targetFormId) => getFormAnnotationPositions(targetFormId),
     applyOptimisticPositions: (targetFormId, annotationPositions) =>
       applyFormAnnotationPositions(targetFormId, annotationPositions),

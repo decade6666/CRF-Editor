@@ -3,6 +3,14 @@ import { ref, computed, watch, onBeforeUnmount, inject, toRef } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Loading } from '@element-plus/icons-vue';
 import { api } from '../composables/useApi';
+import {
+  advanceOwnSnapshot,
+  cloneDesignState,
+  createOwnDesignChain,
+  upgradeOwnBaseline,
+} from '../composables/designRevision.js';
+import { isDesignCancellation } from '../composables/designConflictDialog.js';
+import { readProjectDesign, useDesignEditorSession } from '../composables/useDesignEditorSession.js';
 import DesignerAcrfAnnotation from './DesignerAcrfAnnotation.vue';
 import FormPreviewOid from './FormPreviewOid.vue';
 import {
@@ -55,6 +63,33 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:modelValue']);
+let previewDesignSnapshot = null;
+const ownDesignChain = createOwnDesignChain();
+const designSession = useDesignEditorSession({ getProjectId: () => props.projectId, getContext: () => props.formId });
+
+// 标注快照自带项目/表单/基线：切换项目或关闭弹窗时也按原基线落地一次（detached），
+// 仅在仍停留于该表单时才允许冲突审阅。排队快照的旧基线沿本弹窗写入链换成最新精确快照，避免连续拖动自冲突；
+// 审阅确认后的覆盖不借审阅数据推进旧快照，而是重读最新预览，让画面与后续拖动的基线一致。
+function persistAnnotationSnapshot(snapshot) {
+  const url = `/api/forms/${snapshot.formId}`;
+  const body = {
+    annotation_positions: Object.keys(snapshot.annotation_positions || {}).length
+      ? snapshot.annotation_positions
+      : null,
+  };
+  return designSession.write('patch', url, body, {
+    baseline: upgradeOwnBaseline(snapshot.designBaseline, [previewDesignSnapshot], ownDesignChain),
+    detached: true,
+    cancelText: '放弃本次拖动',
+    reviewable: () => props.modelValue && props.formId === snapshot.formId,
+    invalidate: [`/api/forms/${snapshot.formId}/fields`, `/api/projects/${snapshot.projectId}/forms`],
+    onAccepted: (accepted) => {
+      ownDesignChain.record(accepted.baselineRevision, accepted.revision);
+      previewDesignSnapshot = advanceOwnSnapshot(previewDesignSnapshot, accepted, { method: 'patch', url, body });
+      if (accepted.reviewed && props.modelValue && props.formId === snapshot.formId) void loadPreviewForm();
+    },
+  });
+}
 
 const editMode = inject('editMode', ref(false));
 const VIEW_MODE_STORAGE_KEY = 'crf_view_mode';
@@ -245,12 +280,16 @@ const {
   dispose: disposeAnnotationDrag,
 } = useVisitPreviewAnnotation({
   apiClient: api,
+  getDesignBaseline: () => cloneDesignState(previewDesignSnapshot),
+  persistSnapshot: persistAnnotationSnapshot,
   projectId: toRef(props, 'projectId'),
   formId: toRef(props, 'formId'),
   formState: formPreviewForm,
   isEnabled: () => showAcrfAnnotations.value,
   onError: (error, snapshot) => {
-    ElMessage.error(`aCRF 标注位置保存失败：${error.message}`);
+    // 会话/项目上下文失效：不提交也不提示；冲突审阅中明确放弃：不报错，直接重读真实位置。
+    if (error?.code === 'CONTEXT_CHANGED') return;
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(`aCRF 标注位置保存失败：${error.message}`);
     if (snapshot?.projectId != null) {
       api.invalidateCache(`/api/projects/${snapshot.projectId}/forms`);
     }
@@ -310,20 +349,27 @@ const previewLandscapeMode = computed(() =>
 // domain / annotation_positions 四项都来自它）。
 async function resolvePreviewForm(seq) {
   try {
-    const forms = await api.cachedGet('/api/projects/' + props.projectId + '/forms');
+    const projectId = props.projectId;
+    const formId = props.formId;
+    const snapshot = await readProjectDesign(projectId, {
+      formId,
+      isCurrent: () => seq === formPreviewRequestSeq && projectId === props.projectId && formId === props.formId,
+    });
     if (seq !== formPreviewRequestSeq) return false;
-    const foundForm = Array.isArray(forms) ? forms.find((item) => item.id === props.formId) : null;
+    const foundForm = snapshot.data.forms.find((item) => item.id === formId);
     if (!foundForm) {
-      formPreviewForm.value = null;
       formPreviewError.value = '表单不存在';
       return false;
     }
+    previewDesignSnapshot = cloneDesignState(snapshot);
+    designSession.acceptLoaded(snapshot);
     formPreviewForm.value = { ...foundForm };
+    formPreviewFields.value = snapshot.data.fields;
     return true;
   } catch (e) {
-    if (seq !== formPreviewRequestSeq) return false;
-    formPreviewForm.value = null;
-    formPreviewError.value = '加载表单信息失败：' + (e.message || '未知错误');
+    if (seq !== formPreviewRequestSeq || isDesignCancellation(e)) return false;
+    formPreviewError.value =
+      (e.designReadUrl?.endsWith('/fields') ? '加载表单字段失败：' : '加载表单信息失败：') + (e.message || '未知错误');
     ElMessage.error(formPreviewError.value);
     return false;
   }
@@ -332,17 +378,12 @@ async function resolvePreviewForm(seq) {
 async function loadPreviewForm() {
   const seq = ++formPreviewRequestSeq;
   formPreviewError.value = '';
-  formPreviewFields.value = [];
   formPreviewLoading.value = true;
   try {
     // 先冲掉上一会话排队的标注 PATCH：关闭后立刻重开不得读到未失效前的缓存
     await flushAnnotationPositionSave();
     if (seq !== formPreviewRequestSeq) return;
-    const resolved = await resolvePreviewForm(seq);
-    if (!resolved) return;
-    const data = await api.cachedGet('/api/forms/' + props.formId + '/fields');
-    if (seq !== formPreviewRequestSeq) return;
-    formPreviewFields.value = data;
+    await resolvePreviewForm(seq);
   } catch (e) {
     if (seq !== formPreviewRequestSeq) return;
     formPreviewFields.value = [];
@@ -379,8 +420,10 @@ watch(
   () => props.projectId,
   async (newProjectId, previousProjectId) => {
     if (newProjectId === previousProjectId) return;
-    // 快照自带旧的 projectId/formId，PATCH 仍指向切换前的表单
+    // 快照自带旧的 projectId/formId/基线，PATCH 仍指向切换前的表单
     await flushAnnotationPositionSave({ cancelActiveDrag: true });
+    // 之后按新项目重新取得一致快照；不能拿旧项目的设计状态继续编辑。
+    if (props.projectId === newProjectId && props.modelValue && props.formId != null) await loadPreviewForm();
   },
 );
 

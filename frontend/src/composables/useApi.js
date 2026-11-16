@@ -5,20 +5,23 @@ async function _parseError(r) {
   try {
     const j = JSON.parse(text);
     const detail = j.detail;
-    if (!detail) return text;
+    if (!detail) return { message: text, code: j.code };
     // Pydantic 验证错误：detail 是数组，每项含 loc/msg/type
     if (Array.isArray(detail)) {
-      return detail
-        .map((e) => {
-          const loc = Array.isArray(e.loc) ? e.loc.join(' → ') : '';
-          return loc ? `${loc}: ${e.msg}` : e.msg;
-        })
-        .join('；');
+      return {
+        message: detail
+          .map((e) => {
+            const loc = Array.isArray(e.loc) ? e.loc.join(' → ') : '';
+            return loc ? `${loc}: ${e.msg}` : e.msg;
+          })
+          .join('；'),
+        code: j.code,
+      };
     }
     // 普通字符串 detail
-    return typeof detail === 'string' ? detail : text;
+    return { message: typeof detail === 'string' ? detail : text, code: j.code };
   } catch {
-    return text;
+    return { message: text };
   }
 }
 
@@ -47,7 +50,22 @@ const apiUrl = makeApiUrl((_viteEnv && _viteEnv.BASE_URL) || '/');
 // 会话令牌守卫（跨栈契约 §3 第 4、5 条）：请求先记下发起时用的令牌，
 // 响应到达时只有令牌未变（未登出 / 未换用户 / 无他标签页登录）才允许写回刷新令牌或触发登出，
 // 免得迟到的响应污染新会话。未带令牌的请求捕获值为 null，按普通值参与比较。
+let _knownSessionToken;
+let _sessionGeneration = 0;
+
+// 刷新令牌仍属于同一会话；登出/换账号则使缓存和编辑中异步回调一起失效。
+export function getApiSessionGeneration() {
+  const current = localStorage.getItem('crf_token');
+  if (current !== _knownSessionToken) {
+    _knownSessionToken = current;
+    _sessionGeneration += 1;
+    clearAllCache();
+  }
+  return _sessionGeneration;
+}
+
 function _buildRequestAuth(extraHeaders = {}) {
+  getApiSessionGeneration();
   const sentToken = localStorage.getItem('crf_token');
   return {
     sentToken,
@@ -69,6 +87,7 @@ function _storeRefreshedToken(r) {
   const refreshedToken = r.headers.get(_REFRESHED_TOKEN_HEADER);
   if (refreshedToken) {
     localStorage.setItem('crf_token', refreshedToken);
+    _knownSessionToken = refreshedToken;
   }
 }
 
@@ -77,9 +96,10 @@ function _handle401() {
   window.dispatchEvent(new CustomEvent('crf:auth-expired'));
 }
 
-function _createHttpError(message, status) {
+function _createHttpError(message, status, code) {
   const error = new Error(message);
   error.status = status;
+  if (typeof code === 'string') error.code = code;
   return error;
 }
 
@@ -88,11 +108,10 @@ async function _checkStatus(r, sentToken) {
     if (_isCurrentSession(sentToken)) _handle401();
     throw _createHttpError('登录已过期，请重新登录', r.status);
   }
-  if (r.status === 429) {
-    const detail = await _parseError(r);
-    throw _createHttpError(detail || '操作过于频繁，请稍后重试', r.status);
+  if (!r.ok) {
+    const { message, code } = await _parseError(r);
+    throw _createHttpError(message || (r.status === 429 ? '操作过于频繁，请稍后重试' : '请求失败'), r.status, code);
   }
-  if (!r.ok) throw _createHttpError(await _parseError(r), r.status);
   if (_isCurrentSession(sentToken)) _storeRefreshedToken(r);
 }
 
@@ -144,49 +163,97 @@ async function _safeJsonParse(r) {
   }
 }
 
-// API 请求工具
+function _metadataOptions(options = {}) {
+  if (typeof options.revision !== 'string' || !options.revision) {
+    throw _createHttpError(
+      '缺少已加载的设计版本，请刷新页面后重试（未提交输入不会自动保存）',
+      428,
+      'PRECONDITION_REQUIRED',
+    );
+  }
+  return { ...options, withMetadata: true, headers: { ...options.headers, 'If-Match': options.revision } };
+}
+
+async function _readResponse(r, options = {}, { mutation = false } = {}) {
+  try {
+    const data = r.status === 204 ? null : await _safeJsonParse(r);
+    if (!options.withMetadata) return data;
+    const revision = r.headers.get('X-CRF-Design-Revision');
+    if (mutation && !revision) {
+      throw _createHttpError(
+        '操作已提交，但未收到设计版本，请刷新后核对，勿重复提交',
+        r.status,
+        'REVISION_UNAVAILABLE',
+      );
+    }
+    return { data, revision };
+  } catch (error) {
+    if (mutation && options.withMetadata) error.committed = true;
+    throw error;
+  }
+}
+
+// 旧方法默认仍返回业务响应体；新增方法将同一响应的 body/tag 作为一个整体返回。
 export const api = {
-  async get(url) {
+  async get(url, options = {}) {
     const { sentToken, headers } = _buildRequestAuth();
     const r = await fetch(apiUrl(url), { headers });
     await _checkStatus(r, sentToken);
-    return _safeJsonParse(r);
+    return _readResponse(r, options);
   },
 
-  // 带缓存的GET，TTL默认30秒
-  async cachedGet(url, ttl = 30000) {
+  async cachedGet(url, ttl = 30000, options = {}) {
+    getApiSessionGeneration();
     const cached = _cache.get(url);
-    if (cached && Date.now() - cached.ts < ttl) return cached.data;
+    if (cached && Date.now() - cached.ts < ttl) {
+      return options.withMetadata ? { data: cached.data, revision: cached.revision } : cached.data;
+    }
+    let p = _pending.get(url);
+    if (!p) {
+      const generation = _cacheGeneration;
+      const { sentToken, headers } = _buildRequestAuth();
+      p = fetch(apiUrl(url), { headers })
+        .then(async (r) => {
+          await _checkStatus(r, sentToken);
+          const envelope = await _readResponse(r, { withMetadata: true });
+          if (generation === _cacheGeneration) {
+            _cache.set(url, { ...envelope, ts: Date.now() });
+          }
+          return envelope;
+        })
+        .finally(() => {
+          // 老请求不能清掉 invalidate 后创建的新请求。
+          if (_pending.get(url) === p) _pending.delete(url);
+        });
+      _pending.set(url, p);
+    }
+    const envelope = await p;
+    return options.withMetadata ? envelope : envelope.data;
+  },
 
-    // Promise去重：同一URL并发只发一次请求
-    if (_pending.has(url)) return _pending.get(url);
-
-    // 捕获发起时的缓存世代：期间若有 invalidate/clear，响应到达时不再写回缓存
-    const generation = _cacheGeneration;
-    // 同样捕获发起时的令牌：期间若会话已变，响应到达时不再写回刷新令牌或触发登出
-    const { sentToken, headers } = _buildRequestAuth();
-    const p = fetch(apiUrl(url), { headers })
-      .then(async (r) => {
-        await _checkStatus(r, sentToken);
-        const data = await _safeJsonParse(r);
-        if (generation === _cacheGeneration) {
-          _cache.set(url, { data, ts: Date.now() });
-        }
-        _pending.delete(url);
-        return data;
-      })
-      .catch((err) => {
-        _pending.delete(url);
-        throw err;
-      });
-    _pending.set(url, p);
-    return p;
+  getWithMetadata(url) {
+    return api.get(url, { withMetadata: true });
+  },
+  cachedGetWithMetadata(url, ttl = 30000) {
+    return api.cachedGet(url, ttl, { withMetadata: true });
+  },
+  async postWithMetadata(url, data, options = {}) {
+    return api.post(url, data, _metadataOptions(options));
+  },
+  async putWithMetadata(url, data, options = {}) {
+    return api.put(url, data, _metadataOptions(options));
+  },
+  async patchWithMetadata(url, data, options = {}) {
+    return api.patch(url, data, _metadataOptions(options));
+  },
+  async delWithMetadata(url, options = {}) {
+    return api.del(url, _metadataOptions(options));
   },
 
   invalidateCache,
   clearAllCache,
-  async post(url, data) {
-    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
+  async post(url, data, options = {}) {
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json', ...options.headers });
     const r = await fetch(apiUrl(url), {
       method: 'POST',
       headers,
@@ -194,10 +261,10 @@ export const api = {
     });
     await _checkStatus(r, sentToken);
     _autoInvalidate(url);
-    return r.status === 204 ? null : _safeJsonParse(r);
+    return _readResponse(r, options, { mutation: true });
   },
-  async put(url, data) {
-    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
+  async put(url, data, options = {}) {
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json', ...options.headers });
     const r = await fetch(apiUrl(url), {
       method: 'PUT',
       headers,
@@ -205,10 +272,10 @@ export const api = {
     });
     await _checkStatus(r, sentToken);
     _autoInvalidate(url);
-    return r.status === 204 ? null : _safeJsonParse(r);
+    return _readResponse(r, options, { mutation: true });
   },
   async patch(url, data, options = {}) {
-    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json' });
+    const { sentToken, headers } = _buildRequestAuth({ 'Content-Type': 'application/json', ...options.headers });
     const r = await fetch(apiUrl(url), {
       method: 'PATCH',
       headers,
@@ -219,13 +286,14 @@ export const api = {
     for (const prefix of options.invalidate || []) {
       invalidateCache(prefix);
     }
-    return r.status === 204 ? null : _safeJsonParse(r);
+    return _readResponse(r, options, { mutation: true });
   },
-  async del(url) {
-    const { sentToken, headers } = _buildRequestAuth();
+  async del(url, options = {}) {
+    const { sentToken, headers } = _buildRequestAuth(options.headers);
     const r = await fetch(apiUrl(url), { method: 'DELETE', headers });
     await _checkStatus(r, sentToken);
     _autoInvalidate(url);
+    if (options.withMetadata) return _readResponse(r, options, { mutation: true });
   },
 };
 

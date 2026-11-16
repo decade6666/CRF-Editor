@@ -18,7 +18,9 @@ import Sortable from 'sortablejs'
 import { ElMessage } from 'element-plus'
 import { api } from './useApi.js'
 
-export function useSortableTable(tableRef, sourceList, reorderUrl, { reloadFn, isFiltered, renderList } = {}) {
+export function useSortableTable(tableRef, sourceList, reorderUrl, {
+  reloadFn, isFiltered, renderList, saveOrder = (ids) => api.post(unref(reorderUrl), ids),
+} = {}) {
   let instance = null
 
   function initSortable() {
@@ -49,7 +51,7 @@ export function useSortableTable(tableRef, sourceList, reorderUrl, { reloadFn, i
         // 重新分配连续序号
         arr.forEach((it, i) => { it.order_index = i + 1 })
         try {
-          await api.post(unref(reorderUrl), arr.map(i => i.id))
+          await saveOrder(arr.map(i => i.id))
         } catch (e) {
           // 提示用户并通过 reload 恢复正确顺序
           ElMessage.warning('排序保存失败，已恢复')

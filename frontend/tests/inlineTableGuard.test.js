@@ -137,7 +137,7 @@ test('designer imports the shared count/policy helpers and limit message', () =>
 test('row inline toggle rejects a layout-changing toggle before any request', () => {
   const body = functionBody(designerSource, 'toggleInline');
   const checkIdx = body.indexOf('INLINE_TABLE_LIMIT_MESSAGE');
-  const putIdx = body.indexOf('api.put(');
+  const putIdx = body.indexOf('protectedApi.put(');
   assert.ok(checkIdx > -1, 'toggleInline 应引用横向表格限制提示');
   assert.ok(putIdx > -1, 'toggleInline 应保留既有 PUT');
   assert.ok(checkIdx < putIdx, '拒绝必须发生在写请求之前');
@@ -171,7 +171,7 @@ test('main preview groups the order-sorted projection so a valid adjacent copy s
 test('draft save rechecks the intended final layout before dispatch and keeps the draft on rejection', () => {
   const body = functionBody(designerSource, 'saveDraftField');
   const checkIdx = body.indexOf('INLINE_TABLE_LIMIT_MESSAGE');
-  const postIdx = body.indexOf("api.post(`/api/forms/${formId}/field-profile`");
+  const postIdx = body.indexOf("protectedApi.post(`/api/forms/${formId}/field-profile`");
   assert.ok(checkIdx > -1 && postIdx > -1);
   assert.ok(checkIdx < postIdx, '草稿保存预检必须先于请求');
 });
@@ -179,7 +179,7 @@ test('draft save rechecks the intended final layout before dispatch and keeps th
 test('persisted property save rechecks the final normalized marker before dispatch', () => {
   const body = functionBody(designerSource, 'saveFieldProp');
   const checkIdx = body.indexOf('INLINE_TABLE_LIMIT_MESSAGE');
-  const putIdx = body.indexOf('api.put(`/api/form-fields/${propEditFieldId}/binding-profile`');
+  const putIdx = body.indexOf('protectedApi.put(`/api/form-fields/${propEditFieldId}/binding-profile`');
   assert.ok(checkIdx > -1 && putIdx > -1);
   assert.ok(checkIdx < putIdx);
 });

@@ -6,11 +6,13 @@
 // 本文件证明模板接线与 DOM 顺序在真实组件里同步。
 //
 // 用法：npm run test:component -- tests/component/FormDesignerFieldReorder.spec.js
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 // SortableJS 用于左侧表单列表（useSortableTable），happy-dom 下无可拖拽布局。
 vi.mock('sortablejs', () => ({

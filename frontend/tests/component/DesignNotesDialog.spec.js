@@ -1,17 +1,19 @@
 // DesignNotesDialog 挂载测试：真实渲染 el-dialog + el-input，验证打开复制草稿 / 取消不发请求 /
 // 确定保存并通知父组件 / 保存失败提示四条行为（设计 D6.1）。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { ElMessage } from 'element-plus';
 import DesignNotesDialog from '../../src/components/DesignNotesDialog.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 // 与 FormDesignerTab 的挂载方式一致：初始 modelValue=false，打开后 watcher 才复制备注。
 // el-dialog 使用 append-to-body（真实 teleport 到 document.body，不 stub——VTU 2.5 的 teleport-stub
 // 不渲染子节点），因此弹层内容统一通过 document.body 的 DOMWrapper 查询；emits 仍在 wrapper 上断言。
 function mountDialog(props = {}) {
   return mount(DesignNotesDialog, {
-    props: { projectId: 3, form: { id: 7, design_notes: '初始备注' }, ...props },
+    props: { projectId: 3, revision: '"fixture-design-state"', form: { id: 7, design_notes: '初始备注' }, ...props },
   });
 }
 
@@ -56,7 +58,11 @@ describe('DesignNotesDialog', () => {
 
     expect(putSpy).toHaveBeenCalledWith('/api/forms/7', { design_notes: '修改后的备注' });
     expect(invalidateSpy).toHaveBeenCalledWith('/api/projects/3/forms');
-    expect(wrapper.emitted('saved')).toEqual([[{ formId: 7, designNotes: '修改后的备注' }]]);
+    // baselineRevision：本次写入实际依据的版本，宿主据此只推进停在该版本上的本页快照
+    expect(wrapper.emitted('saved')).toEqual([[{
+      formId: 7, designNotes: '修改后的备注', form: null,
+      revision: '"fixture-design-state"', baselineRevision: '"fixture-design-state"',
+    }]]);
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]]);
     expect(ElMessage.success).toHaveBeenCalledWith('已保存');
   });

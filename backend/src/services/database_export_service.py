@@ -18,6 +18,17 @@ from src.services.export_service import ExportError, _EXPORT_ERROR_CODES
 AGENT_PRIVATE_TABLES = ("agent_audit_event", "agent_operation", "agent_credential")
 
 
+def _strip_design_private_state(db_path: str) -> None:
+    """Remove online triggers before state/pruning; operate on the exported COPY only."""
+    from src.services.design_revision_service import DESIGN_TABLES, STATE_TABLE, TRIGGER_PREFIX
+
+    with sqlite3.connect(db_path) as conn:
+        for table in DESIGN_TABLES:
+            for action in ("insert", "update", "delete"):
+                conn.execute(f'DROP TRIGGER IF EXISTS "{TRIGGER_PREFIX}{table}_{action}"')
+        conn.execute(f'DROP TABLE IF EXISTS "{STATE_TABLE}"')
+
+
 def _strip_agent_private_tables(db_path: str) -> None:
     """从导出副本删除 agent 私有表（子表先删，容错旧库无这些表）。"""
     conn = sqlite3.connect(db_path)
@@ -105,6 +116,8 @@ def export_full_database(db_path: str) -> str:
 
         src_conn.close()
 
+    # Strip online control state before pruning can fire design triggers.
+    _strip_design_private_state(tmp_path)
     # 剥离 agent 私有状态（完整导出同样不得携带凭据/提案/审计）
     _strip_agent_private_tables(tmp_path)
     _vacuum_sqlite_file(tmp_path)

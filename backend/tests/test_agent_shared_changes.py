@@ -143,12 +143,15 @@ def test_rejected_proposal_cannot_apply(client: TestClient, engine):
     assert resp.status_code == 409
 
 
-def test_approval_with_wrong_digest_rejected(client: TestClient, engine):
+def test_approval_with_wrong_digest_rejected(client: TestClient, raw_client: TestClient, engine):
     ctx = seed_full_project(client, engine, "alice")
     raw = _rw(client, ctx)
     preview = _preview(client, raw, ctx, {"label": "摘要绑定"}).json()["data"]
-    resp = _decide(client, ctx["token"], ctx, preview["change_id"], True, "0" * 64)
+    # 提案摘要自身的 STALE_STATE 不属于浏览器设计状态协议。
+    resp = _decide(raw_client, ctx["token"], ctx, preview["change_id"], True, "0" * 64)
     assert resp.status_code == 409  # 展示摘要与提案不一致
+    assert resp.json()["code"] == "STALE_STATE"
+    assert resp.json()["detail"] == "提案内容已变化，请刷新后重试"
 
 
 def test_expired_proposal_cannot_apply(client: TestClient, engine):
@@ -621,7 +624,7 @@ def test_shared_preview_rejects_foreign_visit_link_on_affected_form(client: Test
     assert "Shared foreign visit" not in response.text
 
 
-def test_project_metadata_change_invalidates_approval_and_apply(client: TestClient, engine):
+def test_project_metadata_change_invalidates_approval_and_apply(client: TestClient, raw_client: TestClient, engine):
     """项目行设计元数据（screening_number_format）变更 → 审批与应用都按当前基线拒绝。"""
     from src.models.project import Project
 
@@ -634,12 +637,17 @@ def test_project_metadata_change_invalidates_approval_and_apply(client: TestClie
     with Session(engine) as session:
         session.get(Project, ctx["project_id"]).screening_number_format = "CHANGED-FORMAT"
         session.commit()
-    approval = _decide(client, ctx["token"], ctx, change_id, True, preview["proposal_digest"])
+    # 原始客户端保留预期的 Agent 提案过期响应；不重载或更新旧提案基线。
+    approval = _decide(raw_client, ctx["token"], ctx, change_id, True, preview["proposal_digest"])
     assert approval.status_code == 409, approval.text
+    assert approval.json()["code"] == "STALE_STATE"
+    assert "提案基线已失效" in approval.json()["detail"]
 
     # 重新预览并获批后，应用前元数据再变化：应用拒绝（STALE_STATE）
     second = _preview(client, raw, ctx, {"label": "元数据基线二"}, request_id="meta-baseline-2").json()["data"]
-    assert _decide(client, ctx["token"], ctx, second["change_id"], True, second["proposal_digest"]).status_code == 204
+    assert (
+        _decide(raw_client, ctx["token"], ctx, second["change_id"], True, second["proposal_digest"]).status_code == 204
+    )
     with Session(engine) as session:
         session.get(Project, ctx["project_id"]).screening_number_format = "CHANGED-AGAIN"
         session.commit()

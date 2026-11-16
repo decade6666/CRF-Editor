@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 
 from src.database import get_session
+from src.design_dependencies import DesignRoute
 
 from src.dependencies import (
     get_current_user,
@@ -71,7 +72,7 @@ from src.services.order_service import OrderService
 from src.services.unique_name import first_free_name
 
 
-router = APIRouter(tags=["fields"])
+router = APIRouter(tags=["fields"], route_class=DesignRoute)
 
 
 # ── 字段库 ──────────────────────────────────────────────────────────────────

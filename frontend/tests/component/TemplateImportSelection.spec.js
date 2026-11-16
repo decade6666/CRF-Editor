@@ -14,6 +14,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import App from '../../src/App.vue';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 vi.mock('sortablejs', () => ({
   default: {

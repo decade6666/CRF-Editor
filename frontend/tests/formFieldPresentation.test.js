@@ -527,7 +527,8 @@ test('design notes use an explicit save/cancel dialog with no autosave', () => {
   assert.match(formDesignerSource, /@click="openNotesDialog"/);
   assert.match(formDesignerSource, /<DesignNotesDialog[\s\S]*?v-model="showNotesDialog"/);
   assert.match(formDesignerSource, /const showNotesDialog = ref\(false\)/);
-  assert.match(formDesignerSource, /function onNotesDialogSaved\(\{ formId, designNotes \}\)/);
+  // 保存回调可另带提交元数据（form / revision / baselineRevision，C4 用于推进本页快照）
+  assert.match(formDesignerSource, /function onNotesDialogSaved\(\{ formId, designNotes(?:, [\w, ]+)? \}\)/);
   // 旧卡片式备注与字段库布局已移除
   assert.doesNotMatch(formDesignerSource, /designer-notes-card/);
   assert.doesNotMatch(formDesignerSource, /designer-side-pane/);

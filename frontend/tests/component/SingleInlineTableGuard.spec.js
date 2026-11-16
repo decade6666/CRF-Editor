@@ -5,12 +5,14 @@
 // 2) 会拆块的拖拽排序在乐观替换前被拒绝并保持原顺序；
 // 3) 批量删除撤销走一次 restore-batch 原子请求，失败时提示具体原因且不逐行重建。
 // 行为级细粒度矩阵见 tests/inlineTableGuard.test.js 与后端 API 测试。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 vi.mock('sortablejs', () => ({
   default: {

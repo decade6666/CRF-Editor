@@ -12,5 +12,5 @@ test('FieldsTab field editor footer uses equal-width cancel and save buttons', (
   assert.ok(footerMatch, 'field editor footer action row should exist')
   const footer = footerMatch[1]
   assert.match(footer, /<el-button size="small" style="flex:1" @click="clearSelection">取消<\/el-button>/)
-  assert.match(footer, /<el-button type="primary" size="small" style="flex:1" @click="save">保存<\/el-button>/)
+  assert.match(footer, /<el-button type="primary" size="small" :loading="saving" style="flex:1" @click="save">保存<\/el-button>/)
 })

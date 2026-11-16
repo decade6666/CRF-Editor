@@ -158,7 +158,7 @@ function createDragRuntime({
   // recordReorderHistory 在组件内部被 persist 以 3 参调用，依赖前置 bind
   const recordReorderHistory = extractFunction(
     'recordReorderHistory',
-    ['recordDesignerHistory', 'api', 'reloadAfterReplay'],
+    ['recordDesignerHistory', 'protectedApi', 'reloadAfterReplay'],
     [recordDesignerHistory, api, reloadAfterReplay],
   )
 
@@ -186,6 +186,7 @@ function createDragRuntime({
       'loadFormFields',
       'inlineLayoutAllowsFields',
       'INLINE_TABLE_LIMIT_MESSAGE',
+      'protectedApi',
     ],
     [
       isReordering,
@@ -198,6 +199,7 @@ function createDragRuntime({
       loadFormFields,
       inlineLayoutAllowsFields,
       INLINE_TABLE_LIMIT_MESSAGE,
+      api,
     ],
   )
 

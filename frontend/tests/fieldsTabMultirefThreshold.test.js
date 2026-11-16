@@ -22,7 +22,8 @@ test('FieldsTab imports the shared field reference impact helper', () => {
 
 test('save only shows the field impact warning for multiple distinct forms', () => {
   const body = getFunctionBody('save')
-  assert.match(body, /const refs = await api\.get\(`\/api\/field-definitions\/\$\{selectedFieldId\.value\}\/references`\)/)
+  // 确认弹窗期间切换行不得改变目标：引用读取与写入共用打开时冻结的 targetId。
+  assert.match(body, /const targetId = selectedFieldId\.value[\s\S]*?const refs = await api\.get\(`\/api\/field-definitions\/\$\{targetId\}\/references`\)/)
   assert.match(body, /if \(countDistinctForms\(refs\) > 1\)/)
   assert.match(body, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '、' \}\)/)
   assert.doesNotMatch(body, /if \(refs\.length\)/)

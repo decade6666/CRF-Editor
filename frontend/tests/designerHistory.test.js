@@ -324,7 +324,8 @@ test('designer history recording is centralized behind form id and selection ses
   assert.match(currentBody, /context\.sessionId === formSelectionSession/)
   assert.match(currentBody, /context\.formId === \(selectedForm\.value\?\.id \?\? null\)/)
   assert.match(recordBody, /if \(!isCurrentDesignerHistoryContext\(context\)\) return false/)
-  assert.match(recordBody, /return designerHistory\.record\(entry\)/)
+  // 已提交命令的回执（版本）只在记录被接受后推进历史基线；记录入口仍唯一。
+  assert.match(recordBody, /const recorded = designerHistory\.record\(entry\);[\s\S]*?return recorded;/)
   assert.equal((designerSource.match(/designerHistory\.record\(/g) || []).length, 1)
 
   const labels = ['排序', '删除字段', '批量删除', '添加log行提示']
@@ -399,27 +400,27 @@ test('field membership mutations invalidate caches before stale returns and only
   assert.match(copyBody, /buildCopyDraft\(currentField, fieldDefs\.value, formId\)/)
   assert.match(
     copyBody,
-    /createdFormField = await api\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
+    /createdFormField = await protectedApi\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
   )
   assert.match(
     functionBody('removeField'),
-    /await api\.del\(`\/api\/form-fields\/\$\{ff\.id\}`\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
+    /await protectedApi\.del\(`\/api\/form-fields\/\$\{ff\.id\}`, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
   )
   assert.match(
     functionBody('batchDelete'),
-    /await api\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`, \{ ids \}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
+    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`, \{ ids \}, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
   )
   assert.match(
     functionBody('saveDraftField'),
-    /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?await loadFormFields\(formId\);[\s\S]*?await loadFieldDefs\(\);/,
+    /const result = await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?api\.invalidateCache\(`\/api\/projects\/\$\{projectId\}\/field-definitions`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?await loadFormFields\(formId\);[\s\S]*?await loadFieldDefs\(\);/,
   )
   assert.match(
     functionBody('addLogRow'),
-    /const created = await api\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?await loadFormFields\(formId\);/,
+    /const created = await protectedApi\.post[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?await loadFormFields\(formId\);/,
   )
   assert.match(
     functionBody('persistFieldReorder'),
-    /await api\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`, \{ ordered_ids: nextOrder \}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;/,
+    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`, \{ ordered_ids: nextOrder \}, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;/,
   )
 })
 
@@ -443,7 +444,7 @@ test('commands revalidate captured context after confirmations before persistent
 test('stale async completions cannot mutate current designer field state or focus', () => {
   assert.match(
     functionBody('saveDraftField'),
-    /const result = await api\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?reloaded = await loadFormFields\(formId\);[\s\S]*?__draft: false/,
+    /const result = await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/field-profile`, command, \{[\s\S]*?\}\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return true;[\s\S]*?reloaded = await loadFormFields\(formId\);[\s\S]*?__draft: false/,
   )
   assert.match(
     functionBody('copyFormField'),
@@ -451,16 +452,16 @@ test('stale async completions cannot mutate current designer field state or focu
   )
   assert.match(
     functionBody('removeField'),
-    /await api\.del\(`\/api\/form-fields\/\$\{ff\.id\}`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?formFields\.value =/,
+    /await protectedApi\.del\(`\/api\/form-fields\/\$\{ff\.id\}`, \{[\s\S]*?\}\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?formFields\.value =/,
   )
   assert.match(
     functionBody('batchDelete'),
-    /await api\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?selectedIds\.value =/,
+    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?selectedIds\.value =/,
   )
   const reorderBody = functionBody('persistFieldReorder')
   assert.match(
     reorderBody,
-    /await api\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;[\s\S]*?recordReorderHistory\(historyContext, previousOrder, nextOrder\)/,
+    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;[\s\S]*?recordReorderHistory\(historyContext, previousOrder, nextOrder\)/,
   )
   assert.match(functionBody('commitFieldDropAtBoundary'), /await persistFieldReorder\(historyContext, previousFields,/)
   const keyboardBody = functionBody('handleFieldKeydown')
@@ -598,7 +599,11 @@ test('membership-changing actions, history replay, and leave guards all block re
     functionBody('runHistory'),
     /historyContext = captureDesignerHistoryContext\(\)[\s\S]*?await confirmDiscardDraft\(\);[\s\S]*?if \(historyContext && !isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?if \(!proceed\) return;/,
   )
-  assert.match(functionBody('saveFieldProp'), /const settled = await reconcileAfterFieldPropSave\(\{[\s\S]*?if \(!settled\) return;/)
+  // 已提交的保存恰好记录一次历史（取提交响应的后态），再做可失败的刷新；刷新失败不能让已提交修改不可撤销。
+  assert.match(
+    functionBody('saveFieldProp'),
+    /if \(sessionId !== fieldPropSaveSession\) return;[\s\S]*?recordFieldPropSaveHistory\(historyContext, \{[\s\S]*?await reconcileAfterFieldPropSave\(\{/,
+  )
   assert.match(
     functionBody('saveQuickEdit'),
     /historyContext = captureDesignerHistoryContext\(\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,

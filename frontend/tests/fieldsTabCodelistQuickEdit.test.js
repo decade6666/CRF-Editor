@@ -59,7 +59,7 @@ test('FieldsTab load guards late responses against project switches', () => {
   // 共享弹窗 afterChange 会调用宿主 load()：项目切换后迟到的批量加载
   // 不得把旧项目数据写进新项目的列表状态（identity gate，同类于会话令牌守卫）。
   assert.match(source, /async function load\(\) \{[\s\S]{0,200}const pid = props\.projectId/)
-  assert.match(source, /if \(props\.projectId !== pid\) return\n  fields\.value = nextFields/)
+  assert.match(source, /if \(props\.projectId !== pid \|\| generation !== loadGeneration\) return\n    fields\.value = snapshot\.data\[0\]/)
 })
 
 test('quick edit failure refresh flow moved to the shared dialog', () => {

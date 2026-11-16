@@ -165,7 +165,7 @@ test('useApi stores refreshed token from response headers', () => {
   );
   assert.match(
     apiSource,
-    /async function _checkStatus\(r, sentToken\) \{[\s\S]*if \(_isCurrentSession\(sentToken\)\) _handle401\(\);[\s\S]*if \(!r\.ok\) throw _createHttpError\(await _parseError\(r\), r\.status\)[\s\S]*if \(_isCurrentSession\(sentToken\)\) _storeRefreshedToken\(r\)/,
+    /async function _checkStatus\(r, sentToken\) \{[\s\S]*if \(_isCurrentSession\(sentToken\)\) _handle401\(\);[\s\S]*if \(!r\.ok\) \{[\s\S]*const \{ message, code \} = await _parseError\(r\);[\s\S]*throw _createHttpError\([\s\S]*r\.status, code\);[\s\S]*if \(_isCurrentSession\(sentToken\)\) _storeRefreshedToken\(r\)/,
   );
 });
 

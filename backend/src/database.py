@@ -701,6 +701,9 @@ def _rebuild_form_field_table(conn, *, log_message: str) -> None:
 
     logger.info(log_message)
 
+    from src.services.design_revision_service import drop_design_triggers, reinstall_design_triggers
+
+    drop_design_triggers(conn)
     conn.execute(
         text("""
         CREATE TABLE form_field_new (
@@ -748,6 +751,7 @@ def _rebuild_form_field_table(conn, *, log_message: str) -> None:
     conn.execute(text("DROP TABLE form_field"))
     conn.execute(text("ALTER TABLE form_field_new RENAME TO form_field"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_form_field ON form_field(form_id, field_definition_id)"))
+    reinstall_design_triggers(conn)
 
     logger.info("form_field 表重建完成，约束已保留")
 
@@ -908,6 +912,20 @@ def init_db():
 
     Base.metadata.create_all(engine)
 
+    # Earlier online installs can reference a table being rebuilt by this upgrade.
+    # Startup is not serving requests yet; final installation restores all triggers.
+    from src.services.design_revision_service import drop_design_triggers
+
+    with engine.begin() as conn:
+        online_state_exists = conn.exec_driver_sql(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_design_state'"
+        ).scalar_one_or_none()
+        if online_state_exists:
+            # Upgrade normalization can change design while triggers are suspended.
+            # Retire pre-upgrade editor states conservatively; never reset counters.
+            conn.exec_driver_sql("UPDATE project_design_state SET revision=revision+1")
+        drop_design_triggers(conn)
+
     _migrate_add_code_columns(engine)
 
     _migrate_drop_codelist_option_trailing_underscore(engine)
@@ -953,6 +971,11 @@ def init_db():
     _migrate_add_performance_fk_indexes(engine)
 
     _migrate_normalize_date_formats(engine)
+
+    # Install after canonical table rebuilds so online invalidation triggers survive upgrades.
+    from src.services.design_revision_service import initialize_design_state
+
+    initialize_design_state(engine)
 
 
 def get_session():

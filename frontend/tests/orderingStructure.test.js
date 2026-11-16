@@ -385,7 +385,8 @@ test('useSortableTable watches isFiltered to toggle disabled state', () => {
 
 test('useSortableTable onEnd posts to reorder API', () => {
   // 拖拽结束提交 reorder
-  assert.match(sortableSource, /await api\.post\(unref\(reorderUrl\)/);
+  assert.match(sortableSource, /saveOrder = \(ids\) => api\.post\(unref\(reorderUrl\), ids\)/);
+  assert.match(sortableSource, /await saveOrder\(arr\.map\(i => i\.id\)\)/);
 });
 
 test('useSortableTable recalculates order_index after drag', () => {

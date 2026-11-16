@@ -22,6 +22,8 @@ export function useAcrfAnnotationDrag({
   applyOptimisticPositions,
   onPersisted,
   onError,
+  getDesignBaseline,
+  persistSnapshot,
   debounceMs = 220,
 } = {}) {
   let dragState = null;
@@ -75,16 +77,20 @@ export function useAcrfAnnotationDrag({
           const [snapshotKey, snapshot] = pendingSnapshots.entries().next().value;
           pendingSnapshots.delete(snapshotKey);
           try {
-            const updatedForm = await apiClient.patch(
-              `/api/forms/${snapshot.formId}`,
-              {
-                annotation_positions:
-                  Object.keys(snapshot.annotation_positions || {}).length > 0 ? snapshot.annotation_positions : null,
-              },
-              {
-                invalidate: [`/api/forms/${snapshot.formId}/fields`, `/api/projects/${snapshot.projectId}/forms`],
-              },
-            );
+            const updatedForm = persistSnapshot
+              ? await persistSnapshot(snapshot)
+              : await apiClient.patch(
+                  `/api/forms/${snapshot.formId}`,
+                  {
+                    annotation_positions:
+                      Object.keys(snapshot.annotation_positions || {}).length > 0
+                        ? snapshot.annotation_positions
+                        : null,
+                  },
+                  {
+                    invalidate: [`/api/forms/${snapshot.formId}/fields`, `/api/projects/${snapshot.projectId}/forms`],
+                  },
+                );
             if (!pendingSnapshots.has(snapshotKey)) {
               onPersisted?.(updatedForm, snapshot);
             }
@@ -113,6 +119,7 @@ export function useAcrfAnnotationDrag({
       formId,
       projectId,
       key,
+      ...(getDesignBaseline ? { designBaseline: getDesignBaseline(formId) } : {}),
       annotation_positions: nextPositions,
     });
   }

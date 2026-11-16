@@ -5,6 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { truncRefs } from '../src/composables/useApi.js'
 import { formatFieldImpactMessage } from '../src/composables/fieldReferenceImpact.js'
+// 删除处理函数用它区分「用户取消/关闭/界面已切换」与真实失败（C4）；注入真实实现而非假桩
+import { isDesignCancellation } from '../src/composables/designConflictDialog.js'
 import {
   buildPartialDeleteMessage,
   confirmReferenceAwareBatchDelete,
@@ -89,6 +91,7 @@ function createSingleDeleteSandbox({ alertImpl, refs, confirmImpl } = {}) {
     formatFieldReference,
     formatFieldImpactMessage,
     showReferenceBlockedAlert,
+    isDesignCancellation,
     reload: () => {},
     reloadUnits: async () => {},
     reloadFields: () => {},
@@ -97,6 +100,7 @@ function createSingleDeleteSandbox({ alertImpl, refs, confirmImpl } = {}) {
     clearSelection: () => {},
     invalidateFormSelectionSession: () => {},
   }
+  sandbox.protectedApi = sandbox.api
   return { sandbox, state }
 }
 
@@ -166,6 +170,7 @@ function createBatchDeleteSandbox({
     formatFieldImpactMessage,
     confirmReferenceAwareBatchDelete,
     buildPartialDeleteMessage,
+    isDesignCancellation,
     reload: () => {},
     reloadUnits: async () => {},
     reloadFields: () => {},
@@ -182,6 +187,7 @@ function createBatchDeleteSandbox({
       state.invalidations += 1
     },
   }
+  sandbox.protectedApi = sandbox.api
   return { sandbox, state, selection, selected, selectedUnitId, selectedFieldId, selectedForm, formFields }
 }
 
@@ -240,7 +246,7 @@ test('field single delete blocks on any reference with the new message', () => {
   assert.match(body, /该字段被以下表单引用，需先从相关表单中移除该字段：/)
   assert.match(body, /formatFieldImpactMessage\(refs, \{ max: 5, sep: '\\n' \}\)/)
   assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('ElMessageBox.confirm('))
-  assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('api.del'))
+  assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('protectedApi.del'))
   assert.doesNotMatch(body, /将同时删除/)
 })
 
@@ -251,7 +257,7 @@ test('form single delete blocks on any visit reference with the new message', ()
   assert.match(body, /该表单被以下访视引用，需先从相关访视中移除该表单：/)
   assert.match(body, /truncRefs\(\s*refs\.map\(\(r\) => r\.visit_name\),\s*5,\s*'\\n',?\s*\)/)
   assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('ElMessageBox.confirm('))
-  assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('api.del'))
+  assert.ok(body.indexOf('showReferenceBlockedAlert(ElMessageBox') < body.indexOf('protectedApi.del'))
   assert.doesNotMatch(body, /将同时从/)
 })
 
@@ -289,7 +295,7 @@ test('field batch delete groups items through the shared helper before batch-del
   assert.match(body, /nameOf: \(f\) => f\.label/)
   assert.match(body, /formatFieldImpactMessage\(refs, \{ max: 3, sep: '、' \}\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /const \{ deleted \} = await protectedApi\.post/)
   assert.match(body, /buildPartialDeleteMessage\('字段', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })
@@ -302,7 +308,7 @@ test('form batch delete groups items through the shared helper before batch-dele
   assert.match(body, /nameOf: \(f\) => f\.name/)
   assert.match(body, /truncRefs\(refs\.map\(\(r\) => r\.visit_name\), 3, '、'\)/)
   assert.match(body, /ids: deleteIds/)
-  assert.match(body, /const \{ deleted \} = await api\.post/)
+  assert.match(body, /const \{ deleted \} = await protectedApi\.post/)
   assert.match(body, /buildPartialDeleteMessage\('表单', deleted, items\.length - toDelete\.length\)/)
   assert.ok(body.indexOf('confirmReferenceAwareBatchDelete(ElMessageBox') < body.indexOf('batch-delete'))
 })

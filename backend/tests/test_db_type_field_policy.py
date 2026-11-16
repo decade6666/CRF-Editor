@@ -160,6 +160,8 @@ def test_idempotent_put_on_legacy_multiselect_in_other_project(client):
         except StopIteration:
             pass
 
+    # 外部插入的存量字段属于已加载设计，再验证原有类型切换规则。
+    client.reload_design(proj["id"], headers=headers)
     r = client.put(
         f"/api/projects/{proj['id']}/field-definitions/{fd_id}",
         json={

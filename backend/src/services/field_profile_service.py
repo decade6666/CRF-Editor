@@ -279,6 +279,28 @@ def create_field_profile(
     return _serialize_result(ff, final_definition_id, created, restored, None)
 
 
+def _delete_binding_profile(
+    session: Session, ff: FormField, project, current_user: User, command: FieldProfileCommand
+) -> dict:
+    """Narrow compound undo: restore THIS binding's definition and delete once."""
+    operation = command.definition_operation
+    if command.binding.mode != "keep" or operation.operation == "create_or_restore":
+        raise HTTPException(422, "删除实例仅支持保持原绑定及恢复其共享定义")
+    original_definition_id = ff.field_definition_id
+    if operation.operation == "update_shared":
+        if operation.update_shared.target_definition_id != original_definition_id:
+            raise HTTPException(422, "删除实例只能恢复其原绑定定义")
+        _resolve_definition_operation(session, project, current_user, command)
+        # This restores a preexisting shared definition's before-image. It may
+        # intentionally be an unplaced label; only explicit cleanup may delete it.
+        OrderService.delete_and_compact(session, FormField, FormField.form_id == ff.form_id, ff)
+    else:
+        delete_form_field_and_cleanup_label_definition(session, ff)
+    session.flush()
+    cleanup = _cleanup_previous_definition(session, command, original_definition_id, None)
+    return _serialize_result(None, None, False, False, cleanup)
+
+
 def update_binding_profile(
     session: Session,
     ff: FormField,
@@ -293,11 +315,7 @@ def update_binding_profile(
     original_definition_id = ff.field_definition_id
 
     if command.instance.mode == "delete":
-        # 删除不可能增加横向块数，不受新增限制
-        delete_form_field_and_cleanup_label_definition(session, ff)
-        session.flush()
-        cleanup = _cleanup_previous_definition(session, command, original_definition_id, None)
-        return _serialize_result(None, None, False, False, cleanup)
+        return _delete_binding_profile(session, ff, project, current_user, command)
 
     # 单横向表格守卫：定义/绑定变更前取基线；删除分支已提前返回
     inline_blocks_before = capture_inline_block_count(session, ff.form_id)
