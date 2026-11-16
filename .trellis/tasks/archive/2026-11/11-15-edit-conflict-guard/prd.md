@@ -2,7 +2,7 @@
 
 ## Goal and Allocation
 
-Reject stale core-editor writes without losing input, while permitting an explicitly reviewed owner overwrite. Own parent R5/R11; inherit R7/R8 and evidence F3/F9/F10. Planning only: reproduce the scenario before calling it a confirmed defect or incident.
+Reject stale core-editor writes without losing input, while permitting an explicitly reviewed owner overwrite. Own parent R5/R11; inherit R7/R8 and evidence F3/F9/F10. Implemented on the dedicated C4 branch; user requested closeout on 2026-11-16 with remaining issues recorded in `.trellis/tasks/11-16-edit-conflict-followups/` (planning, not started). The whole-frontend coverage portion of C4-AC6 remains unmet; closing the task does not claim all acceptance checks passed.
 
 ## Requirements
 

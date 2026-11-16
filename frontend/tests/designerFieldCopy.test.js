@@ -106,6 +106,7 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     'selectField',
     'buildFormFieldCreatePayload',
     'api',
+    'protectedApi',
     'reloadAfterReplay',
     'beginFieldMembershipMutation',
     'endFieldMembershipMutation',
@@ -117,7 +118,7 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     'INLINE_TABLE_LIMIT_MESSAGE',
     functionBody('copyFormField').replaceAll('hasDraft.value', 'hasDraftRef.value'),
   )
-  assert.equal(copyFormField.length, 28, 'runtime copy function should receive its full dependency context')
+  assert.equal(copyFormField.length, 29, 'runtime copy function should receive its full dependency context')
   const copyingFieldIds = { value: new Set() }
   const context = [
     (ff) => ff?.__draft === true || ff?.id === '__draft__',
@@ -138,6 +139,7 @@ function createRuntime({ api, fields = [], fieldDefs = [], hasDraft = false, con
     (field) => calls.selected.push(field.id),
     buildFormFieldCreatePayloadForTest,
     api,
+    api, // 已加载版本的保护请求边界；C4 的 header/冲突行为由真实组件套件另行验证。
     async (formId, options) => {
       calls.reloads.push([formId, options])
       if (api.createdFormField) formFields.value = [api.createdFormField]
@@ -228,7 +230,7 @@ test('字段列表复制按钮位于删除左侧，并保留草稿与行级锁�
   assert.match(body, /if \(hasDraft\.value\) \{[\s\S]*?await confirmDiscardDraft\(\)/)
   assert.match(body, /if \(!isLogRow\) \{[\s\S]*?buildCopyDraft\(/)
   assert.match(body, /if \(isReordering\.value \|\| !isCurrentDesignerHistoryContext\(historyContext\)\) return;/)
-  assert.match(body, /createdFormField = await api\.post\([\s\S]*?field_definition_id: null/)
+  assert.match(body, /createdFormField = await protectedApi\.post\([\s\S]*?field_definition_id: null/)
 })
 
 test('buildCopyDraft copies complete definition and instance state while using a local OID', () => {

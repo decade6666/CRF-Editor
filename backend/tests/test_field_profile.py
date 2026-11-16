@@ -568,6 +568,8 @@ def test_binding_profile_rebind_existing_definition(field_context, client, engin
         session.commit()
         other_fd_id = other_fd.id
 
+    # 外部种子写入后显式加载候选状态，继续验证换绑业务规则。
+    client.reload_design(field_context["project_id"], headers=auth_headers(field_context["token"]))
     resp = _update_profile(
         client,
         ff["id"],
@@ -601,6 +603,8 @@ def test_binding_profile_rebind_conflicts_when_target_already_in_form(field_cont
         session.commit()
         other_fd_id = other_fd.id
 
+    # 外部种子写入后显式加载候选状态，继续验证换绑业务规则。
+    client.reload_design(field_context["project_id"], headers=auth_headers(field_context["token"]))
     resp = _update_profile(
         client,
         ff["id"],
@@ -611,6 +615,7 @@ def test_binding_profile_rebind_conflicts_when_target_already_in_form(field_cont
         },
     )
     assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == "该字段已在表单中"
 
 
 def test_binding_profile_rebind_rejects_cross_project_definition(field_context, client, engine):
@@ -773,6 +778,8 @@ def test_binding_profile_delete_retains_definition_when_referenced(field_context
         session.add(FormField(form_id=other_form.id, field_definition_id=fd_id, order_index=1))
         session.commit()
 
+    # 以已加载的当前引用集验证删除保留定义，不让过期状态抢先拒绝。
+    client.reload_design(field_context["project_id"], headers=auth_headers(field_context["token"]))
     delete_resp = _update_profile(
         client,
         ff_id,

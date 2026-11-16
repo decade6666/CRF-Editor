@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from src.database import get_session
+from src.design_dependencies import DesignRoute
 from src.dependencies import get_current_user, verify_project_owner
 from src.models.codelist import CodeList, CodeListOption
 from src.models.field_definition import FieldDefinition
@@ -26,7 +27,7 @@ from src.services.field_definition_reference_service import collect_field_defini
 from src.services.order_service import OrderService
 from src.services.unique_name import first_free_name
 
-router = APIRouter(tags=["codelists"])
+router = APIRouter(tags=["codelists"], route_class=DesignRoute)
 
 
 def _get_codelist_with_project_check(session: Session, cl_id: int, project_id: int) -> CodeList:

@@ -978,6 +978,10 @@ def test_import_rejects_host_form_field_non_rowid_pk(client, engine, tmp_path: P
                 "created_at, updated_at FROM form_field"
             )
         )
+        from src.services.design_revision_service import drop_design_triggers
+
+        # This test intentionally simulates a pre-C4 incompatible host schema.
+        drop_design_triggers(conn)
         conn.execute(text("DROP TABLE form_field"))
         conn.execute(text("ALTER TABLE form_field_broken RENAME TO form_field"))
         conn.execute(
@@ -1179,6 +1183,9 @@ def test_startup_auto_heals_broken_form_field_and_import_succeeds(tmp_path: Path
                 """)
                 )
                 conn.execute(text("INSERT INTO form_field_broken SELECT * FROM form_field"))
+                from src.services.design_revision_service import drop_design_triggers
+
+                drop_design_triggers(conn)
                 conn.execute(text("DROP TABLE form_field"))
                 conn.execute(text("ALTER TABLE form_field_broken RENAME TO form_field"))
                 conn.execute(text("PRAGMA foreign_keys = ON"))

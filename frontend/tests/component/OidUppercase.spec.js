@@ -4,7 +4,7 @@
 // 键入小写立即变为实际 DOM/状态大写，保存载荷一致；历史小写值加载与未改动保存原样
 // 保留；候选水合保持既有身份；非 ASCII（ß）不膨胀；选项 code / 单位符号 / 名称不改写。
 // 纯 helper 与源码接线见 tests/oidUppercase.test.js。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import { ElMessage } from 'element-plus';
@@ -14,6 +14,8 @@ import CodelistsTab from '../../src/components/CodelistsTab.vue';
 import UnitsTab from '../../src/components/UnitsTab.vue';
 import VisitsTab from '../../src/components/VisitsTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 // 各宿主经 useSortableTable 使用 SortableJS；happy-dom 下无可拖拽布局。
 vi.mock('sortablejs', () => ({

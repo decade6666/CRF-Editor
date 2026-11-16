@@ -15,12 +15,14 @@
 // happy-dom 限制：Element Plus 2.13.2 的 el-dialog 走 Transition + v-show，happy-dom 下
 // 不派发 after-leave，`@closed` 不会自然触发。需要闭合后重置语义的用例经 DialogHost 直接
 // 派发根 ElDialog 的 `closed` 事件（等价于真实浏览器过渡结束后的产品时序）。
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, nextTick, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import VisitFormPreviewDialog from '../../src/components/VisitFormPreviewDialog.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 import {
   ANNOTATION_KIND_FIELD,
   buildAnnotationStyle,
@@ -574,7 +576,13 @@ describe('VisitFormPreviewDialog 项目切换与卸载', () => {
 
   it('项目程序化切换后拖拽保存：失效目标用新项目 id，绝不带切换前的旧 id', async () => {
     vi.useFakeTimers();
-    stageApiMocks();
+    const stage = stageApiMocks();
+    // 切换后弹窗按新项目重新取得一致快照（受保护写入必须用新项目自己的设计状态）。
+    stage.cachedGetSpy.mockImplementation((url) => {
+      if (url === FORMS_URL || url === '/api/projects/99/forms') return Promise.resolve(stage.resolvedForms.current);
+      if (url === FIELDS_URL) return Promise.resolve(stage.resolvedFields.current);
+      return Promise.reject(new Error(`未预期 URL：${url}`));
+    });
     const patchSpy = stagePatchMock();
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
 

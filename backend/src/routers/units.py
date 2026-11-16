@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 
 from src.database import get_session
+from src.design_dependencies import DesignRoute
 
 from src.dependencies import get_current_user, verify_project_owner, verify_project_unit_owner
 
@@ -32,7 +33,7 @@ from src.services.field_definition_reference_service import collect_field_defini
 from src.services.order_service import OrderService
 
 
-router = APIRouter(tags=["units"])
+router = APIRouter(tags=["units"], route_class=DesignRoute)
 
 
 @router.get("/projects/{project_id}/units", response_model=List[UnitResponse])

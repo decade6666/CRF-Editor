@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-11-10
+> Last updated: 2026-11-16
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -52,6 +52,7 @@ graph TD
 - Reference-aware deletion for dictionaries, units, field definitions, and forms: block single deletes when referenced; batch deletes show blocked references and confirm only unreferenced items in one dialog. Dictionary/unit preflight includes unplaced field-library definitions without changing edit-impact queries.
 - Form designer real-time preview, full-screen form-switch dropdown and inline form-property editing (OID / name / optional free-text domain / paper orientation; full-mode domain also exposed in create/edit dialogs, case-preserving explicit save and dirty/cancel/leave flows), field instance quick edit and regular-field copy-as-draft with save-gated persistence (log-row copy remains immediate), no-drift undo/redo, simulated CRF rendering, shared full-mode eCRF / aCRF preview switching with 75%-translucent annotation box backgrounds and full-mode form-OID paper-title metadata (`FormPreviewOid.vue`; actual `form.code`, hidden when absent/brief mode), aCRF vertical annotation dragging/persistence, and column width / row height dragging; the designer's two `word-page` previews (main canvas / fullscreen) now share one `DesignerWordPreview.vue` template, with the aCRF marker layer in `DesignerAcrfAnnotation.vue`; the visits form preview is a self-contained `VisitFormPreviewDialog.vue` whose `VisitsTab.vue` parent only toggles it
 - Horizontal-table edit guard with immediate narrow rollback and atomic single/batch-delete undo; legacy multi-block forms may retain or reduce their count, while imports and whole-form/project copies remain unchanged (authoritative contract: cross-stack §15).
+- Core browser editing uses project-scoped online revision preconditions, coherent payload/header reads, explicit conflict review and atomic compound undo; nineteen form/field writers reject missing/stale state (428/409), while independent management/import/whole-copy writers invalidate it. Online state/triggers stay out of product exchange and never alter Agent fingerprints; contract §17 owns compatibility, trigger and C6 handoff details.
 - Project copy, project Logo management, Word export, database export, preview/export strict table field parity validation
 - Tiered fuzzy search (exact / substring / subsequence / bounded typo tolerance), Element Plus zh-cn locale, iconized list actions with tooltips, centered table selection checkboxes, session countdown with click-to-renew, theme switching, grouped settings cards (账号 / 界面 / 项目与数据; account-row logout; admin-only save footer), desktop packaging and release
 - Weekly AI-assisted source release automation (default-off): Monday schedule + manual dispatch, net-product-diff detection against the last published stable release, bounded/secret-scanned AI payload with closed-schema minor/patch decision, trusted-code three-part version arithmetic, atomic main+tag push with `Release-Plan-V1` envelope, pending-release recovery, source-only GitHub Release（详见 README「每周 AI 辅助发布」）
@@ -132,6 +133,8 @@ sudo bash deploy/install-service.sh uninstall
 - §15 Horizontal-table edit guard and atomic restoration — `inline_table_guard.py`, `field_restore_service.py`, `fields.py` ↔ `formFieldPresentation.js`, `FormDesignerTab.vue`; shared fixture `backend/tests/fixtures/inline_table_block_cases.json`.
 - §16 Agent tool boundary — `backend/src/routers/agent_access.py`, `agent_tools.py`, the `agent_*_service.py` chain, `schemas/agent_tools.py` (ten closed DTOs + manifest registry) ↔ `agent_bridge/` (stdio adapter: allowlist, bounded 1 MiB responses, remote HTTPS / explicit loopback-only HTTP, no auto retries) + `frontend/src/composables/useAgentAccess.js`, `frontend/src/components/AgentAccessDialog.vue` (owner credential issuance / change approval). Agent tables are export-stripped private state (§11-adjacent: `AGENT_PRIVATE_TABLES`).
 
+- §17 Browser design-revision preconditions — `backend/src/design_dependencies.py`, `design_revision_service.py`, startup/export/profile chain ↔ `useApi.js`, editor/conflict/history/annotation hosts; includes the concrete nineteen-endpoint matrix and C6 atomic restoration handoff without an Agent wire change.
+
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, weekly release logic/Git transactions/workflow wiring (`test_weekly_release*.py`), and other cases.
 - The backend suite is hermetic: `backend/tests/conftest.py` redirects the database / upload / screenshot / Word-import temp paths to a per-session temp root before `import main`, and equally isolates config sources (`CONFIG_FILE` → a nonexistent file under the temp root; `_ENV_OVERRIDE_MAP` variables other than the three forced keys are scrubbed; the auth secret is always session-random), so a fresh worktree needs no `config.yaml` or pre-seeded database; `backend/tests/test_test_environment_isolation.py` guards the redirect and both config contracts. Coverage is statistics-only (`pytest-cov` is never added to `pytest.ini` addopts).
@@ -166,6 +169,8 @@ sudo bash deploy/install-service.sh uninstall
 - Detail: `.trellis/spec/guides/git-and-tooling-conventions.md`.
 
 ## Change Log
+
+- `2026-11-16` (task `edit-conflict-guard`): Browser design-revision preconditions, explicit conflict review, atomic undo and own-write continuity; residual review/coverage/tooling gaps tracked in `edit-conflict-followups` (not started). Details: `.context/history/archives/claudemd-changelog.md`.
 
 - `2026-11-10` (task `settings-dialog-layout`): Grouped settings cards, account-row logout, Basic/Complete and Light/Dark segmented controls, responsive dialog scrolling; frontend tests/build and isolated browser acceptance passed. Details: `.context/history/archives/claudemd-changelog.md`.
 

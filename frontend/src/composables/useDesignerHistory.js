@@ -72,7 +72,12 @@ export function useDesignerHistory() {
       undoStack.value = undoStack.value.slice(0, -1);
       redoStack.value = [...redoStack.value, entry];
     } catch (err) {
-      entry.ids = idsSnapshot;
+      if (err?.committed && replayGeneration === generation) {
+        // 未能取得可靠写结果，ID 映射也可能未知；清空两栈，不给同一命令第二次提交的机会。
+        clear();
+      } else {
+        entry.ids = idsSnapshot;
+      }
       throw err;
     } finally {
       busy.value = false;
@@ -91,7 +96,11 @@ export function useDesignerHistory() {
       redoStack.value = redoStack.value.slice(0, -1);
       undoStack.value = [...undoStack.value, entry];
     } catch (err) {
-      entry.ids = idsSnapshot;
+      if (err?.committed && replayGeneration === generation) {
+        clear();
+      } else {
+        entry.ids = idsSnapshot;
+      }
       throw err;
     } finally {
       busy.value = false;

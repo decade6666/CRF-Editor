@@ -221,11 +221,17 @@ def test_owner_revoke_invalidates_credential(client: TestClient, engine):
 
 
 def test_expired_credential_denied(client: TestClient, engine):
+    from datetime import datetime, timedelta
+
+    from src.models.agent_access import AgentCredential
+
     ctx = seed_owner_and_project(client, engine, "alice")
     data = issue_credential(client, ctx["token"], ctx["project_id"], hours=0.0001)
-    import time
+    # 显式构造已过期状态，避免亚秒 sleep 依赖宿主时钟走向；仍经过真实认证。
+    with Session(engine) as session:
+        session.get(AgentCredential, data["id"]).expires_at = datetime.now() - timedelta(days=1)
+        session.commit()
 
-    time.sleep(0.5)
     resp = agent_manifest(client, data["token"])
     assert resp.status_code == 401
 
@@ -510,7 +516,7 @@ def test_agent_error_response_conflict_default_and_explicit_stale_state():
 # ── 修复轮回归（审批基线 / no-store / 领域错误码 / 有界读取） ──
 
 
-def test_approval_rejects_proposal_with_changed_base_state(client: TestClient, engine):
+def test_approval_rejects_proposal_with_changed_base_state(client: TestClient, raw_client: TestClient, engine):
     """预览后项目内容变化 → 审批 409（属主不能批准描述不了现状的提案）。"""
     from src.models.unit import Unit
 
@@ -533,7 +539,8 @@ def test_approval_rejects_proposal_with_changed_base_state(client: TestClient, e
         session.add(Unit(project_id=ctx["project_id"], symbol="intervening-change"))
         session.commit()
 
-    resp = client.post(
+    # 这是 Agent 提案基线拒绝，直接断言响应，不让浏览器角色适配器拦截预期冲突。
+    resp = raw_client.post(
         f"/api/projects/{ctx['project_id']}/agent-access/changes/{proposal['change_id']}/approve",
         json={"proposal_digest": proposal["proposal_digest"]},
         headers=auth_headers(ctx["token"]),
@@ -541,6 +548,7 @@ def test_approval_rejects_proposal_with_changed_base_state(client: TestClient, e
     assert resp.status_code == 409
     assert resp.headers.get("cache-control") == "no-store"
     assert resp.json()["code"] == "STALE_STATE"
+    assert "提案基线已失效" in resp.json()["detail"]
 
 
 def _rw_token(client, ctx):

@@ -173,7 +173,7 @@ test('the annotation glue composable owns the drag wiring and immutable persiste
     'onPersisted must merge as a new object (never mutate the cached form)',
   );
   assert.match(annotationGlueSource, /onError: \(error, snapshot\) => onError\?\.\(error, snapshot\)/);
-  // 弹窗注入的 onError 保留今天的 toast + 两处缓存失效 + 自身重解析
+  // 弹窗注入的 onError 保留今天的 toast + 两处缓存失效 + 自身重解析（冲突审阅中明确放弃时不报错）
   assert.match(dialogCode, /aCRF 标注位置保存失败：\$\{error\.message\}/);
   assert.match(dialogCode, /api\.invalidateCache\(`\/api\/projects\/\$\{snapshot\.projectId\}\/forms`\)/);
   assert.match(dialogCode, /api\.invalidateCache\(`\/api\/forms\/\$\{snapshot\.formId\}\/fields`\)/);

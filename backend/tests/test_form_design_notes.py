@@ -41,6 +41,9 @@ def engine():
         dbapi_conn.execute("PRAGMA foreign_keys = ON")
 
     Base.metadata.create_all(_engine)
+    from src.services.design_revision_service import initialize_design_state
+
+    initialize_design_state(_engine)
     yield _engine
     _engine.dispose()
 
@@ -69,7 +72,9 @@ def client(engine):
         with TestClient(app, raise_server_exceptions=False) as c:
             token = login_as(c, "alice")
             c.headers.update(auth_headers(token))
-            yield c
+            from editor_client import EditorClient
+
+            yield EditorClient(c)
     app.dependency_overrides.clear()
 
 

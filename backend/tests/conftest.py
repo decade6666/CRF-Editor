@@ -119,13 +119,16 @@ def engine():
         dbapi_conn.execute("PRAGMA foreign_keys = ON")
 
     Base.metadata.create_all(_engine)
+    from src.services.design_revision_service import initialize_design_state
+
+    initialize_design_state(_engine)
     yield _engine
     _engine.dispose()
 
 
 @pytest.fixture
-def client(engine):
-    """TestClient：注入内存 Session，并 patch 配置以通过 startup 校验。"""
+def raw_client(engine):
+    """Unadapted protocol client: missing/stale/concurrent tests use this fixture."""
 
     def _override():
         with Session(engine) as session:
@@ -160,3 +163,16 @@ def client(engine):
             yield c
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(raw_client):
+    """Existing business tests explicitly model a single controlled editor actor.
+
+    State is seeded once and advances only for acknowledged own writes, never
+    refreshed automatically after an external write or a rejected attempt.
+    Use raw_client for HTTP/precondition and real multi-actor tests.
+    """
+    from editor_client import EditorClient
+
+    return EditorClient(raw_client)

@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import VisitFormPreviewDialog from '../../src/components/VisitFormPreviewDialog.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 
 vi.mock('sortablejs', () => ({ default: { create: () => ({ destroy() {} }) } }));
 

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Section 17 owns the actual own-write chain, invalidation-only boundary and nineteen protected writer matrix; locate and read the full section because auto-injection truncates this file"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Preserve editor buffers, history, coherent reads and project/session lifecycle"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Any future pre-write metadata must be captured with authorization and write in one physical transaction; no approved API change yet"}

@@ -12,11 +12,13 @@
 // 且此后不得删除（design.md 修订 A1）——它是该缺陷在生产中真实发生过的唯一全过程守卫。
 //
 // 用法：npx vitest run tests/component/visitsPreviewIntegration.spec.js
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick, ref } from 'vue';
 import VisitsTab from '../../src/components/VisitsTab.vue';
 import { api } from '../../src/composables/useApi.js';
+import { installDesignMetadataFixture } from './designMetadataFixture.js';
+beforeEach(() => installDesignMetadataFixture(vi, api));
 import { ANNOTATION_KIND_FIELD, buildAnnotationStyle } from '../../src/composables/acrfAnnotationGeometry.js';
 
 // SortableJS 是真实拖拽库，happy-dom 下没有可拖拽的布局；useSortableTable 调用

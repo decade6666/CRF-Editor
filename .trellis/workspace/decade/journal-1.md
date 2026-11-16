@@ -1379,3 +1379,47 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 ### Next Steps
 
 - 等待用户另行授权后续合并/推送或C4；保留非阻塞意见、工作树与私有临时证据，不自动继续。
+
+
+## Session 38: C4冲突保护提交收尾与遗留问题登记
+<!-- trellis-session: v=2 fp=5734553f0069c0e3 -->
+
+**Date**: 2026-11-16
+**Task**: C4冲突保护提交收尾与遗留问题登记
+**Branch**: `task/crf-c4`
+
+### Summary
+
+按用户授权提交C4、创建planning待办并归档；核心版本前置校验与显式冲突审阅完成，前端覆盖率门槛和默认并行超时仍未解决。
+
+### Main Changes
+
+- 产品提交b6c4a8f：十九个核心写入、数据库触发器、配对读取、显式审阅、原子撤销和本宿主写入链；保持Agent及导出边界。
+- 独立待办11-16-edit-conflict-followups保持planning且未启动，登记额外审阅、覆盖率门槛、并行超时、格式警告和bandit未运行等F1–F6。
+- 以06ced9f普通合并远端8ecc5a9的0.7.0版本号更新，未改依赖、runner或发布流程。只归档当前C4，其他任务与工作树保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b6c4a8f` | feat(editor): 增加多会话保存冲突与草稿保护 |
+| `9f8c933` | docs(trellis): 固化C4状态契约并记录遗留问题 |
+| `4f2a51e` | docs(trellis): 补记合并树复验与并行测试超时 |
+
+### Testing
+
+- [OK] 合并树后端pytest --cov=src --cov=main：1756 passed，覆盖率89.2444%；ruff format --check通过。
+- [OK] node --test tests/*.test.js：1109/1109；npm run test:component -- --maxWorkers=1：596/596（188.52秒）；npm run lint 0 errors/2919 warnings；npm run build通过。
+- [OK] 默认并行npm test两次分别3/9个5000ms超时，不报告通过；单进程统计覆盖语句/分支/函数/行79.74/70.89/84.44/84.41%，高于基线但语句/分支未达80%。详见待办F3/F4。
+- [OK] 实际diff自审、安全检查、任务validate、diff --check、gitleaks及提交门禁通过；额外只读独立审查未返回可用报告后停止，不计作独立通过；bandit未安装未运行。
+- [OK] 此前隔离浏览器验证包含双页冲突/取消/覆盖/第三次写入、旧撤销不重放、同页连续写入、外部变化仍审阅及390px窄屏；收尾没有重启浏览器或接触真实数据。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按已授权流程合入并推送main，清理仅C4工作树/分支和已识别的临时文件；临时文件采用回收站方式，保留其他任务资源。
+- 后续另行审阅并授权11-16-edit-conflict-followups的技术方案后再启动；本次不实施遗留项。
+- 生产服务、真实配置/数据库/上传文件和8888均禁止触碰；跳过生产构建、重启及上线验证。

@@ -62,7 +62,7 @@ test('replayBindingProfile replays definition, binding, instance and cleanup in 
   // 撤销/恢复收敛为一次 binding-profile 原子请求（不再逐次 PUT 定义 / PUT 实例 / PATCH 颜色）
   const body = /async function replayBindingProfile\(historyContext, ffId, command, \{ focusFieldId = ffId \} = \{\}\) \{([\s\S]*?)\n\}/.exec(formDesignerSource)?.[1]
   assert.ok(body, 'should locate replayBindingProfile body')
-  assert.match(body, /api\.put\(`\/api\/form-fields\/\$\{ffId\}\/binding-profile`, command\)/)
+  assert.match(body, /protectedApi\.put\(`\/api\/form-fields\/\$\{ffId\}\/binding-profile`, command\)/)
   assert.match(body, /reloadAfterReplay\(historyContext\?\.formId, \{ defs: true, focusFieldId \}\)/)
   assert.doesNotMatch(formDesignerSource, /async function applyFieldPropState/)
   assert.doesNotMatch(formDesignerSource, /api\.patch\(`\/api\/form-fields\/\$\{ffId\}\/colors`/)
@@ -333,11 +333,12 @@ test('saveFieldProp saves one atomic binding-profile command and refreshes the f
   assert.doesNotMatch(body, /if \(ff\.is_log_row\)/)
   // DEC3：与 saveSelectedFieldProp 的影响确认共用同一组命令参数
   assert.match(body, /const command = buildBindingProfileCommand\(\{\s*\.\.\.commandArgs,\s*editorState,\s*\}\)/)
-  assert.match(body, /const result = await api\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command\)/)
+  assert.match(body, /const result = await protectedApi\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command, \{/)
+  assert.match(body, /baseline: fieldPropDesignBaseline, historyContext/)
   assert.doesNotMatch(body, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions/)
   assert.doesNotMatch(body, /api\.patch\(`\/api\/form-fields/)
-  assert.match(body, /const settled = await reconcileAfterFieldPropSave\(\{[\s\S]*?result,[\s\S]*?snapshot,[\s\S]*?\}\)/)
-  assert.match(body, /if \(!settled\) return;/)
+  assert.match(body, /await reconcileAfterFieldPropSave\(\{[\s\S]*?result, snapshot,[\s\S]*?\}\)/)
+  assert.ok(body.indexOf('recordFieldPropSaveHistory(') < body.indexOf('await reconcileAfterFieldPropSave('), '成功命令在重载前记一次历史，GET 失败不能变成可重复的未提交状态')
   // 历史条目按操作类型记录：共享更新 / 换绑（含纯引用）/ OID 分叉；
   // definitionUpdated 标记让回放只重建正向保存实际写过的部分（收口在 recordFieldPropSaveHistory）
   const historyBody = functionBody('recordFieldPropSaveHistory')
