@@ -61,7 +61,9 @@ The user explicitly requested: create a follow-up task for the remaining issues,
 
 - [x] Reconcile the 86 original C4 paths, current local main and other worktrees; no unrelated edits included.
 - [x] Record F1–F6 limitations and verification debt in the new unstarted backlog.
-- [x] Product commit `b6c4a8f` contains code/tests/docs only, no `.trellis/` paths; pre-commit gitleaks, whitespace, Python syntax and ruff-format checks passed. Trellis work is a separate commit.
+- [x] Product commit `b6c4a8f` contains code/tests/docs only, no `.trellis/` paths; pre-commit gitleaks, whitespace, Python syntax and ruff-format checks passed. Trellis work is a separate commit (`9f8c933`).
+- [x] Merge remote `8ecc5a9` (0.7.0; package versions only) as `06ced9f`, preserving local C1 and remote histories. Re-verify merged backend: 1756 passed, 89.2444%; node:test 1109/1109; complete vitest suite with `--maxWorkers=1`: 596/596; lint 0 errors / 2919 warnings; build passed.
+- [x] Record default-parallel merged-tree `npm test` timeouts (3 with concurrent backend, then 9 without backend) in follow-up F4; root cause unresolved, normal default command NOT reported as passing. No test/runner/timeout configuration was changed.
 - [ ] Archive only C4 and record journal, then merge/push main and remove only the C4 worktree/branch.
 - [ ] Move identified C4 `/tmp` artifacts to trash; existing temporary backend/browser processes are already absent.
 
