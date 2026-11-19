@@ -1463,7 +1463,8 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 - [OK] 本次运行：task.py validate在归档前后均通过（各3条implement/check上下文）；大文件自动注入截断警告保留，不等于已完整自动读取。
 - [OK] 本次运行：逐批精确暂存清单、git diff --cached --check和正常pre-commit通过；Gitleaks暂存区扫描无泄漏，三份暂存Python文件语法检查通过；条件ruff格式检查因PATH未发现ruff而跳过，未安装或绕过门禁。
 - [OK] 本次运行：48项已接受源码/10项保护文件及最终清洁构建指纹核对通过；产品/测试保持冻结。前端1117node+923component、Core94、同64路径两模式覆盖四项>=80%且不下降及先前浏览器/后端证据均为已保存结果，本次未重跑代码测试/构建/浏览器。
-- [OK] 未运行：Bandit（缺工具）、新全量后端覆盖率/ruff、adapter stdio E2E和前端独立typecheck；没有新增依赖、配置、runner、凭据或生产8888访问。
+- [NOT RUN] Bandit（缺工具）、新全量后端覆盖率/ruff、adapter stdio E2E和前端独立typecheck；没有新增依赖、配置、runner、凭据或生产8888访问。
+- [FAILED COMMAND / VERIFIED OUTCOME] journal首次git add对忽略父目录返回1，但已部分暂存两份目标文件；外层命令链缺少失败短路，仍继续并产生9fd50ef。事后核对该提交恰含journal-1.md/index.md，无越界文件；后续仅以git add -u暂存这两份已跟踪文件，不重复生成会话、不扩大目录、不绕过提交门禁。
 
 ### Status
 
