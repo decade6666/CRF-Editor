@@ -1,0 +1,39 @@
+{
+  "id": "codelist-followups",
+  "name": "codelist-followups",
+  "title": "字典快捷新增后的跨页签刷新与结果反馈",
+  "description": "记录字典快捷新增后已挂载选项页不刷新的问题，以及创建成功但后续读取失败时的反馈问题；单位弹窗收尾作为低优先级延期项。本次仅建立待办，不启动实现。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-11-19",
+  "completedAt": null,
+  "branch": "docs/codelist-followups-plan",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/CRF-Editor/.claude/worktrees/codelist-followups-plan",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/App.vue",
+    "frontend/src/components/CodelistsTab.vue",
+    "frontend/src/components/CodelistQuickEditDialog.vue",
+    "frontend/src/components/FieldsTab.vue",
+    "frontend/tests/component/CodelistsTabBehavior.spec.js",
+    "frontend/tests/component/AppWorkspaceBehavior.spec.js",
+    "frontend/tests/component/CodelistQuickEditDialog.spec.js",
+    "frontend/tests/component/FieldsTabTransitionBranches.spec.js",
+    "frontend/src/components/FormDesignerTab.vue",
+    ".trellis/spec/guides/cross-stack-contracts.md"
+  ],
+  "notes": "2026-11-19 records-only continuation requested by user. CL-1 mounted options-tab reactivation refresh and CL-2 committed codelist creation versus failed refresh are pending requirements; UNIT-DEFERRED is LOW and explicitly not approved for implementation. Created with --no-start, remains planning and has no parent/children. Evidence was inspected in the sibling edit-conflict-followups-plan worktree; its accepted 48-file source/test inventory is now commit 215a744e67b9b5f4d3c34cbce5ff14066e537a53, with supporting commits ff0d9c0/5eca89a/8b559fc. This branch still starts at main 2549ec69d39a69b9ad8841c35c60f1554d82cc9a and does not contain those repairs; main remains unmerged. Task creation itself supplied no product/test-write, runtime-validation, private-data, commit/merge/push/deploy or cleanup permission. The user subsequently confirmed the five-batch record/work commits and old-task archive/journal, not implementation of this new task. PRD is backlog-only, not an execution-ready design. Reconcile source-task commits and obtain future implementation approval before start.",
+  "meta": {
+    "source_task": "11-16-edit-conflict-followups"
+  }
+}
