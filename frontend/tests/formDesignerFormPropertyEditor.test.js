@@ -156,7 +156,7 @@ test('persistFormProps validates OID, warns on orientation, and PUTs three field
   assert.match(body, /\/api\/forms\/\$\{[^}]+\}/)
   assert.match(body, /paper_orientation === 'portrait'/)
   assert.match(body, /needsLandscape\.value/)
-  assert.match(body, /protectedApi\.put\(`\/api\/forms\/\$\{targetForm\.id\}`, \{[\s\S]*name,[\s\S]*code,[\s\S]*paper_orientation,[\s\S]*\}, \{ baseline: designBaseline \}\)/)
+  assert.match(body, /protectedApi\.put\(\s*`\/api\/forms\/\$\{targetForm\.id\}`,?\s*\{[\s\S]*name,[\s\S]*code,[\s\S]*paper_orientation,[\s\S]*\},\s*\{ baseline: designBaseline \},?\s*\)/)
   assert.match(body, /reloadForms\(\)/)
 })
 

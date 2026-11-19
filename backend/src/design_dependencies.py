@@ -22,6 +22,7 @@ from src.models.form import Form
 from src.models.project import Project
 from src.models.user import User
 from src.services.design_revision_service import (
+    BEFORE_REVISION_HEADER,
     REVISION_HEADER,
     DesignStateError,
     assert_design_revision,
@@ -64,7 +65,13 @@ COHERENT_READS = frozenset(
         ("GET", "/projects/{project_id}/units"),
     }
 )
-INVALIDATION_METADATA = frozenset({("POST", "/forms/{form_id}/copy")})
+INVALIDATION_METADATA = frozenset(
+    {
+        ("POST", "/forms/{form_id}/copy"),
+        ("POST", "/projects/{project_id}/codelists"),
+        ("POST", "/projects/{project_id}/units"),
+    }
+)
 
 
 def get_design_session(request: Request, session: Session = Depends(get_session)) -> Iterator[Session]:
@@ -109,6 +116,9 @@ def design_scope(
 ) -> None:
     project = _project_for_request(request, user, session)
     request.state.design_project_id = project.id
+    if getattr(request.state, "design_wants_before_revision", False):
+        # F1 过渡元数据：授权通过后、任何业务写入/序号自愈之前，在同一事务内固定提交前标签。
+        request.state.design_before_revision = read_design_revision(session, project.id)
     if request.state.design_gated:
         if project.deleted_at is not None:
             raise HTTPException(404, "项目不存在")
@@ -141,6 +151,7 @@ class DesignRoute(APIRoute):
                 return await original(request)
             request.state.design_read = key in COHERENT_READS
             request.state.design_gated = key in CORE_MUTATIONS
+            request.state.design_wants_before_revision = key in INVALIDATION_METADATA
             try:
                 response = await original(request)
             except DesignStateError as exc:
@@ -151,6 +162,9 @@ class DesignRoute(APIRoute):
                 )
             revision = getattr(request.state, "design_committed_revision", None)
             if response.status_code < 400 and revision is not None:
+                before = getattr(request.state, "design_before_revision", None)
+                if before is not None:
+                    response.headers[BEFORE_REVISION_HEADER] = before
                 response.headers[REVISION_HEADER] = revision
                 response.headers["Cache-Control"] = "no-store"
             return response

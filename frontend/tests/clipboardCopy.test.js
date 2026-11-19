@@ -123,6 +123,17 @@ describe('copyTextToClipboard', () => {
     assert.equal(document.body.removed.length, 1)
   })
 
+  test('document without a usable body returns false without touching the clipboard', async () => {
+    const { copyTextToClipboard } = await loadModule()
+    const { navigator, writeTextCalls } = makeNavigator()
+    // 明文 HTTP + 无 body 的降级 document：回退路径必须直接判 false，不创建 textarea。
+    const document = { execCommand: () => true, created: [], removed: [] }
+    const ok = await copyTextToClipboard('AGE', { navigator, document, isSecureContext: false })
+    assert.equal(ok, false)
+    assert.equal(writeTextCalls.length, 0)
+    assert.equal(document.created.length, 0)
+  })
+
   test('empty text returns false without side effects', async () => {
     const { copyTextToClipboard } = await loadModule()
     const { navigator, writeTextCalls } = makeNavigator()

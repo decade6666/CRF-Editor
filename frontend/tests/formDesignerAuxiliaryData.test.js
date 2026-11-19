@@ -43,7 +43,7 @@ test('FormDesignerTab guards in-flight designer auxiliary loads against project 
   assert.match(formDesignerSource, /let designerAuxiliaryLoadSession = 0/)
   assert.match(
     formDesignerSource,
-    /const projectId = props\.projectId[\s\S]*const isStaleLoad = \(\) => loadSession !== designerAuxiliaryLoadSession \|\| projectId !== props\.projectId/,
+    /const projectId = props\.projectId[\s\S]*const isStaleLoad = \(\) =>\s*loadSession !== designerAuxiliaryLoadSession \|\|\s*projectId !== props\.projectId/,
   )
   assert.match(
     formDesignerSource,
@@ -51,7 +51,7 @@ test('FormDesignerTab guards in-flight designer auxiliary loads against project 
   )
   assert.match(
     formDesignerSource,
-    /async function loadCodelists\(projectId = props\.projectId\) \{[\s\S]*if \(projectId !== props\.projectId\) return false;[\s\S]*codelists\.value = loadedCodelists;[\s\S]*return true;[\s\S]*\}/,
+    /async function loadCodelists\(projectId = props\.projectId, isCurrent = null\) \{[\s\S]*if \(projectId !== props\.projectId \|\| \(isCurrent && !isCurrent\(\)\)\) return false;[\s\S]*codelists\.value = loadedCodelists;[\s\S]*return true;[\s\S]*\}/,
   )
   assert.match(formDesignerSource, /if \(isStaleLoad\(\)\) throw new Error\('项目已切换，请重新打开设计器'\)/)
   assert.match(formDesignerSource, /fieldDefs\.value = snapshot\.data\.definitions/)

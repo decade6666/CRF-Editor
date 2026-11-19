@@ -295,6 +295,31 @@ describe('CodelistsTab · 复制与单删字典', () => {
     expect(api.del).not.toHaveBeenCalled();
     expect(ElMessage.error).not.toHaveBeenCalled();
   });
+
+  it('删除非选中字典：选中字典与右侧编辑器保持不变', async () => {
+    const { wrapper } = await mountCodelists();
+    confirmResolved();
+    await selectCodelistRow(wrapper, 0);
+    expect(wrapper.text()).toContain('性别字典');
+
+    const targetRow = wrapper.findAll('.el-table__row').find((node) => node.text().includes('是否'));
+    await targetRow.find('button[aria-label="删除"]').trigger('click');
+    await flushPromises();
+
+    expect(api.del).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/codelists/12`);
+    expect(wrapper.text(), '右侧仍是选中的性别字典').toContain('性别字典');
+  });
+
+  it('删除请求失败时报错且不误报成功', async () => {
+    const { wrapper } = await mountCodelists();
+    confirmResolved();
+    api.del.mockRejectedValueOnce(new Error('数据库繁忙'));
+
+    await rowByAction(wrapper, '删除').find('button[aria-label="删除"]').trigger('click');
+    await flushPromises();
+
+    expect(ElMessage.error, '真实失败必须走错误提示').toHaveBeenCalledWith('数据库繁忙');
+  });
 });
 
 describe('CodelistsTab · 批量删除字典', () => {
@@ -590,5 +615,53 @@ describe('CodelistsTab · 序号快捷改序', () => {
     await flushPromises();
 
     expect(ElMessage.warning).toHaveBeenCalledWith('排序保存失败，已恢复');
+  });
+});
+
+
+describe('CodelistsTab · 边界与持久化补充', () => {
+  it('选项搜索按 编码/标签 候选过滤显示行', async () => {
+    const { wrapper } = await mountCodelists();
+    await selectCodelistRow(wrapper, 0);
+    const optionSearches = wrapper.findAll('input').filter((node) => (node.attributes('placeholder') || '').includes('搜索选项'));
+    expect(optionSearches.length).toBeGreaterThan(0);
+    const target = optionSearches[optionSearches.length - 1];
+    await target.setValue('女');
+    await flushPromises();
+    await nextTick();
+    const optionRows = wrapper.findAll('.el-table__row').filter((row) => row.text().includes('女'));
+    expect(optionRows).toHaveLength(1);
+  });
+
+  it('空选时批量删除按钮禁用（防御分支不触达）', async () => {
+    const { wrapper } = await mountCodelists();
+    expect(wrapper.find('button[aria-label="批量删除字典"]').attributes('disabled')).toBeDefined();
+    await selectCodelistRow(wrapper, 0);
+    expect(wrapper.find('button[aria-label="批量删除选项"]').attributes('disabled')).toBeDefined();
+    await selectRowCheckbox(wrapper, 0);
+    expect(wrapper.find('button[aria-label="批量删除字典"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('字典名称列宽拖动结束持久化到 localStorage', async () => {
+    const { wrapper } = await mountCodelists();
+    const codelistsTable = wrapper.findAllComponents({ name: 'ElTable' })[0];
+    expect(codelistsTable.exists()).toBe(true);
+    codelistsTable.vm.$emit('header-dragend', 240, 120, { property: 'name' });
+    codelistsTable.vm.$emit('header-dragend', 200, 120, { property: 'description' });
+    await flushPromises();
+    expect(localStorage.getItem('crf_codelistNameColWidth')).toBe('240');
+  });
+
+  it('刷新后选中的字典被删除时右侧回到空态', async () => {
+    const { wrapper, refreshKey } = await mountCodelists();
+    await selectCodelistRow(wrapper, 0);
+    expect(wrapper.text()).not.toContain('← 点击行查看选项');
+    vi.spyOn(api, 'cachedGet').mockImplementationOnce(() => Promise.resolve([{ ...cloneCodelists()[1] }]));
+    refreshKey.value += 1;
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.findAll('.el-table__row').length).toBe(1);
+    expect(wrapper.text()).toContain('是否');
+    expect(wrapper.text()).not.toContain('C.1');
   });
 });

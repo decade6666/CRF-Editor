@@ -248,3 +248,124 @@ describe('F1 集成回归：访视预览使用 /api/projects/{id}/forms 的权�
     );
   });
 });
+
+
+// 单视图访视-表单维护交互：序号快捷改序、移除、空态与未选中占位（不打开预览弹窗）。
+describe('F1 单视图：访视表单序号改序 / 移除 / 空态', () => {
+  function stageTwoFormApiMocks({ matrix } = {}) {
+    const stagedMatrix = matrix || {
+      visits: [{ id: VISIT_ID, name: '访视一', sequence: 1 }],
+      forms: [{ id: FORM_ID, name: '知情同意' }, { id: 8, name: '体格检查' }],
+      matrix: { [VISIT_ID]: { [FORM_ID]: 1, 8: 1 } },
+    };
+    const dispatch = (url) => {
+      if (url === `/api/projects/${PROJECT_ID}/visits`) {
+        return Promise.resolve([{ id: VISIT_ID, name: '访视一', sequence: 1 }]);
+      }
+      if (url === `/api/projects/${PROJECT_ID}/visit-form-matrix`) {
+        return Promise.resolve(stagedMatrix);
+      }
+      if (url === `/api/projects/${PROJECT_ID}/forms`) {
+        return Promise.resolve([authoritativeForm(), { ...authoritativeForm(), id: 8, name: '体格检查', code: 'PE' }]);
+      }
+      if (url === `/api/forms/${FORM_ID}/fields`) {
+        return Promise.resolve(makeFields());
+      }
+      return Promise.reject(new Error(`单视图回归未预期 URL：${url}`));
+    };
+    vi.spyOn(api, 'cachedGet').mockImplementation((url) => { return dispatch(url); });
+    vi.spyOn(api, 'get').mockImplementation((url) => dispatch(url));
+    vi.spyOn(api, 'post').mockResolvedValue({});
+    vi.spyOn(api, 'del').mockResolvedValue(undefined);
+    vi.spyOn(api, 'invalidateCache').mockImplementation(() => {});
+  }
+
+  async function mountSingleView({ matrix } = {}) {
+    const refreshKey = ref(0);
+    const editMode = ref(true);
+    stageTwoFormApiMocks({ matrix });
+    const wrapper = mount(VisitsTab, {
+      props: { projectId: PROJECT_ID, workspace: 'flow' },
+      global: { provide: { refreshKey, editMode } },
+    });
+    await flushPromises();
+    await nextTick();
+    await switchFlowViewToListSingle(wrapper);
+    await selectFlowVisitRow(wrapper);
+    return { wrapper, refreshKey };
+  }
+
+  it('未选中访视时右侧显示占位提示', async () => {
+    const refreshKey = ref(0);
+    const editMode = ref(true);
+    stageTwoFormApiMocks();
+    const wrapper = mount(VisitsTab, {
+      props: { projectId: PROJECT_ID, workspace: 'flow' },
+      global: { provide: { refreshKey, editMode } },
+    });
+    await flushPromises();
+    await nextTick();
+    await switchFlowViewToListSingle(wrapper);
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.text()).toContain('← 点击左侧访视行查看和编辑关联表单');
+  });
+
+  it('双击序号改序提交 reorder 并按新顺序展示', async () => {
+    const { wrapper } = await mountSingleView();
+    const formRows = () => wrapper.findAll('.el-table__row').filter((r) => r.text().includes('知情同意') || r.text().includes('体格检查'));
+    const ordinalButton = formRows()[0].find('.ordinal-cell');
+    expect(ordinalButton.exists(), '关联表单行应有可双击的序号').toBe(true);
+    await ordinalButton.trigger('dblclick');
+    await flushPromises();
+    await nextTick();
+    const ordinalInput = formRows()[0].find('.el-input-number input');
+    expect(ordinalInput.exists()).toBe(true);
+    await ordinalInput.setValue('2');
+    await ordinalInput.trigger('keyup.enter');
+    await flushPromises();
+    await nextTick();
+
+    expect(api.post).toHaveBeenCalledWith('/api/visits/11/forms/reorder', [8, 7]);
+    expect(formRows()[0].text()).toContain('知情同意');
+    expect(formRows()[1].text()).toContain('体格检查');
+  });
+
+  it('Escape 取消序号编辑且不提交', async () => {
+    const { wrapper } = await mountSingleView();
+    const formRows = () => wrapper.findAll('.el-table__row').filter((r) => r.text().includes('知情同意'));
+    await formRows()[0].find('.ordinal-cell').trigger('dblclick');
+    await flushPromises();
+    const ordinalInput = formRows()[0].find('.el-input-number input');
+    await ordinalInput.setValue('2');
+    await ordinalInput.trigger('keydown.esc');
+    await flushPromises();
+    await nextTick();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(formRows()[0].find('.el-input-number').exists()).toBe(false);
+  });
+
+  it('移除按钮直接删除并重载关联表单', async () => {
+    const { wrapper } = await mountSingleView();
+    const removeButtons = wrapper.findAll('button[aria-label="移除"]');
+    expect(removeButtons.length, '关联表单行应有「移除」按钮').toBe(2);
+    await removeButtons[0].trigger('click');
+    await flushPromises();
+
+    expect(api.del).toHaveBeenCalledWith('/api/visits/11/forms/7');
+    expect(api.get).toHaveBeenCalledWith('/api/projects/1/visit-form-matrix');
+  });
+
+  it('无关联表单的访视显示空态文案', async () => {
+    const { wrapper } = await mountSingleView({
+      matrix: {
+        visits: [{ id: VISIT_ID, name: '访视一', sequence: 1 }],
+        forms: [{ id: FORM_ID, name: '知情同意' }],
+        matrix: { [VISIT_ID]: {} },
+      },
+    });
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.text()).toContain('暂无关联表单，请在上方选择后点击添加');
+  });
+});

@@ -242,3 +242,27 @@ export function upgradeOwnBaseline(baseline, candidates, chain) {
   }
   return baseline;
 }
+
+// F1 过渡证据：服务器证明的本页写入边（前标签→后标签）。两端都必须是同一项目身份的完整
+// 合法标签，且确实前进；缺失/畸形/跨项目/未前进的证据一律不记（保守：下一次受保护写入照常审阅）。
+export function isValidOwnTransition(projectId, transition) {
+  const before = projectDesignIdentity(transition?.beforeRevision);
+  const after = projectDesignIdentity(transition?.revision);
+  if (!before || before !== after) return false;
+  if (transition.beforeRevision === transition.revision) return false;
+  const project = /^crf-design-v1:p(\d+):/.exec(after);
+  return project !== null && Number(project[1]) === projectId;
+}
+
+export function recordOwnTransition(chain, projectId, transition) {
+  if (!isValidOwnTransition(projectId, transition)) return false;
+  chain.record(transition.beforeRevision, transition.revision);
+  return true;
+}
+
+// 候选安装门槛：候选标签恰好是已确认的后标签，且旧宿主标签沿本页写入链可达（或已在同一标签）。
+export function provenOwnCandidate(chain, { fromRevision, candidateRevision }) {
+  if (!candidateRevision) return false;
+  if (fromRevision === candidateRevision) return true;
+  return Boolean(fromRevision) && chain.reaches(fromRevision, candidateRevision);
+}

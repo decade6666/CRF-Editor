@@ -76,7 +76,7 @@ describe('CodelistQuickEditDialog', () => {
         }),
     );
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+    const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
     const wrapper = mountDialog({ afterChange });
     await openDialog(wrapper);
 
@@ -91,7 +91,13 @@ describe('CodelistQuickEditDialog', () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith('/api/projects/1/codelists');
     expect(invalidateSpy).toHaveBeenCalledWith('/api/projects/1/field-definitions');
-    expect(afterChange).toHaveBeenCalledWith('add', { codelist: { id: 9, name: '字典A' } });
+    // F1：afterChange 事件携带过渡证据；测试桩无响应头 → 前后标签为 null（旧服务端，无链边）。
+    expect(afterChange).toHaveBeenCalledWith('add', {
+      codelist: { id: 9, name: '字典A' },
+      isCurrent: expect.any(Function),
+      transition: { projectId: 1, beforeRevision: null, revision: null },
+    });
+    expect(afterChange.mock.calls[0][1].isCurrent()).toBe(true);
     // afterChange 尚未 resolve：宿主刷新完成前弹窗不得关闭
     expect(wrapper.emitted('update:modelValue')).toBeUndefined();
     resolveAfterChange();
@@ -105,7 +111,7 @@ describe('CodelistQuickEditDialog', () => {
     // onUpdate:modelValue 监听器即 VTU 侧的关闭事件 spy，用 invocationCallOrder 对比先后
     const onUpdateModelValue = vi.fn();
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
-    vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+    vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
     const wrapper = mountDialog({
       addSuccessMessage: '新增成功',
       'onUpdate:modelValue': onUpdateModelValue,
@@ -126,7 +132,7 @@ describe('CodelistQuickEditDialog', () => {
   it('新增失败：仅错误提示，弹窗保持打开且保留已输入内容，不失效缓存也不回调 afterChange', async () => {
     const afterChange = vi.fn().mockResolvedValue(undefined);
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
-    vi.spyOn(api, 'post').mockRejectedValue(new Error('网络错误'));
+    vi.spyOn(api, 'postWithTransitionMetadata').mockRejectedValue(new Error('网络错误'));
     const wrapper = mountDialog({ afterChange });
     await openDialog(wrapper);
 
@@ -145,7 +151,7 @@ describe('CodelistQuickEditDialog', () => {
 
   it('FormDesignerTab 形态（normalizeDraftBeforeSubmit=true）：新增失败后回显裁剪/规范化值', async () => {
     const afterChange = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(api, 'post').mockRejectedValue(new Error('网络错误'));
+    vi.spyOn(api, 'postWithTransitionMetadata').mockRejectedValue(new Error('网络错误'));
     const wrapper = mountDialog({ afterChange, normalizeDraftBeforeSubmit: true });
     await openDialog(wrapper);
 
@@ -413,7 +419,7 @@ describe('CodelistQuickEditDialog', () => {
   });
 
   it('取消按钮：只发出关闭事件，不发请求、不失效缓存、不回调 afterChange', async () => {
-    const postSpy = vi.spyOn(api, 'post');
+    const postSpy = vi.spyOn(api, 'postWithTransitionMetadata');
     const putSpy = vi.spyOn(api, 'put');
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
     const afterChange = vi.fn().mockResolvedValue(undefined);
@@ -434,7 +440,7 @@ describe('CodelistQuickEditDialog', () => {
     const afterChange = vi.fn().mockResolvedValue(undefined);
     const invalidateSpy = vi.spyOn(api, 'invalidateCache');
     let resolvePost;
-    const postSpy = vi.spyOn(api, 'post').mockReturnValue(
+    const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockReturnValue(
       new Promise((resolve) => {
         resolvePost = resolve;
       }),
@@ -445,7 +451,7 @@ describe('CodelistQuickEditDialog', () => {
     await nameInput(wrapper).setValue('字典A');
     const confirming = clickConfirm(wrapper);
     await wrapper.setProps({ projectId: 2 });
-    resolvePost({ id: 9, name: '字典A' });
+    resolvePost({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
     await confirming;
 
     // 写入目标固定为操作发起时的项目：失效必须落在原项目，迟到结果不落新项目上下文
@@ -649,7 +655,7 @@ describe('CodelistQuickEditDialog', () => {
 
     it('新增模式简形态（隐藏编码列，FieldsTab 文案）：接受后按 C.1 追加并随 POST 保存，关闭后提示新增成功', async () => {
       vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm');
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const wrapper = mountDialog({ showCodeColumn: false, addSuccessMessage: '新增成功' });
       await openDialog(wrapper);
 
@@ -669,7 +675,7 @@ describe('CodelistQuickEditDialog', () => {
 
     it('仅空白的标签不触发提醒：保持原有直接保存流程，不产生额外选项', async () => {
       vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const wrapper = mountDialog();
       await openDialog(wrapper);
 
@@ -690,7 +696,7 @@ describe('CodelistQuickEditDialog', () => {
       async (outcome) => {
         vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue(outcome);
         const getSpy = vi.spyOn(api, 'get').mockResolvedValue([]);
-        const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+        const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
         const putSpy = vi.spyOn(api, 'put').mockResolvedValue(null);
         const invalidateSpy = vi.spyOn(api, 'invalidateCache');
         const afterChange = vi.fn().mockResolvedValue(undefined);
@@ -719,7 +725,7 @@ describe('CodelistQuickEditDialog', () => {
 
     it('先点击添加再确认：不弹提醒，提交只包含已添加行一次', async () => {
       vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const wrapper = mountDialog();
       await openDialog(wrapper);
 
@@ -805,7 +811,7 @@ describe('CodelistQuickEditDialog', () => {
           resolveConfirm = resolve;
         }),
       );
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const afterChange = vi.fn().mockResolvedValue(undefined);
       const wrapper = mountDialog({ afterChange });
       await openDialog(wrapper);
@@ -829,7 +835,7 @@ describe('CodelistQuickEditDialog', () => {
           resolveConfirm = resolve;
         }),
       );
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const afterChange = vi.fn().mockResolvedValue(undefined);
       const wrapper = mountDialog({ afterChange });
       await openDialog(wrapper);
@@ -886,7 +892,7 @@ describe('CodelistQuickEditDialog', () => {
 
     it('名称为空时确认：先提示名称校验，不弹未添加选项提醒也不写入', async () => {
       vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel');
-      const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ id: 9, name: '字典A' });
+      const postSpy = vi.spyOn(api, 'postWithTransitionMetadata').mockResolvedValue({ data: { id: 9, name: '字典A' }, beforeRevision: null, revision: null });
       const wrapper = mountDialog();
       await openDialog(wrapper);
 

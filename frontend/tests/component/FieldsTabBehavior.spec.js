@@ -497,3 +497,31 @@ describe('FieldsTab · 字典快捷入口', () => {
     expect(quickDialog, '共享编辑字典弹窗应渲染').toBeTruthy();
   });
 });
+
+
+describe('FieldsTab · 项目切换重载', () => {
+  it('切换项目后清空选中并按新项目重载三路数据', async () => {
+    const { wrapper } = await mountFields();
+    const row = wrapper.findAll('.el-table__row')[0];
+    await row.trigger('click');
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.text()).not.toContain('点击行或新增字段');
+
+    api.cachedGet.mockImplementation((url) => {
+      if (/\/api\/projects\/\d+\/field-definitions$/.test(url)) return Promise.resolve(clone(FIELDS));
+      if (/\/api\/projects\/\d+\/codelists$/.test(url)) return Promise.resolve(clone(CODELISTS));
+      if (/\/api\/projects\/\d+\/units$/.test(url)) return Promise.resolve(clone(UNITS));
+      return Promise.reject(new Error(`未脚本化 cachedGet: ${url}`));
+    });
+    await wrapper.setProps({ projectId: 2 });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('点击行或新增字段');
+    const urls = api.cachedGet.mock.calls.map(([u]) => u);
+    expect(urls.some((u) => u === '/api/projects/2/field-definitions')).toBe(true);
+    expect(urls.some((u) => u === '/api/projects/2/codelists')).toBe(true);
+    expect(urls.some((u) => u === '/api/projects/2/units')).toBe(true);
+  });
+});

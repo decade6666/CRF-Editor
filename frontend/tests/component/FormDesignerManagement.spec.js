@@ -172,7 +172,7 @@ describe('FormDesigner 管理 · 复制表单', () => {
 
     await clickRowAction(wrapper, '知情同意', '复制');
 
-    expect(api.post).toHaveBeenCalledWith('/api/forms/7/copy', {});
+    expect(api.post).toHaveBeenCalledWith('/api/forms/7/copy', {}, { withTransitionMetadata: true });
     expect(ElMessage.success).toHaveBeenCalledWith('复制成功');
   });
 
