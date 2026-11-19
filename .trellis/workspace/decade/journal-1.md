@@ -1428,3 +1428,48 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 - 网络恢复后重试 `git -C /home/decade/CRF-Editor -c http.version=HTTP/1.1 push origin main`，并查询远端main提交号确认；当前不能报告已同步。
 - 后续另行审阅并授权11-16-edit-conflict-followups的技术方案后再启动；本次不实施遗留项。
 - 生产服务、真实配置/数据库/上传文件和8888均禁止触碰；跳过生产构建、重启及上线验证。
+
+
+## Session 39: 冲突保护遗留任务提交归档与问题转移
+<!-- trellis-session: v=2 fp=c0d654b93750335d -->
+
+**Date**: 2026-11-19
+**Task**: 冲突保护遗留任务提交归档与问题转移
+**Branch**: `docs/edit-conflict-followups-plan`
+
+### Summary
+
+按用户确认完成五批工作提交并归档11-16-edit-conflict-followups。归档是行政收尾：AC2-COPY/RELOAD限定功能通过，原总体AC2仍未勾选，原B2/2及执行偏离保留。新待办11-19-codelist-followups仍planning/未启动。本次不合并、不推送、不部署或删除工作区/分支。
+
+### Main Changes
+
+- 旧任务已移动至.trellis/tasks/archive/2026-11/11-16-edit-conflict-followups/，status=completed，completedAt=2026-11-19；归档提交b394fc5在工作提交之后，未混入产品代码。
+- 产品/测试215a744、文档及已批准日志归档ff0d9c0、契约5eca89a、旧任务记录8b559fc均在docs/edit-conflict-followups-plan；新待办记录68cf1e3在独立docs/codelist-followups-plan。
+- CL-1字典跨应用页签刷新和CL-2创建成功后的刷新失败反馈转入新待办；单位弹窗收尾LOW明确延期。新分支基于旧main，未来先核对并集成已接受基线，当前不实施。
+- 保留既有签名密钥新生成、额外持久记忆写入自报及排障/证据偏离，不追认、不读取私有值、不自动回滚/轮换/清理。旧操作日志19995字符及已批准归档不变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `215a744` | fix(editor): 修复本页修订连续性与重载复制竞态并补齐回归 |
+| `ff0d9c0` | docs(editor): 同步冲突保护说明与已批准的操作日志归档 |
+| `5eca89a` | docs(spec): 同步修订连续性与测试环境契约 |
+| `8b559fc` | chore(task): 保留冲突保护验收证据与遗留转移记录 |
+| `68cf1e3` | chore(task): 记录字典刷新反馈问题与延期单位弹窗项 |
+
+### Testing
+
+- [OK] 本次运行：task.py validate在归档前后均通过（各3条implement/check上下文）；大文件自动注入截断警告保留，不等于已完整自动读取。
+- [OK] 本次运行：逐批精确暂存清单、git diff --cached --check和正常pre-commit通过；Gitleaks暂存区扫描无泄漏，三份暂存Python文件语法检查通过；条件ruff格式检查因PATH未发现ruff而跳过，未安装或绕过门禁。
+- [OK] 本次运行：48项已接受源码/10项保护文件及最终清洁构建指纹核对通过；产品/测试保持冻结。前端1117node+923component、Core94、同64路径两模式覆盖四项>=80%且不下降及先前浏览器/后端证据均为已保存结果，本次未重跑代码测试/构建/浏览器。
+- [OK] 未运行：Bandit（缺工具）、新全量后端覆盖率/ruff、adapter stdio E2E和前端独立typecheck；没有新增依赖、配置、runner、凭据或生产8888访问。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- main未合并/推送；保留两工作区/分支和78个排除的覆盖率生成文件，后续合并、推送、删除或部署分别等待明确授权。
+- 如继续新待办，先核对215a744等已接受提交，补齐详细方案和审批后再start；本次没有启动新任务。

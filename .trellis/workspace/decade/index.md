@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 38
-- **Last Active**: 2026-11-16
+- **Total Sessions**: 39
+- **Last Active**: 2026-11-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1430 | Active |
+| `journal-1.md` | ~1475 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 39 | 2026-11-19 | 冲突保护遗留任务提交归档与问题转移 | `215a744`, `ff0d9c0`, `5eca89a`, `8b559fc`, `68cf1e3` | `docs/edit-conflict-followups-plan` |
 | 38 | 2026-11-16 | C4冲突保护提交收尾与遗留问题登记 | `b6c4a8f`, `9f8c933`, `4f2a51e` | `task/crf-c4` |
 | 37 | 2026-11-15 | C1表单域编辑与组件补测提交收尾 | `c4ce7e2`, `ea5a1ad` | `task/crf-c1` |
 | 36 | 2026-11-10 | 删除AI复核功能并双重独立审查 | `da87e0e`, `a7ab6d8` | `worktree-remove-ai-review` |
