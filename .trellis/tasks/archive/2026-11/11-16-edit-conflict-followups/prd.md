@@ -1,5 +1,7 @@
 # C4 Follow-ups — Own-Write Continuity and Verification Debt
 
+> Administrative closeout, 2026-11-19: the user confirmed the five work-commit batches and archive/journal. This task is archived with `status=completed`; original broader AC2 remains unchecked and residuals are transferred to planning task `11-19-codelist-followups`. This is not a claim of all-AC acceptance. Current disposition: `closeout-handoff.md`; older in-progress/permission checkpoints below are historical.
+
 ## Background / Prior Authorization
 
 Created as a planning-only backlog on 2026-11-16 while closing C4, then reviewed independently with Fable. On 2026-11-17 the user invoked `/trellis-relay 确定，按计划执行` and approved the current main-session model as A, authorizing incorporation of the reviewed planning corrections, task activation and bounded implementation. `design.md` and `implement.md` own the reviewed technical/execution details. Reproduce symptoms and retain RED tests before product edits in the isolated task worktree. This authorization does not include commit/merge/push, deployment, dependency expansion, runner changes or destructive cleanup.
@@ -82,7 +84,7 @@ Checkmarks distinguish execution from prior backend/attribution evidence and dis
 
 The user requested a new Trellis issue record and source-task closeout. Independent planning task `11-19-codelist-followups` now records CL-1 (mounted options-tab refresh) and CL-2 (committed dictionary creation versus failed refresh); the unit-dialog terminal-state issue is LOW and explicitly deferred. It was created with `--no-start` in `docs/codelist-followups-plan`, not implemented or selected. Its older main baseline does not yet include this worktree's uncommitted repairs.
 
-`closeout-handoff.md` owns the transfer mapping, preserved evidence/limits and five-batch commit inventory. The user subsequently confirmed “确认，完成旧任务的收尾工作”, authorizing those work commits followed by source-task archive/journal. Work commits are executing; preserve their order before archival/journal. Until archival, keep `in_progress`, `completedAt=null`, original B2/2 and the unchecked broader AC2. The subsequent approval does not authorize new implementation, private-data access, merge/push/deployment or worktree/branch removal.
+`closeout-handoff.md` owns the transfer mapping, preserved evidence/limits and five-batch commit inventory. The user subsequently confirmed “确认，完成旧任务的收尾工作”: work commits `215a744`, `ff0d9c0`, `5eca89a`, `8b559fc` and independent planning record `68cf1e3` were created before source-task archival. The task is now administratively archived with `status=completed`, `completedAt=2026-11-19`; journal follows in a separate commit. Original B2/2, the unchecked broader AC2 and disclosed execution deviations remain unchanged. No new implementation, private-data access, merge/push/deployment or worktree/branch removal is authorized by this closeout.
 
 ## Historical Planning Handoff
 

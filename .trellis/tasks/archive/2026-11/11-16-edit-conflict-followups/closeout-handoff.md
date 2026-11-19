@@ -2,7 +2,7 @@
 
 ## Current Disposition
 
-The user requested a new Trellis issue record followed by closeout of `11-16-edit-conflict-followups`, then explicitly confirmed the displayed five-batch work-commit plan and subsequent source-task archival/journal: “确认，完成旧任务的收尾工作”. Commit authorization is now present. Phase 3.4 work commits are executing; archival/journal must follow them, not bypass them. Keep `task.json.status=in_progress` and `completedAt=null` until archival. There is no currently selected task in this session: use the explicitly named source task, do not archive/start the new planning task or restart either task.
+The user explicitly confirmed the displayed five-batch work-commit plan and subsequent source-task archival/journal: “确认，完成旧任务的收尾工作”. All five work commits are complete: `215a744`, `ff0d9c0`, `5eca89a`, `8b559fc` on the source branch and `68cf1e3` on the independent new planning branch. The explicitly named source task was then archived to `.trellis/tasks/archive/2026-11/11-16-edit-conflict-followups/`, with `status=completed` and `completedAt=2026-11-19`. This archive receives its own commit; the separate journal commit follows it. Neither task was restarted/selected and the new task remains `planning`.
 
 This is an administrative handoff, not a new implementation/review round or a claim that all original acceptance criteria passed. Product/test files and the final clean bundle remain frozen; the original relay remains B2/2.
 
@@ -26,7 +26,7 @@ New independent task: `11-19-codelist-followups`, branch `docs/codelist-followup
 | Dictionary POST succeeds but a subsequent read fails or is swallowed, causing misleading creation feedback | New PRD CL-2, MEDIUM; pending implementation/acceptance. |
 | Created-unit operation becomes ineligible and leaves its original dialog without a terminal result | New PRD UNIT-DEFERRED, LOW; explicitly deferred, no implementation approval. |
 
-The new task was created with `--no-start`, remains `planning`, and has no parent/children. Its PRD records the four-source/four-test proposal as unimplemented. It starts from main `2549ec6`, not the uncommitted accepted source tree; `FieldsTabTransitionBranches.spec.js` is one source-task test not present in that older planning baseline. Future implementation must reconcile accepted commits first.
+The new task was created with `--no-start`, remains `planning`, and has no parent/children. Its PRD records the four-source/four-test proposal as unimplemented. It starts from main `2549ec6` and does not contain accepted source commit `215a744`; `FieldsTabTransitionBranches.spec.js` is one source-task test not present in that older planning baseline. Future implementation must reconcile accepted commits first. Its task record was independently committed as `68cf1e3`.
 
 Other nonblocking feedback/test debt, generic loader/response-body limitations, unverified IME hypothesis, optional static-review remarks and tooling/evidence limits remain in their original reports. This transfer does not silently promote all of them into the new implementation scope or delete them from history.
 
@@ -35,7 +35,7 @@ Other nonblocking feedback/test debt, generic loader/response-body limitations, 
 - Newly generated signing secret and the implementer's self-reported extra persistent-memory write remain disclosed scope deviations, not retroactively approved steps. Private files/environments were not forensically inspected, and no cleanup/rotation/rollback is implied.
 - Previous failed attempts, diagnostic-build/browser limitations, patch/scan-scope corrections and interrupted backend failure remain in source reports.
 - Bandit remains unavailable / NOT RUN; no installation authorized. No new full backend suite/coverage, ruff, adapter stdio E2E or frontend typecheck claim is made.
-- This closeout phase performed records/inventory/hash/diff checks only. It did not run code tests, security scans, an app/browser, credential generation, deployment or production-port access.
+- This closeout phase ran records/inventory/hash/diff/context checks and the normal staged-diff pre-commit gates. Gitleaks found no leaks; whitespace checks and staged Python syntax checks passed. The conditional ruff format check was skipped because ruff was unavailable. No new product tests, app/browser, credential generation, deployment or production-port access occurred.
 
 ## Authorized Work-Commit Batches — 2026-11-19
 
@@ -153,8 +153,8 @@ The empty context manifests are creation artifacts, not start-ready implementati
 - Generated `frontend/coverage/` output: exclude from all commits; preserve without deletion. `frontend/dist` is a frozen generated build, not a source deliverable to stage.
 - No unrecognized dirty path outside the inventories was found in the closeout survey. Previously delegated source/test files were reconciled against the accepted 48-file manifest, not accepted merely because they were dirty.
 - The source task's active operation log stays at 19995 Unicode characters; no new log archival or history deletion was performed.
-- First three work commits are `215a744` (48 source/tests), `ff0d9c0` (7 documents/archive) and `5eca89a` (2 specs); normal pre-commit gates passed. Ruff was unavailable and its conditional hook format check was skipped, not passed.
-- Finish the authorized work commits, then archive the explicitly named **source task only** and record the journal with source work-commit hashes, preserving the broader AC2 limitation and transfer mapping. Do not claim “all AC passed”. The scripts' built-in commit subjects are English, so use their existing `--no-commit` only after the work-commit gate, then stage the exact archive/journal outputs and create separate Chinese Conventional Commits. This does not disable hooks, alter configuration or skip a required commit.
+- Completed work commits are `215a744` (48 source/tests), `ff0d9c0` (7 documents/archive), `5eca89a` (2 specs), `8b559fc` (19 source-task records) and `68cf1e3` (4 independent planning-task records); normal pre-commit gates passed. Ruff was unavailable and its conditional hook format check was skipped, not passed.
+- Only the explicitly named **source task** was archived, after all work commits. Record the journal next with work-commit hashes, preserving the broader AC2 limitation and transfer mapping; do not include the archive hash or claim “all AC passed”. The scripts' built-in commit subjects are English, so their existing `--no-commit` is used only after the work-commit gate, followed by exact archive/journal staging and separate Chinese Conventional Commits. This does not disable hooks, alter configuration or skip a required commit.
 - Local merge, push, worktree removal, branch deletion, production/dist update and service restart remain separately unauthorized. Other tasks/worktrees are untouched.
 
-Next action: complete the authorized work commits, source-task archive and separate journal commit in that order. No further confirmation is needed for that approved scope; merge/push/deployment/removal remain excluded.
+The separate journal entry is the final closeout record following this archive commit. Future implementation belongs to the new planning task after baseline reconciliation and explicit approval; merge/push/deployment/removal remain excluded.
