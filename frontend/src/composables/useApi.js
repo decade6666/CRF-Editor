@@ -177,7 +177,18 @@ function _metadataOptions(options = {}) {
 async function _readResponse(r, options = {}, { mutation = false } = {}) {
   try {
     const data = r.status === 204 ? null : await _safeJsonParse(r);
-    if (!options.withMetadata) return data;
+    if (!options.withMetadata) {
+      // F1 过渡元数据：仅随响应原样取回前后标签；缺失/不完整是“无链边”的成功业务响应，
+      // 绝不报错、不补读、不重试。链路校验交给 designRevision 侧。
+      if (options.withTransitionMetadata) {
+        return {
+          data,
+          beforeRevision: r.headers.get('X-CRF-Design-Before-Revision') || null,
+          revision: r.headers.get('X-CRF-Design-Revision') || null,
+        };
+      }
+      return data;
+    }
     const revision = r.headers.get('X-CRF-Design-Revision');
     if (mutation && !revision) {
       throw _createHttpError(
@@ -188,7 +199,7 @@ async function _readResponse(r, options = {}, { mutation = false } = {}) {
     }
     return { data, revision };
   } catch (error) {
-    if (mutation && options.withMetadata) error.committed = true;
+    if (mutation && (options.withMetadata || options.withTransitionMetadata)) error.committed = true;
     throw error;
   }
 }
@@ -248,6 +259,11 @@ export const api = {
   },
   async delWithMetadata(url, options = {}) {
     return api.del(url, _metadataOptions(options));
+  },
+  // F1 过渡写入：仅用于「仅失效」管理写入（快捷新增字典/单位、整表复制）。
+  // 不携带 If-Match、不取标签、不重试；复用既有 POST 鉴权/子路径/状态检查/缓存失效边界。
+  async postWithTransitionMetadata(url, data) {
+    return api.post(url, data, { withTransitionMetadata: true });
   },
 
   invalidateCache,

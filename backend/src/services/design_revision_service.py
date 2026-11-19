@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from src.models import Base
 
 REVISION_HEADER = "X-CRF-Design-Revision"
+BEFORE_REVISION_HEADER = "X-CRF-Design-Before-Revision"
 STATE_TABLE = "project_design_state"
 TRIGGER_PREFIX = "crf_design_v1_"
 DESIGN_TABLES = (

@@ -334,10 +334,10 @@ test('saveFieldProp saves one atomic binding-profile command and refreshes the f
   // DEC3：与 saveSelectedFieldProp 的影响确认共用同一组命令参数
   assert.match(body, /const command = buildBindingProfileCommand\(\{\s*\.\.\.commandArgs,\s*editorState,\s*\}\)/)
   assert.match(body, /const result = await protectedApi\.put\(`\/api\/form-fields\/\$\{propEditFieldId\}\/binding-profile`, command, \{/)
-  assert.match(body, /baseline: fieldPropDesignBaseline, historyContext/)
+  assert.match(body, /baseline: fieldPropDesignBaseline,\s*historyContext/)
   assert.doesNotMatch(body, /api\.put\(`\/api\/projects\/\$\{projectId\}\/field-definitions/)
   assert.doesNotMatch(body, /api\.patch\(`\/api\/form-fields/)
-  assert.match(body, /await reconcileAfterFieldPropSave\(\{[\s\S]*?result, snapshot,[\s\S]*?\}\)/)
+  assert.match(body, /await reconcileAfterFieldPropSave\(\{[\s\S]*?result,\s*snapshot,[\s\S]*?\},?\s*\)/)
   assert.ok(body.indexOf('recordFieldPropSaveHistory(') < body.indexOf('await reconcileAfterFieldPropSave('), '成功命令在重载前记一次历史，GET 失败不能变成可重复的未提交状态')
   // 历史条目按操作类型记录：共享更新 / 换绑（含纯引用）/ OID 分叉；
   // definitionUpdated 标记让回放只重建正向保存实际写过的部分（收口在 recordFieldPropSaveHistory）

@@ -344,13 +344,15 @@ export function buildFieldProfileCommand({
 /** 撤销「新增字段」历史：删除实例并清理当时创建的定义。 */
 export function buildDeleteProfileCommand({ cleanupDefinitionId, restoreDefinitionId, restoreDefinition }) {
   return {
-    ...(restoreDefinitionId != null && restoreDefinition ? {
-      definition_operation: {
-        operation: 'update_shared',
-        update_shared: { target_definition_id: restoreDefinitionId, definition: restoreDefinition },
-      },
-      binding: { mode: 'keep' },
-    } : {}),
+    ...(restoreDefinitionId != null && restoreDefinition
+      ? {
+          definition_operation: {
+            operation: 'update_shared',
+            update_shared: { target_definition_id: restoreDefinitionId, definition: restoreDefinition },
+          },
+          binding: { mode: 'keep' },
+        }
+      : {}),
     instance: { mode: 'delete' },
     ...(cleanupDefinitionId != null ? { cleanup_definition_id: cleanupDefinitionId } : {}),
   }

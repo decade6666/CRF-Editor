@@ -49,17 +49,19 @@ test('quick edit opens the shared dialog hydrated from the selected codelist', (
 test('codelist writes refresh host data and bump the global refreshKey via afterChange', () => {
   // 缓存失效（codelists + field-definitions）统一前移到共享弹窗内（挂载测试断言两键）；
   // 宿主保留与历史 reloadAfterCodelistChange 相同的 load + refreshKey 联动刷新。
+  // F1：add 分支改走过渡连续性（adoptAddTransition）；非 add 分支保留 load + refreshKey 序列。
   assert.match(
     source,
-    /async function afterCodelistDialogChange\(kind, \{ codelist \}\) \{[\s\S]*?await load\(\)[\s\S]*?refreshKey\.value\+\+/,
+    /async function afterCodelistDialogChange\(kind, \{ codelist, transition, isCurrent = \(\) => true \} = \{\}\) \{[\s\S]*?await adoptAddTransition\(transition, \{ isCurrent: isOperationCurrent \}\)[\s\S]*?await load\(\)[\s\S]*?refreshKey\.value\+\+/,
   )
 })
 
-test('FieldsTab load guards late responses against project switches', () => {
-  // 共享弹窗 afterChange 会调用宿主 load()：项目切换后迟到的批量加载
-  // 不得把旧项目数据写进新项目的列表状态（identity gate，同类于会话令牌守卫）。
-  assert.match(source, /async function load\(\) \{[\s\S]{0,200}const pid = props\.projectId/)
-  assert.match(source, /if \(props\.projectId !== pid \|\| generation !== loadGeneration\) return\n    fields\.value = snapshot\.data\[0\]/)
+test('FieldsTab load guards late responses against project, auth and operation changes', () => {
+  const loadSource = source.slice(source.indexOf('async function load('), source.indexOf('async function reloadFields('))
+  assert.match(loadSource, /async function load\(\{ isCurrent = \(\) => true \} = \{\}\)/)
+  assert.match(loadSource, /!disposed\s*&&\s*isCurrent\(\)\s*&&\s*props\.projectId === pid\s*&&\s*generation === loadGeneration\s*&&\s*getApiSessionGeneration\(\) === authGeneration/)
+  assert.match(loadSource, /\{ isCurrent: operationCurrent \}/)
+  assert.match(loadSource, /if \(!operationCurrent\(\)\) return;\s*fields\.value = snapshot\.data\[0\]/)
 })
 
 test('quick edit failure refresh flow moved to the shared dialog', () => {

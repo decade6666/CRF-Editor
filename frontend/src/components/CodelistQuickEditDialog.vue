@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onScopeDispose } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { api, truncRefs } from '../composables/useApi';
+import { api, getApiSessionGeneration, truncRefs } from '../composables/useApi';
 import { countDistinctForms } from '../composables/fieldReferenceImpact';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
 
@@ -153,11 +153,27 @@ function isOperationStale(opProjectId, opCodelistId) {
   return props.projectId !== opProjectId || (props.mode === 'edit' && props.codelistId !== opCodelistId);
 }
 
+// R2：一次新增固定其发起时的项目/弹窗会话/鉴权会话与卸载状态；POST 之后、宿主 afterChange
+// 之后各重查一次。弹窗已被关闭重开（dialogSession 变化）或宿主已卸载时，迟到响应不再触发
+// 宿主 afterChange、不再关闭新弹窗、不再弹成功提示；只失效原项目缓存（写入已提交不回滚）。
+let disposed = false;
+onScopeDispose(() => {
+  disposed = true;
+});
+
 async function confirmAdd() {
   if (saving.value) return;
   const draft = validateForm();
   if (!draft) return;
   const opProjectId = props.projectId;
+  const opSession = dialogSession;
+  const opAuthSession = getApiSessionGeneration();
+  const operationCurrent = () =>
+    !disposed &&
+    props.modelValue === true &&
+    props.projectId === opProjectId &&
+    dialogSession === opSession &&
+    getApiSessionGeneration() === opAuthSession;
   saving.value = true;
   try {
     if (props.normalizeDraftBeforeSubmit) {
@@ -165,7 +181,8 @@ async function confirmAdd() {
       formName.value = draft.savedName;
       opts.value = draft.normalizedOptions.map((o) => ({ id: o.id, code: o.code, decode: o.decode }));
     }
-    const created = await api.post(`/api/projects/${opProjectId}/codelists`, {
+    // F1 过渡写入：响应体与服务器证明的前后标签一体返回；旧服务端缺失标签只是无链边。
+    const created = await api.postWithTransitionMetadata(`/api/projects/${opProjectId}/codelists`, {
       name: draft.savedName,
       description: formDescription.value,
       options: draft.normalizedOptions.map((opt, index) => ({
@@ -175,11 +192,21 @@ async function confirmAdd() {
       })),
     });
     invalidateCodelistCaches(opProjectId);
-    if (isOperationStale(opProjectId)) {
-      closeDialog();
+    if (!operationCurrent()) {
+      // 迟到/失效响应不再管理弹窗：仅同会话（未被重开/替换）时才代表原操作收尾关闭。
+      if (!disposed && dialogSession === opSession) closeDialog();
       return;
     }
-    await props.afterChange('add', { codelist: created });
+    await props.afterChange('add', {
+      codelist: created.data,
+      isCurrent: operationCurrent,
+      transition: {
+        projectId: opProjectId,
+        beforeRevision: created.beforeRevision,
+        revision: created.revision,
+      },
+    });
+    if (!operationCurrent()) return;
     closeDialog();
     // 关闭后再提示，保持 FieldsTab 原有的 close→toast 顺序
     if (props.addSuccessMessage) ElMessage.success(props.addSuccessMessage);
