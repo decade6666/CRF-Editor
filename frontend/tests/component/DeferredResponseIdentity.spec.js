@@ -315,7 +315,9 @@ describe('R2：迟到的管理写入与候选重读不得落进新上下文', ()
     await wrapper.findAll('.el-table__row')[0].trigger('click');
     await settle();
     await pickFieldType(wrapper, '单选');
-    // 挂载完成后外部先推进服务器修订：字典写入的过渡边不再从本页快照可达 → 采纳弃用（诚实警告）→ 走回退下拉读
+    // 挂载完成后外部先推进服务器修订：字典写入的过渡边不再从本页快照可达 → 采纳弃用 → 走回退下拉读。
+    // 已批准的契约（design.md:80）：反馈推迟到必要读取全部成功后判定，取消/失败一律静默弃用，
+    // 不得在回退读仍在途时提前弹出「其他最新修改」提示。
     server.remote((state) => { state.definitions[0].label = '外部标签'; });
     // 扣住采纳的 3 个一致读 + 回退下拉读（第 4 个）
     const releasers = server.holdReads(4);
@@ -325,16 +327,22 @@ describe('R2：迟到的管理写入与候选重读不得落进新上下文', ()
     await dialog.findAll('.el-form-item')[0].get('input').setValue('回退字典');
     await dialog.findAll('button').find((node) => node.text().trim() === '确定').trigger('click');
     await settle();
-    expect(acceptedWrites(server)).toEqual([true]);
-    // 先放行采纳的 3 个一致读：修订不匹配 + 不可证明 → 诚实警告并弃用采纳 → 走回退下拉读
+    expect(acceptedWrites(server), '恰好一次已接受 POST').toEqual([true]);
+    // 先放行采纳的 3 个一致读：修订不匹配 + 不可证明 → 弃用采纳并转入回退下拉读；
+    // 回退读未决期间不得出现任何过早的外部修订提示
     for (const release of releasers.slice(0, 3)) release();
     await settle();
-    expect(ElMessage.warning).toHaveBeenCalledWith('已保存，但检测到其他最新修改；当前列表未刷新，保存前请先核对');
-    // 回退下拉读（第 4 个读）在途时鉴权会话变化
+    expect(ElMessage.warning, '回退读在途时不得提前弹出外部修订提示').not.toHaveBeenCalled();
+    // 回退下拉读（第 4 个读）在途时鉴权会话变化：会话失效后整个链路按取消处理
     localStorage.setItem('crf_token', 'round2-fallback-auth');
     releasers[3]();
     await settle();
-    // RED：失效会话的回退数据不得再落进当前编辑器下拉
+    // 失效会话的取消链路：无提示、无成功反馈、无重复 POST
+    expect(ElMessage.warning, '取消链路不得追加警告').not.toHaveBeenCalled();
+    expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(ElMessage.success).not.toHaveBeenCalled();
+    expect(acceptedWrites(server), '失效会话不得再次 POST').toEqual([true]);
+    // 失效会话的回退数据不得落进当前编辑器下拉
     await formItemByText(wrapper, '选项').get('.el-select__wrapper').trigger('click');
     await settle();
     const codelistItems = body().findAll('.el-select-dropdown__item').map((node) => node.text())

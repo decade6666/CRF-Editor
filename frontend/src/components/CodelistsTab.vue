@@ -1,7 +1,7 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, nextTick, inject } from 'vue'
+import { ref, reactive, computed, watch, onScopeDispose, nextTick, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, genCode, truncRefs } from '../composables/useApi'
+import { api, genCode, truncRefs, getApiSessionGeneration } from '../composables/useApi'
 import { buildPartialDeleteMessage, confirmReferenceAwareBatchDelete, formatFieldReference, showReferenceBlockedAlert } from '../composables/referenceDeleteGuard'
 import { useSortableTable } from '../composables/useSortableTable'
 import { useOrdinalQuickEdit } from '../composables/useOrdinalQuickEdit'
@@ -9,7 +9,16 @@ import { rankFuzzyMatches } from '../composables/searchRanking'
 import { OID_ERROR, isValidOptionalOid, toUpperAsciiOid } from '../composables/oidValidation.js'
 import { Delete, DocumentCopy, EditPen, Plus } from '@element-plus/icons-vue'
 
-const props = defineProps({ projectId: { type: Number, required: true } })
+const props = defineProps({
+  projectId: { type: Number, required: true },
+  // 宿主可见性（App 懒加载宿主转发 activeTab === 'codelists'）：仅可见时执行读取；
+  // 隐藏期间推迟，重新可见时本地重读一次。默认 true 保持独立挂载的原行为。
+  active: { type: Boolean, default: true },
+  // 宿主上下文计数（App 对项目/页签每次变化逐次递增，单调转发）：prop 层会把同一调度
+  // 批次内 A→B→A / 隐藏→显示的中间态坍缩成最终值，子组件无法自行察觉；计数前进即视为
+  // 一次上下文迁移，先同步失效在途读取再合并一次新鲜读取。独立挂载（默认 0）不依赖它。
+  contextVersion: { type: Number, default: 0 },
+})
 const refreshKey = inject('refreshKey', ref(0))
 const editMode = inject('editMode', ref(false))
 
@@ -41,15 +50,50 @@ const isOptionsFiltered = computed(() => searchOpt.value.trim().length > 0)
 const codelistsReorderUrl = computed(() => `/api/projects/${props.projectId}/codelists/reorder`)
 const optionsReorderUrl = computed(() => selected.value ? `/api/projects/${props.projectId}/codelists/${selected.value.id}/options/reorder` : '')
 
-async function load() {
-  codelists.value = await api.cachedGet(`/api/projects/${props.projectId}/codelists`)
-  if (selected.value) {
-    selected.value = codelists.value.find(item => item.id === selected.value.id) || null
+// 读生命周期守卫：readTicket 在项目/可见性变化时先于任何 await 递增（卸载同样递增），
+// readGeneration 每次进入 load 递增。迟到的隐藏/被取代/跨项目/跨会话/卸载读取一律不发布、
+// 不反馈，防止项目 A→B→A 或隐藏→显示复活已离开的读取。写操作路径（reload/排序等）仍走
+// 默认参数：失败照原语义向上抛出由调用方提示；仅触发器路径用 reportReadFailure 本地报告。
+let readTicket = 0
+let readGeneration = 0
+let disposed = false
+onScopeDispose(() => {
+  disposed = true
+  readTicket += 1
+})
+
+async function load({ reportReadFailure = false } = {}) {
+  const pid = props.projectId
+  const ticket = readTicket
+  const authSession = getApiSessionGeneration()
+  const generation = ++readGeneration
+  const readCurrent = () =>
+    !disposed &&
+    ticket === readTicket &&
+    pid === props.projectId &&
+    generation === readGeneration &&
+    getApiSessionGeneration() === authSession
+  try {
+    const nextCodelists = await api.cachedGet(`/api/projects/${pid}/codelists`)
+    if (!readCurrent()) return false
+    codelists.value = nextCodelists
+    if (selected.value) {
+      selected.value = codelists.value.find(item => item.id === selected.value.id) || null
+    }
+    nextTick(() => {
+      if (!readCurrent()) return
+      initCodelistsSortable()
+      initOptionsSortable()
+    })
+    return true
+  } catch (e) {
+    if (!readCurrent()) return false
+    if (reportReadFailure) {
+      ElMessage.error(`字典列表刷新失败：${e.message}`)
+      return false
+    }
+    throw e
   }
-  nextTick(() => {
-    initCodelistsSortable()
-    initOptionsSortable()
-  })
 }
 // 写操作后强制刷新：先失效缓存，再重新加载，最后 bump 全局 refreshKey 让其他 Tab 同步字典名/选项
 async function reload() {
@@ -117,10 +161,49 @@ const {
   reloadFn: reloadSelectedOptions,
   renderList: visibleOptions,
 })
-onMounted(load)
-watch(() => props.projectId, () => { selected.value = null; selOpts.value = []; load() })
+// 读取触发结构（单一批量 watcher）：
+// 项目 id / 可见性 / 宿主上下文计数 / 注入 refreshKey 四个源合并进一个 immediate 批量
+// watcher，满足迁移时直接触发读取。Vue 的批量调度已合并同一批次内的多次变化，不另设
+// nextTick 读队列——unowned 队列回调不受组件 effect scope 约束，卸载后仍会发出迟到的
+// GET（F2：排起的激活读在卸载后发请求）。
+// - contextVersion 前进（宿主对项目/页签每次变化逐次计数，prop 层坍缩掉同批次中间态）：
+//   视为一次上下文迁移，先递增 readTicket 使在途读取失效；
+// - 项目/可见性的净变化（独立挂载或真实顺序变化）同样失效在途读取；
+// - 可见时的迁移失效本项目字典缓存并立即重读；隐藏的消费者推迟（不排队）；
+// - refreshKey（全局刷新广播 / 写后广播）仅触发可见重读，不推进迁移票据；
+// - 项目净变化时清空选中/选项（同批次 A→B→A 的最终值等于初始值，不重置选中）。
+let readTriggerPrimed = false
+let lastSeenContextVersion = 0
+watch(
+  [() => props.projectId, () => props.active, () => props.contextVersion, refreshKey],
+  ([pid, active, version], [prevPid, prevActive, prevVersion, prevRefreshKey]) => {
+    if (!readTriggerPrimed) {
+      readTriggerPrimed = true
+      lastSeenContextVersion = version
+      if (active) load({ reportReadFailure: true })
+      return
+    }
+    let transitioned = false
+    if (version !== prevVersion || version !== lastSeenContextVersion) {
+      // 宿主计数前进：含坍缩批次在内的上下文迁移，先失效在途读取
+      readTicket += 1
+      lastSeenContextVersion = version
+      transitioned = true
+    }
+    if (pid !== prevPid || active !== prevActive) {
+      // 净变化（独立挂载或真实顺序变化）同样失效在途读取
+      readTicket += 1
+      transitioned = true
+    }
+    const refreshRequested = refreshKey.value !== prevRefreshKey
+    if (!props.active) return
+    if (transitioned) api.invalidateCache(`/api/projects/${props.projectId}/codelists`)
+    if (transitioned || refreshRequested) load({ reportReadFailure: true })
+  },
+  { immediate: true },
+)
+watch(() => props.projectId, () => { selected.value = null; selOpts.value = [] })
 watch(() => selected.value?.id, () => { selOpts.value = []; nextTick(() => initOptionsSortable()) })
-watch(refreshKey, load)
 
 // 字典名称列宽持久化
 const codelistNameColWidth = ref(parseInt(localStorage.getItem('crf_codelistNameColWidth')) || 120)

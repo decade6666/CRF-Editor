@@ -328,14 +328,18 @@ function syncSelectionAfterFormsRefresh() {
 // 求值，但发起更早的调用方必须显式传入捕获值；每个 await 之后重查，上下文一变即静默放弃
 // UI 应用（已提交的业务写入不回滚，原项目缓存照常失效）。此外候选重读若落后于本页已被
 // 其他自己的写入推进的快照（写入链可达），一律不安装——宁可放弃候选也不回退快照。
+// CL-2：codelistAddPolicy（仅字典快捷新增回调启用）把候选读失败原样上抛、把外部间隙提示
+// 延迟为 foreign 标记交给调用方统一收口，返回 { adopted, foreign }；默认路径保持原有
+// toast+null 行为，单位快增/整表复制等其他调用方不受影响。
 async function adoptOwnTransition(
   transition,
-  { formId = selectedForm.value?.id ?? null, selectionSession = formSelectionSession, isCurrent = () => true } = {},
+  { formId = selectedForm.value?.id ?? null, selectionSession = formSelectionSession, isCurrent = () => true, codelistAddPolicy = false } = {},
 ) {
   const projectId = props.projectId;
-  if (!isCurrent() || !transition?.revision) return null;
-  if (designerHardBusy()) return null;
-  if (!recordOwnTransition(ownDesignChain, projectId, transition)) return null;
+  const policyResult = (adopted, foreign = false) => (codelistAddPolicy ? { adopted, foreign } : adopted);
+  if (!isCurrent() || !transition?.revision) return policyResult(null);
+  if (designerHardBusy()) return policyResult(null);
+  if (!recordOwnTransition(ownDesignChain, projectId, transition)) return policyResult(null);
   const authGeneration = getApiSessionGeneration();
   const operationCurrent = () =>
     !designerDisposed &&
@@ -348,8 +352,8 @@ async function adoptOwnTransition(
   const previousRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
   if (!provenOwnCandidate(ownDesignChain, { fromRevision: previousRevision, candidateRevision: transition.revision })) {
     // 旧宿主标签与本页写入链不连通：存在未知的外部间隙，如实报告（保守审阅）。
-    ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
-    return null;
+    if (!codelistAddPolicy) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+    return policyResult(null, true);
   }
   try {
     const snapshot = await readProjectDesign(projectId, {
@@ -358,15 +362,16 @@ async function adoptOwnTransition(
       cached: false,
       isCurrent: operationCurrent,
     });
-    if (!operationCurrent()) return null;
+    if (!operationCurrent()) return policyResult(null);
     if (snapshot.revision !== transition.revision) {
       // 只有「重读停在了别的标签」才是外部插队；自己的更新写入抢先（写入链可达）或上下文
       // 切换一律静默放弃，不误报“检测到其他最新修改”。
       const currentRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
       if (!currentRevision || !ownDesignChain.reaches(snapshot.revision, currentRevision)) {
-        ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+        if (!codelistAddPolicy) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+        return policyResult(null, true);
       }
-      return null;
+      return policyResult(null);
     }
     const currentRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
     // 过期候选不得回退已被自己更新写入推进的快照（写入链从候选可达当前快照 = 已被超越）。
@@ -375,7 +380,7 @@ async function adoptOwnTransition(
       currentRevision !== snapshot.revision &&
       !ownDesignChain.reaches(currentRevision, snapshot.revision)
     ) {
-      return null;
+      return policyResult(null);
     }
     // 字段与表单列表可能停在不同标签；一个投影的证明不能给另一个旧投影换标签。
     const followsOwnChain = (previous) =>
@@ -388,8 +393,9 @@ async function adoptOwnTransition(
     if (advancesFields) fieldsDesignSnapshot = cloneDesignState(snapshot);
     if (advancesForms) formsDesignSnapshot.value = cloneDesignState(snapshot);
     if (advancesFields || advancesForms) designSession.acceptLoaded(snapshot);
-    return snapshot;
+    return policyResult(snapshot);
   } catch (error) {
+    if (codelistAddPolicy) throw error;
     if (!isDesignCancellation(error)) ElMessage.error(`刷新最新设计失败：${error.message}`);
     return null;
   }
@@ -3761,16 +3767,39 @@ async function afterCodelistDialogChange(kind, { codelist, transition, isCurrent
       designerEditGeneration === editorGeneration &&
       getApiSessionGeneration() === authGeneration;
     // F1：字典快捷新增被服务器证明后优先沿过渡边推进快照；未证明时保留旧画布，仅刷新字典下拉。
-    const adopted = await adoptOwnTransition(transition, { formId, selectionSession, isCurrent: operationCurrent });
-    if (!operationCurrent()) return;
-    if (adopted?.data.codelists) {
-      codelists.value = adopted.data.codelists;
-    } else {
-      await loadCodelists(projectId, operationCurrent);
+    // CL-2：候选读失败原样上抛（共享弹窗统一「已创建但刷新失败」终态）；设计器编辑会话/
+    // 项目/鉴权离开一律返回 cancelled 静默收尾；只有读取成功且新字典确实在已验证列表里
+    // 才回绑；外部间隙提示延迟到回退读成功后再报，读取失败/字典不可见时弃用。
+    let outcome = { adopted: null, foreign: false };
+    try {
+      outcome = await adoptOwnTransition(transition, {
+        formId,
+        selectionSession,
+        isCurrent: operationCurrent,
+        codelistAddPolicy: true,
+      });
+    } catch (error) {
+      if (!operationCurrent()) return { status: 'cancelled' };
+      throw error;
     }
-    if (!operationCurrent()) return;
+    if (!operationCurrent()) return { status: 'cancelled' };
+    if (outcome.adopted?.data.codelists) {
+      codelists.value = outcome.adopted.data.codelists;
+      if (!codelists.value.some((item) => item.id === codelist.id)) return { status: 'not-visible' };
+    } else {
+      const pendingForeignNotice = outcome.foreign;
+      try {
+        await loadCodelists(projectId, operationCurrent);
+      } catch (error) {
+        if (!operationCurrent()) return { status: 'cancelled' };
+        throw error;
+      }
+      if (!operationCurrent()) return { status: 'cancelled' };
+      if (!codelists.value.some((item) => item.id === codelist.id)) return { status: 'not-visible' };
+      if (pendingForeignNotice) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+    }
     editProp.codelist_id = codelist.id;
-    return;
+    return { status: 'refreshed' };
   }
   await loadCodelists();
   if (selectedForm.value) {

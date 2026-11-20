@@ -49,19 +49,22 @@ test('quick edit opens the shared dialog hydrated from the selected codelist', (
 test('codelist writes refresh host data and bump the global refreshKey via afterChange', () => {
   // 缓存失效（codelists + field-definitions）统一前移到共享弹窗内（挂载测试断言两键）；
   // 宿主保留与历史 reloadAfterCodelistChange 相同的 load + refreshKey 联动刷新。
-  // F1：add 分支改走过渡连续性（adoptAddTransition）；非 add 分支保留 load + refreshKey 序列。
+  // F1：add 分支改走过渡连续性（adoptAddTransition，deferNotices 仅快捷新增回调启用）；
+  // 非 add 分支保留 load + refreshKey 序列。
   assert.match(
     source,
-    /async function afterCodelistDialogChange\(kind, \{ codelist, transition, isCurrent = \(\) => true \} = \{\}\) \{[\s\S]*?await adoptAddTransition\(transition, \{ isCurrent: isOperationCurrent \}\)[\s\S]*?await load\(\)[\s\S]*?refreshKey\.value\+\+/,
+    /async function afterCodelistDialogChange\(kind, \{ codelist, transition, isCurrent = \(\) => true \} = \{\}\) \{[\s\S]*?await adoptAddTransition\(transition, \{ isCurrent: isOperationCurrent, deferNotices: true \}\)[\s\S]*?await load\(\)[\s\S]*?refreshKey\.value\+\+/,
   )
 })
 
 test('FieldsTab load guards late responses against project, auth and operation changes', () => {
   const loadSource = source.slice(source.indexOf('async function load('), source.indexOf('async function reloadFields('))
-  assert.match(loadSource, /async function load\(\{ isCurrent = \(\) => true \} = \{\}\)/)
+  // CL-2：throwOnReadError 仅快捷新增回退使用；常规装载失败语义不变（提示并按失败返回 false）。
+  assert.match(loadSource, /async function load\(\{ isCurrent = \(\) => true, throwOnReadError = false \} = \{\}\)/)
   assert.match(loadSource, /!disposed\s*&&\s*isCurrent\(\)\s*&&\s*props\.projectId === pid\s*&&\s*generation === loadGeneration\s*&&\s*getApiSessionGeneration\(\) === authGeneration/)
   assert.match(loadSource, /\{ isCurrent: operationCurrent \}/)
-  assert.match(loadSource, /if \(!operationCurrent\(\)\) return;\s*fields\.value = snapshot\.data\[0\]/)
+  assert.match(loadSource, /if \(!operationCurrent\(\)\) return false;\s*fields\.value = snapshot\.data\[0\]/)
+  assert.match(loadSource, /if \(throwOnReadError\) throw error;/)
 })
 
 test('quick edit failure refresh flow moved to the shared dialog', () => {

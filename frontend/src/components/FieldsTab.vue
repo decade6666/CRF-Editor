@@ -86,8 +86,10 @@ watch(() => editProp.field_type, (newType) => {
   Object.assign(editProp, syncFieldTypeSpecificProps(editProp, newType, DATE_FORMAT_OPTIONS, DEFAULT_DATE_FORMATS))
 })
 
-async function load({ isCurrent = () => true } = {}) {
+async function load({ isCurrent = () => true, throwOnReadError = false } = {}) {
   // 回退加载也继承原操作的弹窗/编辑会话，不能在 await 后安装已过期的数据。
+  // throwOnReadError 仅由快捷新增回调使用：读取失败原样上抛给共享弹窗统一给出
+  // 「已创建但刷新失败」终态；常规装载保持原有提示并按失败返回 false。
   const pid = props.projectId;
   const authGeneration = getApiSessionGeneration();
   const generation = ++loadGeneration;
@@ -102,7 +104,7 @@ async function load({ isCurrent = () => true } = {}) {
       [`/api/projects/${pid}/field-definitions`, `/api/projects/${pid}/codelists`, `/api/projects/${pid}/units`],
       { isCurrent: operationCurrent },
     );
-    if (!operationCurrent()) return;
+    if (!operationCurrent()) return false;
     fields.value = snapshot.data[0];
     codelists.value = snapshot.data[1];
     units.value = snapshot.data[2];
@@ -117,8 +119,11 @@ async function load({ isCurrent = () => true } = {}) {
       },
     });
     designSession.acceptLoaded(loadedDesign);
+    return true;
   } catch (error) {
+    if (throwOnReadError) throw error;
     if (!isDesignCancellation(error)) ElMessage.error(`字段库加载失败：${error.message}`);
+    return false;
   }
 }
 async function reloadFields() {
@@ -327,11 +332,20 @@ function openQuickEditCodelist() {
 // 已确认的后标签、且旧标签沿本页写入链可达时才安装候选；否则保留旧列表/快照/输入，
 // 下一次受保护写入照常审阅。失败不回滚已提交的业务写入，也不再触发全局刷新信号。
 const SAVED_BUT_FOREIGN_MESSAGE = '已保存，但检测到其他最新修改；当前列表未刷新，保存前请先核对';
-async function adoptAddTransition(transition, { isCurrent = () => true } = {}) {
-  if (!isCurrent()) return;
+// CL-2：返回 { installed, foreign } 供快捷新增回调判定回绑与终态反馈；deferNotices（仅该
+// 回调启用）把外部间隙提示延迟到回退读成功后再报，读取失败原样上抛（弹窗统一终态），
+// 非延迟模式保持原有「提示后返回」行为。
+async function adoptAddTransition(transition, { isCurrent = () => true, deferNotices = false } = {}) {
+  if (!isCurrent()) return { installed: false, foreign: false };
   const pid = props.projectId;
-  if (!transition?.revision) return load({ isCurrent });
-  if (!recordOwnTransition(ownDesignChain, pid, transition)) return load({ isCurrent });
+  if (!transition?.revision) {
+    const installed = await load({ isCurrent, throwOnReadError: deferNotices });
+    return { installed, foreign: false };
+  }
+  if (!recordOwnTransition(ownDesignChain, pid, transition)) {
+    const installed = await load({ isCurrent, throwOnReadError: deferNotices });
+    return { installed, foreign: false };
+  }
   const generation = ++loadGeneration;
   try {
     const snapshot = await readCoherentDesign(
@@ -340,7 +354,9 @@ async function adoptAddTransition(transition, { isCurrent = () => true } = {}) {
         isCurrent: () => isCurrent() && props.projectId === pid && generation === loadGeneration,
       },
     );
-    if (!isCurrent() || props.projectId !== pid || generation !== loadGeneration) return;
+    if (!isCurrent() || props.projectId !== pid || generation !== loadGeneration) {
+      return { installed: false, foreign: false };
+    }
     if (
       snapshot.revision !== transition.revision ||
       !provenOwnCandidate(ownDesignChain, {
@@ -348,8 +364,8 @@ async function adoptAddTransition(transition, { isCurrent = () => true } = {}) {
         candidateRevision: snapshot.revision,
       })
     ) {
-      ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
-      return;
+      if (!deferNotices) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+      return { installed: false, foreign: true };
     }
     fields.value = snapshot.data[0];
     codelists.value = snapshot.data[1];
@@ -365,8 +381,11 @@ async function adoptAddTransition(transition, { isCurrent = () => true } = {}) {
       },
     });
     designSession.acceptLoaded(loadedDesign);
+    return { installed: true, foreign: false };
   } catch (error) {
+    if (deferNotices) throw error;
     if (!isDesignCancellation(error)) ElMessage.error(`字段库加载失败：${error.message}`);
+    return { installed: false, foreign: false };
   }
 }
 
@@ -380,6 +399,9 @@ async function afterCodelistDialogChange(kind, { codelist, transition, isCurrent
   if (kind === 'add') {
     // R2：发起时（字典弹窗打开时）的编辑会话 + 回调起点的项目/鉴权/卸载状态。候选一致读
     // 与回退下拉读分别守卫；回退数据先落地局部变量，全部检查通过后才赋值。
+    // CL-2：候选/回退读失败原样上抛（共享弹窗统一「已创建但刷新失败」终态）；宿主编辑
+    // 会话/项目/鉴权离开一律返回 cancelled 静默收尾；只有读取成功且新字典确实在已验证
+    // 列表里才回绑；外部间隙提示延迟到回退读成功后再报，读取失败/字典不可见时弃用。
     const pid = props.projectId;
     const generation = codelistDialogEditGeneration ?? editGeneration;
     const authGeneration = getApiSessionGeneration();
@@ -389,20 +411,35 @@ async function afterCodelistDialogChange(kind, { codelist, transition, isCurrent
       props.projectId === pid &&
       editGeneration === generation &&
       getApiSessionGeneration() === authGeneration;
-    await adoptAddTransition(transition, { isCurrent: isOperationCurrent });
-    if (!isOperationCurrent()) return;
-    if (transition?.revision && loadedDesign?.revision !== transition.revision) {
-      api.invalidateCache(`/api/projects/${pid}/codelists`);
-      const freshCodelists = await api.cachedGet(`/api/projects/${pid}/codelists`);
-      if (!isOperationCurrent()) return;
-      codelists.value = freshCodelists;
+    let adoption = { installed: false, foreign: false };
+    try {
+      adoption = await adoptAddTransition(transition, { isCurrent: isOperationCurrent, deferNotices: true });
+    } catch (error) {
+      if (!isOperationCurrent()) return { status: 'cancelled' };
+      throw error;
     }
-    if (!isOperationCurrent()) return;
+    if (!isOperationCurrent()) return { status: 'cancelled' };
+    if (!adoption.installed) {
+      const pendingForeignNotice = adoption.foreign;
+      try {
+        api.invalidateCache(`/api/projects/${pid}/codelists`);
+        const freshCodelists = await api.cachedGet(`/api/projects/${pid}/codelists`);
+        if (!isOperationCurrent()) return { status: 'cancelled' };
+        codelists.value = freshCodelists;
+      } catch (error) {
+        if (!isOperationCurrent()) return { status: 'cancelled' };
+        throw error;
+      }
+      if (!codelists.value.some((item) => item.id === codelist.id)) return { status: 'not-visible' };
+      if (pendingForeignNotice) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+    } else if (!codelists.value.some((item) => item.id === codelist.id)) {
+      return { status: 'not-visible' };
+    }
     editProp.codelist_id = codelist.id;
-  } else {
-    await load();
-    refreshKey.value++;
+    return { status: 'refreshed' };
   }
+  await load();
+  refreshKey.value++;
 }
 </script>
 

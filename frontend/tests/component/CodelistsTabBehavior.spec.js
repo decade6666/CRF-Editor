@@ -2,10 +2,12 @@
 // 批量删除分组确认、模糊搜索过滤、序号快捷改序与 refreshKey 同步。
 // 外部边界：api 对象（cachedGet/get/post/put/del/invalidateCache）、ElMessageBox、sortablejs。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
-import { nextTick, ref } from 'vue';
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
+import { defineComponent, nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import CodelistsTab from '../../src/components/CodelistsTab.vue';
+import FieldsTab from '../../src/components/FieldsTab.vue';
+import { stageDesignServer } from './designServerFixture.js';
 import { api } from '../../src/composables/useApi.js';
 import { OID_ERROR } from '../../src/composables/oidValidation.js';
 
@@ -663,5 +665,535 @@ describe('CodelistsTab · 边界与持久化补充', () => {
     expect(wrapper.findAll('.el-table__row').length).toBe(1);
     expect(wrapper.text()).toContain('是否');
     expect(wrapper.text()).not.toContain('C.1');
+  });
+});
+
+describe('CodelistsTab · 编辑守卫补充（OID / 校验 / 失败反馈 / 选项改序）', () => {
+  async function openEditCodelist(wrapper) {
+    await rowByAction(wrapper, '编辑').find('button[aria-label="编辑"]').trigger('click');
+    await flushPromises();
+    return dialogByTitle(wrapper, '编辑字典');
+  }
+
+  async function openEditOption(wrapper) {
+    await selectCodelistRow(wrapper, 0);
+    const optionRow = wrapper.findAll('.el-table__row').find((row) => row.text().includes('男'));
+    await optionRow.find('button[aria-label="编辑"]').trigger('click');
+    await flushPromises();
+    return dialogByTitle(wrapper, '编辑选项');
+  }
+
+  function confirmButton(dialog) {
+    return dialog.findAll('button').find((b) => b.text() === '确定');
+  }
+
+  it('编辑字典 OID 非法时提示且不提交', async () => {
+    const { wrapper } = await mountCodelists();
+    const dialog = await openEditCodelist(wrapper);
+    const oidInput = dialog
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text() === 'OID')
+      .get('input');
+    await oidInput.setValue('cl_sex#');
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+
+    expect(ElMessage.warning).toHaveBeenCalledWith(OID_ERROR);
+    expect(api.put).not.toHaveBeenCalled();
+    expect(dialog.props('modelValue')).toBe(true);
+  });
+
+  it('编辑选项编码或标签缺失时逐项提示且不提交', async () => {
+    const { wrapper } = await mountCodelists();
+    const dialog = await openEditOption(wrapper);
+    const codeInput = dialog
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text() === 'OID')
+      .get('input');
+    const decodeInput = dialog
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text() === '标签')
+      .get('input');
+
+    await codeInput.setValue(' ');
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+    expect(ElMessage.warning).toHaveBeenCalledWith('请输入编码值');
+
+    await codeInput.setValue('C.1');
+    await decodeInput.setValue(' ');
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+    expect(ElMessage.warning).toHaveBeenCalledWith('请输入标签');
+    expect(api.put).not.toHaveBeenCalled();
+    expect(dialog.props('modelValue')).toBe(true);
+  });
+
+  it('编辑选项有引用时先影响提醒再 PUT', async () => {
+    const { wrapper } = await mountCodelists();
+    api.get.mockImplementation((url) =>
+      url === `/api/projects/${PROJECT_ID}/codelists/11/references`
+        ? Promise.resolve([{ form_name: '表单甲', form_code: 'F1', field_label: '性别', field_var: 'SEX' }])
+        : Promise.resolve([]),
+    );
+    const confirmSpy = confirmResolved();
+    const dialog = await openEditOption(wrapper);
+
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+
+    expect(confirmSpy.mock.calls[0][0]).toContain('修改将影响以下字段');
+    expect(api.put).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/codelists/11/options/111`, {
+      code: 'C.1',
+      decode: '男',
+    });
+    expect(dialog.props('modelValue')).toBe(false);
+  });
+
+  it('编辑选项保存失败时提示错误且弹窗保留', async () => {
+    const { wrapper } = await mountCodelists();
+    api.put.mockRejectedValueOnce(new Error('并发冲突'));
+    const dialog = await openEditOption(wrapper);
+
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+
+    expect(ElMessage.error).toHaveBeenCalledWith('并发冲突');
+    expect(dialog.props('modelValue')).toBe(true);
+  });
+
+  it('删除选项请求失败时提示错误且不误删本地', async () => {
+    const { wrapper } = await mountCodelists();
+    api.del.mockRejectedValueOnce(new Error('删除冲突'));
+    confirmResolved();
+    await selectCodelistRow(wrapper, 0);
+
+    const optionRow = wrapper.findAll('.el-table__row').find((row) => row.text().includes('男'));
+    await optionRow.find('button[aria-label="删除"]').trigger('click');
+    await flushPromises();
+    await nextTick();
+
+    expect(api.del).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/codelists/11/options/111`);
+    expect(ElMessage.error).toHaveBeenCalledWith('删除冲突');
+    expect(wrapper.text()).toContain('男');
+  });
+
+  it('新增选项提交失败时提示错误且弹窗保留', async () => {
+    const { wrapper } = await mountCodelists();
+    api.post.mockRejectedValueOnce(new Error('写入冲突'));
+    await selectCodelistRow(wrapper, 0);
+
+    const dialog = await openDialog(wrapper, '新增选项', '新增选项');
+    await fillFormItem(dialog, '标签', '未知');
+    await confirmButton(dialog).trigger('click');
+    await flushPromises();
+
+    expect(ElMessage.error).toHaveBeenCalledWith('写入冲突');
+    expect(dialog.props('modelValue')).toBe(true);
+  });
+
+  it('选项序号快捷改序提交重排请求并保持选中字典', async () => {
+    const { wrapper, refreshKey } = await mountCodelists();
+    await selectCodelistRow(wrapper, 0);
+
+    const optionTable = wrapper.findAll('.el-table').at(-1);
+    const firstOptionRow = optionTable.findAll('.el-table__row')[0];
+    await firstOptionRow.find('.ordinal-cell').trigger('dblclick');
+    await flushPromises();
+
+    const ordinalInput = optionTable.findAll('.el-table__row')[0].find('.el-input-number input');
+    expect(ordinalInput.exists()).toBe(true);
+    await ordinalInput.setValue('2');
+    await ordinalInput.trigger('keyup.enter');
+    await flushPromises();
+
+    expect(api.post).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/codelists/11/options/reorder`, [112, 111]);
+    expect(refreshKey.value).toBe(1);
+    expect(wrapper.text()).toContain('性别');
+    expect(wrapper.text()).not.toContain('← 点击行查看选项');
+  });
+});
+
+// ── CL-1：选项页签宿主可见性转发 + 本地重激活刷新 ──────────────────────────────
+// App 懒加载宿主保留已激活的 CodelistsTab；离开选项页再回来时组件不会重新挂载，
+// 需要由宿主转发的 active 可见性触发一次本地重读（而不是全局 refreshKey 广播）。
+describe('CodelistsTab · 重激活刷新（active 可见性）', () => {
+  async function mountWithActive({ active = true, holdInitialRead = false } = {}) {
+    vi.spyOn(api, 'cachedGet').mockImplementation(() => Promise.resolve(cloneCodelists()));
+    vi.spyOn(api, 'get').mockResolvedValue([]);
+    vi.spyOn(api, 'post').mockResolvedValue({ deleted: 1 });
+    vi.spyOn(api, 'put').mockResolvedValue({});
+    vi.spyOn(api, 'del').mockResolvedValue(undefined);
+    vi.spyOn(api, 'invalidateCache').mockImplementation(() => {});
+    let releaseInitialRead = null;
+    if (holdInitialRead) {
+      // 挂载前的初始读取被扣住：用于同批次 ABA/隐藏往返的原始 A 迟读见证
+      api.cachedGet.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseInitialRead = resolve;
+          }),
+      );
+    }
+    const refreshKey = ref(0);
+    const wrapper = mount(CodelistsTab, {
+      props: { projectId: PROJECT_ID, active },
+      global: { provide: { refreshKey, editMode: ref(true) } },
+    });
+    await flushPromises();
+    await nextTick();
+    return { wrapper, refreshKey, releaseInitialRead };
+  }
+
+  function codelistReads() {
+    return api.cachedGet.mock.calls.filter(([url]) => url === `/api/projects/${PROJECT_ID}/codelists`);
+  }
+
+  it('初始激活只装载一次数据', async () => {
+    await mountWithActive();
+    expect(codelistReads()).toHaveLength(1);
+  });
+
+  it('隐藏时不读取；重新可见时仅失效本项目字典缓存并读取一次', async () => {
+    const { wrapper } = await mountWithActive();
+    await wrapper.setProps({ active: false });
+    await flushPromises();
+    expect(codelistReads()).toHaveLength(1);
+
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+
+    expect(codelistReads()).toHaveLength(2);
+    expect(api.invalidateCache).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/codelists`);
+  });
+
+  it('隐藏期间 refreshKey 变化推迟到重新可见后合并为一次读取', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    await wrapper.setProps({ active: false });
+    await flushPromises();
+    refreshKey.value += 1;
+    await flushPromises();
+    expect(codelistReads(), '隐藏的消费者不得发起读取').toHaveLength(1);
+
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+
+    expect(codelistReads(), '重新可见后合并为一次读取').toHaveLength(2);
+  });
+
+  it('项目变化与 refreshKey 同批变化时合并为一次读取', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    const before = api.cachedGet.mock.calls.length;
+    refreshKey.value += 1;
+    await wrapper.setProps({ projectId: 2 });
+    await flushPromises();
+
+    expect(api.cachedGet.mock.calls.length).toBe(before + 1);
+    expect(api.cachedGet).toHaveBeenCalledWith('/api/projects/2/codelists');
+  });
+
+  it('重新可见后保留仍存在的当前选中字典', async () => {
+    const { wrapper } = await mountWithActive();
+    await selectCodelistRow(wrapper, 0);
+    expect(wrapper.findAll('.el-table__row').length).toBe(4);
+
+    await wrapper.setProps({ active: false });
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    await nextTick();
+
+    // 选中字典仍在结果里：右侧选项面板保持，不自动改选其他字典
+    expect(wrapper.findAll('.el-table__row').length).toBe(4);
+    expect(wrapper.text()).toContain('男');
+    expect(wrapper.text()).toContain('女');
+  });
+
+  it('当前读取失败时保留旧列表并只报告一次刷新失败', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    api.cachedGet.mockRejectedValueOnce(new Error('网络断开'));
+
+    refreshKey.value += 1;
+    await flushPromises();
+    await nextTick();
+
+    expect(ElMessage.error).toHaveBeenCalledTimes(1);
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('字典列表刷新失败'));
+    expect(wrapper.findAll('.el-table__row').length).toBe(2);
+    expect(wrapper.text()).toContain('性别');
+  });
+
+  it('项目 A→B→A：迟到的 B 项目读取不得覆盖当前 A 项目列表', async () => {
+    const { wrapper } = await mountWithActive();
+    let releaseHeldRead;
+    api.cachedGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseHeldRead = resolve;
+        }),
+    );
+
+    await wrapper.setProps({ projectId: 2 });
+    await flushPromises();
+    await wrapper.setProps({ projectId: 1 });
+    await flushPromises();
+    releaseHeldRead([{ id: 99, name: 'B项目旧字典', options: [] }]);
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).not.toContain('B项目旧字典');
+    expect(wrapper.text()).toContain('性别');
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
+  // 同一调度批次内的 A→B→A / 隐藏→显示：prop 层把同批次中间态坍缩成最终值（projectId /
+  // active 看起来没变），子组件只能凭宿主单调递增的 contextVersion 计数得知发生了上下文
+  // 迁移：先失效在途读取，再合并为一次新鲜读取；迟到的旧读取结果一律不得发布。
+  it('同批次项目 A→B→A：初始读取被拒，合并为一次新鲜读取', async () => {
+    const { wrapper, releaseInitialRead } = await mountWithActive({ holdInitialRead: true });
+    const readsAtChange = codelistReads().length;
+
+    // App 在同批次内对项目变化逐次计数（0→1→2），prop 层坍缩后子组件只看到最终值
+    // projectId=1 + contextVersion=2；计数前进即视为一次上下文迁移。
+    await wrapper.setProps({ projectId: PROJECT_ID, contextVersion: 2 });
+    await flushPromises();
+
+    expect(codelistReads().length, '同批次变化合并为一次新鲜读取').toBe(readsAtChange + 1);
+    releaseInitialRead([{ id: 99, name: '旧A迟读行', options: [] }]);
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text(), '失效的初始读取不得发布').not.toContain('旧A迟读行');
+    expect(wrapper.findAll('.el-table__row').length, '新鲜读取发布完整列表').toBe(2);
+    expect(wrapper.text()).toContain('性别');
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
+  it('同批次隐藏再显示：在途读取被拒，合并为一次新鲜读取', async () => {
+    const { wrapper, releaseInitialRead } = await mountWithActive({ holdInitialRead: true });
+    const readsAtChange = codelistReads().length;
+
+    // active 的最终值与初始值相同（true），仅 contextVersion 前进见证隐藏→重显示迁移
+    await wrapper.setProps({ active: true, contextVersion: 2 });
+    await flushPromises();
+
+    expect(codelistReads().length, '同批次往返合并为一次新鲜读取').toBe(readsAtChange + 1);
+    releaseInitialRead(cloneCodelists().concat([{ id: 77, name: '同批次迟读字典', options: [] }]));
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text(), '失效的在途读取不得发布').not.toContain('同批次迟读字典');
+    expect(wrapper.text()).toContain('性别');
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
+  it('同批次返回初始值后的新鲜读取失败：保留旧列表只报一次，迟到的成功读取不发布', async () => {
+    const { wrapper, releaseInitialRead } = await mountWithActive({ holdInitialRead: true });
+    api.cachedGet.mockRejectedValueOnce(new Error('合并读取失败'));
+
+    await wrapper.setProps({ projectId: PROJECT_ID, contextVersion: 2 });
+    await flushPromises();
+
+    expect(ElMessage.error).toHaveBeenCalledTimes(1);
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('字典列表刷新失败'));
+    // 初始读取仍被扣住、合并读取失败：旧列表从未发布，保持 0 行
+    expect(wrapper.findAll('.el-table__row').length).toBe(0);
+
+    releaseInitialRead(cloneCodelists());
+    await flushPromises();
+    await nextTick();
+
+    expect(ElMessage.error, '失效读取的成功结果不发布也不追加反馈').toHaveBeenCalledTimes(1);
+    expect(wrapper.findAll('.el-table__row').length, '迟到的成功读取不得发布').toBe(0);
+  });
+
+  // F2：读取触发不得依赖组件 effect scope 之外的排队（unowned nextTick 回调在卸载后
+  // 仍会发出迟到的 GET）；单一批量 immediate watcher 的回调由组件 scope 持有，卸载即停。
+  it('挂载后同步卸载：初始读取不得在卸载后才发出', async () => {
+    vi.spyOn(api, 'cachedGet').mockImplementation(() => Promise.resolve(cloneCodelists()));
+    vi.spyOn(api, 'get').mockResolvedValue([]);
+    vi.spyOn(api, 'post').mockResolvedValue({ deleted: 1 });
+    vi.spyOn(api, 'put').mockResolvedValue({});
+    vi.spyOn(api, 'del').mockResolvedValue(undefined);
+    vi.spyOn(api, 'invalidateCache').mockImplementation(() => {});
+    const wrapper = mount(CodelistsTab, {
+      props: { projectId: PROJECT_ID, active: true },
+      global: { provide: { refreshKey: ref(0), editMode: ref(true) } },
+    });
+    const readsAtMount = codelistReads().length;
+    wrapper.unmount();
+    const readsAtUnmount = codelistReads().length;
+    await flushPromises();
+    await nextTick();
+    expect(codelistReads().length, '卸载后不得再发出初始 GET').toBe(readsAtUnmount);
+    expect(readsAtUnmount, '同步卸载前未发出的初始读取不得在卸载后补发').toBe(readsAtMount);
+  });
+
+  it('刷新广播后同步卸载：排起的重读不得在卸载后发出', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    expect(codelistReads()).toHaveLength(1);
+
+    refreshKey.value += 1;
+    wrapper.unmount();
+    await flushPromises();
+    await nextTick();
+
+    expect(codelistReads().length, '卸载后不得再发出刷新重读 GET').toBe(1);
+  });
+
+  it('鉴权会话变化后迟到的读取结果不再发布也不报错', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    let releaseHeldRead;
+    api.cachedGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseHeldRead = resolve;
+        }),
+    );
+
+    refreshKey.value += 1;
+    await flushPromises();
+    localStorage.setItem('crf_token', 'session-changed-late-token');
+    releaseHeldRead(cloneCodelists().concat([{ id: 77, name: '迟到字典', options: [] }]));
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).not.toContain('迟到字典');
+    expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('性别');
+  });
+
+  it('卸载后迟到的失败读取不产生任何反馈', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    let rejectHeldRead;
+    api.cachedGet.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectHeldRead = reject;
+        }),
+    );
+
+    refreshKey.value += 1;
+    await flushPromises();
+    wrapper.unmount();
+    rejectHeldRead(new Error('卸载后读取失败'));
+    await flushPromises();
+
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
+  it('隐藏后迟到的成功读取不得发布，重新可见时重读最新数据', async () => {
+    const { wrapper, refreshKey } = await mountWithActive();
+    let releaseHeldRead;
+    api.cachedGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseHeldRead = resolve;
+        }),
+    );
+    refreshKey.value += 1;
+    await flushPromises();
+    await wrapper.setProps({ active: false });
+    releaseHeldRead(cloneCodelists().concat([{ id: 77, name: '隐藏期迟到字典', options: [] }]));
+    await flushPromises();
+
+    api.cachedGet.mockImplementation(() =>
+      Promise.resolve(cloneCodelists().concat([{ id: 78, name: '重激活新字典', options: [] }])),
+    );
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).not.toContain('隐藏期迟到字典');
+    expect(wrapper.text()).toContain('重激活新字典');
+    expect(ElMessage.error).not.toHaveBeenCalled();
+  });
+
+  // 真实生产者+消费者见证：同一宿主内真实 FieldsTab（共享弹窗快捷新增字典）+ 真实
+  // CodelistsTab。离开选项页 → 字段库快捷新增 → 返回选项页：新字典出现在已挂载的
+  // 消费者列表里，选中字典与字段输入保留，全程零 refreshKey 广播、恰好一次 POST。
+  it('选项→字段快捷新增→选项：返回后新字典出现在已挂载消费者且选中与输入保留', async () => {
+    const server = stageDesignServer();
+    server.state.codelists.push({
+      id: 11,
+      project_id: 1,
+      name: '性别',
+      code: 'CL_SEX',
+      description: '性别字典',
+      order_index: 1,
+      options: [
+        { id: 111, codelist_id: 11, code: 'C.1', decode: '男', order_index: 1 },
+        { id: 112, codelist_id: 11, code: 'C.2', decode: '女', order_index: 2 },
+      ],
+    });
+    const refreshKey = ref(0);
+    const Host = defineComponent({
+      components: { CodelistsTab, FieldsTab },
+      setup() {
+        return { codelistsActive: ref(true) };
+      },
+      template: `
+        <div>
+          <CodelistsTab :project-id="1" :active="codelistsActive" />
+          <FieldsTab :project-id="1" />
+        </div>
+      `,
+    });
+    const wrapper = mount(Host, {
+      global: { provide: { refreshKey, editMode: ref(true), projectDbType: ref('其他') } },
+    });
+    await flushPromises();
+    await nextTick();
+
+    const codelistsHost = wrapper.findComponent(CodelistsTab);
+    const row = codelistsHost.findAll('.el-table__row')[0];
+    await row.trigger('click');
+    await flushPromises();
+    await nextTick();
+    expect(codelistsHost.text()).toContain('男');
+
+    // 离开选项页（仅隐藏，不卸载）
+    wrapper.vm.codelistsActive = false;
+    await flushPromises();
+
+    // 字段库：选中字段、填标签、选单选类型
+    const fieldsHost = wrapper.findComponent(FieldsTab);
+    await fieldsHost.findAll('.el-table__row')[0].trigger('click');
+    await flushPromises();
+    await nextTick();
+    const editor = fieldsHost.get('.el-form');
+    const labelItem = editor.findAll('.el-form-item').find((node) => node.find('.el-form-item__label').text() === '标签');
+    await labelItem.get('input').setValue('保留的字段输入');
+    const typeItem = editor.findAll('.el-form-item').find((node) => node.find('.el-form-item__label').text() === '字段类型');
+    await typeItem.get('.el-select__wrapper').trigger('click');
+    await flushPromises();
+    const option = new DOMWrapper(document.body).findAll('.el-select-dropdown__item').find((node) => node.text() === '单选');
+    await option.trigger('click');
+    await flushPromises();
+
+    // 快捷新增字典（真实共享弹窗，恰好一次 POST）
+    await fieldsHost.get('[aria-label="新增字典"]').trigger('click');
+    await flushPromises();
+    const dialog = wrapper.findAll('.el-dialog').find((node) => node.text().includes('新增选项'));
+    expect(dialog, '应有新增字典弹窗').toBeTruthy();
+    await dialog.findAll('.el-form-item')[0].get('input').setValue('快速字典');
+    await dialog.findAll('button').find((node) => node.text().trim() === '确定').trigger('click');
+    await flushPromises();
+
+    // 返回选项页：消费端本地重读
+    wrapper.vm.codelistsActive = true;
+    await flushPromises();
+    await nextTick();
+
+    expect(codelistsHost.text(), '返回选项页后新字典出现在已挂载消费者').toContain('快速字典');
+    expect(codelistsHost.text(), '原选中字典的选项面板保留').toContain('男');
+    expect(
+      editor.findAll('.el-form-item').find((node) => node.find('.el-form-item__label').text() === '标签').get('input')
+        .element.value,
+      '字段编辑输入保留',
+    ).toBe('保留的字段输入');
+    expect(server.writes(), '恰好一次 POST 且已提交').toEqual([expect.objectContaining({ method: 'POST', accepted: true })]);
+    expect(refreshKey.value, '全程零全局 refreshKey 广播').toBe(0);
+    expect(ElMessage.error, '无刷新失败误报').not.toHaveBeenCalled();
+    api.clearAllCache();
   });
 });

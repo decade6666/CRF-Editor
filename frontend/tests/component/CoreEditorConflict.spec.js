@@ -6,6 +6,7 @@ import FieldsTab from '../../src/components/FieldsTab.vue';
 import FormDesignerTab from '../../src/components/FormDesignerTab.vue';
 import VisitFormPreviewDialog from '../../src/components/VisitFormPreviewDialog.vue';
 import { stageDesignServer } from './designServerFixture.js';
+import { api } from '../../src/composables/useApi.js';
 
 vi.mock('sortablejs', () => ({ default: { create: () => ({ destroy() {}, option() {} }) } }));
 const settle = async () => { await flushPromises(); await nextTick(); await flushPromises(); };
@@ -1100,6 +1101,127 @@ describe('F1：仅失效写入的过渡证据让本页后续写入不再误报�
     expect(acceptedWrites(server)).toEqual([true, true]);
     expect(confirm).not.toHaveBeenCalled();
     expect(server.state.definitions.find((definition) => definition.id === 201).codelist_id).toBe(server.state.codelists[0].id);
+  });
+});
+
+// ── CL-2：设计器快捷新增字典的「已提交 ≠ 刷新失败」分离 ─────────────────────
+// adoptOwnTransition 此前把候选读失败吞成 toast 后返回 null，随后字典下拉回退再把失败抛进
+// 共享弹窗的公共 catch，使已提交的创建看起来像创建失败且弹窗可再次提交。现在候选/回退读
+// 失败由 codelist-add 专用策略上抛，弹窗统一给出唯一终态警告；只有读取成功且新字典确实在
+// 已验证列表里才回绑。
+describe('CL-2：设计器快捷新增字典的已提交/刷新失败分离', () => {
+  const COMMITTED_REFRESH_FAILED_MESSAGE = '字典已创建，但列表刷新失败，请刷新后核对，勿重复新增。';
+  const COMMITTED_NOT_VISIBLE_MESSAGE = '字典已创建，但当前列表尚未显示新字典，请刷新后核对，勿重复新增。';
+  const SAVED_BUT_FOREIGN_MESSAGE = '操作已保存，但检测到其他最新修改；保存前请先核对最新内容';
+
+  async function mountDesignerWithChoice() {
+    const { wrapper, server } = await mountEditor();
+    server.useTransitionMetadata(true);
+    await selectFirstField(wrapper);
+    const item = wrapper
+      .get('[data-test="designer-field-property-form"]')
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text().trim() === '字段类型');
+    await item.get('.el-select__wrapper').trigger('click');
+    await settle();
+    const option = body().findAll('.el-select-dropdown__item').find((node) => node.text() === '单选');
+    expect(option, '下拉应出现选项「单选」').toBeTruthy();
+    await option.trigger('click');
+    await settle();
+    return { wrapper, server };
+  }
+
+  function designerEditCodelistButton(wrapper) {
+    const item = wrapper
+      .get('[data-test="designer-field-property-form"]')
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text().trim() === '字段选项');
+    expect(item, '单选字段应有选项编辑器').toBeTruthy();
+    return item.findAll('button').find((node) => node.attributes()['aria-label'] === '编辑字典');
+  }
+
+  async function submitQuickAdd(wrapper, name = '快速字典') {
+    await wrapper.get('[aria-label="新增字典"]').trigger('click');
+    await settle();
+    const dialog = wrapper.findAll('.el-dialog').find((node) => node.text().includes('新增选项'));
+    expect(dialog, '应有新增字典弹窗').toBeTruthy();
+    await dialog.findAll('.el-form-item')[0].get('input').setValue(name);
+    await dialog.findAll('button').find((node) => node.text().trim() === '确定').trigger('click');
+    await settle();
+  }
+
+  it('候选一致读失败：弹窗唯一终态警告，设计器不再吞成「刷新最新设计失败」也不误绑', async () => {
+    const { wrapper, server } = await mountDesignerWithChoice();
+    server.onAccepted(() => server.failReads());
+
+    await submitQuickAdd(wrapper);
+
+    expect(acceptedWrites(server)).toEqual([true]);
+    expect(server.state.codelists, '业务写入已提交').toHaveLength(1);
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1);
+    expect(ElMessage.warning).toHaveBeenCalledWith(COMMITTED_REFRESH_FAILED_MESSAGE);
+    expect(ElMessage.error, '候选读失败由弹窗统一反馈，设计器不再重复报错').not.toHaveBeenCalled();
+    expect(designerEditCodelistButton(wrapper).attributes('disabled'), '未验证的新字典不得回绑').toBeDefined();
+  });
+
+  it('外部间隙后的字典下拉回退读失败：弃用外部间隙提示，唯一终态警告且不误绑', async () => {
+    const { wrapper, server } = await mountDesignerWithChoice();
+    server.onAccepted(() => server.remote((state) => { state.definitions[0].label = '外部字段标签'; }));
+    vi.spyOn(api, 'cachedGet').mockRejectedValueOnce(new Error('下拉刷新失败'));
+
+    await submitQuickAdd(wrapper);
+
+    expect(acceptedWrites(server)).toEqual([true]);
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1);
+    expect(ElMessage.warning, '外部间隙提示被弃用').toHaveBeenCalledWith(COMMITTED_REFRESH_FAILED_MESSAGE);
+    expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(designerEditCodelistButton(wrapper).attributes('disabled')).toBeDefined();
+  });
+
+  it('回退读成功但新字典不在列表：唯一「尚未显示」警告且不误绑', async () => {
+    const { wrapper, server } = await mountDesignerWithChoice();
+    server.onAccepted(() => server.remote((state) => { state.codelists = []; }));
+
+    await submitQuickAdd(wrapper);
+
+    expect(acceptedWrites(server)).toEqual([true]);
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1);
+    expect(ElMessage.warning).toHaveBeenCalledWith(COMMITTED_NOT_VISIBLE_MESSAGE);
+    expect(ElMessage.error).not.toHaveBeenCalled();
+    expect(designerEditCodelistButton(wrapper).attributes('disabled')).toBeDefined();
+  });
+
+  it('对照：外部间隙但回退读成功且字典可见 → 保留保守间隙提示并正常回绑', async () => {
+    const { wrapper, server } = await mountDesignerWithChoice();
+    server.onAccepted(() => server.remote((state) => { state.definitions[0].label = '外部字段标签'; }));
+
+    await submitQuickAdd(wrapper);
+
+    expect(acceptedWrites(server)).toEqual([true]);
+    expect(ElMessage.warning).toHaveBeenCalledWith(SAVED_BUT_FOREIGN_MESSAGE);
+    expect(designerEditCodelistButton(wrapper).attributes('disabled'), '已验证可见的新字典照常回绑').toBeUndefined();
+    const optionSelect = wrapper
+      .get('[data-test="designer-field-property-form"]')
+      .findAll('.el-form-item')
+      .find((node) => node.find('.el-form-item__label').text().trim() === '字段选项')
+      .get('.el-select__wrapper');
+    expect(optionSelect.text(), '回绑后选项编辑器显示新字典').toContain('快速字典');
+  });
+
+  it('对照：刷新期间换选其他字段 → 设计器静默取消，不回绑新字段编辑器', async () => {
+    const { wrapper, server } = await mountDesignerWithChoice();
+    let releases = null;
+    server.onAccepted(() => { releases = server.holdReads(5); });
+
+    await submitQuickAdd(wrapper);
+    expect(releases, '候选读应被扣住').toBeTruthy();
+    await wrapper.findAll('.ff-item')[1].trigger('click');
+    await settle();
+    releases.forEach((release) => release());
+    await settle();
+
+    expect(ElMessage.warning).not.toHaveBeenCalled();
+    expect(ElMessage.error).not.toHaveBeenCalled();
   });
 });
 
