@@ -2,9 +2,18 @@ import { vi } from 'vitest';
 import { api } from '../../src/composables/useApi.js';
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
-export function stageDesignServer() {
+// 今天的后端里三个“仅失效”写入本就不要求 If-Match：字典/单位快捷新增无任何设计标签，
+// 整表复制仅携带提交后标签。transitionMetadata=true 模拟 F1 之后的新后端：三者随成功
+// 响应一体发布 前标签+后标签。门禁先如实放行这三条，再谈模式，避免 RED 证明出假 409。
+const INVALIDATION_ONLY_ROUTES = new Set([
+  'POST /api/projects/1/codelists',
+  'POST /api/projects/1/units',
+]);
+const FORM_COPY_URL = /^\/api\/forms\/(\d+)\/copy$/;
+export function stageDesignServer({ transitionMetadata: initialTransitionMetadata = false } = {}) {
   let sequence = 1;
   let incarnation = 'a'.repeat(32);
+  let transitionMetadata = initialTransitionMetadata;
   const state = {
     forms: [{ id: 7, project_id: 1, name: '知情同意', code: 'ICF', domain: 'dM',
       design_notes: '旧备注', order_index: 1, paper_orientation: 'landscape', annotation_positions: null }],
@@ -16,12 +25,18 @@ export function stageDesignServer() {
       order_index: id, required: 0, is_log_row: 0, inline_mark: 0,
       label_override: null, help_text: null, default_value: null, bg_color: null, text_color: null,
       label_bold: 1, label_font_size: null })),
+    codelists: [],
+    units: [],
   };
   const calls = [];
   let rejectReads = false;
   let incoherent = false;
   let writeGate = null;
   let afterAccept = null;
+  // 读响应扣住（R2 迟到响应语义）：响应体在请求到达时立即生成（真实服务器语义），
+  // 交付被推迟到显式 release —— 用于复现「重读先于后续写入到达服务器、却晚于其处理返回」的乱序。
+  const readGates = [];
+  let readHoldAfterNextWrite = 0;
   const revision = () => `"crf-design-v1:p1:${incarnation}:r${sequence}"`;
   const remote = (apply = () => {}) => { apply(state); sequence++; };
   const fieldResponse = (field) => ({ ...field,
@@ -39,9 +54,16 @@ export function stageDesignServer() {
     if (incoherent) sequence++;
     if (url.endsWith('/references')) return respond([]);
     if (url === '/api/projects/1/forms') return respond(state.forms);
-    if (url === '/api/forms/7/fields') return respond([...state.fields].sort((a, b) => a.order_index - b.order_index).map(fieldResponse));
+    const formFieldsRead = url.match(/^\/api\/forms\/(\d+)\/fields$/);
+    if (formFieldsRead) {
+      const formId = Number(formFieldsRead[1]);
+      return respond(
+        state.fields.filter((item) => item.form_id === formId).sort((a, b) => a.order_index - b.order_index).map(fieldResponse),
+      );
+    }
     if (url === '/api/projects/1/field-definitions') return respond(state.definitions);
-    if (url.endsWith('/codelists') || url.endsWith('/units')) return respond([]);
+    if (url === '/api/projects/1/codelists') return respond(state.codelists);
+    if (url === '/api/projects/1/units') return respond(state.units);
     throw new Error(`未脚本化读取 ${url}`);
   }
   function mutate(url, method, body) {
@@ -60,7 +82,14 @@ export function stageDesignServer() {
       }
       if (body.instance.mode === 'delete') {
         state.fields.splice(index, 1);
-        return respond({ form_field: null, form_field_id: null, final_definition_id: field.field_definition_id, definition_created: false, cleanup: null });
+        const cleanupId = body.cleanup_definition_id;
+        let cleanup = null;
+        if (cleanupId != null) {
+          const stillReferenced = state.fields.some((item) => item.field_definition_id === cleanupId);
+          cleanup = stillReferenced ? { deleted: false, retained_in_use: true } : { deleted: true, retained_in_use: false };
+          if (!stillReferenced) state.definitions = state.definitions.filter((item) => item.id !== cleanupId);
+        }
+        return respond({ form_field: null, form_field_id: null, final_definition_id: field.field_definition_id, definition_created: false, cleanup });
       }
       if (body.binding?.mode === 'existing') field.field_definition_id = body.binding.target_field_definition_id;
       Object.assign(field, body.instance.upsert);
@@ -125,20 +154,74 @@ export function stageDesignServer() {
       state.forms.push(row);
       return respond(row, 201);
     }
+    if (url === '/api/projects/1/codelists' && method === 'POST') {
+      const row = { id: 500 + sequence, project_id: 1, name: body.name,
+        code: body.code || `CL${sequence}`, description: body.description ?? null, order_index: 1,
+        options: (body.options || []).map((opt, index) => ({ id: 5000 + sequence * 10 + index,
+          codelist_id: 500 + sequence, code: opt.code, decode: opt.decode, order_index: index + 1 })) };
+      state.codelists.push(row);
+      return respond(row, 201);
+    }
+    if (url === '/api/projects/1/units' && method === 'POST') {
+      const row = { id: 600 + sequence, project_id: 1, symbol: body.symbol,
+        code: body.code || `UNIT${sequence}`, order_index: 1 };
+      state.units.push(row);
+      return respond(row, 201);
+    }
+    const formCopy = url.match(FORM_COPY_URL);
+    if (formCopy && method === 'POST') {
+      const source = state.forms.find((form) => form.id === Number(formCopy[1]));
+      if (!source) return respond({ detail: '表单不存在' }, 404, null);
+      const newFormId = 70 + sequence;
+      const row = { ...source, id: newFormId, name: `${source.name}_copy`, code: `FORMCP${sequence}`,
+        order_index: state.forms.length + 1 };
+      state.forms.push(row);
+      // 整表复制：实例连同展示属性一起复制，定义按引用共享（与后端 copy_form 一致）。
+      for (const field of state.fields.filter((item) => item.form_id === source.id)) {
+        state.fields.push({ ...copy(field), id: field.id + 10000, form_id: newFormId });
+      }
+      return respond(row, 201);
+    }
     throw new Error(`未脚本化写入 ${method} ${url}`);
   }
   api.clearAllCache();
+  const readHoldAfterWriteReleasers = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options = {}) => {
     const method = options.method || 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
     const call = { url, method, body, revision: options.headers?.['If-Match'], accepted: false };
     calls.push(call);
-    if (method === 'GET') return read(url);
+    if (method === 'GET') {
+      const response = read(url);
+      if (readGates.length) {
+        const gate = readGates.shift();
+        await gate;
+      }
+      return response;
+    }
     if (writeGate) await writeGate;
-    if (call.revision !== revision()) return respond({ detail: '设计已更新，请核对', code: 'STALE_STATE' }, 409, null);
+    const beforeTag = revision();
+    const isFormCopy = method === 'POST' && FORM_COPY_URL.test(url);
+    const invalidationOnly = INVALIDATION_ONLY_ROUTES.has(`${method} ${url}`) || isFormCopy;
+    if (!invalidationOnly && call.revision !== beforeTag) return respond({ detail: '设计已更新，请核对', code: 'STALE_STATE' }, 409, null);
     call.accepted = true;
     sequence++;
     const response = mutate(url, method, body);
+    if (invalidationOnly) {
+      if (transitionMetadata) {
+        response.headers.set('X-CRF-Design-Before-Revision', transitionMetadata === 'malformed' ? 'malformed' : beforeTag);
+      } else if (!isFormCopy) {
+        response.headers.delete('X-CRF-Design-Revision');
+      }
+    }
+    if (readHoldAfterNextWrite > 0) {
+      for (let i = 0; i < readHoldAfterNextWrite; i += 1) {
+        let release;
+        readGates.push(new Promise((resolve) => { release = resolve; }));
+        readHoldAfterWriteReleasers.push(release);
+      }
+      readHoldAfterNextWrite = 0;
+    }
     afterAccept?.(call);
     return response;
   });
@@ -148,10 +231,30 @@ export function stageDesignServer() {
     failReads: (value = true) => { rejectReads = value; },
     inconsistentReads: (value = true) => { incoherent = value; },
     onAccepted: (callback) => { afterAccept = callback; },
+    useTransitionMetadata: (value = true) => { transitionMetadata = value; },
     holdWrites: () => {
       let release;
       writeGate = new Promise((resolve) => { release = resolve; });
       return () => { writeGate = null; release(); };
+    },
+    // 按请求顺序扣住接下来 count 个读响应；返回按 FIFO 对应的 releaser 数组。
+    holdReads: (count = 1) => {
+      const releasers = [];
+      for (let i = 0; i < count; i += 1) {
+        let release;
+        readGates.push(new Promise((resolve) => { release = resolve; }));
+        releasers.push(release);
+      }
+      return releasers;
+    },
+    // 在下一次写入被接受之后，再扣住 count 个读响应（用于只扣住「写入后的一致重读」，
+    // 不影响该写入审阅路径自己的 readLatest）。返回统一放行函数。
+    holdReadsAfterNextWrite: (count = 2) => {
+      readHoldAfterNextWrite = count;
+      readHoldAfterWriteReleasers.length = 0;
+      return () => {
+        for (const release of readHoldAfterWriteReleasers.splice(0)) release();
+      };
     },
   };
 }

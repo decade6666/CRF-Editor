@@ -1428,3 +1428,103 @@ OID 大写功能已由用户在8888验收；独立记录测试宿主时钟回拨
 - 网络恢复后重试 `git -C /home/decade/CRF-Editor -c http.version=HTTP/1.1 push origin main`，并查询远端main提交号确认；当前不能报告已同步。
 - 后续另行审阅并授权11-16-edit-conflict-followups的技术方案后再启动；本次不实施遗留项。
 - 生产服务、真实配置/数据库/上传文件和8888均禁止触碰；跳过生产构建、重启及上线验证。
+
+
+## Session 39: 冲突保护遗留任务提交归档与问题转移
+<!-- trellis-session: v=2 fp=c0d654b93750335d -->
+
+**Date**: 2026-11-19
+**Task**: 冲突保护遗留任务提交归档与问题转移
+**Branch**: `docs/edit-conflict-followups-plan`
+
+### Summary
+
+按用户确认完成五批工作提交并归档11-16-edit-conflict-followups。归档是行政收尾：AC2-COPY/RELOAD限定功能通过，原总体AC2仍未勾选，原B2/2及执行偏离保留。新待办11-19-codelist-followups仍planning/未启动。本次不合并、不推送、不部署或删除工作区/分支。
+
+### Main Changes
+
+- 旧任务已移动至.trellis/tasks/archive/2026-11/11-16-edit-conflict-followups/，status=completed，completedAt=2026-11-19；归档提交b394fc5在工作提交之后，未混入产品代码。
+- 产品/测试215a744、文档及已批准日志归档ff0d9c0、契约5eca89a、旧任务记录8b559fc均在docs/edit-conflict-followups-plan；新待办记录68cf1e3在独立docs/codelist-followups-plan。
+- CL-1字典跨应用页签刷新和CL-2创建成功后的刷新失败反馈转入新待办；单位弹窗收尾LOW明确延期。新分支基于旧main，未来先核对并集成已接受基线，当前不实施。
+- 保留既有签名密钥新生成、额外持久记忆写入自报及排障/证据偏离，不追认、不读取私有值、不自动回滚/轮换/清理。旧操作日志19995字符及已批准归档不变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `215a744` | fix(editor): 修复本页修订连续性与重载复制竞态并补齐回归 |
+| `ff0d9c0` | docs(editor): 同步冲突保护说明与已批准的操作日志归档 |
+| `5eca89a` | docs(spec): 同步修订连续性与测试环境契约 |
+| `8b559fc` | chore(task): 保留冲突保护验收证据与遗留转移记录 |
+| `68cf1e3` | chore(task): 记录字典刷新反馈问题与延期单位弹窗项 |
+
+### Testing
+
+- [OK] 本次运行：task.py validate在归档前后均通过（各3条implement/check上下文）；大文件自动注入截断警告保留，不等于已完整自动读取。
+- [OK] 本次运行：逐批精确暂存清单、git diff --cached --check和正常pre-commit通过；Gitleaks暂存区扫描无泄漏，三份暂存Python文件语法检查通过；条件ruff格式检查因PATH未发现ruff而跳过，未安装或绕过门禁。
+- [OK] 本次运行：48项已接受源码/10项保护文件及最终清洁构建指纹核对通过；产品/测试保持冻结。前端1117node+923component、Core94、同64路径两模式覆盖四项>=80%且不下降及先前浏览器/后端证据均为已保存结果，本次未重跑代码测试/构建/浏览器。
+- [NOT RUN] Bandit（缺工具）、新全量后端覆盖率/ruff、adapter stdio E2E和前端独立typecheck；没有新增依赖、配置、runner、凭据或生产8888访问。
+- [FAILED COMMAND / VERIFIED OUTCOME] journal首次git add对忽略父目录返回1，但已部分暂存两份目标文件；外层命令链缺少失败短路，仍继续并产生9fd50ef。事后核对该提交恰含journal-1.md/index.md，无越界文件；后续仅以git add -u暂存这两份已跟踪文件，不重复生成会话、不扩大目录、不绕过提交门禁。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- main未合并/推送；保留两工作区/分支和78个排除的覆盖率生成文件，后续合并、推送、删除或部署分别等待明确授权。
+- 如继续新待办，先核对215a744等已接受提交，补齐详细方案和审批后再start；本次没有启动新任务。
+
+
+## Session 40: 字典快捷新增刷新与会话保护验收收尾
+<!-- trellis-session: v=2 fp=76f35adf93c94b42 -->
+
+**Date**: 2026-11-20
+**Task**: 字典快捷新增刷新与会话保护验收收尾
+**Branch**: `docs/codelist-followups-plan`
+
+### Summary
+
+完成CL-1和双宿主CL-2的限定验收及本地提交归档，保留独立复审、15个浏览器场景证据和全部未闭合事项；未合并main、推送、部署或清理资源。
+
+### Main Changes
+
+### 本任务交付与授权
+
+- CL-1：选项页保留挂载后，字段库快捷新增再返回时只局部重读，保留选择、未保存输入和其他编辑器历史；没有恢复新增时的全局刷新广播。
+- CL-2：字段库与设计器均区分真实POST失败、创建已提交后读失败、成功读却不含新id及取消/离开；只绑定当前已验证结果，无自动重试。S1保护同目标编辑重开期间的旧种子，S2在首次等待前冻结描述，S3仅修正具名组件测试的局部API模拟。
+- 用户明确要求“提交然后收尾”，并正式确认四批提交：产品95ca293、规范/任务记录7076d2e、当前任务归档、journal。归档使用现有--no-commit后独立中文提交；未修改脚本/配置，不添加归属尾注。
+- 任务已归档至 `.trellis/tasks/archive/2026-11/11-19-codelist-followups/`，status=completed、completedAt=2026-11-20，活动任务指针清空。仅当前任务归档，其他8个规划任务不动。
+- 原阻断修复计数2/2不重置，S1/S2/S3为三次单独批准的补充；按请求派发sonnet实施及fable只读复审，实际解析模型/usage/cost未暴露。A独立检查实际差异与真实命令结果，复审最终PASS，不将早先FAIL或B自报抹去。
+
+### 验证证据及边界
+
+- 此前A真实22道门禁通过：extended268、lifecycle23、node gate112；npm test为1117个node测试+981个组件测试；默认及单进程覆盖率各981通过。相同64源码路径的8次精确比例比较均不下降且四项≥80%：S7627/8639、B5715/7028、F2235/2488、L6554/7140。构建通过；lint0错误/2826警告；后端定向design104、Agent176通过。
+- 隔离现有Windows Chrome/新资料目录/固定外置playwright-core1.65.1，真实临时后端及新数据库/随机普通用户；15个真实浏览器场景通过，关键截图已查看，含双宿主终态、引用读/快照保存挂起时同目标关闭重开、真实撤销条目和字段库草稿保留。未输出凭据或访问真实数据库/生产8888。
+- 浏览器报告22的累计读数统计口径错误另存勘误：返回选项时已断言1次GET；全流程累计4次含之后3次辅助读取。原报告与脚本保留，不重复已成功产品写入来覆盖结果。定位/空名称注入/视口错误与中间失败均保留，不伪称全程首次通过。
+- 收尾阶段没有重跑产品测试/构建/浏览器写入；提交前后15个产品文件与78份覆盖率报告哈希不变，先前42输入/78报告/250证据冻结审计通过。四批按确认计划限制显式路径，不纳入frontend/coverage/或临时资源；已完成提交的实际门禁执行密钥扫描及空白检查。没有暂存Python文件；ruff不在PATH，格式门禁按原规则跳过，未安装或绕过。
+- 第二批首次git diff --cached --check因pre-review历史档案EOF空行失败，停止后正式取得“规范化文件末尾”许可。仅移除7个末尾LF字节，正文未变；原始字节仍保留在closeout备份，原/规范化SHA256和逐字比较在archive-normalization.json。未使用--no-verify或修改规则。
+- 明确NOT RUN：后端全量/覆盖率、adapter stdio E2E、Bandit、独立前端typecheck，以及真实浏览器项目/鉴权ABA/卸载排列、跨目标旧数据覆盖的真实复现、实际Undo回放、跨浏览器/穷尽布局/全程console录制。既有19项依赖告警（12High/6Moderate/1Low）、编译/后端测试警告仍未修复。
+
+### 未闭合事项与资源
+
+- 既有跨目标编辑的旧列表/完整快照数据覆盖风险、内部取消反馈不匹配、非阻断测试见证薄弱和README提示概述仍保留，未自动修复或新建任务；UNIT-DEFERRED继续延期。
+- 本次收尾授权只包含任务分支提交、归档和journal；main未合并、未推送、未部署。工作树/分支、外置依赖、新浏览器资料、临时数据库和进程不清理；只读检查不等于当前登录会话/进程健康的新验收。
+- 浏览器证据：`/tmp/crf-codelist-browser-20261120-uRTRRm/evidence/browser-acceptance.md`；自动化/复审备份：`/tmp/crf-codelist-followups-premerge-6cKvAjvk/`；本次提交/归档备份及字节审计：`/tmp/crf-codelist-closeout-fVtlafH5/`。均保留，不读私有状态文件。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `95ca293` | fix(codelist): 修复快捷新增刷新与弹窗会话收尾 |
+| `7076d2e` | docs(task): 记录字典跟进契约与验收证据 |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 主分支仍未合并；本地合并、推送、部署及资源清理均需分别授权。
+- 跨目标编辑旧数据风险、非阻断反馈/测试缺口及UNIT-DEFERRED继续保留，未自动修复或新建任务。

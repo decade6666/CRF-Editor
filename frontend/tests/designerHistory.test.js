@@ -408,7 +408,7 @@ test('field membership mutations invalidate caches before stale returns and only
   )
   assert.match(
     functionBody('batchDelete'),
-    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`, \{ ids \}, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
+    /await protectedApi\.post\(\s*`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`,\s*\{ ids \},\s*\{[\s\S]*?\},?\s*\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;/,
   )
   assert.match(
     functionBody('saveDraftField'),
@@ -420,7 +420,7 @@ test('field membership mutations invalidate caches before stale returns and only
   )
   assert.match(
     functionBody('persistFieldReorder'),
-    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`, \{ ordered_ids: nextOrder \}, \{[\s\S]*?\}\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;/,
+    /await protectedApi\.post\(\s*`\/api\/forms\/\$\{formId\}\/fields\/reorder`,\s*\{ ordered_ids: nextOrder \},\s*\{[\s\S]*?\},?\s*\);[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{formId\}\/fields`\);[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;/,
   )
 })
 
@@ -456,12 +456,12 @@ test('stale async completions cannot mutate current designer field state or focu
   )
   assert.match(
     functionBody('batchDelete'),
-    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?selectedIds\.value =/,
+    /await protectedApi\.post\(\s*`\/api\/forms\/\$\{formId\}\/fields\/batch-delete`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return;[\s\S]*?selectedIds\.value =/,
   )
   const reorderBody = functionBody('persistFieldReorder')
   assert.match(
     reorderBody,
-    /await protectedApi\.post\(`\/api\/forms\/\$\{formId\}\/fields\/reorder`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;[\s\S]*?recordReorderHistory\(historyContext, previousOrder, nextOrder\)/,
+    /await protectedApi\.post\(\s*`\/api\/forms\/\$\{formId\}\/fields\/reorder`[\s\S]*?if \(!isCurrentDesignerHistoryContext\(historyContext\)\) return false;[\s\S]*?recordReorderHistory\(historyContext, previousOrder, nextOrder\)/,
   )
   assert.match(functionBody('commitFieldDropAtBoundary'), /await persistFieldReorder\(historyContext, previousFields,/)
   const keyboardBody = functionBody('handleFieldKeydown')

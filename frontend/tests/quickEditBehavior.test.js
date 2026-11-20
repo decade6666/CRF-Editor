@@ -272,7 +272,7 @@ test('quick edit codelist save delegates to the shared dialog and keeps host res
   // 宿主侧保留：保存与失败后的 loadCodelists、forms-fields 失效重载、干净字段回选与 refreshKey。
   assert.match(
     formDesignerSource,
-    /async function afterCodelistDialogChange\(kind, \{ codelist \}\) \{[\s\S]*?await loadCodelists\(\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)[\s\S]*?const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*?if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)[\s\S]*?refreshKey\.value\+\+/,
+    /async function afterCodelistDialogChange\(kind, \{ codelist, transition, isCurrent = \(\) => true \} = \{\}\) \{[\s\S]*?await loadCodelists\(\)[\s\S]*?api\.invalidateCache\(`\/api\/forms\/\$\{selectedForm\.value\.id\}\/fields`\)[\s\S]*?await loadFormFields\(\)[\s\S]*?const updated = formFields\.value\.find\(\(f\) => f\.id === selectedFieldId\.value\);[\s\S]*?if \(updated && !isFieldPropDirty\.value\) selectField\(updated\)[\s\S]*?refreshKey\.value\+\+/,
   )
   assert.match(formDesignerSource, /<CodelistQuickEditDialog[\s\S]*?v-model="showQuickEditCodelist"/)
 })
@@ -444,8 +444,10 @@ test('form switch only lets latest field load commit', () => {
   assert.match(formDesignerSource, /let formFieldsLoadSession = 0/)
   assert.match(formDesignerSource, /async function loadFormFields\(formId = selectedForm\.value\?\.id \?\? null\) \{[\s\S]*const sessionId = \+\+formFieldsLoadSession/)
   assert.match(formDesignerSource, /if \(!formId\) \{[\s\S]*formFields\.value = \[\][\s\S]*selectedIds\.value = \[\][\s\S]*return/)
-  assert.match(formDesignerSource, /snapshot = await readProjectDesign\(projectId, \{[\s\S]*formId, auxiliary: designerAuxiliaryLoaded\.value/)
-  assert.match(formDesignerSource, /isCurrent: \(\) => sessionId === formFieldsLoadSession && selectedForm\.value\?\.id === formId && props\.projectId === projectId/)
+  const loadStart = formDesignerSource.indexOf('async function loadFormFields(')
+  const loadSource = formDesignerSource.slice(loadStart, formDesignerSource.indexOf('\nwatch(', loadStart))
+  assert.match(loadSource, /snapshot = await readProjectDesign\(projectId, \{[\s\S]*?formId,\s*auxiliary: designerAuxiliaryLoaded\.value/)
+  assert.match(formDesignerSource, /isCurrent: \(\) =>\s*sessionId === formFieldsLoadSession && selectedForm\.value\?\.id === formId && props\.projectId === projectId/)
   assert.match(formDesignerSource, /if \(sessionId !== formFieldsLoadSession \|\| selectedForm\.value\?\.id !== formId\) return/)
   assert.match(formDesignerSource, /watch\(selectedForm,[\s\S]*form[\s\S]*=> \{[\s\S]*void loadFormFields\(form\?\.id \?\? null\)[\s\S]*\}\)/)
 })

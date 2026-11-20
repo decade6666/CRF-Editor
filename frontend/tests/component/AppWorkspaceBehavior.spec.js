@@ -53,7 +53,7 @@ vi.mock('../../src/components/FieldsTab.vue', async () => {
 });
 vi.mock('../../src/components/CodelistsTab.vue', async () => {
   const { standInModule } = await import('./appTestHarness.js');
-  return standInModule('CodelistsTab', { props: ['projectId'] });
+  return standInModule('CodelistsTab', { props: ['projectId', 'active', 'contextVersion'] });
 });
 vi.mock('../../src/components/UnitsTab.vue', async () => {
   const { standInModule } = await import('./appTestHarness.js');
@@ -554,13 +554,97 @@ describe('App 工作区页签', () => {
     await openTab(wrapper, '选项');
     await openTab(wrapper, '单位');
     await openTab(wrapper, '字段');
-    expect(standInProps(wrapper, 'CodelistsTab')).toEqual({ projectId: '5' });
+    // 走到字段页后选项页处于隐藏态：转发值如实为 false（true/false/true 往返由下方专测覆盖）；
+    // contextVersion 只在项目变化与选项页签进入/离开时递增：初始项目建立(null→5) + 进入选项
+    // + 离开选项 = 3 次（选项→单位→字段的后续互切与选项页无关，不计数）
+    expect(standInProps(wrapper, 'CodelistsTab')).toEqual({ projectId: '5', active: 'false', contextVersion: '3' });
     expect(standInProps(wrapper, 'UnitsTab')).toEqual({ projectId: '5' });
     expect(wrapper.get('[data-test="FieldsTab"] [data-inject="projectDbType"]').text()).toBe('赛美斯');
     await selectProject(wrapper, '未设类型项目');
     await openTab(wrapper, '字段');
 
     expect(wrapper.get('[data-test="FieldsTab"] [data-inject="projectDbType"]').text()).toBe('其他');
+  });
+
+  it('选项页签宿主转发 active 可见性，隐藏期间保持懒挂载不卸载', async () => {
+    localStorage.setItem('crf_edit_mode', 'true');
+    const wrapper = await mountApp();
+
+    await openTab(wrapper, '选项');
+    const activeText = () => wrapper.get('[data-test="CodelistsTab"] [data-prop="active"]').text();
+    const versionText = () => wrapper.get('[data-test="CodelistsTab"] [data-prop="contextVersion"]').text();
+    expect(activeText()).toBe('true');
+
+    await openTab(wrapper, '项目信息');
+    expect(wrapper.find('[data-test="CodelistsTab"]').exists(), '懒激活的页签保留挂载').toBe(true);
+    expect(activeText()).toBe('false');
+    const versionAfterLeave = Number(versionText());
+    expect(versionAfterLeave, '宿主对选项页签每次进入/离开逐次计数').toBeGreaterThan(0);
+
+    await openTab(wrapper, '选项');
+    expect(activeText()).toBe('true');
+    expect(Number(versionText()), 'contextVersion 随每次迁移单调递增').toBe(versionAfterLeave + 1);
+  });
+
+  // F4 生产者见证：App 在自己 reactive 源上同步计数（sync flush 对自身 ref 逐次触发），
+  // 同一批次内的中间态（prop 层坍缩掉）也各计一次；与选项页无关的互切不计数。
+  // 页签切换经 el-tabs 的异步 before-leave 守卫，同一同步批次内第二次页签点击会被
+  // currentName 相同判定丢弃——真实应用中页签 ABA 无法同批发生；项目切换（设计器未激活
+  // 时 selectProject 无 await）可在同一同步批次内 A→B→A，是该计数机制的同批次生产者见证。
+  it('同批次项目 A→B→A：宿主对每次项目变化各计一次，重开后转发累计值', async () => {
+    localStorage.setItem('crf_edit_mode', 'true');
+    const wrapper = await mountApp({
+      projects: [
+        { id: 5, name: '项目甲', version: '1.0' },
+        { id: 7, name: '项目乙', version: '1.0' },
+      ],
+    });
+    await openTab(wrapper, '选项');
+    const versionText = () => wrapper.get('[data-test="CodelistsTab"] [data-prop="contextVersion"]').text();
+    const versionBefore = Number(versionText());
+
+    await openTab(wrapper, '项目信息');
+    const versionOnInfo = Number(versionText());
+    expect(versionOnInfo, '离开选项页推进一次').toBe(versionBefore + 1);
+
+    // 设计器未激活：selectProject 无 leave 守卫 await，两次同步点击在同一批次内完成
+    // 项目 5→7→5 的三次赋值；epoch 对每次变化逐次 +1。项目切换会 reset 懒挂载集合，
+    // 选项页签卸载，重开时以累计后的 epoch 值重新挂载。
+    const projectSelect = (name) =>
+      wrapper
+        .findAll('.project-item')
+        .find((node) => node.get('.project-select-btn').text() === name)
+        .get('.project-select-btn');
+    projectSelect('项目乙').trigger('click');
+    projectSelect('项目甲').trigger('click');
+    await settle();
+
+    expect(wrapper.find('[data-test="CodelistsTab"]').exists(), '项目切换重置懒挂载集合').toBe(false);
+    await openTab(wrapper, '选项');
+    expect(wrapper.get('[data-test="CodelistsTab"] [data-prop="active"]').text()).toBe('true');
+    expect(
+      Number(wrapper.get('[data-test="CodelistsTab"] [data-prop="contextVersion"]').text()),
+      '离开(+1)后同批次 ABA 两次项目迁移各计一次(+2)，重开进入(+1)',
+    ).toBe(versionOnInfo + 3);
+    expect(wrapper.get('[data-test="CodelistsTab"] [data-prop="projectId"]').text()).toBe('5');
+  });
+
+  it('与选项页无关的页签互切不推进宿主 epoch，进入/离开各计一次', async () => {
+    localStorage.setItem('crf_edit_mode', 'true');
+    const wrapper = await mountApp();
+
+    await openTab(wrapper, '选项');
+    const versionText = () => wrapper.get('[data-test="CodelistsTab"] [data-prop="contextVersion"]').text();
+    const versionBefore = Number(versionText());
+
+    await openTab(wrapper, '项目信息');
+    expect(Number(versionText()), '离开选项页推进一次').toBe(versionBefore + 1);
+
+    await openTab(wrapper, '单位');
+    expect(Number(versionText()), '无关页签互切不推进计数').toBe(versionBefore + 1);
+
+    await openTab(wrapper, '选项');
+    expect(Number(versionText()), '重新进入选项页推进一次').toBe(versionBefore + 2);
   });
 
   it('关闭完全编辑模式时从高级页签回到项目信息', async () => {

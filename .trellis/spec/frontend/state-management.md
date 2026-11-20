@@ -287,6 +287,11 @@ watch(token, (val) => {
 - This is a cross-tab data-sync contract because multiple lazy-loaded tabs
   independently fetch their own API data via `cachedGet`, and no global store
   exists to broadcast mutations.
+- Exception: metadata-only management additions/copies follow
+  [cross-stack contracts §17](../guides/cross-stack-contracts.md#17-browser-design-revision-preconditions).
+  Do not add a global bump just to repaint a list: it must not advance an old
+  editor/history snapshot without proof. Retained CodelistsTab activation is a
+  local display read, not a write or revision-acceptance signal.
 
 ### 2. Signatures
 
@@ -308,17 +313,20 @@ refreshKey.value++
 |---|---|---|
 | `refreshKey` | `Ref<number>` | Monotonically incrementing integer; the actual value is meaningless — only the change event matters. |
 | Provider | `App.vue` | Must be the single `provide()` call; never duplicate in child components. |
-| Consumer watch | `watch(refreshKey, ...)` | Must call `load*()` functions to re-fetch API data (which may hit `cachedGet`; cache was already invalidated by `_autoInvalidate` on the write that triggered the bump). |
-| Write path | Service/Tab that mutated data | Must call `api.invalidateCache(urlPrefix)` **before** bumping `refreshKey`; otherwise consumers fetch stale cached data on their next `cachedGet`. |
+| Consumer watch | Unified or direct `refreshKey` watcher | Route active consumers through guarded `load*()` reads; the retained CodelistsTab display may defer while hidden and coalesce its next visible read. The write invalidates caches before any broadcast. |
+| Ordinary edit path | Service/Tab that mutated existing data | Invalidate affected cache entries **before** broadcasting `refreshKey`; the metadata-only exception above remains governed by §17. |
+| Retained dictionary display | `active: Boolean = true`, `contextVersion: Number = 0` | App forwards visibility plus a synchronous project/enter/leave counter. One immediate batched watcher combines them with `projectId` and `refreshKey`; invalidate/read only the current project's dictionary URL on return, retaining the selection current at installation. The counter is not an HTTP revision or write permission. |
 
 ### 4. Validation & Error Matrix
 
 | Condition | Expected Behavior |
 |---|---|
-| Tab writes codelist, does NOT bump `refreshKey` | Other tabs show stale dictionary names until user manually navigates away and back. **Bug.** |
+| Ordinary dictionary rename does NOT broadcast `refreshKey` | Other mounted tabs retain the old dictionary name. **Bug.** This rule does not require a bump for metadata-only quick-add. |
 | Tab bumps `refreshKey` but does NOT invalidate cache first | Consumers' watchers fire, but `cachedGet` returns stale data from the still-warm cache. **Bug.** |
-| Correct sequence: `invalidateCache → load (own) → refreshKey++` | Other tabs' watchers fire, `cachedGet` misses invalidated entry, fetches fresh data from network. **Correct.** |
-| `reload()` bumps `refreshKey` and also calls `load()` | Own watcher fires again → redundant `load()` call. Harmless (single extra network round-trip with warm cache); acceptable to keep code simple. |
+| Correct ordinary-edit sequence: `invalidateCache → load (own) → refreshKey++` | Other tabs' guarded watchers read fresh data; display refresh alone never authorizes stale editing buffers/history. |
+| `reload()` bumps `refreshKey` and also calls `load()` | Own watcher may read again; overlapping completions must retain the same lifetime/generation guards. Do not add another unowned deferred GET queue. |
+| Same-target dictionary edit closes/reopens with a save pending | Keep the stale seed non-submittable and preserve the ordinary committed-save host refresh/broadcast; freeze submitted payload fields before awaits. See §17 for the local ownership boundary. |
+| Return to a retained options tab after dictionary quick-add | One coalesced local read refreshes the current project; no activation/add global bump, no hidden read, no old-context publication or post-disposal GET. Current read failure reports a list-refresh error. |
 
 ### 5. Good / Base / Bad Cases
 
@@ -336,8 +344,30 @@ refreshKey.value++
 
 - `frontend/tests/` must verify that `CodelistsTab` exposes a watchable
   `refreshKey` (injected from `App.vue`).
-- Source-level assertion: after `updateCl` resolves, `refreshKey.value`
-  has incremented by at least 1.
+- Source-level assertion: ordinary dictionary-edit paths still broadcast after
+  refreshing their own data; dictionary quick-add must not restore that bump.
+- `CodelistsTabBehavior.spec.js`: real quick-add producer plus retained display,
+  selection retention, combined triggers and stale/auth/disposal guards.
+- `AppWorkspaceBehavior.spec.js`: real App visibility/context forwarding and
+  same-batch project ABA (A → B → A); tab entry/exit counting is verified per hop,
+  not as a same-batch tab witness. Component mounts are not browser acceptance.
+
+### 7. Wrong vs Correct
+
+**Wrong**: force `refreshKey++` or remount every editor after dictionary quick-add
+merely to show a new dictionary; a cache invalidation alone also cannot replace
+an already-mounted component's local list.
+
+**Correct**: keep the §17 add outcome/authority contract and forward the retained
+list's local lifetime from App; the consumer performs its own guarded display read:
+
+```vue
+<CodelistsTab
+  :project-id="selectedProject.id"
+  :active="activeTab === 'codelists'"
+  :context-version="codelistContextVersion"
+/>
+```
 
 ---
 

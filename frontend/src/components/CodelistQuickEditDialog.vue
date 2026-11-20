@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onScopeDispose } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { api, truncRefs } from '../composables/useApi';
+import { api, getApiSessionGeneration, truncRefs } from '../composables/useApi';
 import { countDistinctForms } from '../composables/fieldReferenceImpact';
 import { confirmDelete } from '../composables/projectDeleteConfirmation';
 
@@ -56,18 +56,38 @@ const PENDING_OPTION_TITLE = '未添加选项';
 const PENDING_OPTION_MESSAGE = '有一项标签尚未点击“添加”，是否添加并保存？';
 // dialogSession 每次打开递增：提醒未决期间弹窗关闭重开或切换目标后，迟到的决定一律失效；
 // pendingReminderActive 独立于 saving——若复用 saving，confirmAdd/confirmSave 的在途守卫会直接 no-op。
+// lastClosedSession 记录最近一次真实关闭（@close）时的会话：会话被替换但弹窗从未关闭（项目/
+// 目标在途切换）属于同一弹窗实例，旧操作仍可静默收尾；关闭后重开则是新弹窗，旧收尾必须完全静默。
 let dialogSession = 0;
+let lastClosedSession = 0;
 let pendingReminderActive = false;
+// S1：编辑快照保存的在途登记（「项目:字典」目标键）。真实宿主用独立固定 edit 实例：保存
+// 在途时关闭并以同目标重开，重开会话会播种宿主旧行（陈旧种子）；快照 PUT 整份替换名称/
+// 描述/标签并删除未包含的选项，陈旧种子的再次提交会回退已提交数据。在途登记使该重开会话
+// 保持提交忙锁定；旧保存完成仍触发宿主刷新/广播，并收尾关闭这个陈旧种子弹窗。
+const pendingEditSaves = new Set();
+const editSaveKey = (projectId, codelistId) => `${projectId}:${codelistId}`;
 
 // 打开时按模式初始化（原 FieldsTab openQuickAddCodelist / openQuickEditCodelist 的
 // 状态播种序列迁入此处）：add 清空并以 C.1 起始；edit 按 codelistId 从 codelists 回填。
 // immediate 兼容「挂载时 modelValue 已为 true」的懒挂载用法。
+// 重开即全新会话：释放上一轮的提交忙状态，迟到的旧收尾不得锁住新会话的按钮；唯一例外是
+// 同目标编辑保存在途（S1）——此时重开播种的是陈旧种子，保持提交忙锁定直到在途保存收尾。
 watch(
   () => [props.modelValue, props.mode, props.codelistId],
   ([visible]) => {
-    if (!visible) return;
+    if (!visible) {
+      // 关闭即记为「本会话弹窗已真实关闭」：此后的重开属于新弹窗实例（模型值先于过渡
+      // 事件变化，@close 在过渡后触发会漏记/晚记，happy-dom 下甚至不触发）。
+      lastClosedSession = dialogSession;
+      return;
+    }
     resetForm();
     dialogSession += 1;
+    saving.value =
+      props.mode === 'edit' &&
+      props.codelistId != null &&
+      pendingEditSaves.has(editSaveKey(props.projectId, props.codelistId));
     if (props.mode === 'add') {
       optCode.value = 'C.1';
       return;
@@ -153,11 +173,35 @@ function isOperationStale(opProjectId, opCodelistId) {
   return props.projectId !== opProjectId || (props.mode === 'edit' && props.codelistId !== opCodelistId);
 }
 
+// R2：一次新增固定其发起时的项目/弹窗会话/鉴权会话与卸载状态；POST 之后、宿主 afterChange
+// 之后各重查一次。弹窗已被关闭重开（dialogSession 变化）或宿主已卸载时，迟到响应不再触发
+// 宿主 afterChange、不再关闭新弹窗、不再弹成功提示；只失效原项目缓存（写入已提交不回滚）。
+let disposed = false;
+onScopeDispose(() => {
+  disposed = true;
+});
+
+// CL-2：已提交创建 ≠ 刷新失败。POST 成功即记录 committedSession：之后的宿主刷新/读取
+// 失败不再是「创建失败」，原会话弹窗一次性终态（关闭 + 唯一如实警告），关闭传播期间
+// 重复确认也不会对同一会话发起第二次 POST；重开是全新会话，不是自动重试。
+const COMMITTED_REFRESH_FAILED_MESSAGE = '字典已创建，但列表刷新失败，请刷新后核对，勿重复新增。';
+const COMMITTED_NOT_VISIBLE_MESSAGE = '字典已创建，但当前列表尚未显示新字典，请刷新后核对，勿重复新增。';
+let committedSession = null;
+
 async function confirmAdd() {
   if (saving.value) return;
+  if (committedSession === dialogSession) return;
   const draft = validateForm();
   if (!draft) return;
   const opProjectId = props.projectId;
+  const opSession = dialogSession;
+  const opAuthSession = getApiSessionGeneration();
+  const operationCurrent = () =>
+    !disposed &&
+    props.modelValue === true &&
+    props.projectId === opProjectId &&
+    dialogSession === opSession &&
+    getApiSessionGeneration() === opAuthSession;
   saving.value = true;
   try {
     if (props.normalizeDraftBeforeSubmit) {
@@ -165,7 +209,8 @@ async function confirmAdd() {
       formName.value = draft.savedName;
       opts.value = draft.normalizedOptions.map((o) => ({ id: o.id, code: o.code, decode: o.decode }));
     }
-    const created = await api.post(`/api/projects/${opProjectId}/codelists`, {
+    // F1 过渡写入：响应体与服务器证明的前后标签一体返回；旧服务端缺失标签只是无链边。
+    const created = await api.postWithTransitionMetadata(`/api/projects/${opProjectId}/codelists`, {
       name: draft.savedName,
       description: formDescription.value,
       options: draft.normalizedOptions.map((opt, index) => ({
@@ -174,16 +219,57 @@ async function confirmAdd() {
         order_index: index + 1,
       })),
     });
+    // 仅仍归属本会话的操作才记录提交标记：迟到的旧会话成功不得接管新会话的提交状态，
+    // 否则新会话的已提交读取失败会被误判成创建失败、弹窗保持可再次提交（F1）。
+    if (dialogSession === opSession) committedSession = opSession;
     invalidateCodelistCaches(opProjectId);
-    if (isOperationStale(opProjectId)) {
+    if (!operationCurrent()) {
+      // 迟到/失效响应不再管理弹窗：仅同会话（未被重开/替换）时才代表原操作收尾关闭。
+      if (!disposed && dialogSession === opSession) closeDialog();
+      return;
+    }
+    const outcome = await props.afterChange('add', {
+      codelist: created.data,
+      isCurrent: operationCurrent,
+      transition: {
+        projectId: opProjectId,
+        beforeRevision: created.beforeRevision,
+        revision: created.revision,
+      },
+    });
+    if (!operationCurrent()) {
+      // 迟到/失效响应不再管理弹窗：仅同会话（未被重开/替换）时才代表原操作收尾关闭。
+      if (!disposed && dialogSession === opSession) closeDialog();
+      return;
+    }
+    if (outcome?.status === 'cancelled') {
+      // 宿主编辑器/选择/项目生命周期已结束：静默关闭仍归原操作所有的弹窗，无成功/失败提示。
       closeDialog();
       return;
     }
-    await props.afterChange('add', { codelist: created });
+    if (outcome?.status === 'not-visible') {
+      // 读取成功但新字典不在已验证列表里：不回绑、不假装创建失败，给唯一「尚未显示」提醒。
+      closeDialog();
+      ElMessage.warning(COMMITTED_NOT_VISIBLE_MESSAGE);
+      return;
+    }
     closeDialog();
     // 关闭后再提示，保持 FieldsTab 原有的 close→toast 顺序
     if (props.addSuccessMessage) ElMessage.success(props.addSuccessMessage);
   } catch (e) {
+    if (committedSession === opSession) {
+      // 已提交创建：宿主刷新/读取失败 ≠ 创建失败。仅原会话弹窗终态（关闭 + 唯一警告）；
+      // 会话已被重开/替换或组件卸载时不再打扰新会话，仍归原操作所有的弹窗静默收尾。
+      if (operationCurrent()) {
+        closeDialog();
+        ElMessage.warning(COMMITTED_REFRESH_FAILED_MESSAGE);
+      } else if (!disposed && dialogSession === opSession && props.modelValue) {
+        closeDialog();
+      }
+      return;
+    }
+    // 会话已被重开/替换、鉴权已变化或组件已卸载：迟到的 POST 失败不再弹旧错误、不动新会话。
+    if (disposed || dialogSession !== opSession || getApiSessionGeneration() !== opAuthSession) return;
     // 过期操作失败与 confirmSave 失败路径对齐：只报原始错误并关闭弹窗，不触发宿主刷新
     if (isOperationStale(opProjectId)) {
       ElMessage.error(e.message);
@@ -192,7 +278,8 @@ async function confirmAdd() {
     }
     ElMessage.error(e.message);
   } finally {
-    saving.value = false;
+    // 每次提交只释放自己会话的忙状态：迟到的旧收尾不得解锁重开后的新会话按钮。
+    if (dialogSession === opSession) saving.value = false;
   }
 }
 
@@ -202,7 +289,26 @@ async function confirmSave() {
   if (!draft) return;
   const opProjectId = props.projectId;
   const opCodelistId = props.codelistId;
+  const opSession = dialogSession;
+  const opKey = editSaveKey(opProjectId, opCodelistId);
+  // S2：描述与名称/选项一样在首个 await 之前定格——引用读在途期间同目标重开会把表单
+  // 播种回宿主旧值，快照载荷必须携带最初提交的描述而非重开播种回的旧描述。
+  const opDescription = formDescription.value;
+  pendingEditSaves.add(opKey);
   saving.value = true;
+  // 一次保存固定其发起时的弹窗会话与「项目:字典」目标。会话被替换时分三种归属：
+  // - 弹窗从未真实关闭（项目/字典目标在途切换重播种同一弹窗）：沿用既有契约——成功静默
+  //   关闭、失败报原始错误并关闭，均不回调宿主刷新。
+  // - 弹窗已被真实关闭并重开为另一目标/模式（如编辑改为新增的混合模式）：重开的是新弹窗，
+  //   迟到的旧编辑收尾完全静默——不刷新、不关闭、不报错、不解锁新会话的提交忙状态。
+  // - 弹窗被真实关闭并以同一编辑目标重开（S1，真实宿主的固定 edit 实例）：重开播种的是
+  //   陈旧种子（提交忙已被在途登记锁定）；已提交的编辑仍触发宿主刷新/广播，并收尾关闭
+  //   这个陈旧种子弹窗（含成功提示），数据以已提交内容为准。
+  const replaced = () => dialogSession !== opSession;
+  const reopenedForAnotherTarget = () =>
+    replaced() &&
+    lastClosedSession >= opSession &&
+    !(props.mode === 'edit' && props.projectId === opProjectId && props.codelistId === opCodelistId);
   try {
     const refs = await api.get(`/api/projects/${opProjectId}/codelists/${opCodelistId}/references`);
     // 影响提醒只在引用跨两个及以上表单时出现（与字段库 fieldReferenceImpact 同口径：同表单多字段/重复行合并计数）；
@@ -213,7 +319,7 @@ async function confirmSave() {
     }
     await api.put(`/api/projects/${opProjectId}/codelists/${opCodelistId}/snapshot`, {
       name: draft.savedName,
-      description: formDescription.value,
+      description: opDescription,
       options: draft.normalizedOptions.map((opt) => ({
         id: opt.id,
         code: opt.code,
@@ -221,16 +327,19 @@ async function confirmSave() {
       })),
     });
     invalidateCodelistCaches(opProjectId);
+    if (reopenedForAnotherTarget()) return;
     if (isOperationStale(opProjectId, opCodelistId)) {
       closeDialog();
       return;
     }
     await props.afterChange('save', { codelist: { id: opCodelistId } });
+    if (reopenedForAnotherTarget()) return;
     closeDialog();
     ElMessage.success('保存成功');
   } catch (e) {
     if (e === 'cancel') return;
     invalidateCodelistCaches(opProjectId);
+    if (reopenedForAnotherTarget()) return;
     // 过期操作的失败只提示原始错误；「已刷新为最新字典数据」仅适用于仍刷新宿主数据的路径
     if (isOperationStale(opProjectId, opCodelistId)) {
       ElMessage.error(e.message);
@@ -238,16 +347,23 @@ async function confirmSave() {
       return;
     }
     await props.afterChange('save', { codelist: { id: opCodelistId } });
+    if (reopenedForAnotherTarget()) return;
     closeDialog();
     ElMessage.error(`保存失败：${e.message}。已刷新为最新字典数据，请重新检查后再编辑。`);
   } finally {
-    saving.value = false;
+    pendingEditSaves.delete(opKey);
+    // 释放本会话的忙状态；同目标重开的会话（S1）在在途登记注销后一并解锁。其余情形：
+    // 未重开的在途切换与另一目标重开的新会话忙状态由打开 watcher 自行计算，迟到的旧收尾
+    // 不得越权解锁。
+    if (!replaced() || !reopenedForAnotherTarget()) saving.value = false;
   }
 }
 
 // 确认入口：有待添加标签时先弹「未添加选项」提醒（先于引用查询/写入，也不绕过后续校验与影响提醒）。
 async function onConfirm() {
   if (saving.value || pendingReminderActive) return;
+  // 已提交创建的会话在终态收尾前不得再次提交（重复确定不会发起第二次 POST）。
+  if (props.mode === 'add' && committedSession === dialogSession) return;
   if (optDecode.value.trim()) {
     // 校验失败只提示一次：这里先拦下并提示，confirmAdd/confirmSave 内部的二次校验静默通过
     if (!validateForm()) return;

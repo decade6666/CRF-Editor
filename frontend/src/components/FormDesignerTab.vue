@@ -7,6 +7,7 @@ import {
   onMounted,
   onBeforeUnmount,
   onBeforeUpdate,
+  onScopeDispose,
   nextTick,
   inject,
   defineExpose,
@@ -26,8 +27,15 @@ import {
   RefreshRight,
   Search,
 } from '@element-plus/icons-vue';
-import { api, genCode, genFieldVarName, truncRefs } from '../composables/useApi';
-import { advanceOwnSnapshot, cloneDesignState, createOwnDesignChain, upgradeOwnBaseline } from '../composables/designRevision.js';
+import { api, genCode, genFieldVarName, getApiSessionGeneration, truncRefs } from '../composables/useApi';
+import {
+  advanceOwnSnapshot,
+  cloneDesignState,
+  createOwnDesignChain,
+  provenOwnCandidate,
+  recordOwnTransition,
+  upgradeOwnBaseline,
+} from '../composables/designRevision.js';
 import { isDesignCancellation } from '../composables/designConflictDialog.js';
 import { readProjectDesign, useDesignEditorSession } from '../composables/useDesignEditorSession.js';
 import { countDistinctForms, formatFieldImpactMessage } from '../composables/fieldReferenceImpact';
@@ -226,7 +234,13 @@ let formFieldsLoadSession = 0;
 let formSelectionSession = 0;
 let formSelectionAttempt = 0;
 let designerAuxiliaryLoadSession = 0;
-const designSession = useDesignEditorSession({ getProjectId: () => props.projectId, getContext: () => formSelectionSession });
+// F1-R3：项目列表结果生命周期票据。项目 watcher 在一切 await 之前递增；A→B→A 回到同一项目
+// 也是新会话，旧的复制/列表结果回调不得再安装或反馈。普通表单切换不递增（不影响列表结果）。
+let designerProjectTicket = 0;
+const designSession = useDesignEditorSession({
+  getProjectId: () => props.projectId,
+  getContext: () => formSelectionSession,
+});
 const formsDesignSnapshot = ref(null);
 let fieldsDesignSnapshot = null;
 let formPropDesignBaseline = null;
@@ -238,10 +252,14 @@ let draftDesignBaseline = null;
 let historyDesignBaseline = null;
 let committedHistoryRevision = null;
 const ownDesignChain = createOwnDesignChain();
+// R2：本页最近一次被接受的写入标签。备注审阅后的一致重读在途时，任何更快的本页写入
+// 都会推进该标签；落地候选若已被沿链超越，则整体放弃安装（旧候选不得回退新状态）。
+let latestOwnAcceptedRevision = null;
 
 // 本页自己已被接受的写入：记入写入链，并把恰好停在该写入依据版本上的已加载快照按精确效果推进。
 function acceptOwnDesignWrite(accepted, command) {
   ownDesignChain.record(accepted.baselineRevision, accepted.revision);
+  latestOwnAcceptedRevision = accepted.revision;
   fieldsDesignSnapshot = advanceOwnSnapshot(fieldsDesignSnapshot, accepted, command);
   formsDesignSnapshot.value = advanceOwnSnapshot(formsDesignSnapshot.value, accepted, command);
 }
@@ -257,12 +275,15 @@ async function protectedWrite(method, url, body, options = {}) {
   const isFieldCommand = url.includes('/form-fields/') || /\/forms\/\d+\/(?:fields|field-profile)/.test(url);
   const historyBusy = designerHistory.busy.value;
   const baseline = latestOwnBaseline(
-    options.baseline || (historyBusy ? historyDesignBaseline : isFieldCommand ? fieldsDesignSnapshot : formsDesignSnapshot.value),
+    options.baseline ||
+      (historyBusy ? historyDesignBaseline : isFieldCommand ? fieldsDesignSnapshot : formsDesignSnapshot.value),
     isFieldCommand || historyBusy,
   );
   const historyContext = captureDesignerHistoryContext();
   const result = await designSession.write(method, url, body, {
-    ...options, baseline, history: historyBusy,
+    ...options,
+    baseline,
+    history: historyBusy,
     onAccepted: (accepted) => {
       acceptOwnDesignWrite(accepted, { method, url, body });
       if (historyContext && isCurrentDesignerHistoryContext(historyContext)) {
@@ -282,6 +303,103 @@ const protectedApi = {
   put: (url, body, options) => protectedWrite('put', url, body, options),
   del: (url, options) => protectedWrite('del', url, undefined, options),
 };
+
+// F1 过渡连续性：快捷新增字典/单位、整表复制这类「仅失效」写入被服务器证明（前标签→后标签）后，
+// 只有完整一致读恰好停在已确认的后标签、且旧宿主标签沿本页写入链可达时才安装候选并推进快照；
+// 否则保留旧画布/快照（下一次受保护写入照常审阅），并把「已保存但检测到外部变化」如实报告。
+// 草稿、草稿保存、历史回放、拖动排序期间一律不安装；失败不回滚已提交的业务写入，也绝不重试。
+const SAVED_BUT_FOREIGN_MESSAGE = '操作已保存，但检测到其他最新修改；保存前请先核对最新内容';
+// 硬忙：进行中的草稿保存/历史回放/拖动排序期间一律不安装候选、不推进快照。
+// 仅打开本地草稿（hasDraft）不是硬忙：快照/基线安装不触碰 formFields（草稿行是纯本地状态），
+// 因此快捷新增/整表复制仍可记录已证明的过渡边并推进基线，草稿保存不必多付一次假审阅。
+function designerHardBusy() {
+  return savingDraft.value || designerHistory.busy.value || isReordering.value;
+}
+function syncSelectionAfterFormsRefresh() {
+  const selectedFormId = selectedForm.value?.id ?? null;
+  if (selectedFormId == null || !selectedForm.value) return;
+  const refreshed = forms.value.find((item) => item.id === selectedFormId) || null;
+  if (refreshed) {
+    Object.assign(selectedForm.value, refreshed);
+    forms.value = forms.value.map((item) => (item.id === selectedFormId ? selectedForm.value : item));
+  }
+}
+// R2：一次采纳固定其发起时的项目/表单/选择会话/鉴权会话。响应式参数（默认值）在调用点
+// 求值，但发起更早的调用方必须显式传入捕获值；每个 await 之后重查，上下文一变即静默放弃
+// UI 应用（已提交的业务写入不回滚，原项目缓存照常失效）。此外候选重读若落后于本页已被
+// 其他自己的写入推进的快照（写入链可达），一律不安装——宁可放弃候选也不回退快照。
+// CL-2：codelistAddPolicy（仅字典快捷新增回调启用）把候选读失败原样上抛、把外部间隙提示
+// 延迟为 foreign 标记交给调用方统一收口，返回 { adopted, foreign }；默认路径保持原有
+// toast+null 行为，单位快增/整表复制等其他调用方不受影响。
+async function adoptOwnTransition(
+  transition,
+  { formId = selectedForm.value?.id ?? null, selectionSession = formSelectionSession, isCurrent = () => true, codelistAddPolicy = false } = {},
+) {
+  const projectId = props.projectId;
+  const policyResult = (adopted, foreign = false) => (codelistAddPolicy ? { adopted, foreign } : adopted);
+  if (!isCurrent() || !transition?.revision) return policyResult(null);
+  if (designerHardBusy()) return policyResult(null);
+  if (!recordOwnTransition(ownDesignChain, projectId, transition)) return policyResult(null);
+  const authGeneration = getApiSessionGeneration();
+  const operationCurrent = () =>
+    !designerDisposed &&
+    isCurrent() &&
+    props.projectId === projectId &&
+    (selectedForm.value?.id ?? null) === (formId ?? null) &&
+    formSelectionSession === selectionSession &&
+    getApiSessionGeneration() === authGeneration &&
+    !designerHardBusy();
+  const previousRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
+  if (!provenOwnCandidate(ownDesignChain, { fromRevision: previousRevision, candidateRevision: transition.revision })) {
+    // 旧宿主标签与本页写入链不连通：存在未知的外部间隙，如实报告（保守审阅）。
+    if (!codelistAddPolicy) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+    return policyResult(null, true);
+  }
+  try {
+    const snapshot = await readProjectDesign(projectId, {
+      formId,
+      auxiliary: designerAuxiliaryLoaded.value,
+      cached: false,
+      isCurrent: operationCurrent,
+    });
+    if (!operationCurrent()) return policyResult(null);
+    if (snapshot.revision !== transition.revision) {
+      // 只有「重读停在了别的标签」才是外部插队；自己的更新写入抢先（写入链可达）或上下文
+      // 切换一律静默放弃，不误报“检测到其他最新修改”。
+      const currentRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
+      if (!currentRevision || !ownDesignChain.reaches(snapshot.revision, currentRevision)) {
+        if (!codelistAddPolicy) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+        return policyResult(null, true);
+      }
+      return policyResult(null);
+    }
+    const currentRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
+    // 过期候选不得回退已被自己更新写入推进的快照（写入链从候选可达当前快照 = 已被超越）。
+    if (
+      currentRevision &&
+      currentRevision !== snapshot.revision &&
+      !ownDesignChain.reaches(currentRevision, snapshot.revision)
+    ) {
+      return policyResult(null);
+    }
+    // 字段与表单列表可能停在不同标签；一个投影的证明不能给另一个旧投影换标签。
+    const followsOwnChain = (previous) =>
+      provenOwnCandidate(ownDesignChain, {
+        fromRevision: previous?.revision ?? null,
+        candidateRevision: snapshot.revision,
+      });
+    const advancesFields = snapshot.data.fields && followsOwnChain(fieldsDesignSnapshot);
+    const advancesForms = snapshot.data.forms && followsOwnChain(formsDesignSnapshot.value);
+    if (advancesFields) fieldsDesignSnapshot = cloneDesignState(snapshot);
+    if (advancesForms) formsDesignSnapshot.value = cloneDesignState(snapshot);
+    if (advancesFields || advancesForms) designSession.acceptLoaded(snapshot);
+    return policyResult(snapshot);
+  } catch (error) {
+    if (codelistAddPolicy) throw error;
+    if (!isDesignCancellation(error)) ElMessage.error(`刷新最新设计失败：${error.message}`);
+    return null;
+  }
+}
 
 writeStoredViewMode(viewMode.value);
 
@@ -324,9 +442,10 @@ function recordDesignerHistory(context, entry) {
   const recorded = designerHistory.record(entry);
   if (recorded && context.receipt) {
     committedHistoryRevision = context.receipt.revision;
-    historyDesignBaseline = fieldsDesignSnapshot?.revision === committedHistoryRevision
-      ? cloneDesignState(fieldsDesignSnapshot)
-      : { data: null, revision: committedHistoryRevision };
+    historyDesignBaseline =
+      fieldsDesignSnapshot?.revision === committedHistoryRevision
+        ? cloneDesignState(fieldsDesignSnapshot)
+        : { data: null, revision: committedHistoryRevision };
   }
   return recorded;
 }
@@ -412,15 +531,15 @@ async function loadFieldDefs(projectId = props.projectId) {
   fieldDefs.value = loadedFieldDefs;
   return true;
 }
-async function loadCodelists(projectId = props.projectId) {
+async function loadCodelists(projectId = props.projectId, isCurrent = null) {
   const loadedCodelists = await api.cachedGet(`/api/projects/${projectId}/codelists`);
-  if (projectId !== props.projectId) return false;
+  if (projectId !== props.projectId || (isCurrent && !isCurrent())) return false;
   codelists.value = loadedCodelists;
   return true;
 }
-async function loadUnits(projectId = props.projectId) {
+async function loadUnits(projectId = props.projectId, isCurrent = null) {
   const loadedUnits = await api.cachedGet(`/api/projects/${projectId}/units`);
-  if (projectId !== props.projectId) return false;
+  if (projectId !== props.projectId || (isCurrent && !isCurrent())) return false;
   units.value = loadedUnits;
   return true;
 }
@@ -444,7 +563,11 @@ async function migrateLegacyForceLandscape(projectId) {
     const targets = (loaded.data || []).filter((f) => (f.paper_orientation || 'auto') === 'auto');
     for (const f of targets) {
       try {
-        const updated = await api.putWithMetadata(`/api/forms/${f.id}`, { paper_orientation: 'landscape' }, { revision });
+        const updated = await api.putWithMetadata(
+          `/api/forms/${f.id}`,
+          { paper_orientation: 'landscape' },
+          { revision },
+        );
         revision = updated.revision;
       } catch (err) {
         allOk = false;
@@ -526,8 +649,10 @@ async function loadFormFields(formId = selectedForm.value?.id ?? null) {
   let snapshot;
   try {
     snapshot = await readProjectDesign(projectId, {
-      formId, auxiliary: designerAuxiliaryLoaded.value,
-      isCurrent: () => sessionId === formFieldsLoadSession && selectedForm.value?.id === formId && props.projectId === projectId,
+      formId,
+      auxiliary: designerAuxiliaryLoaded.value,
+      isCurrent: () =>
+        sessionId === formFieldsLoadSession && selectedForm.value?.id === formId && props.projectId === projectId,
     });
   } catch (error) {
     if (error?.code === 'CONTEXT_CHANGED') return false;
@@ -607,11 +732,15 @@ async function addForm() {
   });
   if (newFormLengthError) return ElMessage.warning(newFormLengthError);
   try {
-    const created = await protectedApi.post(`/api/projects/${props.projectId}/forms`, {
+    const created = await protectedApi.post(
+      `/api/projects/${props.projectId}/forms`,
+      {
       name: newFormName.value,
       code: newFormCode.value,
       domain: newFormDomain.value.trim() ? newFormDomain.value : null,
-    }, { baseline: newFormDesignBaseline });
+      },
+      { baseline: newFormDesignBaseline },
+    );
     showAddForm.value = false;
     newFormName.value = '';
     newFormCode.value = '';
@@ -663,7 +792,9 @@ async function batchDelForms() {
     });
     if (!toDelete.length) return;
     const deleteIds = toDelete.map((x) => x.id);
-    const { deleted } = await protectedApi.post(`/api/projects/${props.projectId}/forms/batch-delete`, { ids: deleteIds });
+    const { deleted } = await protectedApi.post(`/api/projects/${props.projectId}/forms/batch-delete`, {
+      ids: deleteIds,
+    });
     selForms.value = [];
     if (deleteIds.includes(selectedForm.value?.id)) {
       invalidateFormSelectionSession();
@@ -680,10 +811,77 @@ async function batchDelForms() {
 }
 
 async function copyForm(f) {
+  // F1-R3：两层生命周期。项目列表结果只随「项目票据/项目id/鉴权/组件」失效（同项目内普通切换
+  // 表单不再吞掉已提交副本的列表可见性与反馈）；选择绑定的候选采纳仍绑定原表单/选择会话。
+  const projectId = props.projectId;
+  const projectTicket = designerProjectTicket;
+  const formId = selectedForm.value?.id ?? null;
+  const selectionSession = formSelectionSession;
+  const authGeneration = getApiSessionGeneration();
+  const projectCurrent = () =>
+    !designerDisposed &&
+    props.projectId === projectId &&
+    designerProjectTicket === projectTicket &&
+    getApiSessionGeneration() === authGeneration;
+  const selectionCurrent = () =>
+    projectCurrent() &&
+    (selectedForm.value?.id ?? null) === (formId ?? null) &&
+    formSelectionSession === selectionSession;
   try {
-    await api.post(`/api/forms/${f.id}/copy`, {});
-    reloadForms();
-    ElMessage.success('复制成功');
+    // F1 过渡写入：整表复制响应携带服务器证明的前后标签；证明成立才推进本页快照。
+    const result = await api.postWithTransitionMetadata(`/api/forms/${f.id}/copy`, {});
+    // 已提交复制必失效原项目列表缓存——与当前项目/选择上下文无关。
+    api.invalidateCache(`/api/projects/${projectId}/forms`);
+    if (!projectCurrent()) return;
+    const transition = { projectId, beforeRevision: result.beforeRevision, revision: result.revision };
+    // 选择绑定采纳：项目会话在前检查，并把项目谓词传入采纳；原表单/选择会话仍绑定本次采纳。
+    let adopted = null;
+    if (selectionCurrent()) {
+      adopted = await adoptOwnTransition(transition, { formId, selectionSession, isCurrent: projectCurrent });
+    }
+    if (!projectCurrent()) return;
+    // 采纳 await 之后重查选择：选择已切换则不复用旧选择的完整候选，改走 forms-only 回退。
+    if (adopted && !selectionCurrent()) adopted = null;
+    // 回退读取发起前（采纳结果落定之后）固定快照身份/最近本页已接受写入标签/accepted 凭据；
+    // 只有该读取期间的新变化能超越它——不与 POST 发起时比较，也不因选择切换本身而拒绝。
+    const formsAtFallbackStart = formsDesignSnapshot.value;
+    const ownAcceptedAtFallbackStart = latestOwnAcceptedRevision;
+    const acceptedReceiptAtFallbackStart = designSession.accepted();
+    let snapshot = adopted;
+    if (!snapshot) {
+      try {
+        snapshot = await readProjectDesign(projectId, { cached: false, isCurrent: projectCurrent });
+      } catch (error) {
+        if (projectCurrent() && !isDesignCancellation(error)) {
+          ElMessage.warning('表单已复制，但列表刷新失败，请刷新后核对，勿重复提交');
+        }
+        return;
+      }
+    }
+    if (!projectCurrent()) return;
+    // 回退读取在途被本页更新超越：保留新状态不安装；反馈按「实际当前成对列表」是否已含副本
+    // id 如实二选一，绝不重发 POST，也绝不因读取期间的选择切换本身而拒绝。
+    const superseded =
+      formsDesignSnapshot.value !== formsAtFallbackStart ||
+      latestOwnAcceptedRevision !== ownAcceptedAtFallbackStart ||
+      designSession.accepted() !== acceptedReceiptAtFallbackStart;
+    if (!superseded) {
+      // 成对安装：列表与标签一起落地；只保留当前选中对象，不刷新字段/草稿或升级旧历史。
+      forms.value = snapshot.data.forms;
+      formsDesignSnapshot.value = cloneDesignState(snapshot);
+      designSession.acceptLoaded(snapshot);
+      syncSelectionAfterFormsRefresh();
+    }
+    // 成功反馈以「实际当前成对列表」是否含副本 id 为准；成功响应未携带副本 id 时（旧服务器/
+    // 模拟边界）无法核验，保持既有反馈语义：仅未超越路径报成功，超越路径保守报告未显示。
+    // 通用「已提交但响应体不可读」处理是既有独立 backlog，此处不扩化。
+    const copyId = result.data?.id;
+    const copyVisible = copyId == null ? !superseded : forms.value.some((item) => item.id === copyId);
+    if (copyVisible) {
+      ElMessage.success('复制成功');
+    } else {
+      ElMessage.warning('表单已复制，但当前列表尚未显示新表单，请刷新后核对，勿重复提交');
+    }
   } catch (e) {
     ElMessage.error(e.message);
   }
@@ -766,13 +964,17 @@ async function persistFormProps({ name, code, domain, paper_orientation, targetF
       });
     }
     if (projectId !== props.projectId || selectionSession !== formSelectionSession) return false;
-    const updatedForm = await protectedApi.put(`/api/forms/${targetForm.id}`, {
+    const updatedForm = await protectedApi.put(
+      `/api/forms/${targetForm.id}`,
+      {
       name,
       code,
       paper_orientation,
       // 未改动的历史域不回写；仅用户清空/改为空白时转 null，非空文本原样保存。
-      ...(domain === (savedBase.domain ?? '') ? {} : { domain: domain.trim() ? domain : null }),
-    }, { baseline: designBaseline });
+        ...(domain === (savedBase.domain ?? '') ? {} : { domain: domain.trim() ? domain : null }),
+      },
+      { baseline: designBaseline },
+    );
     mergeFormIntoState(updatedForm);
     try {
       await reloadForms();
@@ -1108,9 +1310,22 @@ async function runHistory(direction) {
     if (isDesignCancellation(e)) return;
     ElMessage.error(`${direction === 'undo' ? '撤回' : '恢复'}失败：${e?.message || '后端回放出错'}`);
     if (e?.code === 'HISTORY_CONTEXT_CHANGED' || e?.code === 'TARGET_CHANGED' || e?.code === 'STALE_STATE') return;
-    if (e?.message !== INLINE_TABLE_LIMIT_MESSAGE && selectedForm.value) void loadFormFields().catch((error) => ElMessage.error(error.message));
+    if (e?.message !== INLINE_TABLE_LIMIT_MESSAGE && selectedForm.value)
+      void loadFormFields().catch((error) => ElMessage.error(error.message));
   }
 }
+function captureDesignerReloadInput() {
+  return JSON.stringify({
+    form: editFormProp,
+    field: editProp,
+    fieldId: selectedFieldId.value,
+    generation: designerEditGeneration,
+    draft: hasDraft.value,
+    bgInput: customBgColorInput.value,
+    textInput: customTextColorInput.value,
+  });
+}
+
 async function reloadDesignerContext() {
   if (designerHistory.busy.value || isReordering.value || savingDraft.value || isSavingFieldProp.value) return;
   const context = captureDesignerHistoryContext();
@@ -1118,22 +1333,77 @@ async function reloadDesignerContext() {
   try {
     const canLeave = await resolveDesignerLeave({ actionText: '重新载入设计' });
     if (!canLeave || !isCurrentDesignerHistoryContext(context)) return;
-    await ElMessageBox.confirm('重新读取最新设计；成功后清空本表单旧撤销/重做记录。未保存输入须先通过保存/取消确认处理。继续？', '重新载入设计', {
-      confirmButtonText: '重新载入', cancelButtonText: '保留当前内容', type: 'warning',
-    });
-    const snapshot = await readProjectDesign(projectId, { formId: context.formId, auxiliary: true, cached: false,
+    // LOW-2：放弃旧编辑已清除基线时，先于确认出口恢复已显示字段/基线，
+    // 使取消重载后编辑器仍可用（新输入可变脏保存）；取消路径零读取零写入。
+    if (selectedFieldId.value && selectedFieldId.value !== DRAFT_FIELD_ID && !fieldPropBaseline.value) {
+      const selected = getSelectedFormField();
+      if (selected) selectField(selected);
+    }
+    await ElMessageBox.confirm(
+      '重新读取最新设计；成功后清空本表单旧撤销/重做记录。未保存输入须先通过保存/取消确认处理。继续？',
+      '重新载入设计',
+      {
+        confirmButtonText: '重新载入',
+        cancelButtonText: '保留当前内容',
+        type: 'warning',
+      },
+    );
+    const inputAtReadStart = captureDesignerReloadInput();
+    // R4：读取发起时固定两侧投影对象身份、最近本页已接受写入标签与 accepted 凭据身份、鉴权会话。
+    // GET 在途期间本页写入/刷新照常进行；落地前同步重查（乐观排序/新状态一律不被旧候选回退）。
+    const fieldsAtReadStart = fieldsDesignSnapshot;
+    const formsAtReadStart = formsDesignSnapshot.value;
+    const ownAcceptedAtReadStart = latestOwnAcceptedRevision;
+    const acceptedReceiptAtReadStart = designSession.accepted();
+    const authGenerationAtStart = getApiSessionGeneration();
+    const snapshot = await readProjectDesign(projectId, {
+      formId: context.formId,
+      auxiliary: true,
+      cached: false,
       isCurrent: () => isCurrentDesignerHistoryContext(context) && props.projectId === projectId,
     });
+    // LOW-1：上下文丢失=取消（静默）必须先于原始输入比较——否则读取中鉴权代变化/卸载且
+    // 编辑内容已变时，会在已离开的会话里发出「编辑内容已变化」警示。
+    if (
+      designerDisposed ||
+      !isCurrentDesignerHistoryContext(context) ||
+      props.projectId !== projectId ||
+      getApiSessionGeneration() !== authGenerationAtStart
+    ) {
+      return;
+    }
+    if (captureDesignerReloadInput() !== inputAtReadStart) {
+      ElMessage.warning('重新载入未应用：读取期间编辑内容已变化，当前输入和撤销记录已保留');
+      return;
+    }
+    // R4：读取期间本页有新提交、或落地瞬间仍有进行中的本页操作
+    // （历史回放/排序/草稿保存/字段保存/成员变更）=如实拒绝安装，保留新显示、成对快照与既有撤销。
+    // in-flight 写入不能指望稍后的409补救（它可能按旧标签接受）；以下检查与安装之间不得插入 await。
+    if (
+      fieldsDesignSnapshot !== fieldsAtReadStart ||
+      formsDesignSnapshot.value !== formsAtReadStart ||
+      latestOwnAcceptedRevision !== ownAcceptedAtReadStart ||
+      designSession.accepted() !== acceptedReceiptAtReadStart ||
+      designerHistory.busy.value ||
+      isReordering.value ||
+      savingDraft.value ||
+      isSavingFieldProp.value ||
+      isFieldMembershipBusy()
+    ) {
+      ElMessage.warning('重新载入未应用：读取期间本页有新操作或仍在进行的操作，当前显示和撤销记录已保留');
+      return;
+    }
     const form = snapshot.data.forms.find((item) => item.id === context.formId);
     if (!form) throw new Error('原表单已不存在，请重新选择表单；当前内容未清空');
     fieldsDesignSnapshot = cloneDesignState(snapshot);
+    forms.value = snapshot.data.forms;
     formsDesignSnapshot.value = cloneDesignState(snapshot);
     designSession.acceptLoaded(snapshot);
     formFields.value = sortFormFieldsByOrder(snapshot.data.fields);
     fieldDefs.value = snapshot.data.definitions;
     codelists.value = snapshot.data.codelists;
     units.value = snapshot.data.units;
-    mergeFormIntoState(form);
+    syncSelectionAfterFormsRefresh();
     resetFieldPropAutoSaveState();
     syncFormPropEditor(selectedForm.value);
     designerHistory.clear();
@@ -1207,10 +1477,14 @@ async function copyFormField(ff) {
     let createdFormField;
     beginFieldMembershipMutation();
     try {
-      createdFormField = await protectedApi.post(`/api/forms/${formId}/fields`, {
+      createdFormField = await protectedApi.post(
+        `/api/forms/${formId}/fields`,
+        {
         ...baseInstancePayload,
         field_definition_id: null,
-      }, { historyContext });
+        },
+        { historyContext },
+      );
 
       api.invalidateCache(`/api/forms/${formId}/fields`);
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
@@ -1333,13 +1607,18 @@ async function batchDelete() {
     if (isReordering.value) return;
     beginFieldMembershipMutation();
     try {
-      await protectedApi.post(`/api/forms/${formId}/fields/batch-delete`, { ids }, {
-        historyContext,
-        onAccepted: ({ before }) => {
-          snapshots = (before.fields || []).filter((field) => ids.includes(field.id))
-            .map((field) => ({ ffId: field.id, snapshot: buildReplaySnapshot(field) }));
+      await protectedApi.post(
+        `/api/forms/${formId}/fields/batch-delete`,
+        { ids },
+        {
+          historyContext,
+          onAccepted: ({ before }) => {
+            snapshots = (before.fields || [])
+              .filter((field) => ids.includes(field.id))
+              .map((field) => ({ ffId: field.id, snapshot: buildReplaySnapshot(field) }));
+          },
         },
-      });
+      );
       api.invalidateCache(`/api/forms/${formId}/fields`);
       if (!isCurrentDesignerHistoryContext(historyContext)) return;
       if (isReordering.value) return;
@@ -1411,13 +1690,18 @@ async function persistFieldReorder(historyContext, previousFields, normalized) {
   let reviewedReorder = false;
   try {
     // 直接接受时 protectedWrite 已按精确重排推进本页快照；审阅后接受只取实际提交前顺序作撤销依据，随后重读最新设计。
-    await protectedApi.post(`/api/forms/${formId}/fields/reorder`, { ordered_ids: nextOrder }, {
-      historyContext, cancelText: '放弃本次排序',
-      onAccepted: ({ before, reviewed }) => {
-        previousOrder = sortFormFieldsByOrder(before.fields || []).map((field) => field.id);
-        reviewedReorder = reviewed;
+    await protectedApi.post(
+      `/api/forms/${formId}/fields/reorder`,
+      { ordered_ids: nextOrder },
+      {
+        historyContext,
+        cancelText: '放弃本次排序',
+        onAccepted: ({ before, reviewed }) => {
+          previousOrder = sortFormFieldsByOrder(before.fields || []).map((field) => field.id);
+          reviewedReorder = reviewed;
+        },
       },
-    });
+    );
     api.invalidateCache(`/api/forms/${formId}/fields`);
     if (!isCurrentDesignerHistoryContext(historyContext)) return false;
     recordReorderHistory(historyContext, previousOrder, nextOrder);
@@ -1830,10 +2114,14 @@ function reloadAfterReviewedWrite(formId) {
 function persistAnnotationSnapshot(snapshot) {
   const url = `/api/forms/${snapshot.formId}`;
   const body = {
-    annotation_positions: Object.keys(snapshot.annotation_positions || {}).length ? snapshot.annotation_positions : null,
+    annotation_positions: Object.keys(snapshot.annotation_positions || {}).length
+      ? snapshot.annotation_positions
+      : null,
   };
   return designSession.write('patch', url, body, {
-    baseline: latestOwnBaseline(snapshot.designBaseline), detached: true, cancelText: '放弃本次拖动',
+    baseline: latestOwnBaseline(snapshot.designBaseline),
+    detached: true,
+    cancelText: '放弃本次拖动',
     reviewable: () => selectedForm.value?.id === snapshot.formId,
     invalidate: [`/api/forms/${snapshot.formId}/fields`, `/api/projects/${snapshot.projectId}/forms`],
     onAccepted: (accepted) => {
@@ -2068,11 +2356,86 @@ function openNotesDialog() {
 }
 
 // 备注弹窗自行提交；直接接受时其依据版本即本页快照版本，按精确效果推进本页快照并记入写入链。
+// F2：审阅确认跨过外部变化时（依据标签既不是本页快照标签也不是提交后标签），旧画布/基线
+// 不能被审阅数据祝福；只把无未保存输入的干净编辑器一致重读到最新状态，脏缓冲、草稿、
+// 打开中的编辑值与旧撤销栈一律保留原基线（其后续写入各自审阅；显式「重新载入设计」仍是唯一清栈路径）。
+function reviewedNotesCrossedExternalGap({ formId, revision, baselineRevision }) {
+  if (!revision || !baselineRevision || formId !== (selectedForm.value?.id ?? null)) return false;
+  const hostRevision = (fieldsDesignSnapshot || formsDesignSnapshot.value)?.revision ?? null;
+  return Boolean(hostRevision) && hostRevision !== baselineRevision && hostRevision !== revision;
+}
+async function synchronizeCleanEditorsAfterReviewedNotes(formId) {
+  if ((selectedForm.value?.id ?? null) !== formId) return;
+  const clean = () =>
+    !hasDraft.value &&
+    !isFieldPropDirty.value &&
+    !savingDraft.value &&
+    !designerHistory.busy.value &&
+    !isReordering.value;
+  if (!clean()) return;
+  const projectId = props.projectId;
+  // R2：同步固定发起时的选择会话与鉴权会话。A→B→A 回到同一表单 id 也是新会话，迟到的
+  // 一致重读不得安装；会话失效/项目切换/卸载一律静默放弃（脏基线保留，下一次写入照常审阅）。
+  const selectionSession = formSelectionSession;
+  const authGeneration = getApiSessionGeneration();
+  // 任一较新的展示读取先落地后，旧备注候选都已失效；标签不透明，不能用修订号排序。
+  const fieldsAtReadStart = fieldsDesignSnapshot;
+  const formsAtReadStart = formsDesignSnapshot.value;
+  const operationCurrent = () =>
+    !designerDisposed &&
+    (selectedForm.value?.id ?? null) === formId &&
+    props.projectId === projectId &&
+    formSelectionSession === selectionSession &&
+    getApiSessionGeneration() === authGeneration &&
+    fieldsDesignSnapshot === fieldsAtReadStart &&
+    formsDesignSnapshot.value === formsAtReadStart &&
+    clean();
+  try {
+    const snapshot = await readProjectDesign(projectId, {
+      formId,
+      auxiliary: designerAuxiliaryLoaded.value,
+      isCurrent: operationCurrent,
+    });
+    if (!operationCurrent()) return;
+    // R2 候选新鲜度：候选内容在发起时捕获，落地时若本页已有更快的写入沿链越过该候选标签
+    // （如表单属性保存），安装会把已提交的新值整体回退成旧值——此时静默放弃（脏基线保留，
+    // 下一次写入照常审阅）。外部变化不可达链尖端，仍交由下一次受保护写入审阅。
+    if (
+      latestOwnAcceptedRevision &&
+      snapshot.revision !== latestOwnAcceptedRevision &&
+      ownDesignChain.reaches(snapshot.revision, latestOwnAcceptedRevision)
+    ) {
+      return;
+    }
+
+    fieldsDesignSnapshot = cloneDesignState(snapshot);
+    formsDesignSnapshot.value = cloneDesignState(snapshot);
+    designSession.acceptLoaded(snapshot);
+    forms.value = snapshot.data.forms;
+    syncSelectionAfterFormsRefresh();
+    formFields.value = sortFormFieldsByOrder(snapshot.data.fields);
+    if (snapshot.data.definitions) {
+      fieldDefs.value = snapshot.data.definitions;
+      codelists.value = snapshot.data.codelists;
+      units.value = snapshot.data.units;
+    }
+    // 只重置干净编辑器的显示与基线；脏缓冲/草稿/打开中的冻结弹窗一律不碰。
+    if (!hasDraft.value && !isFieldPropDirty.value) {
+      const selected = formFields.value.find((field) => field.id === selectedFieldId.value);
+      if (selected) selectField(selected);
+    }
+    if (!isFormPropDirty.value) syncFormPropEditor(selectedForm.value);
+  } catch (error) {
+    if (!isDesignCancellation(error)) ElMessage.error(`刷新最新设计失败：${error.message}`);
+  }
+}
 function onNotesDialogSaved({ formId, designNotes, form, revision, baselineRevision }) {
+  const crossedExternalGap = reviewedNotesCrossedExternalGap({ formId, revision, baselineRevision });
   if (form?.id === formId && revision && baselineRevision) {
     acceptOwnDesignWrite({ data: form, revision, baselineRevision }, { method: 'put', url: `/api/forms/${formId}` });
   }
   mergeFormIntoState({ id: formId, design_notes: designNotes });
+  if (crossedExternalGap) void synchronizeCleanEditorsAfterReviewedNotes(formId);
 }
 
 // el-table 的 @current-change 在 :data（filteredForms 每次返回新数组）重算或程序化
@@ -2234,7 +2597,9 @@ async function saveQuickEdit() {
         label_font_size: quickEditProp.label_font_size === 'default' ? null : quickEditProp.label_font_size,
       },
     });
-    const updated = await protectedApi.put(`/api/form-fields/${fieldId}/binding-profile`, command, { baseline: quickEditDesignBaseline });
+    const updated = await protectedApi.put(`/api/form-fields/${fieldId}/binding-profile`, command, {
+      baseline: quickEditDesignBaseline,
+    });
     const updatedField = updated.form_field ?? null;
     api.invalidateCache(`/api/forms/${formId}/fields`);
     // 写成功先失效缓存；仅当 formId+session 仍匹配当前设计器上下文时才改本地 UI。
@@ -2536,6 +2901,7 @@ function resetFieldPropAutoSaveState({ preserveEditor = false } = {}) {
   labelOidSession = buildLabelOidSession();
   inlineLayoutRollback = null;
   if (!preserveEditor) {
+    designerEditGeneration += 1;
     selectedFieldId.value = null;
     Object.assign(editProp, {
       label: '',
@@ -2709,6 +3075,7 @@ function selectField(ff, { fromSave = false } = {}) {
   inlineLayoutRollback = null;
   labelOidSession = buildLabelOidSession(resolveLabelOidSeedDefinition(ff));
   isHydratingFieldProp = true;
+  designerEditGeneration += 1;
   selectedFieldId.value = ff.id;
   selectedDefinitionId.value = null;
   candidateOid.value = null;
@@ -2918,7 +3285,8 @@ async function saveFieldProp(snapshot, sessionId, commandArgs, candidateBeforePa
     throw new Error(INLINE_TABLE_LIMIT_MESSAGE);
   }
   const result = await protectedApi.put(`/api/form-fields/${propEditFieldId}/binding-profile`, command, {
-    baseline: fieldPropDesignBaseline, historyContext,
+    baseline: fieldPropDesignBaseline,
+    historyContext,
     onAccepted: ({ before }) => {
       const actualBefore = before.fields?.find((field) => field.id === propEditFieldId);
       if (!actualBefore) return;
@@ -2926,21 +3294,35 @@ async function saveFieldProp(snapshot, sessionId, commandArgs, candidateBeforePa
       originalDefinitionOid = actualBefore.field_definition?.variable_name ?? null;
       beforePropState = snapshotFieldPropState(actualBefore);
       const targetId = command.definition_operation?.update_shared?.target_definition_id;
-      if (targetId != null) candidateBeforePayload = buildDefinitionPayload(
-        before.definitions?.find((definition) => definition.id === targetId) ||
-        before.fields?.find((field) => field.field_definition_id === targetId)?.field_definition,
-      );
+      if (targetId != null)
+        candidateBeforePayload = buildDefinitionPayload(
+          before.definitions?.find((definition) => definition.id === targetId) ||
+            before.fields?.find((field) => field.field_definition_id === targetId)?.field_definition,
+        );
     },
   });
   if (sessionId !== fieldPropSaveSession) return;
-  const afterPropState = snapshotFieldPropState(result.form_field || { ...ff, field_definition: result.field_definition || ff.field_definition });
+  const afterPropState = snapshotFieldPropState(
+    result.form_field || { ...ff, field_definition: result.field_definition || ff.field_definition },
+  );
   recordFieldPropSaveHistory(historyContext, {
-    propEditFieldId, originalDefinitionId, originalDefinitionOid, candidateBeforePayload,
-    beforePropState, afterPropState, command,
+    propEditFieldId,
+    originalDefinitionId,
+    originalDefinitionOid,
+    candidateBeforePayload,
+    beforePropState,
+    afterPropState,
+    command,
     writtenDefinitionId: result.final_definition_id ?? originalDefinitionId,
   });
   await reconcileAfterFieldPropSave({
-    formId, projectId, propEditFieldId, historyContext, ff, result, snapshot,
+    formId,
+    projectId,
+    propEditFieldId,
+    historyContext,
+    ff,
+    result,
+    snapshot,
   });
 }
 
@@ -3159,11 +3541,13 @@ async function saveDraftField() {
       if (!hasDraft.value) return false;
     }
     const result = await protectedApi.post(`/api/forms/${formId}/field-profile`, command, {
-      baseline: draftDesignBaseline, historyContext,
+      baseline: draftDesignBaseline,
+      historyContext,
       onAccepted: ({ before }) => {
         if (!definitionChanged) return;
         const targetId = command.definition_operation.update_shared.target_definition_id;
-        const actual = before.definitions?.find((definition) => definition.id === targetId) ||
+        const actual =
+          before.definitions?.find((definition) => definition.id === targetId) ||
           before.fields?.find((field) => field.field_definition_id === targetId)?.field_definition;
         if (actual) restoreDefinitionPayload = buildDefinitionPayload(actual);
       },
@@ -3304,7 +3688,11 @@ async function addLogRow() {
   const formId = historyContext.formId;
   beginFieldMembershipMutation();
   try {
-    const created = await protectedApi.post(`/api/forms/${formId}/fields`, { is_log_row: 1, label_override: '以下为log行' }, { historyContext });
+    const created = await protectedApi.post(
+      `/api/forms/${formId}/fields`,
+      { is_log_row: 1, label_override: '以下为log行' },
+      { historyContext },
+    );
     api.invalidateCache(`/api/forms/${formId}/fields`);
     if (!isCurrentDesignerHistoryContext(historyContext)) return;
     if (isReordering.value) return;
@@ -3338,21 +3726,82 @@ async function addLogRow() {
 const showQuickAddCodelist = ref(false);
 const showQuickEditCodelist = ref(false);
 const quickEditCodelistId = ref(null);
+// R2：设计器字典/单位在途操作的完整生命周期守卫。designerEditGeneration 在字段编辑身份
+// 每次变更（selectField/关闭编辑器/项目切换）递增，A→B→A 也视为新会话；字典弹窗打开时
+// 快照会话，迟到回调以打开时会话为准。designerDisposed 覆盖卸载后的全部在途回调。
+let designerEditGeneration = 0;
+let codelistDialogEditGeneration = null;
+let designerDisposed = false;
+onScopeDispose(() => {
+  designerDisposed = true;
+});
 function openQuickAddCodelist() {
+  codelistDialogEditGeneration = designerEditGeneration;
   showQuickAddCodelist.value = true;
 }
 function openQuickEditCodelist() {
+  codelistDialogEditGeneration = designerEditGeneration;
   if (!editProp.codelist_id) return;
   if (!codelists.value.some((c) => c.id === editProp.codelist_id)) return;
   quickEditCodelistId.value = editProp.codelist_id;
   showQuickEditCodelist.value = true;
 }
-async function afterCodelistDialogChange(kind, { codelist }) {
-  await loadCodelists();
+// 字典快捷新增回调：弹窗仍在模态等待，但宿主 here 起还有一致重读等多个 await。发起时固定
+// 项目/表单/选择会话/鉴权会话与当前编辑字段，宿主 await 结束后重查全部——字段/表单已切换
+// 或会话已失效时，新字典只进原项目下拉缓存，绝不回绑到新编辑器。
+async function afterCodelistDialogChange(kind, { codelist, transition, isCurrent = () => true } = {}) {
   if (kind === 'add') {
+    const projectId = props.projectId;
+    const formId = selectedForm.value?.id ?? null;
+    const selectionSession = formSelectionSession;
+    const fieldId = selectedFieldId.value;
+    const editorGeneration = codelistDialogEditGeneration ?? designerEditGeneration;
+    const authGeneration = getApiSessionGeneration();
+    const operationCurrent = () =>
+      !designerDisposed &&
+      isCurrent() &&
+      props.projectId === projectId &&
+      (selectedForm.value?.id ?? null) === (formId ?? null) &&
+      formSelectionSession === selectionSession &&
+      selectedFieldId.value === fieldId &&
+      designerEditGeneration === editorGeneration &&
+      getApiSessionGeneration() === authGeneration;
+    // F1：字典快捷新增被服务器证明后优先沿过渡边推进快照；未证明时保留旧画布，仅刷新字典下拉。
+    // CL-2：候选读失败原样上抛（共享弹窗统一「已创建但刷新失败」终态）；设计器编辑会话/
+    // 项目/鉴权离开一律返回 cancelled 静默收尾；只有读取成功且新字典确实在已验证列表里
+    // 才回绑；外部间隙提示延迟到回退读成功后再报，读取失败/字典不可见时弃用。
+    let outcome = { adopted: null, foreign: false };
+    try {
+      outcome = await adoptOwnTransition(transition, {
+        formId,
+        selectionSession,
+        isCurrent: operationCurrent,
+        codelistAddPolicy: true,
+      });
+    } catch (error) {
+      if (!operationCurrent()) return { status: 'cancelled' };
+      throw error;
+    }
+    if (!operationCurrent()) return { status: 'cancelled' };
+    if (outcome.adopted?.data.codelists) {
+      codelists.value = outcome.adopted.data.codelists;
+      if (!codelists.value.some((item) => item.id === codelist.id)) return { status: 'not-visible' };
+    } else {
+      const pendingForeignNotice = outcome.foreign;
+      try {
+        await loadCodelists(projectId, operationCurrent);
+      } catch (error) {
+        if (!operationCurrent()) return { status: 'cancelled' };
+        throw error;
+      }
+      if (!operationCurrent()) return { status: 'cancelled' };
+      if (!codelists.value.some((item) => item.id === codelist.id)) return { status: 'not-visible' };
+      if (pendingForeignNotice) ElMessage.warning(SAVED_BUT_FOREIGN_MESSAGE);
+    }
     editProp.codelist_id = codelist.id;
-    return;
+    return { status: 'refreshed' };
   }
+  await loadCodelists();
   if (selectedForm.value) {
     api.invalidateCache(`/api/forms/${selectedForm.value.id}/fields`);
     await loadFormFields();
@@ -3364,12 +3813,51 @@ async function afterCodelistDialogChange(kind, { codelist }) {
 
 const showQuickAddUnit = ref(false),
   quickUnitSymbol = ref('');
+// 单位快捷新增会话：弹窗每次打开递增。取消/重开后，上一条在途响应不得关闭新弹窗、
+// 清空新输入或把单位回绑到新的编辑上下文。
+let quickAddUnitSession = 0;
+watch(showQuickAddUnit, (visible) => {
+  if (visible) quickAddUnitSession += 1;
+});
 async function quickAddUnit() {
   if (!quickUnitSymbol.value.trim()) return ElMessage.warning('请输入单位符号');
+  const projectId = props.projectId;
+  const formId = selectedForm.value?.id ?? null;
+  const selectionSession = formSelectionSession;
+  const fieldId = selectedFieldId.value;
+  const authGeneration = getApiSessionGeneration();
+  const dialogSession = quickAddUnitSession;
+  const editorGeneration = designerEditGeneration;
+  const operationCurrent = () =>
+    !designerDisposed &&
+    showQuickAddUnit.value === true &&
+    props.projectId === projectId &&
+    (selectedForm.value?.id ?? null) === (formId ?? null) &&
+    formSelectionSession === selectionSession &&
+    selectedFieldId.value === fieldId &&
+    designerEditGeneration === editorGeneration &&
+    quickAddUnitSession === dialogSession &&
+    getApiSessionGeneration() === authGeneration;
   try {
-    const created = await api.post(`/api/projects/${props.projectId}/units`, { symbol: quickUnitSymbol.value.trim() });
-    await loadUnits();
-    editProp.unit_id = created.id;
+    // F1 过渡写入：单位快捷新增响应携带服务器证明的前后标签；证明成立才推进本页快照。
+    const result = await api.postWithTransitionMetadata(`/api/projects/${projectId}/units`, {
+      symbol: quickUnitSymbol.value.trim(),
+    });
+    if (!operationCurrent()) {
+      // UI 应用被放弃（弹窗/编辑上下文/会话已切换）：只失效原项目缓存。
+      api.invalidateCache(`/api/projects/${projectId}/units`);
+      return;
+    }
+    const transition = { projectId, beforeRevision: result.beforeRevision, revision: result.revision };
+    const adopted = await adoptOwnTransition(transition, { formId, selectionSession });
+    if (!operationCurrent()) return;
+    if (adopted?.data.units) {
+      units.value = adopted.data.units;
+    } else {
+      await loadUnits(projectId, operationCurrent);
+    }
+    if (!operationCurrent()) return;
+    editProp.unit_id = result.data.id;
     showQuickAddUnit.value = false;
     quickUnitSymbol.value = '';
   } catch (e) {
@@ -3413,7 +3901,10 @@ async function ensureDesignerAuxiliaryDataLoaded({ refreshFieldDefs = false } = 
   const loadSession = designerAuxiliaryLoadSession;
   const projectId = props.projectId;
   const formId = selectedForm.value?.id ?? null;
-  const isStaleLoad = () => loadSession !== designerAuxiliaryLoadSession || projectId !== props.projectId || formId !== (selectedForm.value?.id ?? null);
+  const isStaleLoad = () =>
+    loadSession !== designerAuxiliaryLoadSession ||
+    projectId !== props.projectId ||
+    formId !== (selectedForm.value?.id ?? null);
   if (designerAuxiliaryLoaded.value && !refreshFieldDefs) return;
   if (designerAuxiliaryLoading.value) return;
   if (refreshFieldDefs) api.invalidateCache(`/api/projects/${projectId}/field-definitions`);
@@ -3475,6 +3966,9 @@ watch(
   () => props.projectId,
   async (newProjectId, previousProjectId) => {
     if (newProjectId === previousProjectId) return;
+    // F1-R3：先于一切 await 递增项目票据；离开过本项目的旧复制/列表结果回调（含 A→B→A
+    // 回到同一项目 id）一律失效——它们不得安装、反馈或覆盖新项目的显示。
+    designerProjectTicket += 1;
     invalidateFormSelectionSession();
     const annotationFlushSucceeded = await flushAnnotationPositionSave({ cancelActiveDrag: true });
     if (!annotationFlushSucceeded) return;
@@ -3499,6 +3993,7 @@ watch(
     designerAuxiliaryLoadError.value = '';
     selectedForm.value = null;
     formFields.value = [];
+    designerEditGeneration += 1;
     selectedFieldId.value = null;
     loadForms();
   },
@@ -3823,15 +4318,15 @@ function openAddForm() {
                     @click="handleRedo"
                     ><el-icon aria-hidden="true"><RefreshRight /></el-icon></el-button
                   ></el-tooltip
-                ><el-tooltip content="重新载入设计（清空旧撤销/重做）" placement="top" :show-after="300"
-                  ><el-button
-                    size="small"
-                    data-test="designer-reload-context"
-                    aria-label="重新载入设计"
-                    :disabled="designerHistory.busy.value || isReordering || savingDraft || isSavingFieldProp"
-                    @click="reloadDesignerContext"
-                    >重新载入</el-button
-                  ></el-tooltip
+            ><el-tooltip content="重新载入设计（清空旧撤销/重做）" placement="top" :show-after="300"
+              ><el-button
+                size="small"
+                data-test="designer-reload-context"
+                aria-label="重新载入设计"
+                :disabled="designerHistory.busy.value || isReordering || savingDraft || isSavingFieldProp"
+                @click="reloadDesignerContext"
+                >重新载入</el-button
+              ></el-tooltip
                 ><el-tooltip content="批量删除" placement="top" :show-after="300"
                   ><el-button
                     type="danger"

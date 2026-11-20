@@ -128,6 +128,18 @@ async function loadMe() {
 const projects = ref([]);
 const selectedProject = ref(null);
 const { activeTab, activateTab, isTabActivated, reset: resetLazyTabs } = createLazyTabState('info');
+// 选项页签上下文计数（CL-1/F2）：项目变化与选项页签的进入/离开（含同一调度批次内 A→B→A、
+// 隐藏→显示的中间态）由宿主在自己 reactive 源上逐次计数并单调转发；子组件的 prop 层会把
+// 同批次中间态坍缩成最终值，无法自行察觉，必须依赖该计数同步失效在途读取。sync flush 只做
+// 轻量计数，不发请求；与选项页无关的页签互切不计数。
+const codelistContextVersion = ref(0);
+watch(
+  [() => selectedProject.value?.id, activeTab],
+  ([pid, tab], [prevPid, prevTab]) => {
+    if (pid !== prevPid || tab === 'codelists' || prevTab === 'codelists') codelistContextVersion.value += 1;
+  },
+  { flush: 'sync' },
+);
 const formDesignerTabRef = ref(null);
 const { requestFormSelection } = useDesignerFormSelection(formDesignerTabRef);
 const showCreateProject = ref(false);
@@ -936,7 +948,7 @@ function startResize(e) {
             </el-tab-pane>
             <el-tab-pane v-if="editMode" label="选项" name="codelists">
               <div v-if="isTabActivated('codelists')" class="content-inner">
-                <CodelistsTab :project-id="selectedProject.id" />
+                <CodelistsTab :project-id="selectedProject.id" :active="activeTab === 'codelists'" :context-version="codelistContextVersion" />
               </div>
             </el-tab-pane>
             <el-tab-pane v-if="editMode" label="单位" name="units">

@@ -338,3 +338,40 @@ describe('UnitsTab · 序号快捷改序', () => {
     expect(ElMessage.warning).toHaveBeenCalledWith('排序保存失败，已恢复');
   });
 });
+
+
+describe('UnitsTab · 展示与选择健壮性', () => {
+  it('重载后按 (order_index,id) 稳定排序展示缺失序号的单位', async () => {
+    const { wrapper, refreshKey } = await mountUnits();
+    const messy = [
+      { id: 3, code: 'UNIT_C', symbol: 'c', order_index: 1 },
+      { id: 1, code: 'UNIT_A', symbol: 'a' },
+      { id: 2, code: 'UNIT_B', symbol: 'b', order_index: 1 },
+      { id: 4, code: 'UNIT_D', symbol: 'd', order_index: 2 },
+    ];
+    api.cachedGet.mockImplementationOnce(() => Promise.resolve(JSON.parse(JSON.stringify(messy))));
+    refreshKey.value += 1;
+    await flushPromises();
+    await nextTick();
+
+    const rows = wrapper.findAll('.el-table__row');
+    expect(rows[0].text()).toContain('UNIT_B');
+    expect(rows[1].text()).toContain('UNIT_C');
+    expect(rows[2].text()).toContain('UNIT_D');
+    expect(rows[3].text()).toContain('UNIT_A');
+  });
+
+  it('刷新后选中单位消失则清空右侧属性面板', async () => {
+    const { wrapper, refreshKey } = await mountUnits();
+    await selectUnitRow(wrapper, 0);
+    expect(wrapper.text()).not.toContain(PLACEHOLDER);
+
+    api.cachedGet.mockImplementationOnce(() => Promise.resolve([]));
+    refreshKey.value += 1;
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).toContain(PLACEHOLDER);
+    expect(wrapper.findAll('.el-table__row')).toHaveLength(0);
+  });
+});

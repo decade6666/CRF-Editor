@@ -7,7 +7,7 @@
 // - ElMessage 是挂载了 success/error/… 方法的函数对象（方法在 element-plus/es/components/message/src/method.mjs
 //   里直接赋值到函数上），所以可 spyOn；这里统一 spy 成 no-op，用例直接断言 ElMessage.success 等；
 //   ElMessageBox.confirm 不做全局 mock，需要用例自行 vi.spyOn(ElMessageBox, 'confirm')；
-// - 默认不添加 DOM polyfill，仅在用例证明缺少某 API 时按需补充并注明组件与 API。
+// - 只补齐已复现的浏览器语义差异；元素字符串身份的回归见 elementPlusEnvironment.spec.js。
 import { afterEach, beforeEach, vi } from 'vitest';
 import ElementPlus, { ElMessage } from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
@@ -40,6 +40,9 @@ enableAutoUnmount(afterEach);
 
 // 每个用例开始：清空残留 Vue 警告、开启 console 侧 Vue 警告拦截，并静默 ElMessage 的四个常用方法；用例断言直接引用同一个 ElMessage 对象。
 beforeEach(() => {
+  // happy-dom 的 Element.toString 会序列化子树；Popper 用它识别窗口，重复触发大量无用 HTML 编码。
+  // 对齐浏览器原生元素身份，保留 outerHTML；由既有 restoreAllMocks 在用例后恢复。
+  vi.spyOn(Element.prototype, 'toString').mockImplementation(Object.prototype.toString);
   // WSL 墙钟回拨会让 VTU 的事件时间戳早于 Vue 监听器挂载时间，直接丢失点击。
   // 仅钳制真实 Date.now 的倒退；显式 vi.useFakeTimers 仍接管 Date，afterEach 统一还原。
   const realNow = Date.now.bind(Date);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   readCoherentDesign, executeDesignMutation, assertSameDesignTarget, assertSameProjectDesignIdentity,
   createOwnDesignChain, applyOwnDesignWrite, advanceOwnSnapshot, upgradeOwnBaseline,
+  isValidOwnTransition, recordOwnTransition, provenOwnCandidate,
 } from '../src/composables/designRevision.js';
 
 const envelope = (data, revision = '"base"') => ({ data, revision });
@@ -270,4 +271,35 @@ test('old baselines are replaced only by same-project snapshots reachable throug
   assert.equal(upgradeOwnBaseline(old, [{ ...head, data: { ...head.data, formId: 8 } }], chain), old);
   assert.deepEqual(upgradeOwnBaseline({ revision: '"r2"', data: null }, [head], chain), head);
   assert.equal(upgradeOwnBaseline(head, [head], chain), head);
+});
+
+// F1 过渡证据：只有服务器证明的 前标签→后标签 边、且两端同属一个项目身份时才可记入本页写入链；
+// 完整一致候选只有恰好停在已确认的后标签、且旧宿主标签沿写入链可达时才允许安装。
+test('transition edges are recorded only for valid same-project before/after pairs', () => {
+  const identity = `"crf-design-v1:p1:${'c'.repeat(32)}:r5"`;
+  const next = `"crf-design-v1:p1:${'c'.repeat(32)}:r6"`;
+  const other = `"crf-design-v1:p2:${'d'.repeat(32)}:r6"`;
+  assert.equal(isValidOwnTransition(1, { projectId: 1, beforeRevision: identity, revision: next }), true);
+  assert.equal(isValidOwnTransition(1, { projectId: 1, beforeRevision: identity, revision: other }), false);
+  assert.equal(isValidOwnTransition(2, { projectId: 2, beforeRevision: identity, revision: next }), false);
+  assert.equal(isValidOwnTransition(1, { projectId: 1, beforeRevision: identity, revision: identity }), false);
+  assert.equal(isValidOwnTransition(1, { projectId: 1, beforeRevision: identity, revision: null }), false);
+  assert.equal(isValidOwnTransition(1, null), false);
+  const chain = createOwnDesignChain();
+  assert.equal(recordOwnTransition(chain, 1, { projectId: 1, beforeRevision: identity, revision: next }), true);
+  assert.equal(chain.reaches(identity, next), true);
+  assert.equal(recordOwnTransition(chain, 1, { projectId: 1, beforeRevision: identity, revision: other }), false);
+  assert.equal(chain.reaches(identity, other), false);
+});
+
+test('a coherent candidate installs only at the exact acknowledged tag reachable from the host tag', () => {
+  const chain = createOwnDesignChain();
+  chain.record('"r1"', '"r2"');
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r1"', candidateRevision: '"r2"' }), true);
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r1"', candidateRevision: '"r3"' }), false);
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r0"', candidateRevision: '"r2"' }), false);
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r2"', candidateRevision: '"r2"' }), true);
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r2"', candidateRevision: null }), false);
+  chain.record('"r3"', '"r9"');
+  assert.equal(provenOwnCandidate(chain, { fromRevision: '"r1"', candidateRevision: '"r9"' }), false);
 });

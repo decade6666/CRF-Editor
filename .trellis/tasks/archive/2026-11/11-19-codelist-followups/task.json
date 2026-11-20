@@ -1,0 +1,42 @@
+{
+  "id": "codelist-followups",
+  "name": "codelist-followups",
+  "title": "字典快捷新增后的跨页签刷新与结果反馈",
+  "description": "修复字典快捷新增后的选项页局部刷新，以及字段库和设计器中的已创建但刷新失败反馈；按已审阅计划由 Sonnet 实施、Fable 独立审查，单位弹窗继续延期。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "decade",
+  "assignee": "decade",
+  "createdAt": "2026-11-19",
+  "completedAt": "2026-11-20",
+  "branch": "docs/codelist-followups-plan",
+  "base_branch": "main",
+  "worktree_path": "/home/decade/CRF-Editor/.claude/worktrees/codelist-followups-plan",
+  "commit": "95ca29322ce86d80b65ebab87a5b1de20f63fe3a",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/App.vue",
+    "frontend/src/components/CodelistsTab.vue",
+    "frontend/src/components/CodelistQuickEditDialog.vue",
+    "frontend/src/components/FieldsTab.vue",
+    "frontend/tests/component/CodelistsTabBehavior.spec.js",
+    "frontend/tests/component/AppWorkspaceBehavior.spec.js",
+    "frontend/tests/component/CodelistQuickEditDialog.spec.js",
+    "frontend/tests/component/FieldsTabTransitionBranches.spec.js",
+    "frontend/src/components/FormDesignerTab.vue",
+    "frontend/tests/component/CoreEditorConflict.spec.js",
+    "frontend/tests/fieldsTabCodelistQuickEdit.test.js",
+    "frontend/tests/component/DeferredResponseIdentity.spec.js",
+    ".trellis/spec/guides/cross-stack-contracts.md"
+  ],
+  "notes": "2026-11-19 records-only continuation requested by user. CL-1 mounted options-tab reactivation refresh and CL-2 committed codelist creation versus failed refresh are pending requirements; UNIT-DEFERRED is LOW and explicitly not approved for implementation. Created with --no-start, remains planning and has no parent/children. Evidence was inspected in the sibling edit-conflict-followups-plan worktree; its accepted 48-file source/test inventory is now commit 215a744e67b9b5f4d3c34cbce5ff14066e537a53, with supporting commits ff0d9c0/5eca89a/8b559fc. This branch still starts at main 2549ec69d39a69b9ad8841c35c60f1554d82cc9a and does not contain those repairs; main remains unmerged. Task creation itself supplied no product/test-write, runtime-validation, private-data, commit/merge/push/deploy or cleanup permission. The user subsequently confirmed the five-batch record/work commits and old-task archive/journal, not implementation of this new task. PRD is backlog-only, not an execution-ready design. Reconcile source-task commits and obtain future implementation approval before start. CURRENT CONTINUATION SUPERSEDES THOSE CREATION-TIME LIMITS: user reviewed the completed artifacts, explicitly invoked trellis-relay for Sonnet implementation and Fable review, approved current A, task-only baseline integration including necessary merge commit, npm ci, isolated test signing material/databases/accounts without disclosure, and existing pytest-fixture self-cleanup only. Merge 23dfa7ff32f0e411a5dca44bb44eb2082244969e now contains source 3cddd4f / accepted 215a744 and specs 5eca89a; main stays 2549ec6. Scope is five source/up to seven existing tests, UNIT-DEFERRED excluded. The seventh test path is a later formal user-approved one-case exception: only DeferredResponseIdentity.spec.js R2a fallback-read/auth-departure case and necessary adjacent comments may synchronize the approved deferred-notice timing while preserving/strengthening four-read/auth/no-late-install/no-rebind/single-POST checks; every other case remains read-only. A independently reproduced two introduced implementation blockers (cross-session commitment overwrite allowing POST3; batched list ticket accepting same-tick departed reads); actual repair count and lifecycle are owned by relay-state.md. Activate before native dispatch; exact ownership/progress, unresolved dependency audit findings, model-resolution limits and new logical 0/2 fix counter are owned by implement.md and relay-state.md. No other commits, main merge/push/deploy or general cleanup authorized. CURRENT CLOSEOUT SUPERSEDES THE COMMIT/ARCHIVE LIMIT ONLY: on2026-11-20 the user explicitly requested commits then closeout and formally confirmed the four-batch Phase3.4 plan (product, records, archive, journal). Product commit95ca29322ce86d80b65ebab87a5b1de20f63fe3a is complete; records/archival/journal follow on this task branch only. A's22 gates, final read-only R PASS and15 isolated browser cases pass with disclosed limits; original repairs2/2 +S1/S2/S3 are not reset. No additional product repair, main merge/push/deploy, process stop or general cleanup/branch/worktree removal is authorized.",
+  "meta": {
+    "source_task": "11-16-edit-conflict-followups"
+  }
+}
