@@ -84,7 +84,7 @@ After A independently reproduced a collision between the approved deferred-feedb
 
 ## Acceptance Criteria — Verified with Explicit Limits
 
-Checked items refer to the concrete component/source/API witnesses, actual A command logs, final read-only review and15 named isolated real-browser cases, not exhaustive interleaving or geometry proof. Nonblocking witness gaps/pre-existing cross-target risk and browser NOT RUN permutations remain disclosed; task status stays in_progress pending separately authorized closeout.
+Checked items refer to the concrete component/source/API witnesses, actual A command logs, final read-only review and15 named isolated real-browser cases, not exhaustive interleaving or geometry proof. Nonblocking witness gaps/pre-existing cross-target risk and browser NOT RUN permutations remain disclosed; this task is archived as completed on2026-11-20 on its unmerged task branch. Journal bookkeeping is recorded separately.
 
 - [x] **CL-1a:** a real mounted consumer shows the new dictionary after options → fields quick add → options, plus an App-host visibility-wiring witness. Mocked workspace tabs alone are not cross-component proof.
 - [x] **CL-1b:** initial activation loads once; return refresh retains a still-existing current selection and rejects stale/superseded project/auth/disposal results. Current read failure retains the old visible data.
