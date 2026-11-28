@@ -1,4 +1,12 @@
-# C2 Checkpoint — 2026-11-28, Native/Public/Windowed Render Verified
+# C2 Final Archive Handoff — 2026-11-28
+
+## Final Disposition / Explicit Authority
+
+Implementation, bounded acceptance and both final independent static reviews are complete. The human subsequently selected archive C2 plus journal/commits/local merge/main push, then approved preserving the remote0.8.0 release through normal merge28039a9 (parents e7e0a3a/e32739f). Only two frontend package/lock version manifests changed; dependencies/scripts and all51 reviewed C2 project files remain identical. Fresh0.8.0 checks:354 C2 backend PASS/107 warnings,1129 node/1022 component PASS, lint0 errors/2826 warnings, task-worktree build PASS.
+
+The approved destination is `.trellis/tasks/archive/2026-11/11-15-design-baselines/`; the archive CLI's task.json is authoritative for completed status/date. Archive and journal are separately committed with the existing gates, then main is fast-forwarded and pushed normally to the unique confirmed origin. Actual final tips/remote outcome are recorded after execution in `<A>/finish-final-receipt.json`, not predicted here. The12 original task/journal files are backed up with hashes in `<A>/finish-backup-receipt.json`. Source worktree `/home/decade/crf-editor-c2`, task branch and all evidence stay retained; no deployment, main runtime build, service/8888, real app configuration/data/uploads/credentials, next task or removal is authorized. Original C4 AC2 and transferred/deferred boundaries remain unchanged.
+
+All earlier in_progress/no-archive/no-push and Git-preparation sections below are dated stage records, superseded only by these explicit closure choices. Original full coverage/native/package/static-review limits remain; no fresh browser/native/full-coverage run is inferred. The first post-merge checker incorrectly demanded33 ignored package assets in main; corrected proof verifies113 tracked native inputs in main plus all146 frozen inputs in the retained native stage, without copying/deploying artifacts.
 
 ## Authority / Workspace
 

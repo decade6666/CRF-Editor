@@ -1,4 +1,6 @@
-# C2 Execution Plan — In Progress, Authorized 2026-11-20
+# C2 Execution Plan — Completed Delivery, Explicit Closure Approved 2026-11-28
+
+Final disposition: the human explicitly approved C2 archive/journal commits, local merge and normal main push, then normal integration of the version-only published0.8.0 release. Merge28039a9 preserves both histories; fresh354 C2 backend,1129 node/1022 component, lint0 errors/2826 warnings and task-worktree build pass. The archive CLI task.json owns completed status/date at archive/2026-11/11-15-design-baselines; earlier checkpoints below are historical stage records, not current in_progress/no-archive instructions. Final observed Git/remote IDs live in the external finish-final-receipt.json after execution. No deployment, main runtime build/service, next task or worktree/branch/evidence removal. Detailed command/backup/provenance boundaries are in verification.md.
 
 ## Current Checkpoint — 2026-11-28
 

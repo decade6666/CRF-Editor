@@ -1,5 +1,7 @@
 # C2 — Administrator Formal Archives and Shared Frozen Rendering
 
+> Final disposition2026-11-28: implementation and scoped verification/review are delivered; the human explicitly approves C2-only archive/journal commits, local merge and normal main push after preserving the remote0.8.0 release. Archived task.json is authoritative for completed status/date. Earlier in_progress/local-only permission notes record their then-stage boundaries; no next child, deployment or resource removal is included. Evidence: verification.md/current-checkpoint.md.
+
 ## Goal / Allocation
 
 Own R1/R3 and formal portions of R9/R10/R16; inherit R7/R8, F1/F2/F5/F7/F9/F10/F12. D8 makes all capture/history/download/delete admin-only, while ordinary owner editing/Word export remains unchanged. C2-only implementation was explicitly authorized on2026-11-20 after the scoped prerequisite decision and technical-choice review below; parent product requirements remain authoritative.

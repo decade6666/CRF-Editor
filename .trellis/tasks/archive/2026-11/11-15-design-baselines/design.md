@@ -40,6 +40,8 @@ Admin deletion requires explicit whole-pair loss warning. Standalone/manual arch
 
 All product full/user/project export copies strip artifact/baseline metadata and online state/triggers before VACUUM; source is unchanged. Existing import/clone allowlists must reject/ignore new private tables and file references, with fresh history in the target. C7 full-system backups deliberately retain private tables/histories/files through a distinct faithful capture; never use product-export stripping there. C8 owns whole recovery.
 
+> Final disposition2026-11-28: the human explicitly approves C2 archive/journal commits, local merge and normal main push after the verified version-only0.8.0 integration. Earlier in_progress/no-archive notes are historical; the archived task.json completed status/date is authoritative. No next child, deployment or branch/worktree/evidence removal is included.
+
 ## Implemented Areas and Remaining Acceptance
 
 The focused snapshot/render/storage/access/publication/state services, three private models/closed schema/dedicated admin router, init_db registration, minimal frozen-Logo export adapter/private launcher dispatch, product-private stripping, reserved purge callers and lazy third admin page are implemented. The authoritative executable contract is cross-stack §18; evidence/commands and limitations are in `verification.md` and `current-checkpoint.md`. Nullable form/option ordering mirrors the existing Word path without rewriting snapshot values; the C2 preview alone releases the shared responsive max-width cap so narrow hosts scroll full-size paper.
