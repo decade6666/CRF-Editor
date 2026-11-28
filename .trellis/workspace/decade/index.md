@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 40
-- **Last Active**: 2026-11-20
+- **Total Sessions**: 41
+- **Last Active**: 2026-11-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1530 | Active |
+| `journal-1.md` | ~1569 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 41 | 2026-11-28 | 管理员正式留档与冻结渲染验收收尾 | `6a9be80`, `e7e0a3a` | `task/crf-c2` |
 | 40 | 2026-11-20 | 字典快捷新增刷新与会话保护验收收尾 | `95ca293`, `7076d2e` | `docs/codelist-followups-plan` |
 | 39 | 2026-11-19 | 冲突保护遗留任务提交归档与问题转移 | `215a744`, `ff0d9c0`, `5eca89a`, `8b559fc`, `68cf1e3` | `docs/edit-conflict-followups-plan` |
 | 38 | 2026-11-16 | C4冲突保护提交收尾与遗留问题登记 | `b6c4a8f`, `9f8c933`, `4f2a51e` | `task/crf-c4` |
