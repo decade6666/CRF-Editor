@@ -36,7 +36,7 @@ from src.routers import (
     organization_presets,
     template_fields,
 )
-from src.routers import agent_access, agent_tools
+from src.routers import agent_access, agent_tools, design_baselines
 
 from src.routers.auth import router as auth_router
 
@@ -202,6 +202,7 @@ app.include_router(template_fields.router, prefix="/api")
 app.include_router(import_docx.router, prefix="/api")
 
 app.include_router(admin_router, prefix="/api")
+app.include_router(design_baselines.router, prefix="/api")
 app.include_router(organization_presets.router, prefix="/api")
 
 app.include_router(agent_access.router, prefix="/api")

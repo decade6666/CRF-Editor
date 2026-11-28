@@ -977,6 +977,10 @@ def init_db():
 
     initialize_design_state(engine)
 
+    from src.services.design_baseline_state_service import initialize_design_baselines
+
+    initialize_design_baselines(engine)
+
 
 def get_session():
     """写操作 Session：开启事务，确保原子性（POST/PUT/DELETE 使用）"""

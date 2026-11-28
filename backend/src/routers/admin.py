@@ -176,7 +176,8 @@ def hard_delete_project(
 ):
     """彻底删除项目。"""
     from src.services.logo_storage_service import PROJECT_NAMESPACE, delete_file
-    from src.services.project_purge_service import purge_project
+    from src.services.project_purge_service import purge_project, reserve_project_history_purge
+    from src.services.design_snapshot_service import SnapshotError
 
     project = session.get(Project, project_id)
     if not project:
@@ -184,11 +185,17 @@ def hard_delete_project(
     if project.deleted_at is None:
         raise HTTPException(400, "仅可彻底删除回收站中的项目")
 
-    # 裸 Session：先提交数据库删除，成功后才删 Logo 文件（统一走 logo 存储策略）
-    logo_rel = purge_project(session, project)
-    session.commit()
-    if logo_rel:
-        delete_file(PROJECT_NAMESPACE, logo_rel)
+    # Reserve active history first; DB commit must succeed before any file cleanup.
+    try:
+        with reserve_project_history_purge(session, project_id, get_config()) as history_files:
+            logo_rel = purge_project(session, project)
+            session.commit()
+            history_files.cleanup_after_commit()
+            if logo_rel:
+                delete_file(PROJECT_NAMESPACE, logo_rel)
+    except SnapshotError as exc:
+        session.rollback()
+        raise HTTPException(exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
 
 @router.post("/admin/projects/batch-copy")

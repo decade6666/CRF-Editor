@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from src.config import DAYS_PER_MONTH, DAYS_PER_YEAR, RecycleBinConfig, get_config
 from src.models.project import Project
 from src.services.logo_storage_service import PROJECT_NAMESPACE, delete_file
-from src.services.project_purge_service import purge_project
+from src.services.project_purge_service import purge_project, reserve_project_history_purge
 from src.services.project_size_service import estimate_project_sizes, format_bytes
 
 logger = logging.getLogger(__name__)
@@ -198,11 +198,13 @@ def run_recycle_bin_cleanup(
             continue
         size = sizes.get(pid, 0)
         try:
-            logo_rel = purge_project(session, project)
-            session.commit()
-            # 提交成功后才删文件：提交失败会走 except 回滚，文件仍留在原地
-            if logo_rel:
-                delete_file(PROJECT_NAMESPACE, logo_rel)
+            with reserve_project_history_purge(session, pid, get_config()) as history_files:
+                logo_rel = purge_project(session, project)
+                session.commit()
+                # DB failure leaves originals/Logo intact; cleanup failure is observable.
+                history_files.cleanup_after_commit()
+                if logo_rel:
+                    delete_file(PROJECT_NAMESPACE, logo_rel)
             purged += 1
             freed += size
             if pid in plan.age_ids:

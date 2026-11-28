@@ -1,6 +1,6 @@
 # CRF Editor -- Project AI Context
 
-> Last updated: 2026-11-19
+> Last updated: 2026-11-28
 > Keep the root-level document concise; implementation details should go into module-level documents first.
 
 ## Project Overview
@@ -45,7 +45,7 @@ graph TD
 - Drag ordering plus ordinal quick edit for ordered frontend lists such as dictionaries, options, units, fields, visits, visit-form relations, and designer form lists
 - User authentication, admin user management, project isolation, self-service password change for regular users
 - Admin recycle bin with estimated-size display, configurable age/size auto-cleanup policy, preview-before-save dry-run, and an in-process background cleanup loop
-- Admin workspace with top-level 用户管理 / 机构管理 dual entries; org presets are maintained in-page (persistent list + right editor, stacked on narrow screens) with immediate Logo thumbnails and built-in click-to-zoom preview
+- Admin workspace with top-level 用户管理 / 机构管理 / 备份与留档 entries; existing user/org page retention is unchanged. Formal archives freeze persisted design/layout/Logo and retain verified eCRF+aCRF original bytes, through dedicated current-admin routes without ordinary editor access. Private history is excluded from product exchange; manual history is not auto-evicted. Cross-stack §18 owns the boundary; Windows formal rendering uses creation-time Job containment after native/public-parent/no-console private-entry verification, with501 for missing capability and a visible Word TOC-update fallback. This is not full desktop GUI/Word/WPS/macOS acceptance.
 - Basic / complete editing modes (基础 / 完全); in full mode, advanced identifiers such as OID / variable names are maintained uniformly, and both the form designer preview and the visits form preview can switch between eCRF / aCRF annotation views; newly authored / manually edited form / field / codelist / unit / visit OIDs are uppercased automatically at entry and at backend write branches (ASCII only; legacy, imported, snapshot-restored identifiers and option codes keep their original casing; field copies mint uppercase `_COPY`-suffixed OIDs); 赛美斯 projects cap manually edited field OIDs at 8 and form OIDs at 10 characters on save, and the OID inputs enforce the caps at entry time via a conditional maxlength (automatic defaults and untouched existing values remain exempt)
 - Template library `.db` import, project `.db` import / full-database merge, Word `.docx` import comparison with screenshot evidence panel and a deterministic parsed-field "import effect" preview
 - Read-only 模板字段查询 (template field search) dialog in complete edit mode: a non-modal draggable window cross-references template-library fields by OID / label / source-form OID (`GET /api/template-fields`, excludes 标签 fields / log rows / soft-deleted projects; four-group ranking field-strong > form-OID-strong > field-fuzzy > form-OID-fuzzy over the shared fuzzy rules; inline read-only multi-line source cells `form OID + form name` with 仅字段库 fallback, never copy targets; click-cell-to-copy elsewhere)
@@ -134,6 +134,7 @@ sudo bash deploy/install-service.sh uninstall
 - §16 Agent tool boundary — `backend/src/routers/agent_access.py`, `agent_tools.py`, the `agent_*_service.py` chain, `schemas/agent_tools.py` (ten closed DTOs + manifest registry) ↔ `agent_bridge/` (stdio adapter: allowlist, bounded 1 MiB responses, remote HTTPS / explicit loopback-only HTTP, no auto retries) + `frontend/src/composables/useAgentAccess.js`, `frontend/src/components/AgentAccessDialog.vue` (owner credential issuance / change approval). Agent tables are export-stripped private state (§11-adjacent: `AGENT_PRIVATE_TABLES`).
 
 - §17 Browser design-revision preconditions — `backend/src/design_dependencies.py`, `design_revision_service.py`, startup/export/profile chain ↔ `useApi.js`, editor/conflict/history/annotation hosts; includes the concrete nineteen-endpoint matrix and C6 atomic restoration handoff without an Agent wire change.
+- §18 Administrator formal archives / frozen rendering — `design_snapshot_service.py`, `frozen_render_service.py`, `design_baseline_*` models/services/router/schema, config/exchange/purge ↔ `DesignBaselinesView.vue`, `DesignBaselinePreview.vue`, `useDesignBaselines.js`, `designBaselinePreview.js`, optional useApi original/confirmed-delete responses.
 
 ## Testing Strategy
 - Backend tests use `pytest`, covering authentication, permissions, import/export, ordering, column width planning, WAL, security response headers, project isolation, batch-delete isolation, performance FK indexes, Docx screenshot failure semantics, Word table parity, weekly release logic/Git transactions/workflow wiring (`test_weekly_release*.py`), and other cases.

@@ -182,9 +182,30 @@ def main():
     icon.run()
 
 
+def dispatch_entrypoint(argv: list[str] | None = None) -> int:
+    """Dispatch the private frozen-render worker before any ordinary app startup."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "--crf-frozen-render-internal":
+        if len(arguments) != 2:
+            return 2
+        base = str(get_base_dir())
+        if base not in sys.path:
+            sys.path.insert(0, base)
+        try:
+            from src.services.frozen_render_service import worker_main
+
+            return worker_main(arguments[1])
+        except Exception:
+            # Private startup failures are nonzero child outcomes, never GUI startup
+            # or error.log/MessageBox paths. The parent reports BASELINE_RENDER_FAILED.
+            return 1
+    main()
+    return 0
+
+
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(dispatch_entrypoint())
 
     except Exception:
         log_path = get_exe_dir() / "error.log"

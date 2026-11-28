@@ -6,11 +6,43 @@ Logo 文件不在这里删：purge_project 只返回 Logo 相对文件名，调�
 
 from __future__ import annotations
 
-from typing import Optional
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator, Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.config import AppConfig
+from src.models.design_baseline import DesignBaseline
 from src.models.project import Project
+from src.services import design_baseline_storage_service as history_storage
+from src.services.design_baseline_state_service import project_history_removal
+
+
+@dataclass(frozen=True)
+class HistoryPurgeFiles:
+    root: Path | None
+    keys: tuple[str, ...]
+
+    def cleanup_after_commit(self) -> None:
+        if self.root is not None:
+            for key in self.keys:
+                history_storage.cleanup_published(self.root, key)
+
+
+@contextmanager
+def reserve_project_history_purge(session: Session, project_id: int, config: AppConfig) -> Iterator[HistoryPurgeFiles]:
+    """Reserve live history only, across DB deletion/commit/post-commit cleanup."""
+    with project_history_removal(project_id), ExitStack() as leases:
+        keys = tuple(
+            session.scalars(select(DesignBaseline.storage_key).where(DesignBaseline.project_id == project_id)).all()
+        )
+        root = history_storage.history_root(config) if keys else None
+        for key in keys:
+            leases.enter_context(history_storage.history_removal(root, key))
+        yield HistoryPurgeFiles(root, keys)
 
 
 def purge_project(session: Session, project: Project) -> Optional[str]:

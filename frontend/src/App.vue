@@ -52,6 +52,7 @@ const CodelistsTab = defineAsyncComponent(() => import('./components/CodelistsTa
 const UnitsTab = defineAsyncComponent(() => import('./components/UnitsTab.vue'));
 const TemplatePreviewDialog = defineAsyncComponent(() => import('./components/TemplatePreviewDialog.vue'));
 const TemplateFieldSearchDialog = defineAsyncComponent(() => import('./components/TemplateFieldSearchDialog.vue'));
+const DesignBaselinesView = defineAsyncComponent(() => import('./components/DesignBaselinesView.vue'));
 
 // 登录状态
 const isCheckingAuth = ref(!!localStorage.getItem('crf_token'));
@@ -111,7 +112,7 @@ function handleAuthExpired() {
 // 当前用户信息
 const currentUser = ref(getEmptyUser());
 const isAdmin = computed(() => currentUser.value.is_admin);
-const activeAdminPage = ref('users'); // users | orgs
+const activeAdminPage = ref('users'); // users | orgs | archives
 
 async function loadMe() {
   try {
@@ -779,11 +780,13 @@ function startResize(e) {
         <el-radio-group v-model="activeAdminPage" size="small">
           <el-radio-button value="users">用户管理</el-radio-button>
           <el-radio-button value="orgs">机构管理</el-radio-button>
+          <el-radio-button value="archives">备份与留档</el-radio-button>
         </el-radio-group>
       </div>
       <KeepAlive>
         <AdminView v-if="activeAdminPage === 'users'" @logout="logout" />
-        <OrganizationManagementView v-else />
+        <OrganizationManagementView v-else-if="activeAdminPage === 'orgs'" />
+        <DesignBaselinesView v-else />
       </KeepAlive>
     </div>
   </template>

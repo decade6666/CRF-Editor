@@ -12,8 +12,9 @@ import math
 import os
 
 from pathlib import Path
+from io import BytesIO
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import html
 
@@ -154,9 +155,17 @@ class ExportService:
     # 保证 Word 预览与导出文档的纵向选项间距一致。
     VERTICAL_OPTION_GAP_PT = 3
 
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        *,
+        logo_resolver: Callable[[Project], bytes | None] | None = None,
+        document_saver: Callable[[Any, str], None] | None = None,
+    ) -> None:
 
         self.session = session
+        self._logo_resolver = logo_resolver
+        self._document_saver = document_saver
 
         self.project_repo = ProjectRepository(session)
 
@@ -172,6 +181,12 @@ class ExportService:
         self._annotation_docpr_counter: int = 0
         self._column_width_overrides: Dict[Any, Any] = {}
         self._current_annotation_offsets: Dict[str, int] = {}
+
+    def _save_document(self, document: Any, output_path: str) -> None:
+        if self._document_saver is None:
+            document.save(output_path)
+        else:
+            self._document_saver(document, output_path)
 
     def _apply_exact_line_spacing(self, paragraph: Any) -> None:
         """将单元格段落行距固定到 Word 网格单行高度。"""
@@ -379,7 +394,7 @@ class ExportService:
 
             # 保存文档
 
-            doc.save(output_path)
+            self._save_document(doc, output_path)
 
             # 服务器侧用 LibreOffice 渲染算出真实页码写回目录（失败自动回退）
 
@@ -580,19 +595,18 @@ class ExportService:
 
         p.paragraph_format.line_spacing = 1.0
 
-        if project.company_logo_path:
+        if self._logo_resolver is not None:
+            logo = self._logo_resolver(project)
+            if logo is not None:
+                self._add_header_logo(p, BytesIO(logo))
+        elif project.company_logo_path:
             from src.config import get_config
 
             logo_path = Path(get_config().upload_path) / "logos" / project.company_logo_path
 
             if logo_path.exists():
                 try:
-                    run_img = p.add_run()
-
-                    picture = run_img.add_picture(str(logo_path), height=Inches(0.4))
-
-                    self._make_picture_float(picture)
-
+                    self._add_header_logo(p, str(logo_path))
                 except Exception:
                     pass
 
@@ -614,6 +628,10 @@ class ExportService:
             run = p.add_run(f"版本号/日期：{'/'.join(version_parts)}")
 
             self._set_run_font(run, size=Pt(9))
+
+    def _add_header_logo(self, paragraph: Any, source: Any) -> None:
+        picture = paragraph.add_run().add_picture(source, height=Inches(0.4))
+        self._make_picture_float(picture)
 
     def _apply_footer_to_section(self, section):
         """为指定 section 设置页脚。"""
@@ -1332,7 +1350,7 @@ class ExportService:
             )
 
         if updated:
-            doc.save(output_path)
+            self._save_document(doc, output_path)
 
     def _add_visit_flow_diagram(self, doc: Document, project: Project):
         """添加访视流程图"""
@@ -1724,7 +1742,8 @@ class ExportService:
 
         return None
 
-    def _build_table_instance_id(self, table_kind: str, fields) -> str:
+    @staticmethod
+    def _build_table_instance_id(table_kind: str, fields) -> str:
         """根据表格类型和字段列表构建 table_instance_id。
 
         Args:
@@ -1814,7 +1833,8 @@ class ExportService:
 
         return new_section
 
-    def _group_form_fields(self, form_fields):
+    @staticmethod
+    def _group_form_fields(form_fields):
         """按连续普通字段组与 inline 组拆分，保持 order_index 渲染顺序。"""
 
         if not form_fields:

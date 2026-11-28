@@ -24,6 +24,7 @@ def test_should_resolve_runtime_paths_under_test_root(test_root: Path) -> None:
     runtime_paths = {
         "db_path": Path(load_config().db_path),
         "upload_path": Path(load_config().upload_path),
+        "design_history_path": Path(load_config().design_history_path),
         "screenshot_base_dir": Path(DocxScreenshotService.BASE_DIR),
         "docx_import_temp_dir": Path(DocxImportService.TEMP_DIR),
     }

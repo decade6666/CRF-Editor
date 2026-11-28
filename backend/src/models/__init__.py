@@ -12,6 +12,7 @@ class Base(DeclarativeBase):
 from .codelist import CodeList, CodeListOption
 
 from .agent_access import AgentAuditEvent, AgentCredential, AgentOperation
+from .design_baseline import DesignBaseline, DesignBaselineArtifact, DesignBaselineCapture
 
 from .field import Field
 
@@ -40,6 +41,9 @@ __all__ = [
     "Base",
     "CodeList",
     "CodeListOption",
+    "DesignBaseline",
+    "DesignBaselineArtifact",
+    "DesignBaselineCapture",
     "Field",
     "FieldDefinition",
     "Form",

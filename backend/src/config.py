@@ -19,6 +19,7 @@ _ENV_DEFAULT = "development"
 _ENV_OVERRIDE_MAP = {
     "CRF_DATABASE_PATH": ("database", "path"),
     "CRF_STORAGE_UPLOAD_PATH": ("storage", "upload_path"),
+    "CRF_STORAGE_DESIGN_HISTORY_PATH": ("storage", "design_history_path"),
     "CRF_SERVER_HOST": ("server", "host"),
     "CRF_SERVER_PORT": ("server", "port"),
     "CRF_TEMPLATE_PATH": ("template", "template_path"),
@@ -97,6 +98,7 @@ class DatabaseConfig(BaseModel):
 
 class StorageConfig(BaseModel):
     upload_path: str = "./uploads"
+    design_history_path: str = ""
 
 
 class ServerConfig(BaseModel):
@@ -231,6 +233,13 @@ class AppConfig(BaseModel):
     def upload_path(self) -> str:
         """上传目录，相对路径基于 config.yaml 所在目录（backend/src/）解析"""
         return _resolve_path(self.storage.upload_path, _CONFIG_DIR)
+
+    @property
+    def design_history_path(self) -> str:
+        """Private archive root; preserve link components for storage validation."""
+        raw = self.storage.design_history_path
+        path = Path(raw) if raw else Path(self.db_path).parent / "design_history"
+        return os.path.abspath(_CONFIG_DIR / path)
 
     @property
     def template_path(self) -> str:

@@ -2,7 +2,7 @@
 
 # frontend Module Notes
 
-> Last updated: 2026-11-19
+> Last updated: 2026-11-21
 
 ## Module Responsibilities
 - Provide the Vue 3 single-page interface for the CRF editor.
@@ -67,6 +67,8 @@
 - `components/SimulatedCRFForm.vue`: simulated CRF rendering.
 - `App.vue` first fetches `/api/auth/me` after login, then decides whether to enter the admin workbench or regular-user main workbench; it also manages project copy, database import/export, the Word export dropdown (`导出eCRF` / `导出aCRF`), export rate limiting, settings dialog, dark mode switching, and regular-user password change. The Word-import wizard (dialog + deterministic import state machine) lives in `WordImportDialog.vue` / `useWordImport.js`; App keeps the `导入Word` entry, the visibility ref, and the `open-designer` handoff, and `resetSessionState()` closes the wizard.
 
+- `components/DesignBaselinesView.vue` / `DesignBaselinePreview.vue`, `composables/useDesignBaselines.js` / `designBaselinePreview.js`: lazy third admin page (`archives`, 备份与留档) in App's existing KeepAlive. Own project/history/request lifetimes and creation inputs; read-only frozen preview delegates to DesignerWordPreview/shared render/presentation/planners/geometry, with independent in-page weights and no designer localStorage or annotation writes. Requests and exact original download go through useApi; cross-stack §18 owns the API, privacy, precondition/replay, cancellation and Windows capability/TOC boundaries. `tests/component/DesignBaselinesView.spec.js` / `DesignBaselinePreview.spec.js` / `AppDesignBaselines.spec.js` and `tests/designBaselinePreview.test.js` / `useApiOriginals.test.js` cover the public behavior, including normal-fill callback/width parity, frozen aCRF/inline rendering and real useApi no-store original/confirmed-delete responses, not authenticated browser acceptance.
+
 ## Dependencies and Scripts
 - Tech stack: Vue 3, Vite, Element Plus, vuedraggable, sortablejs.
 - Test dependencies: `node:test`, self-developed lightweight property testing utility `tests/testProperty.js`; component mount tests use pinned devDependencies `vitest@5.0.3` + `@vue/test-utils@2.5.1` + `happy-dom@20.14.5` (configured by the standalone `vitest.config.js`, which does not inherit `vite.config.js`).
@@ -96,7 +98,7 @@
 - Form orientation (`paper_orientation`) should primarily use `selectedFormPaperOrientation` + `resolveLandscape`; first load migrates `localStorage['crf_forceLandscape']` once to per-form settings, and no longer relies on the old global switch after migration.
 - Frontend tests are concentrated in `frontend/tests/`, mainly covering the application shell, settings, import feedback, ordering, designer, field display, theme, sidebar, and port conventions.
 - Global Element Plus table headers uniformly use `--color-primary-subtle` fill, `--color-text-primary` text color, and center alignment; fixed column headers need to override the white-background fallback of `.el-table-fixed-column--left/right` and `.el-table__fixed-right-patch`. Selection-column body cells are the intentional exception to the default left-aligned body cells: because Element Plus uses a shrink-wrapped `inline-flex` cell, `main.css` must override it with `display: flex` plus `justify-content: center` and zero horizontal padding so header and body checkboxes share the same center. Option lists and the VisitsTab visit-form list should stay on bordered `el-table` headers instead of custom handwritten header rows so styling does not drift.
-- The admin workspace shell in `App.vue` uses `.admin-shell { width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: 20px; box-sizing: border-box; }` shared by the users and orgs pages; both page components are wrapped in one `<KeepAlive>` so switching pages does not re-mount / re-fetch / re-download logos. `.org-page` must keep the same `padding: 8px` as AdminView's `.admin-view`, so the two pages' content headers align at the same top position when switching. Do not add body-cell alignment overrides (`td`, `.cell`) under `.admin-shell`; body cells keep Element Plus default left alignment, while the shared header-centering contract remains owned by `tableHeaderStyle.test.js`. Project-list batch operations use a two-step dialog and the copy/move target select always excludes the source user.
+- The admin workspace shell in `App.vue` uses `.admin-shell { width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: 20px; box-sizing: border-box; }` shared by users, orgs and the lazy archive page in one `<KeepAlive>`. Users/orgs keep their retained data/Logo behavior; the archive host invalidates sensitive context on deactivation and rereads on activation. `.org-page` keeps the same `padding: 8px` as AdminView and the archive host. Do not add body-cell alignment overrides under `.admin-shell`; global header/selection contracts remain owned by `main.css`. Project batch copy/move target users still exclude the source user.
 
 ## Preview Column Widths (Content-Driven)
 - `useCRFRenderer.js` exposes `planInlineColumnFractions` / `planNormalColumnFractions` / `planUnifiedColumnFractions` as the unified planner entry points for the three table types.

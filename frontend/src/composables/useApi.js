@@ -176,6 +176,17 @@ function _metadataOptions(options = {}) {
 
 async function _readResponse(r, options = {}, { mutation = false } = {}) {
   try {
+    if (options.responseType === 'original') {
+      const sha256 = r.headers.get('X-CRF-Original-SHA256');
+      if (!/^[0-9a-f]{64}$/.test(sha256 || '')) {
+        throw _createHttpError('未收到原件校验信息，未下载文件', 500, 'BASELINE_INTEGRITY_FAILED');
+      }
+      const blob = await r.blob();
+      if (!blob.size || blob.size > 64 * 1024 * 1024) {
+        throw _createHttpError('原件大小无效，未下载文件', 500, 'BASELINE_INTEGRITY_FAILED');
+      }
+      return { blob, sha256 };
+    }
     const data = r.status === 204 ? null : await _safeJsonParse(r);
     if (!options.withMetadata) {
       // F1 过渡元数据：仅随响应原样取回前后标签；缺失/不完整是“无链边”的成功业务响应，
@@ -208,7 +219,10 @@ async function _readResponse(r, options = {}, { mutation = false } = {}) {
 export const api = {
   async get(url, options = {}) {
     const { sentToken, headers } = _buildRequestAuth();
-    const r = await fetch(apiUrl(url), { headers });
+    const r = await fetch(apiUrl(url), {
+      headers,
+      ...(options.responseType === 'original' ? { cache: 'no-store' } : {}),
+    });
     await _checkStatus(r, sentToken);
     return _readResponse(r, options);
   },
@@ -244,6 +258,9 @@ export const api = {
 
   getWithMetadata(url) {
     return api.get(url, { withMetadata: true });
+  },
+  getOriginal(url) {
+    return api.get(url, { responseType: 'original' });
   },
   cachedGetWithMetadata(url, ttl = 30000) {
     return api.cachedGet(url, ttl, { withMetadata: true });
@@ -305,11 +322,17 @@ export const api = {
     return _readResponse(r, options, { mutation: true });
   },
   async del(url, options = {}) {
-    const { sentToken, headers } = _buildRequestAuth(options.headers);
-    const r = await fetch(apiUrl(url), { method: 'DELETE', headers });
+    const hasData = Object.prototype.hasOwnProperty.call(options, 'data');
+    const { sentToken, headers } = _buildRequestAuth({
+      ...(hasData ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    });
+    const request = { method: 'DELETE', headers };
+    if (hasData) request.body = JSON.stringify(options.data);
+    const r = await fetch(apiUrl(url), request);
     await _checkStatus(r, sentToken);
     _autoInvalidate(url);
-    if (options.withMetadata) return _readResponse(r, options, { mutation: true });
+    if (options.withMetadata || options.withResponse) return _readResponse(r, options, { mutation: true });
   },
 };
 

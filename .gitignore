@@ -27,6 +27,7 @@ __pycache__/
 database/
 data/
 uploads/
+design_history/
 
 # ==========================================
 # 根级截图目录（仅忽略仓库根 /docs/）

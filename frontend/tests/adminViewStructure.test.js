@@ -8,7 +8,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const adminViewSource = readFileSync(path.resolve(currentDir, '../src/components/AdminView.vue'), 'utf8')
 const appSource = readFileSync(path.resolve(currentDir, '../src/App.vue'), 'utf8')
 
-test('App.vue admin branch exposes top-level users/orgs entry switch', () => {
+test('App.vue admin branch exposes top-level users/orgs/archives entry switch', () => {
   const adminBranch = appSource.match(/<template v-else-if="isAdmin">[\s\S]*?<\/template>/)?.[0] ?? ''
   assert.match(adminBranch, /用户管理/)
   assert.match(adminBranch, /机构管理/)
@@ -17,6 +17,7 @@ test('App.vue admin branch exposes top-level users/orgs entry switch', () => {
   assert.match(adminBranch, /activeAdminPage/)
   assert.match(adminBranch, /activeAdminPage === 'users'/)
   assert.match(adminBranch, /value="orgs"/)
+  assert.match(adminBranch, /value="archives">备份与留档/)
 })
 
 test('App.vue admin branch renders no dialog-form entry switch', () => {
@@ -28,11 +29,11 @@ test('App.vue caches admin pages while preserving the page switch and logout eve
   const adminBranch = appSource.match(/<template v-else-if="isAdmin">[\s\S]*?<\/template>/)?.[0] ?? ''
   assert.match(
     adminBranch,
-    /<KeepAlive>[\s\S]*?<AdminView v-if="activeAdminPage === 'users'" @logout="logout"\s*\/>[\s\S]*?<OrganizationManagementView v-else\s*\/>[\s\S]*?<\/KeepAlive>/
+    /<KeepAlive>[\s\S]*?<AdminView v-if="activeAdminPage === 'users'" @logout="logout"\s*\/>[\s\S]*?<OrganizationManagementView v-else-if="activeAdminPage === 'orgs'"\s*\/>[\s\S]*?<DesignBaselinesView v-else\s*\/>[\s\S]*?<\/KeepAlive>/
   )
 })
 
-test('App.vue admin branch uses one shared wide shell for both pages', () => {
+test('App.vue admin branch uses one shared wide shell for all admin pages', () => {
   assert.match(appSource, /\.admin-shell\s*\{[\s\S]*width:\s*100%[\s\S]*max-width:\s*1200px[\s\S]*margin-inline:\s*auto[\s\S]*\}/)
   assert.doesNotMatch(appSource, /\.admin-org-shell/)
   assert.doesNotMatch(appSource, /width:\s*50%/)
