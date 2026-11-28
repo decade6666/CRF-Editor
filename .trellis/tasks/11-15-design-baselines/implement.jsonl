@@ -1,3 +1,8 @@
-{"file": ".trellis/tasks/11-15-crf-versioned-delivery/prd.md", "reason": "Approved parent requirements, D1-D6 decisions and explicit implementation boundary"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Coherent capture, migration and DB/file lifecycle ordering"}
-{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Preserve export/parity/annotation/private Agent exchange contracts"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/prd.md", "reason": "Parent D8 product boundaries, admin-only histories, paired originals and exchange versus faithful recovery"}
+{"file": ".trellis/tasks/11-15-design-baselines/implementation-review.md", "reason": "User-approved private schema/root, admin host/API, service-internal renderer subprocess and finite safety budgets"}
+{"file": ".trellis/tasks/11-15-design-baselines/dependency-review.md", "reason": "Scoped C4 prerequisite decision, actual fresh coverage baselines, permissions and explicit not-run limits"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Read original coherent capture/migrations and commit-before-unlink ranges when injection truncates"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Current admin plus explicit other-owned resource scope without widening ordinary owner helpers"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Closed DTOs, pure services, frozen data and hermetic config/database/file test isolation"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Manually read original sections5/6/9/15/16/17 and C2 section18 beyond the injection cap; preserve rendering, OID annotation, legacy tables, Agent and nineteen-writer contracts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "useApi, existing Element Plus/UI/test conventions; no new runner, warning/clock/collection changes"}

@@ -63,6 +63,10 @@ Do **not** compare `deleted_at` to `datetime.now(timezone.utc)` or any aware dat
 def purge_project(session: Session, project: Project) -> Optional[str]: ...
 #   delete + flush only; touches no files; returns the Logo relative file name (None when unset)
 
+def reserve_project_history_purge(session, project_id, config): ...
+#   context manager -> HistoryPurgeFiles; hold across DB deletion/commit/file cleanup
+#   authoritative history schema/storage/lease contract: cross-stack-contracts.md §18
+
 # backend/src/services/logo_storage_service.py  (the single Logo file policy, shared with org presets)
 def delete_file(namespace: str, rel_name: str) -> bool: ...
 #   safe_resolve (rejects absolute / traversal / nested / backslash names) + unlink;
@@ -75,7 +79,7 @@ def get_plain_session():  # 裸 Session，供需要显式提交的服务使用
 
 #### 3. Contracts
 
-- Per-project order is fixed: re-check `deleted_at IS NOT NULL` → `logo_rel = purge_project(session, project)` → `session.commit()` → `if logo_rel: delete_file(PROJECT_NAMESPACE, logo_rel)`.
+- Per-project order is fixed: re-check `deleted_at IS NOT NULL` → enter `reserve_project_history_purge(session, project.id, config)` → `logo_rel = purge_project(session, project)` → `session.commit()` → `history_files.cleanup_after_commit()` → `if logo_rel: delete_file(PROJECT_NAMESPACE, logo_rel)`. Keep the reservation through the cleanup; active history readers/captures block final purge. Formal-history file boundaries and product/full-set distinctions are owned by [cross-stack contract §18](../guides/cross-stack-contracts.md#18-administrator-formal-archives-and-frozen-rendering).
 - `purge_project()` must not unlink: it returns the relative name so the caller can compensate after the commit. File removal goes through `logo_storage_service.delete_file` — the one Logo deletion policy shared with `project_profile_service` / `organization_preset_service` (path validation, `PROJECT_NAMESPACE`, warning-only failures). Do not introduce a second bespoke Logo-unlink helper.
 - Failure scope: a failed DB delete / `commit()` rolls back — the project stays in the recycle bin and the Logo file is still in place, because it is deleted strictly after the commit. An error after a successful commit cannot roll that commit back; the worst residual state there is an orphan file, which is acceptable.
 - `routers/admin.py::hard_delete_project` depends on `get_plain_session`, not `get_session`, because it must commit explicitly before unlinking (the same shape as the other composite-write services). A `get_session` request opens an outer `session.begin()`, and calling `commit()` inside it makes any later session use raise `InvalidRequestError` (see the `get_plain_session` docstring in `database.py`). The 404 (project missing) / 400 (not in the recycle bin) guards run before any write.
@@ -123,10 +127,12 @@ session.commit()
 **Correct**
 
 ```python
-logo_rel = purge_project(session, project)    # delete + flush, returns the rel name
-session.commit()                              # DB row is now the source of truth
-if logo_rel:
-    delete_file(PROJECT_NAMESPACE, logo_rel)  # commit-success compensation
+with reserve_project_history_purge(session, project.id, config) as history_files:
+    logo_rel = purge_project(session, project)  # delete + flush, returns the rel name
+    session.commit()                            # DB row is now the source of truth
+    history_files.cleanup_after_commit()        # explicit local originals only
+    if logo_rel:
+        delete_file(PROJECT_NAMESPACE, logo_rel)  # existing safe Logo policy
 ```
 
 ### Write Operations (with transaction)

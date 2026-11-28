@@ -1445,6 +1445,106 @@ const canAdopt = isCurrent()
 
 ---
 
+### 18. Administrator Formal Archives and Frozen Rendering
+
+#### 1. Scope / Trigger
+
+Any change to persisted-design capture/codec, formal original generation, archive metadata/files, administrator archive UI/API, product exchange or final project purge must keep this boundary synchronized. C2 implements standalone formal pairs and shared pure adapters, not C3 comparison, C6 project restore/quick scheduling, C7 full-system packaging/retention or C8 recovery. Manual history has no automatic eviction. A product `.db` exchange is not a faithful system backup.
+
+#### 2. Signatures
+
+- `design_snapshot_service.py`: `capture_project_design(Session, project_id) -> FrozenProjectDesign(payload_json, content_hash)`, `decode_project_design(payload_json)`, `assert_formal_renderable(snapshot)`, `describe_history(kind, origin, storage_source, artifact_kinds=())`.
+- `frozen_render_service.py`: `freeze_render_input(design, column_widths=None, logo=None) -> FrozenRenderInput`; `render_frozen_pair(inputs, output_directory, *, bake_toc=True) -> tuple[OriginalArtifact, OriginalArtifact]`; fixed artifact kinds `ecrf|acrf`, fields `kind/byte_count/sha256`. The in-process engine/materializer is disposable rendering, never a live restore/import entry.
+- Internal adapters: `ExportService(session, *, logo_resolver=None, document_saver=None)` keeps ordinary defaults; C2 supplies the bounded saver for both initial and TOC-update saves. `frozen_render_windows.py` owns `worker_standard_streams()` and the lazy `windows_worker_process(command, *, cwd, env)` factory. Its `frozen_render_windows_process.py` context manager owns creation-time JOB_LIST/HANDLE_LIST binding, returned-thread resume, bounded communication and native teardown. The old `windows_worker_job(process)` is isolated post-create prototype code, never a production launch path. These adapters are not public commands, storage/auth schemes or a platform-support declaration.
+- Private online tables: `design_baseline` (completed immutable payload/provenance/layout/hashes/storage identity), `design_baseline_artifact` (two fixed-kind deferred-FK indexes), `design_baseline_capture` (unique project/actor/request binding, input digest, pending/failed/completed/deleted state). `init_db()` installs guards via `initialize_design_baselines`; external/import render contexts never do. `HISTORY_PRIVATE_TABLES` is the product-export stripping inventory.
+- Browser routes under `/api/admin/projects/{project_id}/design-baselines`: `GET|POST /`; `GET /capture-context`; `GET /requests/{request_id}`; `GET|DELETE /{baseline_id}`; `GET /{baseline_id}/originals/{kind}`. Project selection uses `GET /api/admin/design-baseline-projects`.
+- `POST` closed body: `{request_id: lowerHex32, label: string(1..100), remark?: string(0..2000), column_widths?: object, retry?: strictBoolean}` plus exact `If-Match` from capture-context. `DELETE` closed body: `{confirm_pair_loss: true}` with literal boolean validation, not numeric1/string truthiness. Lists use `limit=20` default/max100 and nonnegative offset (project selector explicitly requests100).
+- Frontend: lazy `DesignBaselinesView` in App's admin KeepAlive; `useDesignBaselines(active)` owns each host's state/tickets; `DesignBaselinePreview` delegates to the shared Word preview and pure frozen-graph adapters. `api.getOriginal(url)` uses the existing authenticated GET boundary and returns `{blob, sha256}` without cache. `api.del(url, {data, withResponse:true})` is opt-in JSON deletion; legacy deletion return/request semantics stay unchanged.
+
+#### 3. Contracts
+
+**Archive lease admission:** Run browser/admin preflight authentication under a physical read `BEGIN` before any user SELECT, then discard that snapshot with rollback. Only after acquiring project access/removal protection may a fresh `BEGIN`/`BEGIN IMMEDIATE` establish the current authorization, active-project and history snapshot; release its transaction before releasing protection. Preflight preserves401/403 before disclosing busy state. Never carry its snapshot across lease admission: a deletion committed in the gap must be observed as404, not stale metadata followed by missing-file500; role/auth-version/recycle changes in the gap must also be rechecked. This refines the following coherent-snapshot rule without changing ordinary owner or Agent gates.
+
+1. Within one real short SQLite snapshot, establish `BEGIN`/`BEGIN IMMEDIATE` **before** current browser-JWT/admin/project authorization and revision/graph reads. No owner-helper broadening or nineteenth-writer/Agent wire change. Target must be active and each resource must belong to that exact project. Every read, replay, download and delete repeats current authorization.
+2. Canonical schema1 includes explicit design columns from project plus all nine dependent tables, including unplaced libraries and registered legacy `field` rows. Preserve source IDs, case, nulls, order and persisted annotations; no authoring validators, autoflush, repair or runtime account/control rows. Model-column classification drift fails visibly. Nonempty legacy `field` is represented but currently refused for formal rendering, never silently dropped.
+3. Freeze actual bitmap bytes with bounded reads/link/file-identity checks, plus explicit independently authored layout matching actual table identities/counts. Design/reference, actual asset, layout and original checksums are distinct. Capture-context pairs its snapshot with `source_revision` in body and `X-CRF-Design-Revision`; the host refuses mismatched envelopes. It cannot flush another browser's drafts/annotations or inherit designer localStorage. Browser-only row heights are not Word inputs.
+4. Commit pending identity and release the live writer transaction before real sequential eCRF/aCRF rendering from one frozen input in an internal standard-library subprocess. No app/bootstrap/live config swap or durable queue. Reauthorize current token/admin/active project before completed DB publication; project incarnation must match, but ordinary later design writes do not invalidate frozen originals. Both files must validate before a completed immutable row can exist; original index insertion uses deferred FK before the guarded parent insert.
+5. Bind request ID to project, current actor and canonical label/remark/layout/source revision. Identical completed replay returns the same record even after design edits; changed input conflicts. Pending/failed work requires explicit retry; active same-request work refuses overlap. Deleted identities remain tombstoned, never recreate. A lost/unknown commit outcome retains possibly committed files and requires status lookup, not automatic retry or guessed cleanup.
+6. Downloads use retained bytes with exact indexed size/SHA-256 and safe fixed filenames; missing/corrupt/shared/linked files fail instead of rendering replacements. All dedicated route successes and handled errors are no-store; no raw paths, request values, tokens or private file identity in public DTOs. Immutable creation timestamps use naive UTC persisted values and explicit `Z` response strings, without changing existing recycle timestamp semantics.
+7. Optional `CRF_STORAGE_DESIGN_HISTORY_PATH` (or `storage.design_history_path`) defaults to database-parent/design_history. Keep it private and separate from DB, uploads and public/static assets. Implemented overlap checks cover DB ancestry, uploads, repository frontend/assets/backend uploads and `CRF_STATIC_DIR`; links are refused. Operators must keep it outside transient-resource and future package roots. Opaque server keys, private staging and atomic move precede DB completion. Explicit cleanup pins **every ancestor** from root with non-following directory handles before relative unlink; checking lstat then opening a full path is insufficient. Preserve unknown/shared files and observable post-commit orphans; never sweep manual history. Unsupported safe-unlink platforms retain/warn.
+8. Product full/user/project exports strip history/capture/artifact tables and their triggers on the copy before VACUUM; imports/merge/clone never inherit them, source unchanged. Faithful future C7 DB/files sets use a separate inclusion boundary. Recycle retains local history; both final-purge callers hold `reserve_project_history_purge` across DB delete/commit and explicit local cleanup. Active history readers/captures or artifact leases block removal. Logo cleanup still uses its existing helper. Package-owned independent copies are not live-history purge targets.
+9. Capability `data_only|formal_pair`, origin `manual|scheduled|restore_protection`, and storage source `live_history|full_set` are independent. `describe_history` only reports originals for an actual complete pair. The current online model/API produces manual/live formal pairs; pure readers support synthetic data-only/full-set contracts for later children, not a claimed C6/C7 producer.
+10. Host callbacks require uninterrupted project/lifetime/auth generation; deactivation/logout/session loss/disposal discards late results and follow-up reads/downloads. Confirmed deletion rechecks the original scope after the dialog resolves. Uncertain creation preserves the original request payload/id for explicit status/retry; no implicit revision refresh/review overwrite. Unrelated theme storage events do not discard creation input. Keep the shared `normalFillChars(index, group, scope)` callback shape and full-size paper inside this host's scroll viewport. Mirror current Word form ordering (`NULL` compares as999999, not0) and option NULL-last ordering without rewriting persisted values. Ordinary editor/export workflows remain unchanged.
+
+Approved finite safety budgets, not capacity guarantees: request256KiB;4096 cumulative explicit width entries;50000 cumulative design rows;32MiB canonical UTF8;5MiB Logo;64MiB/DOCX,128MiB pair,256MiB expanded validation/DOCX;300-second pair deadline, one admitted render per application process;1GiB staging-volume free preflight. Exceeding a budget never truncates a supposedly complete pair or evicts history. Deployment remains single process/instance.
+
+**Internal Windows/save boundary:** Each C2 DOCX is exclusively created and held by a seekable sink that rejects write/seek/truncate beyond64MiB before changing its file. Both ExportService save points use this adapter; OPC writer closure must precede the owned file's closure even on failure, with package parts equal to the default serializer. Ordinary exports keep their default saver. Borrow valid Python streams; recover absent streams only from inherited pipe handles through non-inheritable owned duplicates, never global stdio mutation/devnull/ordinary GUI startup. Flush the closed diagnostic protocol and close only owned duplicates. Windows C2 rendering skips external TOC precomputation, preserves nonempty fallback/PAGEREF/updateFields and inserts a visible Word-update notice; that path is enabled only through the creation-time contained worker, and Linux/ordinary export defaults are unchanged.
+
+**Windows creation-time ownership / capability:** The earlier CREATE_SUSPENDED→Job-assignment path was removed after an independent finding and native reproduction of pre-admission parent-loss leakage. `windows_worker_job(process)` is isolated prototype code, never a production primitive. The enabled path uses CreateProcessW/STARTUPINFOEX with a new non-inheritable kill-on-close job in PROC_THREAD_ATTRIBUTE_JOB_LIST and exactly three child stdin/stdout/devnull handles in HANDLE_LIST; it resumes only the returned thread handle, with no post-create admission/PID reopening/fallback. JOB_LIST requires Windows10/Server2016+. `_communicate_worker` validates the bounded common request before routing Windows to `_communicate_windows_worker`; missing required APIs/attributes map to501 `BASELINE_PLATFORM_UNSUPPORTED`, timeout to504. Its native context kills/reaps/joins on every failure, so the parent must not restart communicate after a failed thread start merely to drain. Only successfully started I/O threads enter the join list. At most two threads/4096 diagnostic bytes; normal close must surface late read/close errors. POSIX Popen/session/group cleanup is unchanged.
+
+Main's native synthetic checks cover creation failure, pre-/post-resume parent loss while the outer guard remains open, descendants holding pipes, unread2MiB input/timeout, response bounds, real paired originals,64MiB write/seek/truncate and injected DOCX/second-output failures. The actual unchanged-spec console=False EXE completes the private pair and rejects invalid input; the enabled native source parent also returns verified originals and504 with slot release. These are not fake-kernel, whole desktop GUI, new-authenticated-browser or Word/WPS/macOS proofs. The original UNC import stall was avoided with separately approved Windows-local trusted staging; its ultimate cause is not asserted. Native readiness reuses base packages read-only, including three unchanged pip-check conflicts, not full dependency isolation. Detailed commands/provenance/failures live in C2 verification.md.
+
+#### 4. Validation & Error Matrix
+
+| State/input | Required result |
+|---|---|
+| Missing/invalid browser JWT or stale auth_version; Agent credential |401; no archive disclosure/completed publication |
+| Current non-admin / post-render role loss |403; no completed pair |
+| Missing/recycled/wrong-project resource |404, no foreign payload |
+| Missing `If-Match` / changed state before capture |428 `PRECONDITION_REQUIRED` /409 `STALE_STATE`; no capture row |
+| Changed request input / deleted replay |409 `BASELINE_REQUEST_CONFLICT` /410 `BASELINE_REQUEST_DELETED` |
+| Active same request / renderer busy |409 `BASELINE_CAPTURE_PENDING` / `BASELINE_BUSY`; no unbounded queue |
+| Deletion commits before read-lease admission |Fresh protected snapshot returns404, never a missing-file500 from stale metadata |
+| Valid deletion overlaps an admitted original read |409 `BASELINE_BUSY`; read retains exact original bytes; protection releases on success/error |
+| Unknown fields/bad ID/widths/confirmation/unsafe Logo |422 safe bounded validation; no echoed input/path |
+| Request/graph/file/expanded budget exceeded / low disk |413 limit failure /507 `BASELINE_STORAGE_FULL`; history retained |
+| Pair deadline / unsupported Windows |504 `BASELINE_RENDER_TIMEOUT` /501 platform code |
+| Second original/render failure |No completed pair; failed request visible, operation-scoped compensation only |
+| Initial/final DB commit fails |No pre-commit unlink; retain uncertain completed state and instruct lookup |
+| Saved file missing/hash-size mismatch |500 `BASELINE_INTEGRITY_FAILED`; no regeneration |
+| Unlink/unknown/shared file after successful deletion |DB deletion stands, cleanup false/warning, private residual retained |
+
+#### 5. Good / Base / Bad Cases
+
+- Good: admin captures another-owned project's persisted revision, owner edits during rendering, original pair still contains only captured design/layout/Logo; exact saved downloads remain unchanged.
+- Base: no overrides/Logo uses server automatic layout; ordinary export creates no history; recycled project keeps originals until final purge.
+- Bad: read the live DB/Logo separately for each file; label incomplete staging as complete; replace missing originals by rendering; reuse an old deleted request; apply product stripping to a faithful C7 backup; unlink through a checked-but-replaced ancestor.
+
+#### 6. Tests Required — Assertion Points
+
+- Backend `test_design_snapshot.py`: closed registry/unplaced/legacy/privacy/hash and real WAL multi-connection coherent race, no autoflush.
+- `test_frozen_render.py`: real pair/frozen Logo/actual explicit widths, pre-write/seek/truncate and expanded ZIP limits, both save callbacks, OPC parts/finalizer ownership, Windows-only TOC notice, safe child diagnostics, Windows atomic transport routing/error cleanup for both TOC settings and501 without unsafe fallback when capability is unavailable, recovered protocol streams, private import failure, timeout/busy/partial failure and parent-I/O-error POSIX process-group cleanup (including an already-gone group). Native acceptance additionally covers parent loss immediately after creation/before resume, not only after admission.
+- `test_frozen_render_windows.py`: fixed-width Win32 ABI/large handles, job/thread ownership and admission/close failures, borrowed/recovered streams, invalid/nonpipe handle refusal, duplicate/CRT transfer and partial-failure cleanup. Linux fake-kernel tests must not be presented as native missing-stdio/package proofs; actual native pair/byte/deadline and no-console tests remain a separate required gate.
+- `test_frozen_render_windows_process.py`: creation-time attributes/fixed-width process ABI, three-handle allowlist/no job inheritance, returned-thread ownership, unsupported/setup failure without fallback, bounded input/output and cleanup, partial/adoption/late pipe errors, first/second Thread.start failure without joining unstarted threads, and exit/wait failures. Actual native pre-resume parent loss and an unchanged console=False package are separate gates with main-owned runtime evidence; statement coverage cannot replace them.
+- `test_design_baseline_models.py` / `test_design_baseline_storage.py`: paired deferred parent insert, immutable metadata/index, tombstone binding/no revision change; exact bytes/links/leases, directory **and ancestor** replacement, disk refusal/cleanup failure.
+- `test_design_baselines.py`: current admin/Agent/owner/resource checks, physical BEGIN-before-auth, real pair/download, stale/missing revision, replay/conflict/deletion, render-time role/auth/lifecycle changes, commit faults/explicit retry and frozen Logo. Fresh file-backed WAL connections must also cover delete-before-read-admission→404, admission-gap role/auth-version/recycle changes→403/401/404, admitted-read deletion→409 with exact bytes, and unauthorized busy-project requests→401/403 without leaked leases.
+- `test_design_baseline_exchange.py` / `test_design_baseline_purge.py`: all product exports strip/VACUUM without source mutation; faithful copy includes; import/merge/clone exclude; recycle retention, both callers commit-before-unlink/rollback/active protection and sealed-copy independence.
+- Frontend `designBaselinePreview.test.js` / `useApiOriginals.test.js`, mounted `DesignBaselinesView.spec.js` / `DesignBaselinePreview.spec.js` / `AppDesignBaselines.spec.js`: shared-safe readonly rendering, preserved nullable ordering, independent manual widths and callback signatures, narrow-screen paper scrolling, no designer storage, original checksums/download URL cleanup, no automatic retries, uncertain lookup, explicit whole-pair warning/cancel, late project/session/deactivation/disposal responses and admin-only navigation.
+- Full same-configuration backend/frontend coverage must remain >=80% and nondecreasing against the recorded raw baseline. Preserve runner/clock/warning gates. Authenticated desktop/narrow/subpath browser, real Word visual and packaged Windows checks are separate evidence, never inferred from source/component/API tests.
+
+#### 7. Wrong vs Correct
+
+```python
+# Wrong: live rendering twice and unlink before commit can lose retained history.
+render_live(project_id, "ecrf")
+render_live(project_id, "acrf")
+path.unlink()
+session.commit()
+# Correct: one frozen input, validated pair, current-admin DB publication;
+# deletion reserves readers, commits DB first and performs safe explicit cleanup.
+inputs = freeze_render_input(captured_design, explicit_layout, captured_logo)
+artifacts = render_frozen_pair(inputs, private_stage)
+# publication owns reauthorization + artifact/immutable parent insertion + commit
+with reserve_project_history_purge(session, project_id, config) as files:
+    logo = purge_project(session, recycled_project)
+    session.commit()
+    files.cleanup_after_commit()
+    if logo:
+        delete_file(PROJECT_NAMESPACE, logo)
+```
+
+---
+
 ## How to Maintain Cross-Stack Contracts
 
 ### Before Changing Contract Code

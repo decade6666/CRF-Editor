@@ -23,7 +23,7 @@ These guides help you **ask the right questions before coding**.
 |-------|---------|-------------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Identify patterns and reduce duplication | When you notice repeated patterns |
 | [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Think through data flow across layers | Features spanning multiple layers |
-| [Cross-Stack Contracts](./cross-stack-contracts.md) | Backend-frontend shared contracts | Changing shared constants/fixtures |
+| [Cross-Stack Contracts](./cross-stack-contracts.md) | Backend-frontend shared contracts, including formal archives/frozen rendering (§18) | Changing shared constants/fixtures or administrator archive boundaries |
 | [Git & Tooling Conventions](./git-and-tooling-conventions.md) | Chinese commit messages, direct-to-`main` policy, worktree workflow, sub-agent ownership contract, local pre-commit gate | Committing or merging any update; reviewing frontend changes |
 
 ---

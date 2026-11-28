@@ -1,3 +1,7 @@
-{"file": ".trellis/tasks/11-15-crf-versioned-delivery/prd.md", "reason": "Parent D8 administrator/backup/origin rules, paired-archive requirements and planning-only boundary"}
-{"file": ".trellis/spec/backend/auth-security.md", "reason": "Administrator-only capture/read/download/delete, other-owned project scoping and private-file boundaries; no global owner bypass"}
-{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Review sections 5, 6, 9, 15 and 16 against captured originals and exchange behavior"}
+{"file": ".trellis/tasks/11-15-crf-versioned-delivery/prd.md", "reason": "Parent D8 admin/origin/manual protection and immutable paired-original requirements"}
+{"file": ".trellis/tasks/11-15-design-baselines/implementation-review.md", "reason": "Verify approved private storage/API/renderer budgets and no implied C6/C7/C8/production scope"}
+{"file": ".trellis/tasks/11-15-design-baselines/dependency-review.md", "reason": "Compare fresh raw coverage baselines; retain archived C4 AC2 and independent-review/not-run distinctions"}
+{"file": ".trellis/spec/backend/auth-security.md", "reason": "Non-admin/Agent/role-loss/replay/download denial and legitimate admin other-owned scoping"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Physical snapshot and private-table lifecycle; DB commit before file cleanup across both purge callers"}
+{"file": ".trellis/spec/guides/cross-stack-contracts.md", "reason": "Manually read original5/6/9/15/16/17 and actual C2 section18 beyond the32KiB injection cap; no Agent wire/cap/fingerprint or nineteen-owner-writer change"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Actual mounted behavior, useApi/subpath/download lifetimes and unchanged test infrastructure"}
